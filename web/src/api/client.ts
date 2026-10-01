@@ -575,6 +575,16 @@ export const api = {
   forkOntology: (id: string, input: ForkOntologyInput = {}) =>
     req<Ontology>(`/api/ontologies/${id}/fork`, { method: 'POST', body: JSON.stringify(input) }),
 
+  // ---- REQ-239/M65 版本发布状态机 ----
+  /** 发布当前版本为命名快照终态（空命名默认 v{N}） */
+  publishOntology: (id: string, versionName = '') =>
+    req<Ontology>(`/api/ontologies/${id}/publish`, { method: 'POST', body: JSON.stringify({ version_name: versionName }) }),
+  /** 撤回发布回 draft（命名清空） */
+  unpublishOntology: (id: string) => req<Ontology>(`/api/ontologies/${id}/unpublish`, { method: 'POST' }),
+  /** 历史快照回滚：指定版本恢复为新版本（BumpVersion+写版本历史），当前态回 draft */
+  restoreOntologyVersion: (id: string, version: number) =>
+    req<{ restored_from: number; new_version: number; ontology: Ontology }>(`/api/ontologies/${id}/versions/${version}/restore`, { method: 'POST' }),
+
   // ---- OntoChat 多轮引导（REQ-103 模式 A；构建平面 /api/ontochat/*）----
   listOntoChatSessions: () => req<OntoChatSession[]>('/api/ontochat/sessions'),
   createOntoChatSession: (title?: string) =>

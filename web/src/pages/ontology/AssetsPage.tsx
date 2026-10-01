@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Input, Popconfirm, Result, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
-import { BranchesOutlined, DeleteOutlined, EditOutlined, ImportOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { BranchesOutlined, CloudDownloadOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ImportOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import { companionApi } from '../../api/companion'
 import type { Ontology, OntologyReferences, RuntimeProfile, Spec } from '../../api/types'
@@ -84,6 +84,7 @@ export default function AssetsPage() {
   const [validations, setValidations] = useState<Record<string, ValidationState>>({})
   const [mergeOpen, setMergeOpen] = useState(false) // REQ-157 导入合并向导
   const [renameOpen, setRenameOpen] = useState(false)
+  const [publishName, setPublishName] = useState('') // REQ-239/M65 发布命名
   const [forkName, setForkName] = useState('')
   const [forkBusy, setForkBusy] = useState(false)
   const [forkErr, setForkErr] = useState<string | null>(null)
@@ -307,6 +308,14 @@ export default function AssetsPage() {
                   {active.name}
                 </Typography.Title>
                 <Tag color="geekblue" style={{ margin: 0 }}>v{active.version ?? '—'}</Tag>
+                {/* REQ-239/M65：发布态徽标（published=命名快照终态；draft=可编辑工作态） */}
+                {active.status === 'published' ? (
+                  <Tooltip title={`已发布命名版本「${active.version_name || `v${active.version}`}」——内容变更将自动回 draft`}>
+                    <Tag color="green" style={{ margin: 0 }}>Published{active.version_name ? ` · ${active.version_name}` : ''}</Tag>
+                  </Tooltip>
+                ) : (
+                  <Tag style={{ margin: 0 }}>Draft</Tag>
+                )}
                 <Tag color={sourceTag(active).color} style={{ margin: 0 }}>{sourceTag(active).text}</Tag>
                 <Tag style={{ margin: 0 }}>概念 {active.n_concepts ?? 0}</Tag>
                 <Tag style={{ margin: 0 }}>关系 {active.n_relations ?? 0}</Tag>
@@ -318,6 +327,61 @@ export default function AssetsPage() {
               <p className="work-head-desc">{active.description || '未填写描述'}</p>
             </div>
             <Space>
+              {/* REQ-239/M65：发布（命名快照终态）/ 撤回发布（回 draft） */}
+              {active.status === 'published' ? (
+                <Popconfirm
+                  icon={null}
+                  title="撤回发布？"
+                  description="本体回 draft 工作态，命名版本随之清除（版本历史保留）。运行方案下次启动装载时将给出 draft 警示。"
+                  okText="撤回发布"
+                  cancelText="取消"
+                  onConfirm={async () => {
+                    try {
+                      await api.unpublishOntology(active.id)
+                      showToast('已撤回发布（draft）')
+                      reloadOntos()
+                    } catch (e: any) {
+                      showToast(e.message, 'err')
+                    }
+                  }}
+                >
+                  <Button icon={<CloudDownloadOutlined />}>撤回发布</Button>
+                </Popconfirm>
+              ) : (
+                <Popconfirm
+                  icon={null}
+                  title={`发布 v${active.version ?? '—'} 为命名版本`}
+                  description={
+                    <Space direction="vertical" style={{ width: 300 }} size={8}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        发布即快照终态：运行向导优先装载已发布版本；后续编辑将自动回 draft，历史快照可恢复为新版本。
+                      </Typography.Text>
+                      <Input
+                        value={publishName}
+                        onChange={(e) => setPublishName(e.target.value)}
+                        placeholder={`命名（可选，默认 v${active.version ?? '—'}，如 v${active.version ?? '1'}-k8s-baseline）`}
+                      />
+                    </Space>
+                  }
+                  okText="发布"
+                  cancelText="取消"
+                  onOpenChange={(o) => {
+                    if (o) setPublishName('')
+                  }}
+                  onConfirm={async () => {
+                    if (!active) return
+                    try {
+                      const o = await api.publishOntology(active.id, publishName.trim())
+                      showToast(`已发布${o.version_name ? ` · ${o.version_name}` : ''}`)
+                      reloadOntos()
+                    } catch (e: any) {
+                      showToast(e.message, 'err')
+                    }
+                  }}
+                >
+                  <Button type="primary" ghost icon={<CloudUploadOutlined />}>发布</Button>
+                </Popconfirm>
+              )}
               <Popconfirm
                 icon={null}
                 title="Fork 为新本体"
@@ -474,7 +538,7 @@ export default function AssetsPage() {
                   />
                 )}
                 {secKey === 'quality' && <QualityCardPane ontologyId={active.id} />}
-                {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} />}
+                {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} onRestored={refreshAfterSave} />}
                 {secKey === 'artifacts' && <ArtifactsPane ontologyId={active.id} />}
                 {secKey === 'graph' && <VizTabs spec={spec} ontologyId={active.id} isCompanion={boundIds.has(active.id)} />}
                 {secKey === 'evolution' && <EvolutionPane key={active.id} ontologyId={active.id} />}

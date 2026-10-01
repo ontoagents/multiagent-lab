@@ -240,7 +240,8 @@ func (s *Server) acceptEvolutionCandidate(w http.ResponseWriter, r *http.Request
 		writeErr(w, err)
 		return
 	}
-	o, _ := s.Store.GetOntology(c.OntologyID)
+	// REQ-239/M65 候选态衔接：门控采纳→vN+1 命名 Published（发布即快照终态；命名带候选标签可追溯）。
+	o, _ := s.Store.Publish(c.OntologyID, fmt.Sprintf("evolution %s", c.Label))
 	writeJSON(w, http.StatusOK, map[string]any{"candidate": c, "ontology": o, "new_version": newVersion})
 }
 

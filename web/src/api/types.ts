@@ -456,6 +456,9 @@ export interface Ontology {
   n_concepts?: number
   n_relations?: number
   n_instances?: number
+  /** REQ-239/M65：版本发布状态机——draft（默认）| published（命名快照终态） */
+  status?: 'draft' | 'published'
+  version_name?: string
 }
 
 /** REQ-233②/M60：本体「被引用」三源聚合（GET /api/ontologies/{id}/references，主后端拼装） */
@@ -603,6 +606,8 @@ export interface RuntimeProfile {
   updated_at?: string
   /** REQ-234①/M61：装载质量快照 JSON {oid:{overall,error_count,warning_count}}（启动异步快评） */
   loaded_quality?: string
+  /** REQ-239/M65：装载发布状态快照 JSON {oid:{status,version_name}}（draft 装载警示数据源） */
+  loaded_status?: string
 }
 
 // ---- P1 尾适配（REQ-92/93/94 + 学习示例） ----

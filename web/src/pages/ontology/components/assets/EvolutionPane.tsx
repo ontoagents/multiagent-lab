@@ -74,7 +74,9 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
     try {
       const r = await req(`/api/ontologies/${ontologyId}/evolution/candidates/${id}/accept`, { method: 'POST', body: '{}' })
       window.dispatchEvent(new CustomEvent('onto-spec-saved', { detail: { ontologyId } }))
-      alert(`已采纳并升正式版本 v${r.new_version}`)
+      // REQ-239/M65：候选采纳自动发布为命名版本（evolution {label}）
+      const vn = r?.ontology?.version_name ? ` · ${r.ontology.version_name}` : ''
+      alert(`已采纳并升正式版本 v${r.new_version}${vn}（Published）`)
       load()
     } catch (e: any) {
       setActionErr(e.message)

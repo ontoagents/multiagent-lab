@@ -238,6 +238,29 @@ func (m *Manager) FetchVersion(ontologyID string) (int, error) {
 	return meta.Version, nil
 }
 
+// FetchMeta 构建平面本体元数据（REQ-239/M65）：GET /api/ontologies/{id} 的
+// version/status/version_name 一次取回（status 为空=旧构建平面无发布态，返回 draft 兜底）。
+func (m *Manager) FetchMeta(ontologyID string) (version int, status, versionName string, err error) {
+	resp, gerr := m.HTTP.Get(fmt.Sprintf("%s/api/ontologies/%s", m.BuildURL, ontologyID))
+	if gerr != nil {
+		return 0, "", "", fmt.Errorf("构建平面不可达: %w", gerr)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var meta struct {
+		Version     int    `json:"version"`
+		Status      string `json:"status"`
+		VersionName string `json:"version_name"`
+	}
+	if jerr := json.Unmarshal(b, &meta); jerr != nil {
+		return 0, "", "", nil // 解析失败不阻断启动（元数据尽力而为）
+	}
+	if meta.Status == "" {
+		meta.Status = "draft"
+	}
+	return meta.Version, meta.Status, meta.VersionName, nil
+}
+
 // FetchQuality 构建平面快评（REQ-234①/M61）：POST quality/check save=false 内存评分
 // 零副作用；返回精简摘要。失败返回 nil（快照尽力而为，不阻断启动）。
 func (m *Manager) FetchQuality(ontologyID string) map[string]any {
@@ -292,6 +315,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	ttls := map[string]string{}
 	loadedVersions := map[string]int{}
+	loadedStatus := map[string]map[string]string{} // REQ-239/M65：{oid:{status,version_name}}
 	for _, oid := range p.OntologyIDs {
 		ttl, err := m.FetchTTL(oid)
 		if err != nil {
@@ -299,8 +323,9 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 			return err
 		}
 		ttls[oid] = ttl
-		if v, verr := m.FetchVersion(oid); verr == nil {
+		if v, st, vn, merr := m.FetchMeta(oid); merr == nil {
 			loadedVersions[oid] = v // 尽力而为：版本快照失败不阻断启动
+			loadedStatus[oid] = map[string]string{"status": st, "version_name": vn}
 		}
 	}
 	port := p.Port
@@ -331,9 +356,12 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		}
 		lastErr = eng.HealthCheck(ctx, proc.Endpoint)
 		if lastErr == nil {
-			if b, jerr := json.Marshal(loadedVersions); jerr == nil {
-				_ = m.Store.SetLoadedVersions(id, string(b)) // REQ-155 阶段二：加载版本快照（drift 检测）
-			}
+		if b, jerr := json.Marshal(loadedVersions); jerr == nil {
+			_ = m.Store.SetLoadedVersions(id, string(b)) // REQ-155 阶段二：加载版本快照（drift 检测）
+		}
+		if b, jerr := json.Marshal(loadedStatus); jerr == nil {
+			_ = m.Store.SetLoadedStatus(id, string(b)) // REQ-239/M65：装载发布状态快照（draft 装载警示数据源）
+		}
 			// REQ-234①/M61：装载质量快照（低分警示不阻断——异步快评，失败静默跳过）
 			go func(ids []string, pid string) {
 				q := map[string]any{}

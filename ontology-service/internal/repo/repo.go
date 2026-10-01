@@ -28,6 +28,10 @@ type Ontology struct {
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 	QualityStrict bool   `json:"quality_strict"` // REQ-156/M-O15：保存/导入合并 strict 门禁（错误级命中阻断）
+	// REQ-239/M65：版本发布状态机——draft（默认，可编辑）| published（命名快照终态）；
+	// 内容变更（spec 保存/合并/恢复）自动回 draft，发布动作显式命名。
+	Status      string `json:"status"`
+	VersionName string `json:"version_name,omitempty"`
 	// 统计（从 spec_json 计算，仅列表/详情返回时填充）
 	NConcepts  int `json:"n_concepts,omitempty"`
 	NRelations int `json:"n_relations,omitempty"`
@@ -116,7 +120,7 @@ func (s *Store) DB() *sql.DB { return s.db }
 // ---- 元数据 CRUD ----
 
 func (s *Store) ListOntologies() ([]Ontology, error) {
-	rows, err := s.db.Query(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict FROM ontology ORDER BY updated_at DESC, id`)
+	rows, err := s.db.Query(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,'') FROM ontology ORDER BY updated_at DESC, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (s *Store) ListOntologies() ([]Ontology, error) {
 	out := []Ontology{}
 	for rows.Next() {
 		var o Ontology
-		if err := rows.Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName); err != nil {
 			return nil, err
 		}
 		if err := s.fillStats(&o); err != nil {
@@ -137,8 +141,8 @@ func (s *Store) ListOntologies() ([]Ontology, error) {
 
 func (s *Store) GetOntology(id string) (*Ontology, error) {
 	var o Ontology
-	err := s.db.QueryRow(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict FROM ontology WHERE id=?`, id).
-		Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict)
+	err := s.db.QueryRow(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,'') FROM ontology WHERE id=?`, id).
+		Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -211,11 +215,17 @@ func (s *Store) CreateOntologyFork(id, name, description, forkedFrom string) (*O
 // ---- 形态资产 ----
 
 // PutArtifact 写入形态。spec_json 版本演进时由调用方 bump version。
+// REQ-239/M65：spec_json 内容变更使发布态失效（published→draft、命名清空）——
+// 发布即快照终态，继续编辑即漂移，故保存/合并/灌装/恢复等一切 spec 写入路径集中在此降档；
+// 新建本体（fork/导入/种子）本就是 draft，子查询带 status='published' 条件零副作用。
 func (s *Store) PutArtifact(ontologyID, format, content string, normalized bool) error {
 	_, err := s.db.Exec(`INSERT INTO ontology_artifact(ontology_id,format,content,is_normalized,imported_at)
 		VALUES(?,?,?,?,CURRENT_TIMESTAMP)
 		ON CONFLICT(ontology_id,format) DO UPDATE SET content=excluded.content, is_normalized=excluded.is_normalized, imported_at=excluded.imported_at`,
 		ontologyID, format, content, b2i(normalized))
+	if err == nil && format == "spec_json" {
+		_, err = s.db.Exec(`UPDATE ontology SET status='draft', version_name='', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='published'`, ontologyID)
+	}
 	return err
 }
 
@@ -333,6 +343,65 @@ func (s *Store) CurrentVersions() (map[string]int, error) {
 func (s *Store) SetQualityStrict(id string, strict bool) error {
 	_, err := s.db.Exec(`UPDATE ontology SET quality_strict=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, b2i(strict), id)
 	return err
+}
+
+// ---- 版本发布状态机（REQ-239/M65）----
+
+// Publish 发布当前版本：置 published + 命名（空则默认 v{N}）。发布即快照终态，可回滚（历史快照恢复为新版本）。
+func (s *Store) Publish(id, versionName string) (*Ontology, error) {
+	o, err := s.GetOntology(id)
+	if err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(versionName)
+	if name == "" {
+		name = fmt.Sprintf("v%d", o.Version)
+	}
+	if _, err := s.db.Exec(`UPDATE ontology SET status='published', version_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, name, id); err != nil {
+		return nil, err
+	}
+	return s.GetOntology(id)
+}
+
+// Unpublish 撤回发布：回 draft 并清命名（命名版本随发布态存在）。
+func (s *Store) Unpublish(id string) (*Ontology, error) {
+	if _, err := s.GetOntology(id); err != nil {
+		return nil, err
+	}
+	if _, err := s.db.Exec(`UPDATE ontology SET status='draft', version_name='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, id); err != nil {
+		return nil, err
+	}
+	return s.GetOntology(id)
+}
+
+// DemoteToDraft 内容变更（spec 保存/合并/灌装/恢复）后发布态失效：回 draft、命名随之清空。
+// 幂等：draft 本体调用无副作用（调用方不必先行判断）。
+func (s *Store) DemoteToDraft(id string) error {
+	_, err := s.db.Exec(`UPDATE ontology SET status='draft', version_name='', updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
+	return err
+}
+
+// RestoreVersion 历史快照回滚=重发布动作（REQ-239⑤）：把指定版本快照内容恢复为**新版本**
+// （BumpVersion 后写当前形态+版本历史），当前态回 draft——审计友好（版本号单调，旧快照永不覆盖）。
+func (s *Store) RestoreVersion(ontologyID string, version int) (int, error) {
+	specJSON, err := s.GetVersionSpec(ontologyID, version)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.PutArtifact(ontologyID, "spec_json", specJSON, true); err != nil {
+		return 0, err
+	}
+	newV, err := s.BumpVersion(ontologyID)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.SaveVersion(ontologyID, newV, specJSON, "", ""); err != nil {
+		return newV, err
+	}
+	if err := s.DemoteToDraft(ontologyID); err != nil {
+		return newV, err
+	}
+	return newV, nil
 }
 
 // SaveVersion 写入一条版本快照（spec_json 必有；original_format/original_content 可空）。幂等：同 (ontology_id, version) 覆盖。

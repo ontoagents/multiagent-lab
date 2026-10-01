@@ -33,6 +33,7 @@ type Profile struct {
 	// REQ-155/M-O15 阶段二：启动/重载成功时的加载版本快照（JSON {ontology_id: version}），生命周期 drift 检测数据源
 	LoadedVersions string `json:"loaded_versions,omitempty"`
 	LoadedQuality string `json:"loaded_quality,omitempty"` // REQ-234①/M61：装载质量快照 JSON {oid:{overall,error_count,warning_count}}
+	LoadedStatus  string `json:"loaded_status,omitempty"`  // REQ-239/M65：装载发布状态快照 JSON {oid:{status,version_name}}（draft 装载警示数据源）
 }
 
 type Store struct{ db *sql.DB }
@@ -85,16 +86,16 @@ func (s *Store) migrate(dir string) error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-const profileCols = `id,name,engine,ontology_ids,config,port,status,pid,last_error,created_at,updated_at,IFNULL(loaded_versions,''),IFNULL(loaded_quality,'')`
+const profileCols = `id,name,engine,ontology_ids,config,port,status,pid,last_error,created_at,updated_at,IFNULL(loaded_versions,''),IFNULL(loaded_quality,''),IFNULL(loaded_status,'')`
 
 func scanProfile(row interface{ Scan(...any) error }) (*Profile, error) {
 	var p Profile
-	var oids, cfg, pid, lastErr, loadedVersions, loadedQuality string
-	if err := row.Scan(&p.ID, &p.Name, &p.Engine, &oids, &cfg, &p.Port, &p.Status, &pid, &lastErr, &p.CreatedAt, &p.UpdatedAt, &loadedVersions, &loadedQuality); err != nil {
+	var oids, cfg, pid, lastErr, loadedVersions, loadedQuality, loadedStatus string
+	if err := row.Scan(&p.ID, &p.Name, &p.Engine, &oids, &cfg, &p.Port, &p.Status, &pid, &lastErr, &p.CreatedAt, &p.UpdatedAt, &loadedVersions, &loadedQuality, &loadedStatus); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(oids), &p.OntologyIDs)
-	p.Config, p.PID, p.LastError, p.LoadedVersions, p.LoadedQuality = cfg, pid, lastErr, loadedVersions, loadedQuality
+	p.Config, p.PID, p.LastError, p.LoadedVersions, p.LoadedQuality, p.LoadedStatus = cfg, pid, lastErr, loadedVersions, loadedQuality, loadedStatus
 	return &p, nil
 }
 
@@ -132,6 +133,12 @@ func (s *Store) SetLoadedVersions(id string, versionsJSON string) error {
 // SetLoadedQuality 记录装载质量快照（REQ-234①/M61；快评失败时传空串清除）。
 func (s *Store) SetLoadedQuality(id string, qualityJSON string) error {
 	_, err := s.db.Exec(`UPDATE runtime_profile SET loaded_quality=? WHERE id=?`, qualityJSON, id)
+	return err
+}
+
+// SetLoadedStatus 记录装载发布状态快照（REQ-239/M65；获取失败时传空串清除）。
+func (s *Store) SetLoadedStatus(id string, statusJSON string) error {
+	_, err := s.db.Exec(`UPDATE runtime_profile SET loaded_status=? WHERE id=?`, statusJSON, id)
 	return err
 }
 

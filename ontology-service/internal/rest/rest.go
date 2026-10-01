@@ -91,6 +91,10 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontologies/{id}/versions", s.listVersions)
 	m.HandleFunc("GET /api/ontologies/{id}/versions/{version}/original", s.versionOriginal)
 	m.HandleFunc("GET /api/ontologies/{id}/versions/{version}/spec", s.versionSpec)
+	m.HandleFunc("POST /api/ontologies/{id}/versions/{version}/restore", s.restoreVersion)
+	// REQ-239/M65 版本发布状态机（发布/撤回；回滚经 restore——重发布动作走历史快照恢复）
+	m.HandleFunc("POST /api/ontologies/{id}/publish", s.publishOntology)
+	m.HandleFunc("POST /api/ontologies/{id}/unpublish", s.unpublishOntology)
 	m.HandleFunc("GET /api/ontologies/{id}/diff", s.diffVersions)
 	m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.ingestCSV)
 	m.HandleFunc("GET /api/ontologies/{id}/ingest-mapping", s.getIngestMapping)
@@ -928,6 +932,55 @@ func (s *Server) versionSpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Ontology-Version", strconv.Itoa(v))
 	_, _ = w.Write([]byte(raw))
+}
+
+// ---- REQ-239/M65 版本发布状态机 ----
+
+// publishOntology POST /api/ontologies/{id}/publish {version_name?}：发布当前版本为命名快照终态。
+// 空命名默认 v{N}；历史快照回滚=对恢复后的新版本再次发布（审计友好，版本号单调）。
+func (s *Server) publishOntology(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		VersionName string `json:"version_name"`
+	}
+	_ = decodeJSON(r, &req) // 空请求体（Content-Length 0）允许：默认命名
+	o, err := s.Store.Publish(r.PathValue("id"), req.VersionName)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, o)
+}
+
+// unpublishOntology POST /api/ontologies/{id}/unpublish：撤回发布回 draft（命名清空）。
+func (s *Server) unpublishOntology(w http.ResponseWriter, r *http.Request) {
+	o, err := s.Store.Unpublish(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, o)
+}
+
+// restoreVersion POST /api/ontologies/{id}/versions/{version}/restore：历史快照回滚——
+// 指定版本内容恢复为**新版本**（BumpVersion+写版本历史），当前态回 draft（REQ-239⑤ 重发布动作口径）。
+func (s *Server) restoreVersion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.Store.GetOntology(id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	v, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil || v <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "版本号必须是正整数"})
+		return
+	}
+	newV, err := s.Store.RestoreVersion(id, v)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	o, _ := s.Store.GetOntology(id)
+	writeJSON(w, http.StatusOK, map[string]any{"restored_from": v, "new_version": newV, "ontology": o})
 }
 
 // ---- REQ-95 版本 diff ----

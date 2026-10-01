@@ -220,6 +220,24 @@ function qualityWarn(p: RuntimeProfile): { label: string; tip: string } | null {
   }
 }
 
+// REQ-239/M65：draft 装载警示（只警示不阻断——loaded_status 由启动时元数据快照写入；
+// 有 draft 本体即提示，published 不显示。无快照（旧运行平面/未重启）静默不显示）。
+function draftWarn(p: RuntimeProfile): { label: string; tip: string } | null {
+  if (!p.loaded_status) return null
+  try {
+    const q = JSON.parse(p.loaded_status) as Record<string, { status?: string; version_name?: string }>
+    const drafts = Object.entries(q).filter(([, v]) => v.status === 'draft')
+    if (drafts.length === 0) return null
+    const names = drafts.map(([oid, v]) => `${oid}${v.version_name ? `（曾发布 ${v.version_name}）` : ''}`).join('、')
+    return {
+      label: `draft 装载 ×${drafts.length}`,
+      tip: `装载了未发布本体：${names}——建议到本体资产发布后再装载（仅警示不阻断）`,
+    }
+  } catch {
+    return null
+  }
+}
+
 function EngineProfilesPage({
   engine,
   engineStatus,
@@ -399,6 +417,14 @@ function EngineProfilesPage({
                   <Tooltip title={qualityWarn(p)!.tip}>
                     <Tag color="orange" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
                       {qualityWarn(p)!.label}
+                    </Tag>
+                  </Tooltip>
+                )}
+                {/* REQ-239/M65：draft 装载警示（发布态语义——方案装载了未发布本体；仅警示不阻断） */}
+                {draftWarn(p) && (
+                  <Tooltip title={draftWarn(p)!.tip}>
+                    <Tag color="gold" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                      {draftWarn(p)!.label}
                     </Tag>
                   </Tooltip>
                 )}

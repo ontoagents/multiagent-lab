@@ -119,6 +119,11 @@ export default function AssetList({
               >
                 <span className="asset-item-name" title={o.name}>{o.name}</span>
                 <span className="asset-item-meta">
+                  {o.status === 'published' && (
+                    <Tag color="green" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }} title={`已发布${o.version_name ? ` · ${o.version_name}` : ''}`}>
+                      已发布
+                    </Tag>
+                  )}
                   {g === 'fork' && <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>fork</Tag>}
                   {g === 'grown' && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>对话生长</Tag>}
                   <span className="onto-dots" title={`S1~S4 构建段 ${f.slice(0, 4).filter(Boolean).length}/4`}>

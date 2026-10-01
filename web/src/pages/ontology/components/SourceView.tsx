@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Empty, Select, Skeleton, Tabs, Tag, Typography } from 'antd'
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
+import { Alert, Button, Empty, Popconfirm, Select, Skeleton, Tabs, Tag, Typography } from 'antd'
+import { CopyOutlined, DownloadOutlined, UndoOutlined } from '@ant-design/icons'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { api } from '../../../api/client'
@@ -25,8 +25,9 @@ const FORMAT_LABEL: Record<string, string> = {
   graphml: 'GraphML',
 }
 
-export default function SourceView({ ontologyId, currentVersion, spec }: { ontologyId: string; currentVersion?: number; spec: Spec | null }) {
+export default function SourceView({ ontologyId, currentVersion, spec, onRestored }: { ontologyId: string; currentVersion?: number; spec: Spec | null; onRestored?: () => void }) {
   const { showToast } = useUI()
+  const [restoring, setRestoring] = useState(false)
   const [list, setList] = useState<VersionMeta[] | null>(null)
   const [listErr, setListErr] = useState<string | null>(null)
   const [listLoading, setListLoading] = useState(false)
@@ -173,6 +174,31 @@ export default function SourceView({ ontologyId, currentVersion, spec }: { ontol
                   <Tag color="blue" style={{ margin: 0 }}>
                     {FORMAT_LABEL[meta.original_format] ?? meta.original_format}
                   </Tag>
+                )}
+                {/* REQ-239/M65⑤：历史快照回滚=恢复为新版本（审计友好，旧快照永不覆盖），恢复后回 draft 可再发布 */}
+                {version != null && currentVersion != null && version !== currentVersion && (
+                  <Popconfirm
+                    icon={null}
+                    title={`把 v${version} 恢复为新版本？`}
+                    description={`内容复制为 v${currentVersion + 1} 草稿（版本号单调，历史快照保留），恢复后请检查并重新发布。`}
+                    okText="恢复"
+                    cancelText="取消"
+                    okButtonProps={{ loading: restoring }}
+                    onConfirm={async () => {
+                      setRestoring(true)
+                      try {
+                        const r = await api.restoreOntologyVersion(ontologyId, version)
+                        showToast(`已恢复 v${version} → 新版本 v${r.new_version}（draft）`)
+                        onRestored?.()
+                      } catch (e: any) {
+                        showToast(e.message, 'err')
+                      } finally {
+                        setRestoring(false)
+                      }
+                    }}
+                  >
+                    <Button size="small" icon={<UndoOutlined />}>恢复此版本</Button>
+                  </Popconfirm>
                 )}
                 {original != null && (
                   <Button size="small" icon={<CopyOutlined />} onClick={copyOriginal}>
