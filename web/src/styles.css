@@ -514,3 +514,54 @@ pre.raw-json {
 .cmp-pane-status.st-stopped { color: #d48806; }
 .cmp-pane-status.st-stopped .dot { background: #d48806; }
 @keyframes cmp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ---- REQ-240 前端优化⑥：暗色主题（html[data-theme='dark']；亮色默认不动） ---- */
+html[data-theme='dark'] {
+  --c-bg: #12151f;
+  --c-line: #2a2f42;
+  --c-ink: #e6e8f2;
+  --c-ink-2: #aab0c5;
+  --c-ink-3: #7d8399;
+  --c-brand: #818cf8;
+  --c-err: #e5484d;
+  --c-err-weak: #3a1d24;
+  --c-border: var(--c-line);
+  --c-bg-soft: #181c29;
+  --c-panel: #171b28;
+  --c-hover-soft: #1f2436;
+  --c-active-soft: #232946;
+  --c-icon-soft: #232946;
+}
+html[data-theme='light'] {
+  --c-panel: #fff;
+  --c-hover-soft: #eef0f6;
+  --c-active-soft: #e9ebf7;
+  --c-icon-soft: #e6e8fb;
+}
+html[data-theme='dark'] .topnav {
+  background: linear-gradient(180deg, #171b28 0%, #141824 100%);
+  box-shadow: none;
+}
+html[data-theme='dark'] .onto-nav-item:hover { background: var(--c-hover-soft); }
+html[data-theme='dark'] .onto-nav-item.active { background: var(--c-active-soft); border-color: #3b4266; }
+html[data-theme='dark'] .onto-nav-icon { background: var(--c-icon-soft); border-color: #3b4266; }
+html[data-theme='dark'] .onto-engine-item { background: var(--c-panel); }
+html[data-theme='dark'] .onto-engine-item:hover { border-color: #3b4266; box-shadow: none; }
+
+/* ---- REQ-240 前端优化④：主内容区与详情边距（此前贴边不和谐） ---- */
+.content-panel { padding: 14px 18px; min-width: 0; }
+
+/* ---- REQ-240 前端优化⑤：图标对比度加固（AntD text 按钮图标继承色弱时不可见） ---- */
+.ant-btn-text .anticon { color: var(--c-ink-2); }
+.ant-btn-text:hover .anticon { color: var(--c-ink); }
+.ant-btn-text.ant-btn-dangerous .anticon { color: var(--c-err); }
+/* REQ-240①：收起态 panel 收窄兜底（CollapsedRail 在 Splitter 内时，panel 收为 48px——Chromium :has） */
+.sidebar-panel:has(> .sidebar[data-collapsed='1']),
+.sidebar-panel:has(> aside[aria-label$='（已收起）']) {
+  flex-basis: 48px !important;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  min-width: 48px !important;
+  max-width: 48px !important;
+  overflow: hidden;
+}

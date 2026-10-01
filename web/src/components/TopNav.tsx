@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
-import { RobotOutlined, ProjectOutlined, ApartmentOutlined, DatabaseOutlined, ThunderboltOutlined, BookOutlined, SettingOutlined } from '@ant-design/icons'
+import { RobotOutlined, ProjectOutlined, ApartmentOutlined, DatabaseOutlined, ThunderboltOutlined, BookOutlined, SettingOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons'
+import { useEffect, useState } from 'react'
+import { readTheme, THEME_EVENT, toggleTheme } from '../lib/theme'
 import { useUI, type PageKey } from '../store/ui'
 
 const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
@@ -52,6 +54,7 @@ export default function TopNav() {
       </nav>
 
       <span className="topnav-spacer" />
+      <ThemeToggle />
       <button
         type="button"
         className={`topnav-gear${page === 'settings' ? ' active' : ''}`}
@@ -63,5 +66,27 @@ export default function TopNav() {
         <SettingOutlined />
       </button>
     </header>
+  )
+}
+
+/** REQ-240⑥：明暗主题切换（设置按钮左侧）。 */
+function ThemeToggle() {
+  const [t, setT] = useState(readTheme)
+  useEffect(() => {
+    const sync = () => setT(readTheme())
+    window.addEventListener(THEME_EVENT, sync)
+    return () => window.removeEventListener(THEME_EVENT, sync)
+  }, [])
+  const dark = t === 'dark'
+  return (
+    <button
+      type="button"
+      className="topnav-gear"
+      aria-label={dark ? '切换为亮色' : '切换为暗色'}
+      title={dark ? '切换为亮色' : '切换为暗色'}
+      onClick={toggleTheme}
+    >
+      {dark ? <SunOutlined /> : <MoonOutlined />}
+    </button>
   )
 }

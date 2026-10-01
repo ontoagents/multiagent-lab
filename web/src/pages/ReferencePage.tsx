@@ -270,7 +270,9 @@ const GROUPS = (() => {
 /** 默认选中：首组主页（修复历史遗留的失效 key「总览/平台总览」） */
 const DEFAULT_ACTIVE = GROUPS[0]?.topics.find((t) => t.isHome)?.key ?? GROUPS[0]?.topics[0]?.key ?? ''
 
+import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function ReferencePage() {
+  const rail = useSidebarCollapse('eino.ref.sidebar.collapsed')
   const [active, setActive] = useState(DEFAULT_ACTIVE)
   const [viewDoc, setViewDoc] = useState<string | null>(null) // REQ-169：点击互引相对路径 → 右侧 Drawer 阅读，默认关闭
   const topic = TOPICS.find((t) => t.key === active) ?? TOPICS[0]
@@ -294,9 +296,13 @@ export default function ReferencePage() {
         max={SIDEBAR_WIDTH.max}
         className="sidebar-panel"
       >
+        {rail.collapsed ? (
+        <CollapsedRail onExpand={rail.toggle} ariaLabel="平台知识侧栏（已收起）" />
+      ) : (
         <aside className="sidebar">
           <div className="side-head">
             <span className="side-title">平台知识</span>
+            <SidebarCollapseButton onClick={rail.toggle} />
           </div>
           <div className="ref-menu">
             <Menu
@@ -343,6 +349,7 @@ export default function ReferencePage() {
             ）；新增目录/文档按数字前缀落入后重建即生效（REQ-188）。
           </div>
         </aside>
+      )}
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
         <div className="ref-main">

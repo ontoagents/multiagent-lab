@@ -209,7 +209,13 @@ export default function Graph3D({
   // R3：两节点路径高亮（Shift+点击顺序选两点 → 可见图 BFS 最短路；空数组=未启用）
   const [pathPair, setPathPair] = useState<string[]>([])
   // R4：暗色主题（画布背景/雾色/边色联动）
-  const [dark3d, setDark3d] = useState(false)
+  // REQ-240⑥：暗色主题联动（全局主题为暗时三维默认暗色渲染）
+  const [dark3d, setDark3d] = useState(() => document.documentElement.dataset.theme === 'dark')
+  useEffect(() => {
+    const sync = () => setDark3d(document.documentElement.dataset.theme === 'dark')
+    window.addEventListener('eino-theme-change', sync)
+    return () => window.removeEventListener('eino-theme-change', sync)
+  }, [])
   // VIZ-5（REQ-175）：渐进装载——全量超阈值默认开（未超阈值保持全量直渲，可强制开供验证）
   const totalRaw = (spec?.concepts?.length ?? 0) + (spec?.instances?.length ?? 0)
   const overThreshold = totalRaw > PROGRESSIVE_THRESHOLD
@@ -442,6 +448,9 @@ export default function Graph3D({
     const el = containerRef.current
     if (el && el.clientWidth > 0 && el.clientHeight > 0) setInitSize({ w: el.clientWidth, h: el.clientHeight })
   }, [])
+  // REQ-240 前端优化③：首测完成前不挂 ForceGraph3D——width=undefined 时其内部按 window 宽初始化
+  // 且 width prop 热更不可靠，表现为「三维视图框默认宽度超限」；两阶段渲染保证首帧即正确尺寸
+  const measured = initSize.w > 0 && initSize.h > 0
   // R1④+R3：聚焦高亮增量刷新——非邻居收缩 0.25x；R3 路径高亮模式=点击概念时保留到根的完整继承链
   const highlightRef = useRef<any | null>(null)
   const applyHighlight = () => {
@@ -699,7 +708,7 @@ export default function Graph3D({
     <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
       <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
         <div ref={containerRef} className="viz-3d-box" style={{ width: '100%', height: canvasH, borderRadius: 8, background: dark3d ? 'linear-gradient(180deg,#0f172a 0%,#1e293b 100%)' : 'linear-gradient(180deg,#f2f4fb 0%,#e8ebf5 100%)' }}>
-          {hasConcepts && (
+          {hasConcepts && measured && (
             <ForceGraph3D
               ref={fgRef}
               width={initSize.w || undefined}

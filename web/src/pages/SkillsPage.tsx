@@ -31,7 +31,9 @@ type FilterKey = 'all' | 'mounted' | 'unmounted'
  * + 预留区（分组 / 标签 / 版本历史 / 市场导入，标注「规划中」且 disabled）；
  * 右栏技能卡片列表 + 新建；编辑弹窗含 instruction / tools 白名单 / resources 文本块 + 注入预览。
  */
+import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function SkillsPage() {
+  const rail = useSidebarCollapse('eino.skills.sidebar.collapsed')
   const { showToast, bumpData } = useUI()
   const [skills, setSkills] = useState<Skill[]>([])
   const [tools, setTools] = useState<ToolInfo[]>([])
@@ -102,9 +104,13 @@ export default function SkillsPage() {
       onResizeEnd={sidebarRemember}
     >
       <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
+        {rail.collapsed ? (
+        <CollapsedRail onExpand={rail.toggle} ariaLabel="技能筛选侧栏（已收起）" />
+      ) : (
         <aside className="sidebar">
           <div className="side-head">
             <span className="side-title">技能筛选</span>
+            <SidebarCollapseButton onClick={rail.toggle} />
           </div>
           <Menu
             mode="vertical"
@@ -147,6 +153,7 @@ export default function SkillsPage() {
             </div>
           </div>
         </aside>
+      )}
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
 

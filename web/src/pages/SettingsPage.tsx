@@ -27,7 +27,9 @@ const fmtNum = (n?: number) => (n ?? 0).toLocaleString()
  * - 右栏「使用统计」：按模型 / 供应商 / 智能体 / 项目聚合 + 时间范围筛选。
  * REQ-172：添加/编辑提供商、添加/编辑模型弹窗与自动发现面板拆分至 ./settings/ 组件。
  */
+import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function SettingsPage() {
+  const rail = useSidebarCollapse('eino.settings.sidebar.collapsed')
   const { showToast } = useUI()
   const [conns, setConns] = useState<ModelConnection[]>([])
   // REQ-174：支持外部深链（对话输入区「模型管理」入口经 localStorage 预置分类）
@@ -256,9 +258,13 @@ export default function SettingsPage() {
       onResizeEnd={sidebarRemember}
     >
       <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
+        {rail.collapsed ? (
+        <CollapsedRail onExpand={rail.toggle} ariaLabel="设置侧栏（已收起）" />
+      ) : (
         <aside className="sidebar">
           <div className="side-head">
             <span className="side-title">设置</span>
+            <SidebarCollapseButton onClick={rail.toggle} />
           </div>
           <Menu
             mode="vertical"
@@ -278,6 +284,7 @@ export default function SettingsPage() {
             模型连接集中在此维护，智能体配置只做<strong>引用</strong>（chat / embedding 各至多一条默认）。
           </div>
         </aside>
+      )}
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
 

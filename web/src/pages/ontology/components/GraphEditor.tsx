@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Empty, Form, Space, Splitter, Switch, Tag } from 'antd'
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import {
   Background,
   BackgroundVariant,
@@ -40,6 +41,9 @@ export default function GraphEditor({
   spec: Spec | null
   onSpecSaved: (version: number) => void
 }) {
+  // REQ-240 前端优化②：右侧编辑面板可收起（收起后画布全宽；浮钮展开）
+  const [panelCollapsed, setPanelCollapsed] = useState(false)
+
   const { showToast } = useUI()
   // specDraft 是编辑事实源；画布 nodes/edges 由它派生，拖拽位置保留在 nodes 状态里
   const [draft, setDraft] = useState<Spec | null>(spec)
@@ -290,6 +294,11 @@ export default function GraphEditor({
             </ReactFlow>
           </div>
         </Splitter.Panel>
+        {panelCollapsed ? (
+          <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 20 }}>
+            <Button size="small" icon={<MenuUnfoldOutlined />} aria-label="展开编辑面板" onClick={() => setPanelCollapsed(false)} />
+          </div>
+        ) : (
         <Splitter.Panel min="24%">
           <div className="onto-flow-info">
             <div className="onto-flow-info-title">编辑面板</div>
@@ -317,8 +326,14 @@ export default function GraphEditor({
                 onRemove={removeEdge}
               />
             )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button size="small" icon={<MenuFoldOutlined />} aria-label="收起编辑面板" onClick={() => setPanelCollapsed(true)}>
+                收起面板
+              </Button>
+            </div>
           </div>
         </Splitter.Panel>
+        )}
       </Splitter>
 
       <AddConceptModal

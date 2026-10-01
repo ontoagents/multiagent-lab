@@ -65,7 +65,9 @@ const MODE_TAG: Record<KBMode, { color: string; text: string }> = {
  * 左栏库列表（名称 / 文档·chunk 计数）→ 右栏库详情
  * （文档表 + 上传入口 + 检索试运行（索引未就绪禁用）+ TopK / min_score 配置）。
  */
+import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function KnowledgePage() {
+  const rail = useSidebarCollapse('eino.kb.sidebar.collapsed')
   const { showToast, bumpData } = useUI()
   const [kbs, setKbs] = useState<KnowledgeBase[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -357,9 +359,13 @@ export default function KnowledgePage() {
       onResizeEnd={sidebarRemember}
     >
       <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
+        {rail.collapsed ? (
+        <CollapsedRail onExpand={rail.toggle} ariaLabel="知识库侧栏（已收起）" />
+      ) : (
         <aside className="sidebar">
           <div className="side-head">
             <span className="side-title">知识库</span>
+            <SidebarCollapseButton onClick={rail.toggle} />
             <span className="side-count">{kbs.length}</span>
           </div>
           <Tabs
@@ -418,6 +424,7 @@ export default function KnowledgePage() {
               ))}
           </div>
         </aside>
+      )}
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
 

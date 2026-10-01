@@ -84,7 +84,7 @@
 .skill-card-icon {
   width: 24px; height: 24px; border-radius: 7px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--c-brand); background: #e6e8fb; border: 1px solid #dbdefa;
+  font-size: 13px; color: var(--c-brand); background: var(--c-icon-soft); border: 1px solid var(--c-border);
 }
 .skill-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--c-ink); }
 .skill-card-desc {
@@ -574,12 +574,12 @@
   background: none; cursor: pointer; text-align: left;
   transition: background .16s ease, border-color .16s ease;
 }
-.onto-nav-item:hover { background: #eef0f6; }
-.onto-nav-item.active { background: #e9ebf7; border-color: #dbdefa; }
+.onto-nav-item:hover { background: var(--c-hover-soft); }
+.onto-nav-item.active { background: var(--c-active-soft); border-color: var(--c-border); }
 .onto-nav-icon {
   flex: none; width: 26px; height: 26px; border-radius: 7px;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--c-brand); background: #e6e8fb; border: 1px solid #dbdefa;
+  font-size: 13px; color: var(--c-brand); background: var(--c-icon-soft); border: 1px solid var(--c-border);
 }
 .onto-nav-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .onto-nav-label { font-size: 13px; font-weight: 600; color: var(--c-ink); }
@@ -590,7 +590,7 @@
 .onto-engine-nav { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .onto-engine-item {
   display: flex; flex-direction: column; gap: 5px; text-align: left;
-  border: 1px solid var(--c-line); border-radius: 10px; background: #fff;
+  border: 1px solid var(--c-line); border-radius: 10px; background: var(--c-panel);
   padding: 10px 12px; cursor: pointer;
   transition: box-shadow .16s ease, border-color .16s ease;
 }
