@@ -48,6 +48,9 @@
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
 
+- **暗色主题覆盖修补（2026-10-01，开发者报「暗色时侧栏/对话卡/模块卡失败显示亮色」；REQ-240⑥ 追加）**：根因=styles/pages.css **120 处硬编码浅色**未 token 化（暗色块只盖了少数容器）——18 组色值批量映射语义 token（面板 #fff/#fbfbfd→--c-panel、页面底 #f6f7fb→--c-bg、软底 #f7f8fc→--c-bg-soft、悬浮 #eef0f6/#e3e6f0→--c-hover-soft、选中 #e9ebf7/#eef0fe/#e3e6fb→--c-active-soft、图标底 #e6e8fb→--c-icon-soft、边框灰 #d9dcec→--c-border、灰字 #c3c7d6/#b9c0d6/#9aa1bd→--c-ink-3；:root 亮色默认块与原值相同零视觉变化，暗色经 data-theme 覆盖 token 自动全生效）；多页验证：智能体/本体/知识库/技能四页侧栏 rgb(24,28,41)、work-card 与知识库卡 rgb(20,20,20)（AntD darkAlgorithm）、engine-item 深底；对话消息卡=@ant-design/x Bubble 跟随 ConfigProvider darkAlgorithm（框架保证，无需单独覆盖）；headless 10/10 smoke/req240fe4/；20 v1.95（S4.43）。
+
+
 - **REQ-240 M66 前端优化第三批三项交付（2026-10-01，开发者指令：①智能体侧板「智能体配置」简化——除基本外所有配置页迁移到与配置同一级不重复②项目侧板智能体相关配置提级同级+本体目录提示精简③本体页面两级侧栏减宽仍默认展开；headless 13/13 smoke/req240fe3/）**：①**智能体侧板入口扁平化**——「智能体配置」视图只留「基本」页签（模型/连接器/对外服务页签与 M49 既有独立入口重复退役），**Context/Harness/Loop/Graph/能力五层自配置页签提级 activity bar 同平级入口**（PanelView 6→11，REQ-219 五层视角呈现位从页签升入口；竖条 overflow-y；存量 PANEL_VIEW_KEY 值全兼容），各入口=AgentConfigForm 单页签视图（visibleTabs 机制复用）；②**项目侧板**——智能体协作配置（协作模式/工作流模式/成员智能体）自「配置」视图拆出**独立「智能体协作」入口**（新 CollabView：独立状态+独立保存走同 API 全量合并字段，配置视图无协作段不重复）+本地目录「绑定即授权」长提示精简为一句（「越界强制防护，调用可审计；仅绑定可信目录」）+extra 缩短；③**本体两级侧栏减宽**——全站 SIDEBAR_WIDTH 默认 280→240（min 220→200）+资产列表栏 220→200，仍默认展开（用户拖宽记忆优先）。03 侧无语义变更；02 v0.165/17 v0.55（布局基线补侧板扁平化/主题）/20 v1.94（S4.42）synced。
 
 
