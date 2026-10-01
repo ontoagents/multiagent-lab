@@ -48,6 +48,9 @@
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
 
+- **REQ-240 M66 前端优化第二批六项交付（2026-10-01，开发者追加：①全站侧边栏统一可收缩②本体资产右侧编辑面板可收缩③三维视图框默认宽度超限④详情区边距⑤图标透明加固⑥明暗主题切换；headless 12/12 smoke/req240fe2/）**：①**全站侧栏统一收缩**——共享 `lib/sidebar.tsx`（useSidebarCollapse/CollapsedRail/SidebarCollapseButton）接入知识库/技能/设置/平台知识四页（side-head 收起钮→48px 图标列，localStorage 记忆；Splitter panel 经 **:has** 兜底收窄 48px），本体模块两栏上批已先行；②**GraphEditor 编辑面板收起**——Splitter 第二面板条件渲染，收起画布全宽+浮钮展开；③**3D 宽度超限修复**——根因=initSize 未测量时 ForceGraph3D 以 width=undefined 回落全窗宽且 width prop 热更不可靠，改**两阶段渲染**（首测完成前只渲染测量壳不挂 3D），真机画布 687px=容器精确贴合零溢出；④`.content-panel` padding 14/18px；⑤图标对比度加固（.ant-btn-text .anticon 固定 --c-ink-2）；⑥**明暗主题**（最大件）——`lib/theme.ts`：html[data-theme] 自研 token 覆盖（styles.css dark 块+本体容器 token 化）+AntD **darkAlgorithm** 双轨（main ThemedApp 监听）+TopNav 设置钮左侧 Sun/Moon 切换（localStorage eino.theme+首装跟随系统偏好）+Graph3D dark3d 联动全局主题；**诚实边界**：CodeMirror/ReactFlow 等第三方编辑器画布主题暂不跟随（后续小轮）。03 v0.81/02 v0.164/18 v2.29/20 v1.93（S4.41）/03_资产.md synced。
+
+
 - **REQ-239/240 立项（2026-10-01，开发者对 57 号拍板「采纳上述建议」+追加三项需求：①本体浏览按一等公民分类筛选②可视化点击节点邻居高亮/无关淡化/空白区域恢复③斟酌能力雷达〔分析结论=采纳且轻：qualitygate 三维分已产出，雷达仅为可视化增量，五维=完备/一致/可维护+规模覆盖/连接密度，SVG 自绘零新依赖〕；文档线无实现代码，M65~M66 待领取；**撞号注 REQ-237/238 已被并行前端布局整改线占用顺延 239 起**）**：**REQ-239 本体版本发布状态机**（M65/P2，57 号 V1 治 A-2：ontology status draft/published+version_name 列/与 REQ-207 候选态衔接=候选门控采纳→vN+1 命名 Published 终态可回滚/方案装载 draft 警示不阻断/发布态徽标透出）/**REQ-240 本体可视化与要素一等公民增强**（M66/P2~P3：一等公民分类筛选+选中聚焦交互标准化〔2D/3D/运行态实渲一致，现 Graph3D 有聚焦淡出无空白恢复·SpecGraph 有选中无淡化〕+能力雷达五维图+关系类型管理页签〔V2〕+节点挂载徽标〔V4〕+布局持久化 artifact〔V6，O-3 口径修正为不写回 spec 可存 artifact〕+AI 消费视图〔V7 被引用页签扩展〕）；**拍板映射**：V2 数据属性建模→REQ-235 行扩注（同轮定模型）/V3 软件工程本体种子→REQ-91 行扩注（第 8 份示例）/V5 编辑器实时质量提示→03 §4 P3 池观察项；依据档 57 号拍板注（内容交付后合并式并入 04 号）；03 v0.79 §2.17/02 v0.162/18 v2.26/导读页 req synced。
 
 
