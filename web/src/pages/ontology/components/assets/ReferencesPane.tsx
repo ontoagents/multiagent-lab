@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Empty, List, Spin, Tag, Typography } from 'antd'
+import { Alert, Button, Collapse, Empty, List, Spin, Tag, Typography } from 'antd'
+import { ApiOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { OntologyReferences, OntologyPlanRef } from '../../../../api/types'
 
@@ -8,7 +9,19 @@ import type { OntologyReferences, OntologyPlanRef } from '../../../../api/types'
 // / 智能体伴生绑定（companion_ontology_id）三查询拼装一处可见（主后端 GET
 // /api/ontologies/{id}/references 聚合端点；删除确认预检与 DELETE 守卫同源）。
 // 正交红线：只展示引用事实与状态，启停/解绑/换绑操作不在本页（指向对应管理面）。
+// REQ-240⑦/M66（57 号 V7）：「AI 消费」区块——挂载 running 方案时透出 facade onto_* 工具
+// 清单与 guide 预览（本体作为 AI 消费视图：智能体经 MCP facade 六工具查询本体的入口画像）。
 // ---------------------------------------------------------------------------
+
+/** facade 工具清单（Q-14 契约 6 工具；与 runtime-manager /mcp tools/list 同源口径） */
+const FACADE_TOOLS = [
+  ['list_concepts', '获取概念名清单（引导先用它发现本体骨架）'],
+  ['get_concept', '按名称精确查概念定义与父层级'],
+  ['get_instance', '按名称精确查实例属性'],
+  ['list_instances', '列出某概念全部实例'],
+  ['neighbors', '查实例关系邻居（1 跳）'],
+  ['sparql_query', '自定义只读 SPARQL SELECT（仅 SELECT 禁变更）'],
+] as const
 
 function planStatusTag(p: OntologyPlanRef) {
   const color = p.status === 'running' ? 'green' : p.status === 'error' ? 'volcano' : p.status === 'starting' ? 'gold' : 'default'
@@ -31,6 +44,9 @@ export default function ReferencesPane({ ontologyId }: { ontologyId: string }) {
   const [refs, setRefs] = useState<OntologyReferences | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // REQ-240⑦/M66：guide 预览（懒加载——展开「AI 消费」区块才拉取）
+  const [guide, setGuide] = useState<string | null>(null)
+  const [guideErr, setGuideErr] = useState<string | null>(null)
 
   const reload = () => {
     setLoading(true)
@@ -128,6 +144,65 @@ export default function ReferencesPane({ ontologyId }: { ontologyId: string }) {
               </List.Item>
             )}
           />
+        )}
+      </Section>
+
+      {/* REQ-240⑦/M66（57 号 V7）：AI 消费视图——工具清单 + guide 预览（有挂载方案时） */}
+      <Section title="AI 消费（facade 工具与引导词）" count={refs.runtime_plans.some((p) => p.status === 'running') ? 1 : 0}>
+        {refs.runtime_plans.some((p) => p.status === 'running') ? (
+          <Collapse
+            size="small"
+            items={[
+              {
+                key: 'tools',
+                label: (
+                  <span>
+                    <ApiOutlined style={{ color: 'var(--c-brand)', marginInlineEnd: 6 }} />
+                    onto_* 工具清单（6，Q-14 契约）
+                  </span>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }} data-testid="facade-tools">
+                    {FACADE_TOOLS.map(([name, desc]) => (
+                      <Typography.Text key={name} style={{ fontSize: 12 }}>
+                        <Tag color="geekblue" style={{ margin: 0, fontFamily: 'monospace' }}>{name}</Tag>
+                        <span style={{ marginInlineStart: 6 }}>{desc}</span>
+                      </Typography.Text>
+                    ))}
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      经运行方案 MCP facade（/mcp）暴露；所有工具入参 ontology_id 固定为本体。
+                    </Typography.Text>
+                  </div>
+                ),
+              },
+              {
+                key: 'guide',
+                label: 'guide 引导词预览（挂载方案注入智能体的本体画像）',
+                children: guideErr ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>guide 获取失败：{guideErr}</Typography.Text>
+                ) : (
+                  <Typography.Paragraph
+                    style={{ fontSize: 12, whiteSpace: 'pre-wrap', marginBottom: 0, maxHeight: 220, overflowY: 'auto' }}
+                    data-testid="guide-preview"
+                  >
+                    {guide ?? '加载中…'}
+                  </Typography.Paragraph>
+                ),
+              },
+            ]}
+            onChange={(keys) => {
+              if (keys.includes('guide') && guide == null && !guideErr) {
+                api
+                  .getOntologyGuide(ontologyId)
+                  .then((g) => setGuide(g.guide))
+                  .catch((e: any) => setGuideErr(e?.message ?? '失败'))
+              }
+            }}
+          />
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            无运行中方案——本体的 AI 消费面（facade 工具+guide 引导词）随方案运行时生效（先到「本体运行」栏启动方案）。
+          </Typography.Text>
         )}
       </Section>
 

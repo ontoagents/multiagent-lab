@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { ReloadOutlined, SafetyOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
+import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
 // REQ-156/M-O15 资产详情「质量卡」页签：qualitygate 报告呈现（复用 REQ-171 引擎，零重复建设）。
@@ -17,7 +18,7 @@ const SEV_META: Record<string, { color: string; text: string }> = {
   info: { color: 'default', text: '提示' },
 }
 
-export default function QualityCardPane({ ontologyId }: { ontologyId: string }) {
+export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: string; onReport?: (r: QualityReport | null) => void }) {
   const [config, setConfig] = useState<{ strict: boolean } | null>(null)
   const [report, setReport] = useState<QualityReport | null>(null)
   const [reportAt, setReportAt] = useState<string>('')
@@ -37,6 +38,7 @@ export default function QualityCardPane({ ontologyId }: { ontologyId: string }) 
         setReport(r.report)
         setReportAt(r.imported_at)
         setErr(null)
+        onReport?.(r.report)
       })
       .catch(() => {
         setReport(null)
@@ -55,6 +57,7 @@ export default function QualityCardPane({ ontologyId }: { ontologyId: string }) 
         setReport(r.report)
         setReportAt(new Date().toISOString())
         setErr(null)
+        onReport?.(r.report) // REQ-240③/M66：资产卡微型雷达同源刷新
       })
       .catch((e: any) => setErr(e?.message ?? '质量检查失败'))
       .finally(() => setRunning(false))
@@ -127,6 +130,11 @@ export default function QualityCardPane({ ontologyId }: { ontologyId: string }) 
         <>
           <Card size="small" className="work-card">
             <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* REQ-240③/M66：能力雷达五维图（三维分+stats 派生两维；SVG 自绘零依赖） */}
+              <div style={{ textAlign: 'center', flexShrink: 0 }} data-testid="quality-radar-card">
+                <QualityRadar dims={radarDimsOf(report.score, report.stats)} size={186} />
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>能力雷达（五维）</Typography.Text>
+              </div>
               <div style={{ textAlign: 'center' }}>
                 <Typography.Title level={2} style={{ margin: 0, color: report.score.overall >= 90 ? '#16a34a' : report.score.overall >= 70 ? '#d97706' : '#dc2626' }}>
                   {report.score.overall.toFixed(1)}

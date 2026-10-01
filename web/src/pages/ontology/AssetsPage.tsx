@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Input, Popconfirm, Result, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
 import { BranchesOutlined, CloudDownloadOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ImportOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
+import type { QualityReport } from '../../api/client'
 import { companionApi } from '../../api/companion'
 import type { Ontology, OntologyReferences, RuntimeProfile, Spec } from '../../api/types'
+import QualityRadar, { radarDimsOf } from '../../components/QualityRadar'
 import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
 import CsvIngestPane from './components/CsvIngestPane'
@@ -14,6 +16,7 @@ import { ArtifactsPane, ExportPane, ValidatePane } from './components/assets/Ass
 import { RenameModal, VizTabs } from './components/assets/AssetExtras'
 import OntologyCompanionPane from './components/companion/OntologyCompanionPane'
 import EvolutionPane from './components/assets/EvolutionPane'
+import RelationTypesPane from './components/assets/RelationTypesPane'
 import AssetList from './components/assets/AssetList'
 import QualityCardPane from './components/assets/QualityCardPane'
 import ImportMergeWizard from './components/assets/ImportMergeWizard'
@@ -43,6 +46,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
       items: [
         { key: 'spec', label: 'Spec 编辑' },
         { key: 'graph-edit', label: '图形编辑' },
+        { key: 'reltypes', label: '关系类型' },
         { key: 'ingest', label: 'CSV 灌装' },
       ],
     },
@@ -86,6 +90,8 @@ export default function AssetsPage() {
   const [renameOpen, setRenameOpen] = useState(false)
   const [publishName, setPublishName] = useState('') // REQ-239/M65 发布命名
   const [forkName, setForkName] = useState('')
+  // REQ-240③/M66：资产卡能力雷达数据（缓存质量报告静默拉取；无报告不显示）
+  const [qualityCache, setQualityCache] = useState<Record<string, QualityReport | null>>({})
   const [forkBusy, setForkBusy] = useState(false)
   const [forkErr, setForkErr] = useState<string | null>(null)
 
@@ -152,6 +158,13 @@ export default function AssetsPage() {
       .finally(() => {
         if (alive) setSpecLoading(false)
       })
+    // REQ-240③/M66：能力雷达数据——缓存质量报告静默拉取（未生成过报告则不显示，不自动跑分）
+    if (qualityCache[activeId] === undefined) {
+      api
+        .qualityReport(activeId)
+        .then((r) => setQualityCache((m) => ({ ...m, [activeId]: r.report })))
+        .catch(() => setQualityCache((m) => ({ ...m, [activeId]: null })))
+    }
     return () => {
       alive = false
     }
@@ -209,6 +222,8 @@ export default function AssetsPage() {
   const refreshAfterSave = () => {
     reloadOntos()
     setSpecTick((t) => t + 1)
+    // 内容已变：能力雷达缓存失效（移除键 → 下次选中重拉）
+    if (activeId) setQualityCache(({ [activeId]: _drop, ...rest }) => rest)
   }
 
   // REQ-240 前端优化①：资产列表栏可收起为图标列（44px；localStorage 记忆）——默认宽 260→220 为详情让空间
@@ -323,6 +338,20 @@ export default function AssetsPage() {
                 <Tooltip title="被 N 套运行方案引用（只读；启停操作在「本体运行」栏）">
                   <Tag color="purple" style={{ margin: 0 }}>被 {refCount(active)} 套方案引用</Tag>
                 </Tooltip>
+                {/* REQ-240③/M66：资产卡能力雷达（缓存报告静默拉取；未生成过报告不显示） */}
+                {qualityCache[active.id] && (
+                  <Tooltip
+                    title={
+                      <span>
+                        能力雷达：{radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats).map(([k, v]) => `${k} ${Math.round(v)}`).join(' / ')}——详情见「质量卡」分区
+                      </span>
+                    }
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default' }} data-testid="asset-radar">
+                      <QualityRadar dims={radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats)} size={92} compact />
+                    </span>
+                  </Tooltip>
+                )}
               </div>
               <p className="work-head-desc">{active.description || '未填写描述'}</p>
             </div>
@@ -537,7 +566,12 @@ export default function AssetsPage() {
                     onResult={(r) => setValidations((v) => ({ ...v, [active.id]: r }))}
                   />
                 )}
-                {secKey === 'quality' && <QualityCardPane ontologyId={active.id} />}
+                {secKey === 'quality' && (
+                  <QualityCardPane
+                    ontologyId={active.id}
+                    onReport={(r) => setQualityCache((m) => ({ ...m, [active.id]: r }))}
+                  />
+                )}
                 {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} onRestored={refreshAfterSave} />}
                 {secKey === 'artifacts' && <ArtifactsPane ontologyId={active.id} />}
                 {secKey === 'graph' && <VizTabs spec={spec} ontologyId={active.id} isCompanion={boundIds.has(active.id)} />}
@@ -549,6 +583,7 @@ export default function AssetsPage() {
                     <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} />
                   </Maximizeable>
                 )}
+                {secKey === 'reltypes' && <RelationTypesPane spec={spec} />}
                 {secKey === 'export' && <ExportPane ontology={active} />}
                 {secKey === 'ingest' && (
                   <CsvIngestPane ontologyId={active.id} spec={spec} onIngested={() => refreshAfterSave()} />

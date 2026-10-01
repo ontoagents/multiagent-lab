@@ -584,6 +584,11 @@ export const api = {
   /** 历史快照回滚：指定版本恢复为新版本（BumpVersion+写版本历史），当前态回 draft */
   restoreOntologyVersion: (id: string, version: number) =>
     req<{ restored_from: number; new_version: number; ontology: Ontology }>(`/api/ontologies/${id}/versions/${version}/restore`, { method: 'POST' }),
+  /** REQ-240⑥/M66：图布局持久化 artifact（layout_json 派生数据，不写回 spec） */
+  saveLayoutArtifact: (id: string, layout: unknown) =>
+    req<{ saved: boolean; size: number }>(`/api/ontologies/${id}/artifacts/layout_json`, { method: 'PUT', body: JSON.stringify(layout) }),
+  getLayoutArtifact: (id: string) =>
+    req<unknown>(`/api/ontologies/${id}/artifacts/layout_json/content`),
 
   // ---- OntoChat 多轮引导（REQ-103 模式 A；构建平面 /api/ontochat/*）----
   listOntoChatSessions: () => req<OntoChatSession[]>('/api/ontochat/sessions'),

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Checkbox, Empty, Input, Select, Space, Spin, Tag, Typography } from 'antd'
+import { useUI } from '../../../store/ui'
 import * as THREE from 'three'
 import ForceGraph3D from 'react-force-graph-3d'
 // M21/VIZ-2 R0（15 号 v2.15）：react-force-graph-3d ESM 直装——消三 hack：
@@ -180,14 +181,18 @@ export default function Graph3D({
   spec,
   onRequest2D,
   sparqlProfile,
+  ontologyId,
 }: {
   spec: Spec | null
   onRequest2D?: (nodeName: string) => void
   /** VIZ-5（REQ-175）：含本体的 running 运行方案 id——渐进扩展经其 SPARQL 端点（REQ-151 受控面）；空=本地 spec 回退 */
   sparqlProfile?: string | null
+  /** REQ-240⑥/M66：布局持久化 artifact 读写所依（layout_json；缺省=不持久化） */
+  ontologyId?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<any>(null)
+  const { showToast } = useUI()
   const [selected, setSelected] = useState<{ kind: 'concept' | 'instance'; name: string; label: string; color: string; definition?: string; concept?: string; attributes?: Record<string, unknown> } | null>(null)
   const [query, setQuery] = useState('')
   const [legendQuery, setLegendQuery] = useState('')
@@ -314,6 +319,30 @@ export default function Graph3D({
     return { nodes, links, roots: data.roots }
   }, [data, progressive, spec, expandedMap])
 
+  // REQ-240⑥/M66：持久化布局（layout_json artifact；加载后经 vizKey 重挂载使初值生效——
+  // force-graph graphData 热更按 id 复用既有位置，仅注入不生效）
+  const [layoutMap, setLayoutMap] = useState<Record<string, { x: number; y: number; z?: number }>>({})
+  const [vizKey, setVizKey] = useState(0)
+  const [layoutBusy, setLayoutBusy] = useState(false)
+  useEffect(() => {
+    if (!ontologyId) return
+    let alive = true
+    api
+      .getLayoutArtifact(ontologyId)
+      .then((raw: any) => {
+        if (!alive) return
+        const m = raw?.nodes ?? {}
+        if (m && Object.keys(m).length > 0) {
+          setLayoutMap(m)
+          setVizKey((k) => k + 1)
+        }
+      })
+      .catch(() => {}) // 未存过布局：默认力导向
+    return () => {
+      alive = false
+    }
+  }, [ontologyId])
+
   // REQ-185①：数据级过滤重建 graphData（非视觉遮挡）——隐藏根的子孙概念+挂载实例剔除，边双端可见才保留
   const visibleData = useMemo(() => {
     const nodes = displayData.nodes.filter((n) => {
@@ -323,10 +352,45 @@ export default function Graph3D({
       if (root && hiddenRoots.has(root)) return false
       return true
     })
-    const ids = new Set(nodes.map((n) => n.id))
+    // REQ-240⑥/M66：存档坐标浅拷贝注入（作为力导向初值；配合 vizKey 重挂载跨会话/跨端一致）
+    const withLayout =
+      Object.keys(layoutMap).length > 0
+        ? (nodes as any[]).map((n) => {
+            const p = layoutMap[n.id]
+            return p ? { ...n, x: p.x, y: p.y, z: p.z ?? 0, vx: 0, vy: 0, vz: 0 } : n
+          })
+        : (nodes as any[])
+    const ids = new Set(withLayout.map((n) => n.id))
     const links = normLinks(displayData.links).filter((l) => ids.has(l.source) && ids.has(l.target))
-    return { nodes, links, roots: displayData.roots }
-  }, [displayData, kindFilter, hiddenRoots, rootOfName])
+    return { nodes: withLayout, links, roots: displayData.roots }
+  }, [displayData, kindFilter, hiddenRoots, rootOfName, layoutMap])
+
+  /** REQ-240⑥/M66：保存当前布局（拖拽后 force-graph 就地写在节点对象上的 x/y/z）→ layout_json artifact */
+  const saveLayout = async () => {
+    if (!ontologyId) return
+    const g = fgRef.current as any
+    if (!g || typeof g.graphData !== 'function') return
+    setLayoutBusy(true)
+    try {
+      const nodes = (g.graphData().nodes ?? []) as any[]
+      const out: Record<string, { x: number; y: number; z: number }> = {}
+      for (const n of nodes) {
+        if (typeof n.x === 'number') out[n.id] = { x: Math.round(n.x * 10) / 10, y: Math.round(n.y * 10) / 10, z: Math.round((n.z ?? 0) * 10) / 10 }
+      }
+      await api.saveLayoutArtifact(ontologyId, { nodes: out, saved_at: new Date().toISOString() })
+      setLayoutMap(out)
+      showToast?.('布局已保存（layout_json artifact，跨会话一致）')
+    } catch (e: any) {
+      showToast?.(e?.message ?? '布局保存失败', 'err')
+    } finally {
+      setLayoutBusy(false)
+    }
+  }
+  /** 重置布局：清存档坐标+重挂载（回力导向自由布局；存档保留覆盖语义=下次保存再写入） */
+  const resetLayout = () => {
+    setLayoutMap({})
+    setVizKey((k) => k + 1)
+  }
 
   const neighbors = useMemo(() => {
     const m = new Map<string, Set<string>>()
@@ -710,13 +774,14 @@ export default function Graph3D({
         <div ref={containerRef} className="viz-3d-box" style={{ width: '100%', height: canvasH, borderRadius: 8, background: dark3d ? 'linear-gradient(180deg,#0f172a 0%,#1e293b 100%)' : 'linear-gradient(180deg,#f2f4fb 0%,#e8ebf5 100%)' }}>
           {hasConcepts && measured && (
             <ForceGraph3D
+              key={`viz-${vizKey}`}
               ref={fgRef}
               width={initSize.w || undefined}
               height={initSize.h || undefined}
               graphData={visibleData as any}
               backgroundColor="rgba(0,0,0,0)"
               showNavInfo={false}
-              nodeLabel={(n: any) => n.label}
+              nodeLabel={(n: any) => (n.kind === 'instance' ? `${n.label}（实例 · 属于 ${n.concept}）` : `${n.label}${(n as any).definition ? '' : '（缺失定义）'}${counts.get(n.name) ? ` · 实例 ${counts.get(n.name)}` : ''}`)}
               nodeThreeObject={nodeThreeObject}
               nodeVal={(n: any) => n.radius}
               linkWidth={0}
@@ -876,6 +941,17 @@ export default function Graph3D({
               ]}
             />
             <div className="onto-flow-info-title spaced">观感</div>
+            {/* REQ-240⑥/M66：布局持久化（拖拽后保存→layout_json artifact 跨会话一致；重置回力导向） */}
+            {ontologyId && (
+              <Space size={6} wrap style={{ marginBottom: 6 }}>
+                <Button size="small" loading={layoutBusy} onClick={saveLayout} aria-label="保存布局">
+                  保存布局
+                </Button>
+                <Button size="small" onClick={resetLayout} disabled={Object.keys(layoutMap).length === 0} aria-label="重置布局">
+                  重置布局
+                </Button>
+              </Space>
+            )}
             <Space size={6} wrap style={{ marginBottom: 4 }}>
               <Button
                 size="small"

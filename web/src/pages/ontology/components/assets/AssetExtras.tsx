@@ -136,6 +136,7 @@ export function VizTabs({ spec, ontologyId, isCompanion = false }: { spec: Spec 
         )}
         <Graph3D
           spec={src === 'runtime' ? rt.spec : spec}
+          ontologyId={src === 'runtime' ? undefined : ontologyId}
           sparqlProfile={src === 'runtime' ? null : sparqlProfile}
           onRequest2D={(name) => {
             setFocus2d(name)

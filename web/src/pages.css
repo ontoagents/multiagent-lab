@@ -201,6 +201,10 @@
   border-radius: 999px; background: var(--c-brand); color: var(--c-panel);
   font-size: 10px; font-weight: 700; line-height: 18px; text-align: center;
 }
+/* REQ-240⑤/M66：缺失定义挂载徽标（左上 ?，警示色） */
+.onto-flow-node-badge.missing {
+  right: auto; left: -8px; background: #d97706; cursor: help;
+}
 .onto-flow-handle { width: 6px; height: 6px; background: var(--c-ink-3); border: 1px solid var(--c-panel); }
 .onto-flow-edge-rel .react-flow__edge-path { stroke: var(--c-ink-3); stroke-width: 1.4; }
 .onto-flow-edge-parent .react-flow__edge-path { stroke: var(--c-ink-3); stroke-width: 1.2; }
@@ -210,6 +214,28 @@
 .onto-flow-node-badge.inst { position: static; margin-left: 6px; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #7c5cf0; font-weight: 500; vertical-align: middle; display: inline-block; }
 .onto-flow-edge-belongs .react-flow__edge-path { stroke: #b7a8f5; stroke-width: 1.1; }
 .onto-flow-edge-instrel .react-flow__edge-path { stroke: #9d84f2; stroke-width: 1.1; }
+/* REQ-240②/M66：选中聚焦——无关节点边降透明度（空白点击恢复全亮） */
+.onto-flow-node.dimmed, .onto-flow-inst.dimmed { opacity: 0.16; filter: saturate(0.4); }
+.react-flow__edge.dimmed { opacity: 0.08; }
+/* REQ-240①/M66：2D 实例节点（小圆点形态，挂其概念下方） */
+.onto-flow-inst {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 58px; max-width: 96px; padding: 4px 10px; border-radius: 999px;
+  background: #f3f0ff; border: 1.2px solid #b7a8f5; color: var(--c-ink);
+  font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity .15s ease;
+}
+.onto-flow-inst.selected { background: #e9e3ff; border-color: #7c5cf0; box-shadow: 0 0 0 2px rgba(124, 92, 240, .16); }
+.onto-flow-inst-label { overflow: hidden; text-overflow: ellipsis; }
+/* REQ-240①/M66：2D 要素筛选条（图上方一行，与三维图例面板正交同语义） */
+.onto-viz-filter {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 6px 10px; margin-bottom: 6px; border-radius: 8px;
+  background: var(--c-bg-soft); border: 1px solid var(--c-border);
+  font-size: 12px;
+}
+.onto-viz-filter-label { color: var(--c-ink-3); font-size: 11.5px; flex-shrink: 0; }
+.onto-viz-filter .ant-checkbox-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .react-flow__edge-text { font-size: 10.5px; fill: var(--c-ink-3); }
 .react-flow__attribution { background: transparent; }
 .react-flow__attribution a { color: var(--c-ink-3); }

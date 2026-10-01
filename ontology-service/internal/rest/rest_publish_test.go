@@ -134,3 +134,59 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+// REQ-240⑥/M66：通用形态读写（layout_json 允许；spec_json 拒绝走门控路径；未存 404）。
+func TestArtifactContentRoundTrip(t *testing.T) {
+	srv, _ := newPublishTestServer(t)
+	// 写 layout_json
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/ontologies/ontest/artifacts/layout_json", strings.NewReader(`{"nodes":{"概念A":{"x":10,"y":20,"z":0}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("putArtifact 失败: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("putArtifact 期望 200，实际 %d", resp.StatusCode)
+	}
+	// 读回
+	gresp, err := http.Get(srv.URL + "/api/ontologies/ontest/artifacts/layout_json/content")
+	if err != nil {
+		t.Fatalf("getArtifact 失败: %v", err)
+	}
+	defer gresp.Body.Close()
+	buf := make([]byte, 256)
+	n, _ := gresp.Body.Read(buf)
+	if !strings.Contains(string(buf[:n]), "概念A") {
+		t.Fatalf("layout_json 读回不匹配: %q", string(buf[:n]))
+	}
+	// spec_json 拒绝（门控路径保护）
+	req2, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/ontologies/ontest/artifacts/spec_json", strings.NewReader(`{}`))
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("put spec_json 失败: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("put spec_json 期望 400 拒绝，实际 %d", resp2.StatusCode)
+	}
+	// 未存形态 404
+	resp3, err := http.Get(srv.URL + "/api/ontologies/ontest/artifacts/layout_json2/content")
+	if err != nil {
+		t.Fatalf("get 未知形态失败: %v", err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusNotFound {
+		t.Fatalf("未知形态期望 404，实际 %d", resp3.StatusCode)
+	}
+	// 非法 JSON 拒绝（REQ-240⑥ 校验）
+	req4, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/ontologies/ontest/artifacts/layout_json", strings.NewReader(`{"nodes":broken`))
+	resp4, err := http.DefaultClient.Do(req4)
+	if err != nil {
+		t.Fatalf("put 非法 JSON 失败: %v", err)
+	}
+	defer resp4.Body.Close()
+	if resp4.StatusCode != http.StatusBadRequest {
+		t.Fatalf("非法 JSON 期望 400，实际 %d", resp4.StatusCode)
+	}
+}

@@ -56,6 +56,9 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("PUT /api/ontologies/{id}/spec", s.saveSpec)
 	m.HandleFunc("POST /api/ontologies/{id}/validate", s.validate)
 	m.HandleFunc("GET /api/ontologies/{id}/artifacts", s.artifacts)
+	// REQ-240⑥/M66：通用形态读写（图布局持久化 layout_json 等；不写回 spec——O-3 口径修正，存 artifact 跨端一致）
+	m.HandleFunc("PUT /api/ontologies/{id}/artifacts/{format}", s.putArtifactContent)
+	m.HandleFunc("GET /api/ontologies/{id}/artifacts/{format}/content", s.getArtifactContent)
 	m.HandleFunc("POST /api/ontologies/import", s.importOntology)
 	m.HandleFunc("POST /api/ontologies/{id}/merge/preview", s.mergePreview)
 	m.HandleFunc("POST /api/ontologies/{id}/merge/apply", s.mergeApply)
@@ -381,6 +384,46 @@ func (s *Server) artifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// putArtifactContent REQ-240⑥/M66：通用形态写入（图布局持久化 layout_json 等）。
+// 限制为派生数据形态（layout_json），不收 spec_json——spec 走 PUT /spec 校验门控路径。
+func (s *Server) putArtifactContent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	format := r.PathValue("format")
+	if format != "layout_json" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅接受 layout_json（图布局派生数据）；spec 写入走 PUT /spec 门控路径"})
+		return
+	}
+	if _, err := s.Store.GetOntology(id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if !json.Valid(body) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "layout_json 须为合法 JSON"})
+		return
+	}
+	if err := s.Store.PutArtifact(id, format, string(body), false); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "format": format, "size": len(body)})
+}
+
+// getArtifactContent REQ-240⑥/M66：通用形态读取（未存返回 404，前端静默降级默认布局）。
+func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
+	content, _, err := s.Store.GetArtifact(r.PathValue("id"), r.PathValue("format"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write([]byte(content))
 }
 
 // ---- 导入 / 导出 ----
