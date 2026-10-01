@@ -48,6 +48,9 @@
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
 
+- **REQ-240 M66 前端优化第三批三项交付（2026-10-01，开发者指令：①智能体侧板「智能体配置」简化——除基本外所有配置页迁移到与配置同一级不重复②项目侧板智能体相关配置提级同级+本体目录提示精简③本体页面两级侧栏减宽仍默认展开；headless 13/13 smoke/req240fe3/）**：①**智能体侧板入口扁平化**——「智能体配置」视图只留「基本」页签（模型/连接器/对外服务页签与 M49 既有独立入口重复退役），**Context/Harness/Loop/Graph/能力五层自配置页签提级 activity bar 同平级入口**（PanelView 6→11，REQ-219 五层视角呈现位从页签升入口；竖条 overflow-y；存量 PANEL_VIEW_KEY 值全兼容），各入口=AgentConfigForm 单页签视图（visibleTabs 机制复用）；②**项目侧板**——智能体协作配置（协作模式/工作流模式/成员智能体）自「配置」视图拆出**独立「智能体协作」入口**（新 CollabView：独立状态+独立保存走同 API 全量合并字段，配置视图无协作段不重复）+本地目录「绑定即授权」长提示精简为一句（「越界强制防护，调用可审计；仅绑定可信目录」）+extra 缩短；③**本体两级侧栏减宽**——全站 SIDEBAR_WIDTH 默认 280→240（min 220→200）+资产列表栏 220→200，仍默认展开（用户拖宽记忆优先）。03 侧无语义变更；02 v0.165/17 v0.55（布局基线补侧板扁平化/主题）/20 v1.94（S4.42）synced。
+
+
 - **REQ-240 M66 前端优化第二批六项交付（2026-10-01，开发者追加：①全站侧边栏统一可收缩②本体资产右侧编辑面板可收缩③三维视图框默认宽度超限④详情区边距⑤图标透明加固⑥明暗主题切换；headless 12/12 smoke/req240fe2/）**：①**全站侧栏统一收缩**——共享 `lib/sidebar.tsx`（useSidebarCollapse/CollapsedRail/SidebarCollapseButton）接入知识库/技能/设置/平台知识四页（side-head 收起钮→48px 图标列，localStorage 记忆；Splitter panel 经 **:has** 兜底收窄 48px），本体模块两栏上批已先行；②**GraphEditor 编辑面板收起**——Splitter 第二面板条件渲染，收起画布全宽+浮钮展开；③**3D 宽度超限修复**——根因=initSize 未测量时 ForceGraph3D 以 width=undefined 回落全窗宽且 width prop 热更不可靠，改**两阶段渲染**（首测完成前只渲染测量壳不挂 3D），真机画布 687px=容器精确贴合零溢出；④`.content-panel` padding 14/18px；⑤图标对比度加固（.ant-btn-text .anticon 固定 --c-ink-2）；⑥**明暗主题**（最大件）——`lib/theme.ts`：html[data-theme] 自研 token 覆盖（styles.css dark 块+本体容器 token 化）+AntD **darkAlgorithm** 双轨（main ThemedApp 监听）+TopNav 设置钮左侧 Sun/Moon 切换（localStorage eino.theme+首装跟随系统偏好）+Graph3D dark3d 联动全局主题；**诚实边界**：CodeMirror/ReactFlow 等第三方编辑器画布主题暂不跟随（后续小轮）。03 v0.81/02 v0.164/18 v2.29/20 v1.93（S4.41）/03_资产.md synced。
 
 

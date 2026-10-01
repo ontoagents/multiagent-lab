@@ -7,8 +7,8 @@
 /** 模块左栏宽度（Splitter 左面板）：七页共用同一 key/默认/边界——「全站左栏同宽」为产品意图 */
 export const SIDEBAR_WIDTH = {
   storageKey: 'eino.sidebar.width',
-  default: 280,
-  min: 220,
+  default: 240, // REQ-240 前端优化③：默认 280→240（本体两级侧栏减宽，仍默认展开；用户拖宽记忆优先）
+  min: 200,
   max: 480,
 } as const
 

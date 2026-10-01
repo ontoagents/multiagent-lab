@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Badge, Breadcrumb, Button, Card, Checkbox, Collapse, Divider, Empty, Form, FormInstance, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd'
 import {
   ApiOutlined,
+  ApartmentOutlined,
   CloudOutlined,
+  DatabaseOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
   ClusterOutlined,
@@ -14,6 +16,9 @@ import {
   ReloadOutlined,
   SettingOutlined,
   ShareAltOutlined,
+  AppstoreOutlined,
+  SyncOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
@@ -42,6 +47,35 @@ const MIN_PANEL_WIDTH = 320
 const MAX_PANEL_WIDTH = 720
 // REQ-21705/M48: activity bar shu-tiao width (collapsed rail)
 const PANEL_BAR_WIDTH = 44
+
+/** REQ-240 前端优化①（开发者指令「除基本之外的所有配置页迁移到与智能体配置同一级，不要重复」）：
+ *  「智能体配置」视图只留「基本」页签；模型/连接器/对外服务已有独立入口（去重复），
+ *  Context/Harness/Loop/Graph/能力五层自配置页签提级为同平级入口（REQ-219 五层视角保持，
+ *  呈现位从页签升 activity bar 入口）。 */
+export type PanelView =
+  | 'config'
+  | 'model'
+  | 'context'
+  | 'harness'
+  | 'loop'
+  | 'graph'
+  | 'ability'
+  | 'connectors'
+  | 'serve'
+  | 'files'
+  | 'companion'
+
+const AGENT_FORM_VIEWS: PanelView[] = [
+  'config',
+  'model',
+  'context',
+  'harness',
+  'loop',
+  'graph',
+  'ability',
+  'connectors',
+  'serve',
+]
 
 /** REQ-214/M46：连接器类型徽标（产品层只呈现「连接器」，MCP 为交付驱动之一） */
 const CONNECTOR_KINDS: { value: Connector['kind']; label: string; color: string }[] = [
@@ -83,7 +117,6 @@ export default function AgentSidePanel({
   // 伴生本体（模型/连接器/对外服务自配置视图页签提级；文件为 REQ-218④ work_dir 浏览视图）。
   // REQ-217⑤/M48：侧板默认收缩为一竖行按钮常驻右侧——点击按钮展开内容、再点同一按钮收起；
   // 宽度记忆保留（展开时生效）。
-  type PanelView = 'config' | 'model' | 'connectors' | 'serve' | 'files' | 'companion'
   const [view, setView] = useState<PanelView>(() => {
     const saved = localStorage.getItem(PANEL_VIEW_KEY) as PanelView | null
     if (saved === 'companion' && agent.is_builtin) return 'config'
@@ -160,7 +193,7 @@ export default function AgentSidePanel({
           onDoubleClick={() => { setPanelWidth(DEFAULT_PANEL_WIDTH); localStorage.setItem(PANEL_WIDTH_KEY, String(DEFAULT_PANEL_WIDTH)) }}
         />
       )}
-      <div className="proj-panel-bar" role="tablist" aria-label="智能体侧边栏视图">
+      <div className="proj-panel-bar" role="tablist" aria-label="智能体侧边栏视图" style={{ overflowY: 'auto' }}>
         {/* REQ-218①/M49 六入口平级 + REQ-217⑤/M48 再点收起（竖条态常驻默认） */}
         <Tooltip title="智能体配置" placement="left">
           <button
@@ -184,6 +217,66 @@ export default function AgentSidePanel({
             onClick={() => switchView('model')}
           >
             <CloudOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="上下文（Context）" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'context' && !collapsed ? ' active' : ''}`}
+            aria-label="上下文"
+            aria-selected={view === 'context' && !collapsed}
+            role="tab"
+            onClick={() => switchView('context')}
+          >
+            <DatabaseOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="Harness（执行治理）" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'harness' && !collapsed ? ' active' : ''}`}
+            aria-label="Harness"
+            aria-selected={view === 'harness' && !collapsed}
+            role="tab"
+            onClick={() => switchView('harness')}
+          >
+            <ToolOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="Loop（长任务）" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'loop' && !collapsed ? ' active' : ''}`}
+            aria-label="Loop"
+            aria-selected={view === 'loop' && !collapsed}
+            role="tab"
+            onClick={() => switchView('loop')}
+          >
+            <SyncOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="Graph（编排）" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'graph' && !collapsed ? ' active' : ''}`}
+            aria-label="Graph"
+            aria-selected={view === 'graph' && !collapsed}
+            role="tab"
+            onClick={() => switchView('graph')}
+          >
+            <ApartmentOutlined />
+          </button>
+        </Tooltip>
+        <Tooltip title="能力（技能/工具）" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'ability' && !collapsed ? ' active' : ''}`}
+            aria-label="能力"
+            aria-selected={view === 'ability' && !collapsed}
+            role="tab"
+            onClick={() => switchView('ability')}
+          >
+            <AppstoreOutlined />
           </button>
         </Tooltip>
         <Tooltip title="连接器" placement="left">
@@ -270,11 +363,11 @@ export default function AgentSidePanel({
         <div className="proj-panel-view">
           {view === 'companion' && <AgentCompanionView agent={agent} onChanged={onChanged} />}
           {view === 'files' && <AgentFilesView agent={agent} onChanged={onChanged} />}
-          {(view === 'config' || view === 'model' || view === 'connectors' || view === 'serve') && (
+          {AGENT_FORM_VIEWS.includes(view) && (
             <AgentConfigForm
               agent={agent}
               onChanged={onChanged}
-              visibleTabs={view === 'config' ? undefined : [view === 'model' ? 'model' : view]}
+              visibleTabs={view === 'config' ? ['basic'] : [view === 'model' ? 'model' : view]}
             />
           )}
         </div>

@@ -12,6 +12,7 @@ import {
   LeftOutlined,
   ReloadOutlined,
   SettingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
@@ -19,7 +20,7 @@ import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWork
 import DirCheckResult from './DirCheckResult'
 import { useUI } from '../store/ui'
 
-export type PanelView = 'files' | 'git' | 'config'
+export type PanelView = 'files' | 'git' | 'config' | 'collab'
 
 /** 侧边栏小节标题（左对齐小标题；窄面板收紧边距） */
 function Section({ children, first }: { children: ReactNode; first?: boolean }) {
@@ -192,6 +193,19 @@ export default function ProjectSidePanel({
             <BranchesOutlined />
           </button>
         </Tooltip>
+        {/* REQ-240 前端优化②：智能体协作配置自「配置」视图提出，与配置同级 */}
+        <Tooltip title="智能体协作" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'collab' && !collapsed ? ' active' : ''}`}
+            aria-label="智能体协作"
+            aria-selected={view === 'collab' && !collapsed}
+            role="tab"
+            onClick={() => switchView('collab')}
+          >
+            <TeamOutlined />
+          </button>
+        </Tooltip>
         <Tooltip title="配置视图" placement="left">
           <button
             type="button"
@@ -229,7 +243,8 @@ export default function ProjectSidePanel({
         <div className="proj-panel-view">
           {view === 'files' && <FilesView project={project} onOpenConfig={() => onViewChange('config')} />}
           {view === 'git' && <GitView project={project} />}
-          {view === 'config' && <ConfigView project={project} agents={agents} onChanged={onChanged} />}
+          {view === 'config' && <ConfigView project={project} onChanged={onChanged} />}
+          {view === 'collab' && <CollabView project={project} agents={agents} onChanged={onChanged} />}
         </div>
       )}
     </aside>
@@ -661,7 +676,7 @@ function GitView({ project }: { project: Project }) {
 // 配置视图（REQ-103：原 ProjectModal 编辑表单迁入；仅承载容器变化，字段/校验/提交不变）
 // ---------------------------------------------------------------------------
 
-function ConfigView({ project, agents, onChanged }: { project: Project; agents: Agent[]; onChanged?: () => void }) {
+function ConfigView({ project, onChanged }: { project: Project; onChanged?: () => void }) {
   const { showToast, bumpData } = useUI()
   const [form] = Form.useForm()
   const constraintsValue = Form.useWatch('constraints', form) ?? ''
@@ -769,11 +784,11 @@ function ConfigView({ project, agents, onChanged }: { project: Project; agents: 
           showIcon
           style={{ marginBottom: 8 }}
           title="绑定即授权"
-          description="保存后，项目对话中的智能体即获得该目录范围内的文件读写权限（list_files / read_file / save_file + Git 只读展示）；路径越界由系统强制防护（无法访问目录之外）。请仅绑定可信目录；每次工具调用在对话时间线可审计。"
+          description="绑定后项目智能体获得该目录内的文件读写权限（越界强制防护，调用可审计）；请仅绑定可信目录。"
         />
         <Form.Item
           label="本地目录"
-          extra="支持 Windows 盘符路径（C:\Users\…）与 POSIX 路径；绑定后，对话生成的文档（save_file）与文件列表将落在该目录。"
+          extra="支持 Windows 盘符与 POSIX 路径。"
         >
           <Space.Compact style={{ width: '100%' }}>
             <Form.Item name="local_dir" noStyle>
@@ -798,49 +813,6 @@ function ConfigView({ project, agents, onChanged }: { project: Project; agents: 
           </div>
         )}
 
-        <Section>协作模式</Section>
-        <Form.Item name="collab_mode" label="协作模式（M4 生效）">
-          <Select options={COLLAB_OPTIONS} />
-        </Form.Item>
-        <Form.Item name="workflow_mode" label="工作流模式（M4 生效）">
-          <Select options={WORKFLOW_OPTIONS} />
-        </Form.Item>
-
-        <Section>成员智能体</Section>
-        <div className="member-block">
-          <div className="member-hint">项目会话由主智能体调度（M4 生效）；勾选成员并指定主智能体。</div>
-          {agents.length === 0 && <div className="empty-hint">还没有智能体，请先到「智能体」页创建</div>}
-          {agents.map((a) => (
-            <div key={a.id} className="member-row">
-              <Checkbox
-                checked={!!selected[a.id]}
-                onChange={(e) =>
-                  setSelected((s) => {
-                    const next = { ...s }
-                    if (e.target.checked) next[a.id] = 'member'
-                    else delete next[a.id]
-                    return next
-                  })
-                }
-              >
-                {a.name}
-              </Checkbox>
-              {selected[a.id] && (
-                <Select
-                  size="small"
-                  style={{ width: 120 }}
-                  value={selected[a.id]}
-                  onChange={(role) => setSelected((s) => ({ ...s, [a.id]: role }))}
-                  options={[
-                    { value: 'member', label: '成员' },
-                    { value: 'coordinator', label: '主智能体' },
-                  ]}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
         <Section>项目级约束</Section>
         <Form.Item name="constraints" label={<Space size={6}>项目级约束（统一注入成员提示词，P1）<AIOptimizeButton kind="project_constraints" value={constraintsValue} onApply={(v) => form.setFieldValue('constraints', v)} /></Space>}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
@@ -864,6 +836,94 @@ function ConfigView({ project, agents, onChanged }: { project: Project; agents: 
           </Button>
         </Popconfirm>
       </div>
+    </div>
+  )
+}
+
+
+// REQ-240 前端优化②：智能体协作配置视图（协作模式/工作流/成员智能体自「配置」提出为同级入口；
+// 保存走 updateProject + setProjectAgents——与配置视图同 API，字段从 project 合并避免覆盖其他配置）。
+function CollabView({ project, agents, onChanged }: { project: Project; agents: Agent[]; onChanged?: () => void }) {
+  const { showToast, bumpData } = useUI()
+  const [collabMode, setCollabMode] = useState(project.collab_mode ?? 'agent_as_tool')
+  const [workflowMode, setWorkflowMode] = useState(project.workflow_mode ?? 'free')
+  const [selected, setSelected] = useState<Record<string, 'coordinator' | 'member'>>(() => initMembers(project))
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    setCollabMode(project.collab_mode ?? 'agent_as_tool')
+    setWorkflowMode(project.workflow_mode ?? 'free')
+    setSelected(initMembers(project))
+  }, [project.id])
+  const save = async () => {
+    const members = Object.entries(selected).map(([agent_id, role]) => ({ agent_id, role }))
+    setSaving(true)
+    try {
+      await api.updateProject(project.id, {
+        name: project.name,
+        description: project.description,
+        collab_mode: collabMode,
+        workflow_mode: workflowMode,
+        constraints: project.constraints,
+        local_dir: project.local_dir ?? '',
+      })
+      await api.setProjectAgents(project.id, members)
+      showToast('已保存')
+      bumpData()
+      onChanged?.()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="proj-view-body">
+      <Section first>协作模式</Section>
+      <div className="member-hint" style={{ marginBottom: 8 }}>项目会话由主智能体调度（M4 生效）。</div>
+      <Form layout="vertical" requiredMark={false} size="small">
+        <Form.Item label="协作模式">
+          <Select value={collabMode} options={COLLAB_OPTIONS} onChange={setCollabMode} />
+        </Form.Item>
+        <Form.Item label="工作流模式">
+          <Select value={workflowMode} options={WORKFLOW_OPTIONS} onChange={setWorkflowMode} />
+        </Form.Item>
+      </Form>
+      <Section>成员智能体</Section>
+      <div className="member-block">
+        <div className="member-hint">勾选参与项目的成员并指定主智能体。</div>
+        {agents.length === 0 && <div className="empty-hint">还没有智能体，请先到「智能体」页创建</div>}
+        {agents.map((a) => (
+          <div key={a.id} className="member-row">
+            <Checkbox
+              checked={!!selected[a.id]}
+              onChange={(e) =>
+                setSelected((s) => {
+                  const next = { ...s }
+                  if (e.target.checked) next[a.id] = 'member'
+                  else delete next[a.id]
+                  return next
+                })
+              }
+            >
+              {a.name}
+            </Checkbox>
+            {selected[a.id] && (
+              <Select
+                size="small"
+                value={selected[a.id]}
+                onChange={(v) => setSelected((s) => ({ ...s, [a.id]: v as 'coordinator' | 'member' }))}
+                options={[
+                  { value: 'member', label: '成员' },
+                  { value: 'coordinator', label: '主智能体' },
+                ]}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <Button type="primary" size="small" block loading={saving} style={{ marginTop: 12 }} onClick={save}>
+        保存协作配置
+      </Button>
     </div>
   )
 }

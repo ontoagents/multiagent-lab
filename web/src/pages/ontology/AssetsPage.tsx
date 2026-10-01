@@ -519,7 +519,7 @@ export default function AssetsPage() {
 
   return (
     <Splitter className="main sidebar-splitter">
-      <Splitter.Panel defaultSize={Number(localStorage.getItem('eino.assets.width')) || 220} min={180} max={420} className="sidebar-panel">
+      <Splitter.Panel defaultSize={Number(localStorage.getItem('eino.assets.width')) || 200} min={180} max={420} className="sidebar-panel">
         {listAside(false)}
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">{renderBody()}</Splitter.Panel>
