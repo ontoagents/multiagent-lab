@@ -23,7 +23,7 @@ export default defineConfig({
   plugins: [react(), stripIEHacks()],
   base: process.env.WEBSITE_BASE ?? '/multiagent-lab/',
   define: {
-    __REPO_SLUG__: JSON.stringify(process.env.WEBSITE_REPO_SLUG ?? 'AgentLearningPlatform/multiagent-lab'),
+    __REPO_SLUG__: JSON.stringify(process.env.WEBSITE_REPO_SLUG ?? 'ontoagents/multiagent-lab'),
   },
   server: {
     port: 5174,
