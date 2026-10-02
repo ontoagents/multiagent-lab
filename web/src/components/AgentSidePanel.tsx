@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Badge, Breadcrumb, Button, Card, Checkbox, Collapse, Divider, Empty, Form, FormInstance, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd'
 import {
   ApiOutlined,
-  ApartmentOutlined,
   CloudOutlined,
   DatabaseOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
   ClusterOutlined,
-  BranchesOutlined,
   CopyOutlined,
   ExportOutlined,
   FileOutlined,
@@ -50,15 +48,18 @@ const PANEL_BAR_WIDTH = 44
 
 /** REQ-240 前端优化①（开发者指令「除基本之外的所有配置页迁移到与智能体配置同一级，不要重复」）：
  *  「智能体配置」视图只留「基本」页签；模型/连接器/对外服务已有独立入口（去重复），
- *  Context/Harness/Loop/Graph/能力五层自配置页签提级为同平级入口（REQ-219 五层视角保持，
- *  呈现位从页签升 activity bar 入口）。 */
+ *  Context/Harness/Loop/能力自配置页签提级为同平级入口（REQ-219 分层视角保持，
+ *  呈现位从页签升 activity bar 入口）。
+ *  REQ-251 布局精简：Graph 入口退役（原纯说明文字零配置项的诚实占位——编排配置在项目侧板
+ *  「智能体协作」视图，REQ-205 编排落地时再入）；activity bar 按职责重排 =
+ *  身份(config)→模型(model)→执行三层(context/harness/loop)→能力(ability/connectors)→
+ *  资产(files/companion)→对外(serve)。 */
 export type PanelView =
   | 'config'
   | 'model'
   | 'context'
   | 'harness'
   | 'loop'
-  | 'graph'
   | 'ability'
   | 'connectors'
   | 'serve'
@@ -71,7 +72,6 @@ const AGENT_FORM_VIEWS: PanelView[] = [
   'context',
   'harness',
   'loop',
-  'graph',
   'ability',
   'connectors',
   'serve',
@@ -87,11 +87,12 @@ const kindMeta = (k: string) => CONNECTOR_KINDS.find((x) => x.value === k) ?? CO
 
 /**
  * 智能体右侧侧边栏（REQ-103 统一范式 + REQ-132 四分类改版 / M18；REQ-193/M33 双入口）：
- * activity bar（~44px）双入口——「配置」（AgentConfigForm 八页签：基本/模型与参数/Context/
- * Harness/Loop/Graph/能力/对外服务——REQ-219/M50 五层视角落侧板：Context/Harness/Loop/Graph
- * 四层与「模型与参数」（Model 层）并列成栏，「配置聚合呈现≠层职责混淆」；REQ-218/M49 提级
- * activity bar 时本页签区随迁）与「伴生本体」（AgentCompanionView：伴生配置/伴生管理两页）
- * 同级切换（REQ-193 伴生自页签上提一级；选中记忆 localStorage eino.agentpanel.view）。
+ * activity bar（~44px）平级入口——「配置（基本身份）」「模型」「Context」「Harness」「Loop」
+ * 「能力」「连接器」「对外服务」八表单视图（REQ-219/M50 五层视角落侧板 + REQ-240① 提级；
+ * REQ-251 推理后端自「基本」迁「模型」视图对齐五层 Model=inference 归属）+「文件」
+ * （REQ-218④ work_dir 浏览）与「伴生本体」（REQ-193 伴生配置/伴生管理两页）。
+ * REQ-251 退役：Graph 入口（纯说明占位，编排配置在项目侧板协作视图）、Git 禁用占位
+ * （与项目 Git 视图重复，智能体级 Git 未立项）。
  * 页签面板 forceRender（跨页签字段同表单提交）；字段/校验/提交 API 不变，仅承载重组。
  */
 const PANEL_VIEW_KEY = 'eino.agentpanel.view'
@@ -118,9 +119,11 @@ export default function AgentSidePanel({
   // REQ-217⑤/M48：侧板默认收缩为一竖行按钮常驻右侧——点击按钮展开内容、再点同一按钮收起；
   // 宽度记忆保留（展开时生效）。
   const [view, setView] = useState<PanelView>(() => {
-    const saved = localStorage.getItem(PANEL_VIEW_KEY) as PanelView | null
+    const saved = localStorage.getItem(PANEL_VIEW_KEY)
+    // REQ-213/251：内置行无伴生入口；'graph' 已退役（存量记忆回退配置视图）
     if (saved === 'companion' && agent.is_builtin) return 'config'
-    return saved ?? 'config'
+    if (saved === 'graph') return 'config'
+    return (saved as PanelView) ?? 'config'
   })
   const [collapsed, setCollapsed] = useState(true) // 默认竖条态（REQ-217⑤「默认收缩」）
   // REQ-237：常驻挂载后 open=展开态权威（头部收放按钮/竖条入口双向同步）
@@ -255,18 +258,6 @@ export default function AgentSidePanel({
             <SyncOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="Graph（编排）" placement="left">
-          <button
-            type="button"
-            className={`proj-bar-btn${view === 'graph' && !collapsed ? ' active' : ''}`}
-            aria-label="Graph"
-            aria-selected={view === 'graph' && !collapsed}
-            role="tab"
-            onClick={() => switchView('graph')}
-          >
-            <ApartmentOutlined />
-          </button>
-        </Tooltip>
         <Tooltip title="能力（技能/工具）" placement="left">
           <button
             type="button"
@@ -289,20 +280,6 @@ export default function AgentSidePanel({
             onClick={() => switchView('connectors')}
           >
             <ApiOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="对外服务" placement="left">
-          <button
-            type="button"
-            className={`proj-bar-btn${view === 'serve' && !collapsed ? ' active' : ''}`}
-            aria-label="对外服务"
-            aria-selected={view === 'serve' && !collapsed}
-            role="tab"
-            // REQ-213：内置行不开放对外服务（mcp_serve 锁死）
-            hidden={!!agent.is_builtin}
-            onClick={() => switchView('serve')}
-          >
-            <ShareAltOutlined />
           </button>
         </Tooltip>
         <Tooltip title="文件" placement="left">
@@ -333,11 +310,21 @@ export default function AgentSidePanel({
             </button>
           </Badge>
         </Tooltip>
-        <Tooltip title="Git 视图（后续扩展）" placement="left">
-          <button type="button" className="proj-bar-btn" aria-label="Git 视图（后续扩展）" disabled>
-            <BranchesOutlined />
+        <Tooltip title="对外服务" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'serve' && !collapsed ? ' active' : ''}`}
+            aria-label="对外服务"
+            aria-selected={view === 'serve' && !collapsed}
+            role="tab"
+            // REQ-213：内置行不开放对外服务（mcp_serve 锁死）
+            hidden={!!agent.is_builtin}
+            onClick={() => switchView('serve')}
+          >
+            <ShareAltOutlined />
           </button>
         </Tooltip>
+        {/* REQ-251：Git 禁用占位退役——与项目侧板 Git 视图重复，智能体级 Git 未立项（REQ-218「占位保留」口径随之变更） */}
         <span className="proj-bar-spacer" />
         {/* REQ-237：竖条常驻后无「关闭」态——展开/收起即开合（原「关闭侧边栏」按钮退役，与收起语义重复） */}
         <Tooltip title={collapsed ? '展开侧边栏' : '收起为竖条'} placement="left">
@@ -622,6 +609,9 @@ function companionOntologyNameOf(agent: Agent): string {
   return `${agent.name || '未命名智能体'}的伴生本体`
 }
 
+/** 文件大小展示（REQ-251 与项目文件视图 .proj-entry-size 同口径） */
+const fmtAgentSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${(n / 1024).toFixed(1)}KB`)
+
 /**
  * REQ-219 顺修：普通 agent PUT 为 full-replace（store.UpdateAgent 全字段写入，空值也落库），
  * 载荷必须全字段构造——表单值 + 非本表单字段按 agent 现值透传防清零（REQ-189/213 模式）。
@@ -849,27 +839,7 @@ function AgentConfigForm({
                   <Form.Item name="instruction" label={<Space size={6}>系统提示词（Instruction）<AIOptimizeButton kind="agent_instruction" value={instructionValue} onApply={(v) => form.setFieldValue('instruction', v)} /></Space>}>
                     <Input.TextArea autoSize={{ minRows: 6, maxRows: 14 }} placeholder="定义角色、能力边界、回答风格…" />
                   </Form.Item>
-                  {sec('推理后端（谁来推理）——「在哪儿跑」迁 Harness 页签（REQ-219 分层归位）')}
-                  <Form.Item
-                    name="inference_backend"
-                    label="推理后端"
-                    extra={isBuiltin ? '内置助手固定 eino-adk 自研后端' : '「在哪儿跑」由运行后端决定，「谁来推理」由此决定：eino-adk 为平台自研（完整能力）；外部 CLI 后端模型由其自身配置决定（Agent 模型连接不生效），技能/MCP 降级为提示注入，不支持多 Agent 编排'}
-                  >
-                    <Select
-                      disabled={isBuiltin}
-                      options={inferenceBackendOptions(backends)}
-                      showSearch
-                      optionFilterProp="label"
-                      placeholder="eino-adk（自研默认）"
-                    />
-                  </Form.Item>
-                  <Form.Item
-                    name="logo_url"
-                    label="自定义后端 Logo URL（REQ-137）"
-                    extra={isBuiltin ? '内置助手不可自定义' : '推理后端为自定义/外部部署（非内置）时，会话列表与对话界面将展示此图标；未配置回退默认图标'}
-                  >
-                    <Input placeholder="https://…/logo.png" allowClear disabled={isBuiltin} />
-                  </Form.Item>
+                  {/* REQ-251：推理后端与 Logo 迁「模型」视图（五层 Model=inference 归属；「在哪儿跑」在 Harness） */}
                 </>
               ),
             },
@@ -910,6 +880,28 @@ function AgentConfigForm({
                     <InputNumber min={1} style={{ width: '100%' }} placeholder="默认" />
                   </Form.Item>
                   {/* REQ-219：context_mode 迁 Context 层页签（配置聚合呈现，层职责仍归 Context） */}
+                  {/* REQ-251：推理后端自「基本」迁入（五层 Model=inference 归属；「在哪儿跑」在 Harness） */}
+                  {sec('推理后端（谁来推理）')}
+                  <Form.Item
+                    name="inference_backend"
+                    label="推理后端"
+                    extra={isBuiltin ? '内置助手固定 eino-adk 自研后端' : '「谁来推理」由此决定，「在哪儿跑」由 Harness 运行后端决定：eino-adk 为平台自研（完整能力）；外部 CLI 后端模型由其自身配置决定（Agent 模型连接不生效），技能/MCP 降级为提示注入，不支持多 Agent 编排'}
+                  >
+                    <Select
+                      disabled={isBuiltin}
+                      options={inferenceBackendOptions(backends)}
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="eino-adk（自研默认）"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="logo_url"
+                    label="自定义后端 Logo URL（REQ-137）"
+                    extra={isBuiltin ? '内置助手不可自定义' : '推理后端为自定义/外部部署（非内置）时，会话列表与对话界面将展示此图标；未配置回退默认图标'}
+                  >
+                    <Input placeholder="https://…/logo.png" allowClear disabled={isBuiltin} />
+                  </Form.Item>
                 </>
               ),
             },
@@ -1036,7 +1028,7 @@ function AgentConfigForm({
                   >
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
                   </Form.Item>
-                  <ToolPreviewCard agentId={agent.id} approval={Form.useWatch('tool_approval', form) ?? ''} notes={previewNotes} />
+                  <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} />
                   {sec('防护 hooks（进程内确定性层，只读——清单来自后端 /api/hooks）')}
                   <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
                     {hooksInfo.length > 0
@@ -1068,23 +1060,8 @@ function AgentConfigForm({
                 </>
               ),
             },
-            {
-              key: 'graph',
-              label: 'Graph',
-              forceRender: true,
-              children: (
-                <>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 0 }}>
-                    Graph 协作层（REQ-219 分层呈现）——多智能体编排与工作流，五层视角的第五层。当前智能体级暂无配置项（诚实占位）。
-                  </Typography.Paragraph>
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                    · 成员协作：多智能体团队（成员/协调者/collab_mode/workflow_mode）在「项目」侧板配置；
-                    <br />· 子智能体委派：成员经装配期 agent_as_tool / transfer_to_agent 并入（项目会话生效）；
-                    <br />· 工作流编排（REQ-205/M40）：触发驱动待领取——出现真实编排诉求后在此层落地。
-                  </Typography.Text>
-                </>
-              ),
-            },
+            // REQ-251：Graph 页签退役（纯说明占位零配置项）——编排配置在项目侧板「智能体协作」视图，
+            // 委派机制说明随迁；REQ-205 工作流编排落地时再立 Graph 配置入口（五层视角文档口径不变）
             {
               key: 'ability',
               label: '能力',
@@ -1536,7 +1513,7 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
           </Button>
         </Space.Compact>
         <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-          也可在 Harness 页签填写 work_dir；后端以 fsutil.SafeJoin 限制浏览与文件工具不越出该目录。
+          也可在 Harness 视图填写工作目录；后端以 fsutil.SafeJoin 限制浏览与文件工具不越出该目录。
         </Typography.Text>
       </div>
     )
@@ -1569,22 +1546,23 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
         listing.entries.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="目录为空" />
         ) : (
-          <ul className="agent-files" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {listing.entries.map((e) => (
-              <li
-                key={e.name}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 6, cursor: 'pointer' }}
-                onClick={() => (e.is_dir ? setPath(path ? `${path}/${e.name}` : e.name) : openFile(e.name))}
-              >
-                {e.is_dir ? <FolderOutlined style={{ color: 'var(--c-ink-2)' }} /> : <FileOutlined style={{ color: 'var(--c-ink-2)' }} />}
-                <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</span>
-                {!e.is_dir && (
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    {e.size > 1024 * 1024 ? `${(e.size / 1024 / 1024).toFixed(1)}MB` : `${(e.size / 1024).toFixed(1)}KB`}
-                  </Typography.Text>
-                )}
-              </li>
-            ))}
+          // REQ-251：列表样式与项目文件视图归一（.proj-entries 体系，目录优先排序同语义），裸 inline 样式退役
+          <ul className="proj-entries">
+            {[...listing.entries]
+              .sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : a.is_dir ? -1 : 1))
+              .map((e) => (
+                <li
+                  key={e.name}
+                  className="proj-entry"
+                  onClick={() => (e.is_dir ? setPath(path ? `${path}/${e.name}` : e.name) : openFile(e.name))}
+                >
+                  <span className="proj-entry-icon">{e.is_dir ? <FolderOutlined /> : <FileOutlined />}</span>
+                  <span className="proj-entry-name" title={e.name}>
+                    {e.name}
+                  </span>
+                  {!e.is_dir && <span className="proj-entry-size">{fmtAgentSize(e.size)}</span>}
+                </li>
+              ))}
           </ul>
         )
       ) : null}
@@ -1604,26 +1582,17 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
 // REQ-231⑤（51 号 W3）：运行时工具预览卡——「这个智能体运行时实际会拿到哪些工具」
 // 的确定性呈现（后端四源合并结果+遮蔽告警；治 P-H4 仅 debug 快照可见）。危险工具
 // 高亮 + 审批策略摘要（与 /api/hooks 卡同面板）。
+// REQ-251：不再自行拉取 agentToolPreview（表单 useEffect 已拉，透传防双请求）。
 // ---------------------------------------------------------------------------
-function ToolPreviewCard({ agentId, approval, notes: notesProp }: { agentId: string; approval: string; notes?: string[] }) {
-  const [tools, setTools] = useState<{ name: string; source: string }[]>([])
-  const [danger, setDanger] = useState<string[]>([])
-  const [notes, setNotes] = useState<string[]>(notesProp ?? [])
-  const [err, setErr] = useState<string | null>(null)
-  useEffect(() => {
-    api
-      .agentToolPreview(agentId)
-      .then((r) => {
-        setTools(r.tools ?? [])
-        setNotes(r.notes ?? [])
-        // danger 清单由后端审批策略口径推导（同 IsDangerousTool）——前端按 source 近似标注：
-        // builtin 写类 + 非 ontology/oo 连接器前缀
-        const builtinDanger = ['write_file', 'save_file', 'todo_write', 'http_fetch']
-        setDanger((r.tools ?? []).filter((t) => builtinDanger.includes(t.name) || (t.name.includes('__') && !t.name.startsWith('ontology__') && !t.name.startsWith('oo__'))).map((t) => t.name))
-      })
-      .catch((e: any) => setErr(e?.message ?? '预览加载失败'))
-  }, [agentId])
-  if (err) return <Typography.Text type="secondary" style={{ fontSize: 11 }}>工具预览不可用：{err}</Typography.Text>
+function ToolPreviewCard({ approval, tools, notes }: { approval: string; tools: { name: string; source: string }[]; notes?: string[] }) {
+  // danger 清单由后端审批策略口径推导（同 IsDangerousTool）——前端按 source 近似标注：
+  // builtin 写类 + 非 ontology/oo 连接器前缀
+  const danger = useMemo(() => {
+    const builtinDanger = ['write_file', 'save_file', 'todo_write', 'http_fetch']
+    return tools
+      .filter((t) => builtinDanger.includes(t.name) || (t.name.includes('__') && !t.name.startsWith('ontology__') && !t.name.startsWith('oo__')))
+      .map((t) => t.name)
+  }, [tools])
   return (
     <div style={{ border: '1px solid var(--ant-color-border, #ddd)', borderRadius: 6, padding: '8px 10px', marginBottom: 10 }}>
       <Typography.Text strong style={{ fontSize: 12 }}>运行时工具预览（{tools.length}）</Typography.Text>
@@ -1637,9 +1606,9 @@ function ToolPreviewCard({ agentId, approval, notes: notesProp }: { agentId: str
           </Tooltip>
         ))}
       </div>
-      {notes.length > 0 && (
+      {(notes ?? []).length > 0 && (
         <Typography.Text type="secondary" style={{ fontSize: 10.5, display: 'block', marginTop: 6 }}>
-          {notes.join('；')}
+          {notes!.join('；')}
         </Typography.Text>
       )}
     </div>

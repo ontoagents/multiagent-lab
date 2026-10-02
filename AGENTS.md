@@ -48,6 +48,8 @@
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
 
+- **REQ-251 智能体/项目侧板布局精简与顺序优化已交付（2026-10-02，开发者指令「梳理智能体和项目右侧边栏的功能和产品设计，调整优化界面布局，去掉重复的，合理调整布局顺序等」；REQ-240①③ 侧板扁平化后的复审轮；立项即交付 M73；headless 13/13 smoke/req251/）**：**智能体侧板**——①activity bar 十入口职责重排=配置（基本身份）→模型→Context→Harness→Loop→能力→连接器→文件→伴生本体→对外服务（内置行伴生/对外服务照旧隐藏）；②Graph 占位入口退役（纯说明文字零配置项——委派机制说明并入项目侧板「智能体协作」视图，REQ-205 编排落地再入；REQ-219「Graph 并列」口径变更标注、02 §6 五层职责口径不变；存量 localStorage 'graph' 视图记忆回退配置视图）；③Git 禁用占位退役（与项目 Git 视图重复，REQ-218「占位保留」口径变更）；④推理后端+自定义 Logo URL 自「基本」迁「模型」视图（对齐五层 Model=inference 归属，基本收敛为纯身份视图）；⑤ToolPreviewCard 双拉去重（Harness 视图打开不再二次请求 tool-preview）；⑥AgentFilesView 列表样式与项目文件视图归一（.proj-entries 体系+目录优先排序）。**项目侧板**——⑦ConfigView 成员残留态退役（REQ-240② 协作迁出后遗留：配置保存仍以挂载时成员快照调 setProjectAgents 回写=陈旧覆盖隐患；成员归属协作视图）+保存改只存本视图字段（基本/目录/约束）、协作两字段按 project 现值透传防清零（后端 PUT 整行更新语义已核对 handlers_agents.go updateProject）；⑧入口文案去「视图」后缀（文件/Git/智能体协作/配置）与智能体侧板统一。01 v1.21（REQ-251 行+REQ-218/219 变更注）/02 v0.173（§12 M73+§6 五层总纲 Model/Graph 两行口径）/17 v0.56（§2.1/§4.3 定案）/14 v0.66/18 v2.37/20 v1.99（2.29 行）/56 号 Graph 域档 synced。
+
 - **本体治理审计交付（2026-10-02，52 号 E6 余项/REQ-250 治理面收口——此前挂「随 REQ-224 载荷轮」一直遗留，本轮独立小件收口；单测 4 组+真机三事件验证）**：backend 新增 `auditOntologyProxy`（handlers_ontology_audit.go）——五类治理动作精确路由压过反代前缀（PUT spec/POST import/merge apply/fork/ingest-csv），转发 2xx 后异步落 `onto_decision`（subject_kind=ontology，title=[动作] 描述，meta_json 含 method/path），失败与 502 不记（审计已生效变更）；本体删除在 deleteOntologyGuard 透传成功分支补 `[delete]` 审计；审计页 KIND_OPTIONS 的 `ontology（本体构建/版本）` 过滤为既有预留零前端改动——治理动作至此在消费与审计栏可见可过滤。真机：临时实例 spec.save/fork/delete 三事件真实落库（csv 被校验拒非 2xx 不记=正确行为）。58 号批次+52 号 A-3 至此全收官。20 v1.98（S4.46）。
 
 

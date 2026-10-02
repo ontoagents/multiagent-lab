@@ -20,7 +20,7 @@ synced: 2026-10-01
 | agent_as_tool（推荐路径） | assembler.go（adk.NewAgentTool 包装，function name=成员名） | 项目成员全量装配后包装为工具，协调者按描述路由调用；ADK 只回传末条文本（REQ-203 代码实测定案，子 Agent 结果压缩无需开发） |
 | transfer_to_agent（对照路径） | assembler.go（adk.SetSubAgents） | ADK 内建转移机制；44 号 NOT RECOMMENDED 路线，**治理定案并入 REQ-208 扩注**（迁移 agent_as_tool 或保留对照+UI 风险标注） |
 | subagent 事件 | runner.go trackAgent（EmitInternalEvents 开启） | subagent.enter/exit 按 AgentName 变化推导；轨迹面板嵌套缩进呈现（REQ-217/M48） |
-| 项目编排配置 | 项目侧板 ConfigView（collab_mode/workflow_mode/成员+协调者） | 协作模式与工作流模式的产品配置面（agent 侧板 Graph 页签=占位指引，REQ-219 诚实标注） |
+| 项目编排配置 | 项目侧板 CollabView「智能体协作」（collab_mode/workflow_mode/成员+协调者） | 协作模式与工作流模式的产品配置面（agent 侧板 Graph 入口已随 REQ-251/M73 退役——原占位指引，委派机制说明并入 CollabView；REQ-205 落地再入） |
 | workflow 引擎 | —（models.go workflow_mode 字段空壳） | **REQ-205/M40 未启动**：三值落地/图状态持久化/HITL 节点化/只读回放均待触发 |
 
 ## 二、实现现状
@@ -29,7 +29,7 @@ synced: 2026-10-01
 | --- | --- | --- | --- | --- |
 | 多成员装配（agent_as_tool+transfer 双轨） | REQ-33/124 | M5 起 | ✅（装配能力） | 多智能体项目会话 |
 | subagent 嵌套事件与轨迹呈现 | REQ-117/217 | M17/M48 | ✅ | headless |
-| Graph 页签占位指引（agent 级诚实空态） | REQ-219 | M50 | ✅ | headless 16/16 |
+| Graph 页签占位指引（agent 级诚实空态） | REQ-219 | M50 | ✅（入口已随 REQ-251/M73 退役，编排说明并入项目协作视图） | headless 16/16 |
 | 工作流编排兑现（三值/图状态/HITL/回放） | REQ-205=REQ-33 兑现 | M40 | 📋 **触发驱动**（出现真实编排诉求才启动） | — |
 | transfer 治理 + continuation 子智能体 | REQ-208 | 39 号 E2 并入 | 📋 触发驱动 | — |
 
@@ -38,7 +38,7 @@ synced: 2026-10-01
 1. **workflow_mode 空壳**——字段存在无实现（39 号体检实证）；M40 启动前 UI 配置不产生运行语义，项目侧板已按现状口径呈现。
 2. **transfer 双轨并存**——与 agent_as_tool 语义重叠，风险=编排语义不清晰；治理定案在 REQ-208 领取时执行（二选一或标注）。
 3. **agent_as_tool 同步阻塞**——子智能体调用占协调者一轮（39 号 P-3），长任务子委派体验差；LongRun（55 号 C3）落地前无解，跨层联动列 M40 设计时输入。
-4. **agent 级 Graph 配置为空**——成员/协作/工作流均在项目侧配置；agent 侧板 Graph 页签一期为占位指引（REQ-219 定案），M40 落地时再评估是否提级配置面。
+4. **agent 级 Graph 配置为空**——成员/协作/工作流均在项目侧配置；agent 侧板 Graph 入口曾为占位指引（REQ-219 定案），已随 REQ-251/M73 退役（零配置项纯说明不入 activity bar），M40 落地时再评估是否立配置入口。
 5. **子智能体上下文隔离**——成员独立装配（各自 harness/context），协调者不可见子内部过程（仅 enter/exit 事件）——防火墙语义是特性非缺陷，调试依赖成员侧轨迹。
 
 > 体检来源：39 号 P-3/A-3「编排语义弱、三岔无路标」即本档开放问题（39 号已于 2026-10-01 清理，结论归档于 00 号）。

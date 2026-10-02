@@ -169,11 +169,11 @@ export default function ProjectSidePanel({
         />
       )}
       <div className="proj-panel-bar" role="tablist" aria-label="项目侧边栏视图">
-        <Tooltip title="文件视图" placement="left">
+        <Tooltip title="文件" placement="left">
           <button
             type="button"
             className={`proj-bar-btn${view === 'files' && !collapsed ? ' active' : ''}`}
-            aria-label="文件视图"
+            aria-label="文件"
             aria-selected={view === 'files' && !collapsed}
             role="tab"
             onClick={() => switchView('files')}
@@ -181,11 +181,11 @@ export default function ProjectSidePanel({
             <FolderOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="Git 视图" placement="left">
+        <Tooltip title="Git" placement="left">
           <button
             type="button"
             className={`proj-bar-btn${view === 'git' && !collapsed ? ' active' : ''}`}
-            aria-label="Git 视图"
+            aria-label="Git"
             aria-selected={view === 'git' && !collapsed}
             role="tab"
             onClick={() => switchView('git')}
@@ -206,11 +206,11 @@ export default function ProjectSidePanel({
             <TeamOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="配置视图" placement="left">
+        <Tooltip title="配置" placement="left">
           <button
             type="button"
             className={`proj-bar-btn${view === 'config' && !collapsed ? ' active' : ''}`}
-            aria-label="配置视图"
+            aria-label="配置"
             aria-selected={view === 'config' && !collapsed}
             role="tab"
             onClick={() => switchView('config')}
@@ -680,7 +680,6 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
   const { showToast, bumpData } = useUI()
   const [form] = Form.useForm()
   const constraintsValue = Form.useWatch('constraints', form) ?? ''
-  const [selected, setSelected] = useState<Record<string, 'coordinator' | 'member'>>(() => initMembers(project))
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -693,12 +692,9 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
     form.setFieldsValue({
       name: project.name,
       description: project.description,
-      collab_mode: project.collab_mode ?? 'agent_as_tool',
-      workflow_mode: project.workflow_mode ?? 'free',
       constraints: project.constraints,
       local_dir: project.local_dir ?? '',
     })
-    setSelected(initMembers(project))
     setDirCheck(null)
   }, [project.id, form])
 
@@ -731,6 +727,9 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
     }
   }
 
+  // REQ-251：只保存本视图字段（基本信息/本地目录/项目约束）；协作模式/工作流与成员归属
+  // 「智能体协作」视图——此前残留的 setProjectAgents 会以挂载时成员快照回写（陈旧覆盖），
+  // 且 PUT 为整行更新、协作两字段不在本表单，按 project 现值透传防清零。
   const save = async () => {
     let v: any
     try {
@@ -738,11 +737,16 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
     } catch {
       return
     }
-    const members = Object.entries(selected).map(([agent_id, role]) => ({ agent_id, role }))
     setSaving(true)
     try {
-      await api.updateProject(project.id, v)
-      await api.setProjectAgents(project.id, members)
+      await api.updateProject(project.id, {
+        name: v.name,
+        description: v.description,
+        constraints: v.constraints,
+        local_dir: v.local_dir ?? '',
+        collab_mode: project.collab_mode ?? 'agent_as_tool',
+        workflow_mode: project.workflow_mode ?? 'free',
+      })
       showToast('已保存')
       bumpData()
       onChanged?.()
@@ -879,7 +883,10 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
   return (
     <div className="proj-view-body">
       <Section first>协作模式</Section>
-      <div className="member-hint" style={{ marginBottom: 8 }}>项目会话由主智能体调度（M4 生效）。</div>
+      {/* REQ-251：智能体侧板 Graph 占位说明并入此处（编排配置的真正归属地） */}
+      <div className="member-hint" style={{ marginBottom: 8 }}>
+        项目会话由主智能体调度（M4 生效）：成员经 agent_as_tool（委派为工具）或 transfer（路由移交）并入运行；工作流模式控制成员执行拓扑。
+      </div>
       <Form layout="vertical" requiredMark={false} size="small">
         <Form.Item label="协作模式">
           <Select value={collabMode} options={COLLAB_OPTIONS} onChange={setCollabMode} />
