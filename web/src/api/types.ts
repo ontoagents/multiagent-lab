@@ -292,7 +292,7 @@ export interface KnowledgeBase {
   id: string
   name: string
   description?: string
-  /** M14 D-KB4 双子模块 + REQ-241 第三类型：rag | graphrag | wiki（KB-11 起为展示页签默认；老数据缺省 = rag） */
+  /** M14 D-KB4 双子模块 + REQ-246 第三类型：rag | graphrag | wiki（KB-11 起为展示页签默认；老数据缺省 = rag） */
   mode?: 'rag' | 'graphrag' | 'wiki'
   /** KB-11（M35/D2）：检索能力开关（解除 mode 互斥；两者皆空由后端按 mode 派生） */
   kb_vector?: boolean
@@ -346,11 +346,11 @@ export interface KBHit {
   strategy?: string
   /** B1 引用溯源：excerpt 内命中区间（rune 偏移，start 含 / end 不含） */
   spans?: { start: number; end: number }[]
-  /** REQ-241：wiki 臂命中页溯源（chunk_id 解析为 doc 标题 + 序号，回答可下钻原文；非 wiki 臂为空） */
+  /** REQ-246：wiki 臂命中页溯源（chunk_id 解析为 doc 标题 + 序号，回答可下钻原文；非 wiki 臂为空） */
   sources?: { doc?: string; seq: number }[]
 }
 
-/** REQ-241（M67）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */
+/** REQ-246（M70）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */
 export interface WikiPage {
   id: string
   kb_id: string
@@ -363,7 +363,7 @@ export interface WikiPage {
   updated_at: string
 }
 
-/** REQ-241：wiki 重建结果（成本可见：实际 LLM 调用次数 / 未变更跳过数） */
+/** REQ-246：wiki 重建结果（成本可见：实际 LLM 调用次数 / 未变更跳过数） */
 export interface WikiBuildResult {
   ok: boolean
   pages: number
@@ -541,6 +541,8 @@ export interface Spec {
   concepts: SpecConcept[]
   relations: SpecRelation[]
   instances: SpecInstance[]
+  /** REQ-248/G2：能力问题（仅 spec 层，不入 TTL/校验） */
+  cq?: string[]
 }
 
 /** 校验错误（PUT spec 400 / POST validate） */
@@ -570,6 +572,8 @@ export interface AiDraftResult {
   spec: Spec
   rounds: number
   warning?: string
+  /** REQ-247/G4：草案质量报告（后端 rest.go aiDraft 透出） */
+  quality?: { score?: { overall?: number }; error_count?: number; warning_count?: number }
 }
 
 // ---- OntoChat 多轮引导（REQ-103 模式 A）----

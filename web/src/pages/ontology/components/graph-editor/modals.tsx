@@ -1,6 +1,7 @@
 import { Form, Input, Modal, Radio, Select, Tag, Typography } from 'antd'
+import { useMemo } from 'react'
 import type { FormInstance } from 'antd'
-import type { Spec } from '../../../../api/types'
+import type { Spec, SpecConcept } from '../../../../api/types'
 import { instNameOf } from './model'
 import type { ConnDraft } from './types'
 import JsonEditor from '../JsonEditor'
@@ -27,17 +28,22 @@ export function AddConceptModal({
   return (
     <Modal title="添加概念" open={open} centered okText="添加" cancelText="取消" onOk={onOk} onCancel={onCancel} destroyOnHidden>
       <Form form={form} layout="vertical" initialValues={{ parents: [] }}>
-        <Form.Item name="name" label="名称（唯一标识）" rules={[{ required: true, message: '请输入概念名' }]}>
+        <Form.Item
+          name="name"
+          label="名称（唯一标识）"
+          rules={[{ required: true, message: '请输入概念名' }]}
+          extra={<NamingHint draft={draft} form={form} />}
+        >
           <Input placeholder="如 Paper" />
         </Form.Item>
         <Form.Item name="label" label="显示名（可选）">
           <Input placeholder="如 论文" />
         </Form.Item>
         <Form.Item name="definition" label="定义（可选）">
-          <Input.TextArea rows={2} placeholder="一句话说明该概念是什么" />
+          <Input.TextArea rows={2} placeholder="一句话说明该概念是什么（缺失定义会在质量卡告警）" />
         </Form.Item>
-        <Form.Item name="parents" label="父概念（可选，多选）">
-          <Select mode="multiple" allowClear showSearch optionFilterProp="label" placeholder="选择已有概念" options={draft.concepts.map((c) => ({ value: c.name, label: c.label || c.name }))} />
+        <Form.Item name="parents" label="父概念（可选，多选；相关候选排前）">
+          <ParentSelect draft={draft} form={form} />
         </Form.Item>
       </Form>
     </Modal>
@@ -164,4 +170,39 @@ export function AddInstanceModal({
       </Form>
     </Modal>
   )
+}
+
+/** REQ-249/G3：命名风格即时提示（qualitygate naming_style 规则前移——CJK 不参与判定，与门禁同口径）。 */
+function NamingHint({ draft, form }: { draft: Spec; form: FormInstance }) {
+  const name = Form.useWatch('name', form) as string | undefined
+  if (!name || !/[A-Za-z]/.test(name)) return null // CJK 名不参与（与 qualitygate 一致）
+  const latin = draft.concepts.filter((c) => /[A-Za-z]/.test(c.name))
+  if (latin.length < 2) return null
+  const camel = latin.filter((c) => /[a-z][A-Z]/.test(c.name)).length
+  const snake = latin.filter((c) => c.name.includes('_')).length
+  const style = camel >= snake ? 'camelCase（如 PaperVersion）' : 'snake_case（如 paper_version）'
+  const deviates = camel >= snake ? !/[a-z][A-Z]/.test(name) && !/^[a-z0-9]+$/.test(name) : !name.includes('_') && !/^[A-Z][a-z0-9]+$/.test(name)
+  if (!deviates) return null
+  return (
+    <Typography.Text type="warning" style={{ fontSize: 11 }}>
+      现有概念以{style}为主，当前命名可能风格不一致（质量卡将告警）
+    </Typography.Text>
+  )
+}
+
+/** REQ-249/G3：父概念候选——与当前输入名（label/名称）相似度优先排序。 */
+function ParentSelect({ draft, form }: { draft: Spec; form: FormInstance }) {
+  const name = (Form.useWatch('name', form) as string | undefined) ?? ''
+  const options = useMemo(() => {
+    const q = name.trim().toLowerCase()
+    const score = (c: SpecConcept): number => {
+      let s = 0
+      const hay = (c.label || c.name).toLowerCase()
+      if (q && (hay.includes(q) || q.includes(c.name.toLowerCase()))) s += 10
+      if (q && c.name.toLowerCase().startsWith(q.slice(0, 3))) s += 5
+      return s
+    }
+    return [...draft.concepts].sort((a, b) => score(b) - score(a)).map((c) => ({ value: c.name, label: c.label || c.name }))
+  }, [draft.concepts, name])
+  return <Select mode="multiple" allowClear showSearch optionFilterProp="label" placeholder="选择已有概念" options={options} />
 }

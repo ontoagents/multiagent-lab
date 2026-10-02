@@ -1,3 +1,4 @@
+import DoneCTA from './components/DoneCTA'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
 import {
@@ -9,12 +10,13 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { AiDraftResult, ImportReport, Spec, ValidationError } from '../../api/types'
+import type { AiDraftResult, ImportReport, Ontology, Spec, ValidationError } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { ERR_COLUMNS } from './shared'
 import SpecGraph from './components/SpecGraph'
 import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
+import ReferenceMaterialsPanel from './components/ReferenceMaterialsPanel'
 import OntoExtendFlow from './components/OntoExtendFlow'
 import OoTtlImport from './components/OoTtlImport'
 
@@ -187,7 +189,16 @@ function CustomFlow({ onGoKbPath }: { onGoKbPath?: () => void }) {
       {step === 1 && !activeId && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先在 S1 创建 / 导入本体" />}
       {step === 2 && activeId && <S3ValidatePane ontologyId={activeId} onNext={() => setStep(3)} />}
       {step === 2 && !activeId && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先在 S1 创建 / 导入本体" />}
-      {step === 3 && <SpecGraph spec={spec} />}
+      {step === 3 && (
+        <>
+          <SpecGraph spec={spec} />
+          {activeId && (
+            <div style={{ marginTop: 10 }}>
+              <DoneCTA ontologyId={activeId} detail="S1~S4 构建段完成" />
+            </div>
+          )}
+        </>
+      )}
       {activeId && step >= 1 && (
         <Alert
           type="success"
@@ -280,16 +291,17 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
     setAiBusy(true)
     setAiResult(null)
     try {
-      // REQ-82：CQ 引导折叠进 extraHint（后端 extraHint 参数已支持）
+      // REQ-248/G2：CQ 显式入参（后端 DraftWithCQ 回写 spec.cq 入资产）
       const cqs = aiCq
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean)
-      const hintParts: string[] = []
-      if (cqs.length) hintParts.push(`能力问题：\n${cqs.map((c, i) => `${i + 1}. ${c}`).join('\n')}`)
-      if (aiHint.trim()) hintParts.push(aiHint.trim())
-      const r = await api.aiDraftOntology(aiDesc.trim(), hintParts.join('\n\n') || undefined)
+      const r = await api.aiDraftOntology(aiDesc.trim(), aiHint.trim() || undefined, cqs.length ? cqs : undefined)
       setAiResult(r)
+      // REQ-247/G4：草案质量分展示（此前 REST 丢弃 quality——用户看不到生成质量）
+      if (r.quality?.score) {
+        showToast(`草案质量分 ${Math.round(r.quality.score.overall ?? 0)}（错误 ${r.quality.error_count} / 告警 ${r.quality.warning_count}）`)
+      }
       setAiName(r.spec?.name ?? '')
       showToast('草案已生成，请确认后创建')
     } catch (e: any) {
@@ -338,6 +350,40 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
       setSampleBusy(false)
     }
   }
+
+  // REQ-246/G1：从种子起步（灌装指定种子→跳编辑；建模说明在参考素材面板可见）
+  const doSeedKey = async (key: string) => {
+    setSampleBusy(true)
+    try {
+      const r = await api.seedLearningExample(key)
+      showToast(r.seeded === false ? '种子本体已存在，直接打开' : '种子本体已灌装，可对照建模说明编辑')
+      onCreated(r.id)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setSampleBusy(false)
+    }
+  }
+
+  // REQ-246/G1⑤：新建同名即时提示（保留同名，提示已有清单）
+  const [dupName, setDupName] = useState<Ontology | null>(null)
+  useEffect(() => {
+    const n = blankName.trim()
+    if (!n) {
+      setDupName(null)
+      return
+    }
+    let alive = true
+    api
+      .listOntologies()
+      .then((ls) => {
+        if (alive) setDupName(ls.find((o) => o.name === n) ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [blankName])
 
   const doBlank = async () => {
     if (!blankName.trim()) {
@@ -518,11 +564,22 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
           label: '空白新建',
           children: (
             <Space direction="vertical" style={{ width: '100%' }} size={8}>
-              <Input value={blankName} onChange={(e) => setBlankName(e.target.value)} placeholder="本体名称（必填）" />
+              <Input
+                value={blankName}
+                onChange={(e) => setBlankName(e.target.value)}
+                placeholder="本体名称（必填；建议领域名+用途，如「设备故障运维」）"
+                status={dupName ? 'warning' : undefined}
+              />
+              {dupName && (
+                <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                  已存在同名本体「{dupName.name}」（{dupName.id}）——仍可创建（同名不被禁止），建议换名或 Fork 那份本体。
+                </Typography.Text>
+              )}
               <Input value={blankDesc} onChange={(e) => setBlankDesc(e.target.value)} placeholder="描述（可选）" />
               <Button type="primary" loading={blankBusy} onClick={doBlank}>
                 创建空白本体
               </Button>
+              <ReferenceMaterialsPanel onStartFromSeed={doSeedKey} />
             </Space>
           ),
         },

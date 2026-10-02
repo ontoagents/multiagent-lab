@@ -16,6 +16,7 @@ import (
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/seed"
 )
 
 const specSchemaHint = `{
@@ -59,7 +60,21 @@ type GenerateResult struct {
 
 // Draft 领域描述 → spec_json 草稿；校验失败把错误列表回喂模型修正。
 func (c *Creator) Draft(description, extraHint string) (*GenerateResult, error) {
-	prompt := buildPrompt(description, extraHint, nil)
+	return c.DraftWithCQ(description, extraHint, nil)
+}
+
+// DraftWithCQ REQ-248/G2：CQ 显式传入——并入 prompt 且**回写进草案 spec.CQ**（能力问题入资产可追溯）。
+func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*GenerateResult, error) {
+	if len(cqs) > 0 {
+		var b strings.Builder
+		b.WriteString(extraHint)
+		b.WriteString("\n\n请重点让本体具备回答以下能力问题的潜力（据此补充概念/关系/属性建模）：")
+		for i, q := range cqs {
+			fmt.Fprintf(&b, "\n%d. %s", i+1, strings.TrimSpace(q))
+		}
+		extraHint = b.String()
+	}
+	prompt := buildPrompt(description, extraHint, nil, cqs)
 	var usage any
 	for round := 1; round <= c.MaxRounds; round++ {
 		draftRaw, u, err := c.callGenerate(prompt)
@@ -72,7 +87,7 @@ func (c *Creator) Draft(description, extraHint string) (*GenerateResult, error) 
 		var sp pkgspec.Spec
 		if err := json.Unmarshal([]byte(draftRaw), &sp); err != nil {
 			// 结构坏：把解析错误回喂
-			prompt = buildPrompt(description, extraHint, []string{"输出不是合法 spec_json: " + err.Error() + "。请只输出 JSON 本体，不要多余文本。"})
+			prompt = buildPrompt(description, extraHint, []string{"输出不是合法 spec_json: " + err.Error() + "。请只输出 JSON 本体，不要多余文本。"}, cqs)
 			continue
 		}
 		errs := sp.Validate()
@@ -80,17 +95,23 @@ func (c *Creator) Draft(description, extraHint string) (*GenerateResult, error) 
 			// REQ-171 P1：结构合法后过质量门禁——错误级命中回喂修复，告警级透出不阻断
 			rep := qualitygate.Check(&sp, nil)
 			if fix := rep.ErrorMessages(); len(fix) == 0 {
+				sp.CQ = append(sp.CQ, cqs...) // REQ-248：CQ 回写资产
 				return &GenerateResult{Spec: &sp, Rounds: round, Usage: usage, Quality: rep, QualityPass: true}, nil
 			} else if round == c.MaxRounds {
 				return &GenerateResult{Spec: &sp, Rounds: round, Usage: usage, Quality: rep, QualityPass: false},
 					fmt.Errorf("已达最大修正轮数，仍有 %d 处质量门禁错误级问题，草稿转人工确认（铁律：不静默放行）", len(fix))
 			} else {
+				// REQ-247/G4：warning 级命中也纳入回喂（拍板口径——提升草案质量，不设阈值不阻断）
+				if warns := rep.WarningMessages(); len(warns) > 0 {
+					fix = append(fix, warns...)
+				}
 				fix = append(fix, "（以上为质量门禁检查，请修正后重新输出完整 spec_json）")
-				prompt = buildPrompt(description, extraHint, fix)
+				prompt = buildPrompt(description, extraHint, fix, cqs)
 				continue
 			}
 		}
 		if round == c.MaxRounds {
+			sp.CQ = append(sp.CQ, cqs...)
 			return &GenerateResult{Spec: &sp, Rounds: round, Usage: usage},
 				fmt.Errorf("已达最大修正轮数，仍有 %d 处校验问题，草稿供预览参考", len(errs))
 		}
@@ -98,12 +119,82 @@ func (c *Creator) Draft(description, extraHint string) (*GenerateResult, error) 
 		for _, e := range errs {
 			msgs = append(msgs, e.Error())
 		}
-		prompt = buildPrompt(description, extraHint, msgs)
+		prompt = buildPrompt(description, extraHint, msgs, cqs)
 	}
 	return nil, fmt.Errorf("生成循环异常退出")
 }
 
-func buildPrompt(description, extraHint string, fixErrors []string) string {
+
+// fewShotFor REQ-247/G4：按领域描述关键词挑选最相近种子本体的紧凑片段作 few-shot 范例
+// （种子 5 份内置编译期；关键词命中失败返回空串——范例注入是增强不是依赖）。
+// buildFewShot 生成范例段（截断防 prompt 膨胀；概念取前 4、关系取前 3）。
+func buildFewShot(description string) string {
+	pick := pickSeed(description)
+	if pick == "" {
+		return ""
+	}
+	raw, err := seed.ExampleRaw(strings.TrimSuffix(pick, ".json"))
+	if err != nil {
+		return ""
+	}
+	var sp pkgspec.Spec
+	if json.Unmarshal(raw, &sp) != nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n参考范例（同领域种子本体的结构与粒度，仅供参照——不要照抄概念名）：\n")
+	b.WriteString(fmt.Sprintf("```json\n{\"concepts\":["))
+	for i, c := range sp.Concepts {
+		if i >= 4 {
+			break
+		}
+		if i > 0 {
+			b.WriteString(",")
+		}
+		cb, _ := json.Marshal(c)
+		b.Write(cb)
+	}
+	b.WriteString("],\"relations\":[")
+	for i, r := range sp.Relations {
+		if i >= 3 {
+			break
+		}
+		if i > 0 {
+			b.WriteString(",")
+		}
+		rb, _ := json.Marshal(r)
+		b.Write(rb)
+	}
+	b.WriteString("]}\n```\n")
+	return b.String()
+}
+
+// pickSeed 关键词匹配（领域描述包含种子主题词即命中；顺序即优先级）。
+func pickSeed(description string) string {
+	d := strings.ToLower(description)
+	type kv struct {
+		keys []string
+		file string
+	}
+	table := []kv{
+		{[]string{"医学", "疾病", "症状", "药物", "临床"}, "med_common.json"},
+		{[]string{"基因", "蛋白", "转录", "生物", "细胞"}, "gene_core.json"},
+		{[]string{"软件", "缺陷", "bug", "项目", "迭代", "测试"}, "defects.json"},
+		{[]string{"组织", "人员", "部门", "员工", "公司"}, "orgs.json"},
+		{[]string{"k8s", "kubernetes", "集群", "容器", "pod", "部署"}, "onto_k8s_ops.json"},
+		{[]string{"设备", "故障", "运维", "工单"}, "failure.json"},
+	}
+	for _, e := range table {
+		for _, k := range e.keys {
+			if strings.Contains(d, k) {
+				return e.file
+			}
+		}
+	}
+	return ""
+}
+
+func buildPrompt(description, extraHint string, fixErrors []string, cqs []string) string {
 	var b strings.Builder
 	b.WriteString("你是本体建模专家。请根据领域描述生成一个本体 spec_json，严格遵循以下 JSON Schema：\n")
 	b.WriteString(specSchemaHint)

@@ -46,9 +46,12 @@ type Spec struct {
 	ID          string     `json:"id,omitempty"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
-	Concepts    []Concept  `json:"concepts"`
-	Relations   []Relation `json:"relations"`
-	Instances   []Instance `json:"instances"`
+	// CQ 能力问题（REQ-90/REQ-248）：「本体要回答什么问题」的建模锚点——仅 spec 层
+	// （不入 TTL 导出/vowljson/不参与结构校验），三 LLM 构建路径回写、手工路径可录。
+	CQ        []string   `json:"cq,omitempty"`
+	Concepts  []Concept  `json:"concepts"`
+	Relations []Relation `json:"relations"`
+	Instances []Instance `json:"instances"`
 }
 
 // ValidationError 单条校验错误（结构化，供 LLM 修正循环回喂）。
@@ -138,6 +141,16 @@ func (s *Spec) Validate() []ValidationError {
 			if _, ok := in[ir.Target]; !ok {
 				add(fmt.Sprintf("instances[%d].relations[%d].target", i, j), "引用了未定义实例: "+ir.Target)
 			}
+		}
+	}
+
+	// ---- 跨域查重（REQ-249/G3，唯一性规则统一）：概念与实例不可同名——
+	// 此前仅 GraphEditor 提交时检查（useEditorActions），JSON/LLM 路径可保存出
+	// 图形编辑器判定非法的本体；TTL 导出下 concept:/instance: URI 前缀不同虽不冲突，
+	// 但 onto_* 精确匹配按名称命中会歧义（get_concept/get_instance 同名双命中）。
+	for name, ci := range cn {
+		if _, ok := in[name]; ok {
+			add(fmt.Sprintf("concepts[%d]", ci), "概念与实例同名: "+name+"（请改名其一——名称跨概念/实例全域唯一）")
 		}
 	}
 	return errs

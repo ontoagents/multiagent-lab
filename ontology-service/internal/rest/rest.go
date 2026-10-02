@@ -164,8 +164,9 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	// 新建即给一个空 spec 形态，编辑器可直接编辑
-	empty := pkgspec.Spec{Name: req.Name, Description: req.Description}
+	// 新建即给一个空 spec 形态，编辑器可直接编辑；REQ-246/G1：三数组骨架显式落盘
+	// （此前 nil 切片不序列化，首编者面对无键 JSON 与前端示意形态不符）
+	empty := pkgspec.Spec{Name: req.Name, Description: req.Description, Concepts: []pkgspec.Concept{}, Relations: []pkgspec.Relation{}, Instances: []pkgspec.Instance{}}
 	bts, _ := json.Marshal(empty)
 	_ = s.Store.PutArtifact(id, "spec_json", string(bts), true)
 	_ = s.Store.SaveVersion(id, 1, string(bts), "", "")
@@ -840,19 +841,8 @@ func (s *Server) aiDraft(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "description 必填"})
 		return
 	}
-	if len(req.CapabilityQuestions) > 0 {
-		var b strings.Builder
-		b.WriteString("请重点让本体具备回答以下能力问题的潜力（据此补充概念/关系/属性建模）：")
-		for i, q := range req.CapabilityQuestions {
-			fmt.Fprintf(&b, "\n%d. %s", i+1, strings.TrimSpace(q))
-		}
-		if req.ExtraHint == "" {
-			req.ExtraHint = b.String()
-		} else {
-			req.ExtraHint += "\n\n" + b.String()
-		}
-	}
-	res, err := s.LLM.Draft(req.Description, req.ExtraHint)
+	// REQ-248/G2：CQ 显式入参（DraftWithCQ 并入 prompt 且回写 spec.CQ 入资产）
+	res, err := s.LLM.DraftWithCQ(req.Description, req.ExtraHint, req.CapabilityQuestions)
 	if res == nil {
 		writeErr(w, err)
 		return
@@ -860,6 +850,10 @@ func (s *Server) aiDraft(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"spec": res.Spec, "rounds": res.Rounds}
 	if res.Usage != nil {
 		out["usage"] = res.Usage
+	}
+	// REQ-247/G4：草案质量报告透出（此前被丢弃——用户看不到质量分）
+	if res.Quality != nil {
+		out["quality"] = res.Quality
 	}
 	if err != nil {
 		out["warning"] = err.Error()

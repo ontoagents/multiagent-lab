@@ -173,6 +173,17 @@ func (r *Report) ErrorMessages() []string {
 	return msgs
 }
 
+// WarningMessages 全部 warning 级命中的消息（REQ-247：修复环回喂用——提升草案质量不阻断）。
+func (r *Report) WarningMessages() []string {
+	out := []string{}
+	for _, f := range r.Findings {
+		if f.Severity == SevWarning {
+			out = append(out, fmt.Sprintf("%s：%s，共 %d 处，如 %s", f.Title, dimensionLabel(f.Dimension), f.Count, strings.Join(f.Samples, "、")))
+		}
+	}
+	return out
+}
+
 func dimensionLabel(d Dimension) string {
 	switch d {
 	case DimCompleteness:

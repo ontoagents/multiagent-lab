@@ -1,3 +1,4 @@
+import DoneCTA from './components/DoneCTA'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Radio, Segmented, Select, Space, Steps, Table, Tag, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DatabaseOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
@@ -377,6 +378,7 @@ export function StructuredFlow() {
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [createdId, setCreatedId] = useState<string | null>(null)
 
   useEffect(() => {
     api
@@ -407,7 +409,8 @@ export function StructuredFlow() {
       const draft = result.draft_spec as { name: string; description?: string; concepts: unknown[]; relations: unknown[]; instances: unknown[] }
       const created = await api.createOntology({ name: `${draft.name}-${new Date().toLocaleDateString()}`, description: draft.description ?? '由结构化数据映射推导（M-O14 P2⑤）' })
       await api.saveSpec(created.id, draft as any)
-      showToast(`已创建新本体「${created.name ?? created.id}」（骨架含 ${draft.concepts.length} 概念 / ${draft.instances.length} 实例）——到「本体资产」查看与编辑`)
+      showToast(`已创建新本体「${created.name ?? created.id}」（骨架含 ${draft.concepts.length} 概念 / ${draft.instances.length} 实例）`)
+      setCreatedId(created.id) // REQ-250/G6：完成态 CTA（替代纯 toast 指路）
     } catch (e: any) {
       showToast(e?.message ?? '创建失败', 'err')
     } finally {
@@ -490,6 +493,11 @@ export function StructuredFlow() {
             <Typography.Paragraph key={i} type="secondary" style={{ fontSize: 11, marginBottom: 2 }}>· {n}</Typography.Paragraph>
           ))}
         </>
+      )}
+      {createdId && (
+        <div style={{ marginTop: 10 }}>
+          <DoneCTA ontologyId={createdId} detail="结构化骨架本体已创建" />
+        </div>
       )}
     </Card>
   )

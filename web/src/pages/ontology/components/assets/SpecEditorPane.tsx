@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Form, Input, Table, Typography } from 'antd'
+import { Alert, Button, Collapse, Form, Input, Table, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
 import type { Ontology, Spec, ValidationError } from '../../../../api/types'
@@ -138,6 +138,34 @@ export default function SpecEditorPane({
         </Button>
       </div>
 
+      {/* REQ-248/G2：能力问题（CQ）一等公民面板——手工路径可录可看；写入 spec.cq 随保存入库（仅 spec 层，
+          不入 TTL/vowljson/不参与校验）。LLM 三路径已自动回写；此处为手工路径录入点与方法论卡援引落点。 */}
+      {spec && (
+        <Collapse
+          size="small"
+          style={{ marginTop: 10 }}
+          items={[
+            {
+              key: 'cq',
+              label: `能力问题（CQ）${(spec.cq?.length ?? 0) > 0 ? ` · ${spec.cq!.length} 条` : ' · 未录入'}`,
+              children: (
+                <CqEditor
+                  value={spec.cq ?? []}
+                  onChange={(next) => {
+                    try {
+                      const obj = JSON.parse(specText) as Spec
+                      obj.cq = next
+                      setSpecText(JSON.stringify(obj, null, 2))
+                    } catch {
+                      // specText 非法 JSON 时不强改（保存时错误表兜底）
+                    }
+                  }}
+                />
+              ),
+            },
+          ]}
+        />
+      )}
       {specErr ? (
         <Alert
           type="error"
@@ -160,6 +188,15 @@ export default function SpecEditorPane({
               style={{ margin: '10px 0' }}
               title="Spec 体积较大，已切换为只读"
               description="请在本地编辑后经导入 / 导出接口处理，避免浏览器卡顿。"
+            />
+          )}
+          {spec && (spec.concepts?.length ?? 0) === 0 && (spec.relations?.length ?? 0) === 0 && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 10 }}
+              title="从第一个概念开始"
+              description="在下方 JSON 的 concepts 数组添加概念（name 必填，label/definition/parents 可选）；或展开「能力问题」先列 3~5 条 CQ 再动手（建模方法论第一步）。也可以到构建栏参考素材面板看种子建模说明。"
             />
           )}
           <div style={{ marginTop: 10 }}>
@@ -188,5 +225,45 @@ export default function SpecEditorPane({
         </>
       )}
     </>
+  )
+}
+
+/** REQ-248/G2：CQ 列表编辑（每行一条；空行忽略）。 */
+function CqEditor({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  // 本地镜像 state：prop value 来自父级 spec（仅在 reload 时更新）——若直接渲染 prop，
+  // 「添加一条」后 onChange 回写 specText 但 prop 不变，UI 不更新（真机冒烟抓出）。
+  const [items, setItems] = useState<string[]>(value)
+  const commit = (next: string[]) => {
+    setItems(next)
+    onChange(next)
+  }
+  return (
+    <div data-testid="cq-editor">
+      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+        能力问题=「本体要回答什么问题」（建模方法论第一步，REQ-90）。先列 3~5 条再补概念/关系；随 Spec 保存入库，事后可追溯建模动机。
+      </Typography.Text>
+      {items.map((q, i) => (
+        <Input
+          key={i}
+          size="small"
+          value={q}
+          placeholder={`能力问题 ${i + 1}`}
+          style={{ marginBottom: 6 }}
+          onChange={(e) => {
+            const next = [...items]
+            next[i] = e.target.value
+            commit(next)
+          }}
+        />
+      ))}
+      <Button size="small" onClick={() => commit([...items, ''])}>
+        添加一条
+      </Button>
+      {items.length > 0 && (
+        <Button size="small" style={{ marginLeft: 8 }} onClick={() => commit(items.slice(0, -1))}>
+          移除末条
+        </Button>
+      )}
+    </div>
   )
 }

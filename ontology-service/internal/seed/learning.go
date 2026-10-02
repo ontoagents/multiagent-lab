@@ -16,6 +16,11 @@ import (
 //go:embed examples/*.json
 var examplesFS embed.FS
 
+// ExampleRaw 导出内置示例原文（REQ-247/G4：llmcreate few-shot 范例注入复用；key 不含扩展名）。
+func ExampleRaw(key string) ([]byte, error) {
+	return examplesFS.ReadFile("examples/" + key + ".json")
+}
+
 // LearningExample 内置学习示例元信息。
 type LearningExample struct {
 	Key         string `json:"key"`

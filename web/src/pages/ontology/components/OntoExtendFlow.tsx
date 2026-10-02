@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Select, Space, Spin, Steps, Tag, Typography } from 'antd'
 import { api } from '../../../api/client'
+import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
 
 // ---------------------------------------------------------------------------
@@ -289,7 +290,12 @@ export default function OntoExtendFlow() {
         </Card>
       )}
       {appliedVersion !== null && (
-        <Alert type="success" showIcon title={`已并入目标本体新版本（v${appliedVersion}）——strict 质量门禁通过；到「本体资产」查看版本与质量卡。`} />
+        <Alert
+          type="success"
+          showIcon
+          title={`已并入目标本体新版本（v${appliedVersion}）——strict 质量门禁通过`}
+          description={<DoneCTA ontologyId={targetId ?? ''} detail="扩展完成" />}
+        />
       )}
       {!targetId && (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择目标本体——OntoExtend 对既有本体做增量扩展，不新建" />

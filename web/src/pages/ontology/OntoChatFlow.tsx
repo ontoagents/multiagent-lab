@@ -2,6 +2,7 @@
 // 交互流：cq（领域描述+CQ）→ domain（逐轮补全，模型归纳+引导）→ 生成草稿（校验循环后端内聚）
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
+import DoneCTA from './components/DoneCTA'
 import { Alert, Button, Card, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
 import { DeleteOutlined, PlusOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
@@ -293,7 +294,13 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 </Card>
               )}
               {isDone && active.ontology_id && (
-                <Alert type="success" showIcon style={{ marginTop: 10 }} title={`草稿已入库为「${active.title}」关联的本体 ${active.ontology_id}，可到「本体资产」栏继续编辑与部署`} />
+                <Alert
+                  type="success"
+                  showIcon
+                  style={{ marginTop: 10 }}
+                  title={`草稿已入库为「${active.title}」关联的本体 ${active.ontology_id}`}
+                  description={<DoneCTA ontologyId={active.ontology_id} detail="对话式建模完成" />}
+                />
               )}
 
               {/* 输入区 */}

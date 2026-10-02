@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 )
 
 type draftJob struct {
@@ -23,8 +25,9 @@ type draftJob struct {
 }
 
 type draftResult struct {
-	Spec   map[string]any `json:"spec"`
-	Rounds int            `json:"rounds"`
+	Spec    map[string]any      `json:"spec"`
+	Rounds  int                 `json:"rounds"`
+	Quality *qualitygate.Report `json:"quality,omitempty"` // REQ-247/G4：草案质量报告透出
 }
 
 var (
@@ -52,7 +55,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
 	go func() {
-		res, err := s.LLM.Draft(req.Description, req.ExtraHint)
+		res, err := s.LLM.DraftWithCQ(req.Description, req.ExtraHint, req.CapabilityQuestions) // REQ-248/242：CQ 回写+质量透出
 		draftJobsMu.Lock()
 		defer draftJobsMu.Unlock()
 		if err != nil {
@@ -65,7 +68,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(res.Spec)
 		var specMap map[string]any
 		_ = json.Unmarshal(b, &specMap)
-		job.Result = &draftResult{Spec: specMap, Rounds: res.Rounds}
+		job.Result = &draftResult{Spec: specMap, Rounds: res.Rounds, Quality: res.Quality}
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }

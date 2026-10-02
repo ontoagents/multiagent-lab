@@ -47,6 +47,12 @@ func (e *Engine) Turn(st *Store, sess *Session, userText string) (*TurnResult, e
 	case "domain":
 		return e.turnDomain(st, sess, userText)
 	case "draft", "refine":
+		// REQ-246/G5 修复「refine 前端断链」：此阶段用户文本此前被 turnDraft 完全忽略——
+		// 界面承诺「回复修改意见进入修正轮」实际不生效。现非空文本一律作为修正意见走 Refine
+		// （并入 Hints 重生成）；纯「生成」意图或空文本才直接重生成。
+		if fb := strings.TrimSpace(userText); fb != "" && !isGenerateIntent(fb) {
+			return e.Refine(st, sess, fb)
+		}
 		return e.turnDraft(st, sess)
 	default:
 		return nil, fmt.Errorf("会话已结束（stage=done），如需继续请新建会话")
@@ -195,8 +201,13 @@ func (e *Engine) Refine(st *Store, sess *Session, feedback string) (*TurnResult,
 
 func isGenerateIntent(text string) bool {
 	t := strings.TrimSpace(strings.ToLower(text))
-	return t == "生成草稿" || t == "生成" || strings.HasPrefix(t, "生成草稿") ||
-		t == "generate" || t == "draft"
+	// REQ-246/G5：放宽识别——此前仅精确匹配「生成草稿/生成/generate/draft」，
+	// 「请生成草稿吧」这类自然措辞被当普通补充信息吞掉。含「生成」且不超过一句
+	// （≤12 rune，避免把带建模内容的长文本误判为生成意图）即视为生成指令。
+	if len([]rune(t)) > 12 {
+		return false
+	}
+	return strings.Contains(t, "生成") || t == "generate" || t == "draft" || t == "出稿" || t == "出草稿"
 }
 
 func joinNumbered(items []string) string {
