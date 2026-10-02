@@ -1,993 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  Collapse,
-  Drawer,
-  Empty,
-  Form,
-  Input,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Result,
-  Select,
-  Space,
-  Splitter,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
-  Upload,
-} from 'antd'
-import type { BadgeProps } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
-import { PlusOutlined, SearchOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons'
-import XMarkdown from '@ant-design/x-markdown'
+import { useEffect, useState } from 'react'
+import { Button, Form, Input, Modal, Select, Checkbox, Space, Splitter, Tag, Result } from 'antd'
+import { BookOutlined, ApartmentOutlined, FileSearchOutlined, PlusOutlined } from '@ant-design/icons'
+import type { KnowledgeBase } from '../api/types'
 import { api } from '../api/client'
-import EmptyGuide from '../components/EmptyGuide'
-import LoadErrorAlert from '../components/LoadErrorAlert'
-import HighlightSpans from '../components/HighlightSpans'
-import KGGraphView, { KGGovernancePanel, KGGlobalPanel } from '../components/KGGraphView'
-import type { KBDoc, KBHit, KnowledgeBase, WikiBuildResult, WikiPage } from '../api/types'
 import { useUI } from '../store/ui'
-import { SIDEBAR_WIDTH, DRAWER_SIZES, drawerSizeProps, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
-
-/** 文档索引状态 → antd Badge 状态（后端未知状态优雅回退） */
-const DOC_STATUS: Record<string, { status: BadgeProps['status']; text: string }> = {
-  pending: { status: 'default', text: '待索引' },
-  indexing: { status: 'processing', text: '索引中' },
-  success: { status: 'success', text: '成功' },
-  failed: { status: 'error', text: '失败' },
-}
-function docStatusOf(s?: string): { status: BadgeProps['status']; text: string } {
-  return DOC_STATUS[s ?? ''] ?? { status: 'default', text: s || '未知' }
-}
-
-/** 相似度格式化（容忍字符串 / 缺失） */
-function fmtScore(v: unknown): string {
-  const n = Number(v)
-  return Number.isFinite(n) ? n.toFixed(3) : '—'
-}
-
-/** KB 类型（M14 D-KB4 双子模块 + REQ-241 第三类型）：rag | graphrag | wiki（老数据缺省 = rag） */
-type KBMode = 'rag' | 'graphrag' | 'wiki'
-const modeOf = (k?: KnowledgeBase | null): KBMode =>
-  k?.mode === 'graphrag' || k?.mode === 'wiki' ? k.mode : 'rag'
-const MODE_TAG: Record<KBMode, { color: string; text: string }> = {
-  rag: { color: 'blue', text: 'RAG' },
-  graphrag: { color: 'purple', text: 'GraphRAG' },
-  wiki: { color: 'cyan', text: 'LLM Wiki' },
-}
-
-/**
- * 知识库视图（原型 06 §3.4 / 02 文档 §10）：
- * 左栏库列表（名称 / 文档·chunk 计数）→ 右栏库详情
- * （文档表 + 上传入口 + 检索试运行（索引未就绪禁用）+ TopK / min_score 配置）。
- */
+import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
-export default function KnowledgePage() {
-  const rail = useSidebarCollapse('eino.kb.sidebar.collapsed')
-  const { showToast, bumpData } = useUI()
-  const [kbs, setKbs] = useState<KnowledgeBase[]>([])
-  const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [activeId, setActiveId] = useState<string | null>(null)
+import { modeOf, type KBMode } from './knowledge/shared'
+import RagPage from './knowledge/RagPage'
+import GraphRagPage from './knowledge/GraphRagPage'
+import WikiPage from './knowledge/WikiPage'
 
-  const [docs, setDocs] = useState<KBDoc[]>([])
-  const [docsLoading, setDocsLoading] = useState(false)
-  const [reindexing, setReindexing] = useState<string | null>(null)
+// ---------------------------------------------------------------------------
+// 知识库模块壳（REQ-258，开发者指令「三种类型改为类似本体模块的左侧边栏标题形式，
+// 每种类型的页面都不一样，实现和显示各自独立」）：左侧边栏 = 三类型导航项
+// （图标+标题+一句话描述+库计数徽标，本体五栏同款范式）；右侧内容 = 各类型独立页面
+// （RagPage / GraphRagPage / WikiPage，各自实现库列表与详情，互不共享类型专属逻辑）。
+// 旧实现（单页 + 左栏 Tabs 切类型）退役：类型页内列表替代原 modeTab 过滤列表。
+// ---------------------------------------------------------------------------
 
-  const [createOpen, setCreateOpen] = useState(false)
-  const [uploadOpen, setUploadOpen] = useState(false)
+type KbView = KBMode
 
-  const [modeTab, setModeTab] = useState<KBMode>('rag') // M14 ⑤：双子页签
+const NAV: { key: KbView; label: string; icon: React.ReactNode; desc: string }[] = [
+  { key: 'rag', label: 'RAG 检索', icon: <FileSearchOutlined />, desc: '向量检索 · 文档接入 · 召回试运行' },
+  { key: 'graphrag', label: 'GraphRAG', icon: <ApartmentOutlined />, desc: '自研 KG 抽取 · 图谱 · 全局问答' },
+  { key: 'wiki', label: 'LLM Wiki', icon: <BookOutlined />, desc: 'LLM 写时合成互链页面 · 零 embedding' },
+]
 
-  const [query, setQuery] = useState('')
-  const [topK, setTopK] = useState<number | null>(4)
-  const [minScore, setMinScore] = useState<number | null>(0)
-  const [searching, setSearching] = useState(false)
-  const [hits, setHits] = useState<KBHit[] | null>(null)
-  const [searchMeta, setSearchMeta] = useState<{ mode?: string; degraded?: boolean; error?: string } | null>(null)
-  const [savingCfg, setSavingCfg] = useState(false)
-  const [kgConnID, setKgConnID] = useState<string | null>(null)
-  const [kgPrompt, setKgPrompt] = useState<string | null>(null)
-  const [kbVec, setKbVec] = useState(true)
-  const [kbGraphOn, setKbGraphOn] = useState(false)
-  const [conns, setConns] = useState<{ id: string; name: string; model_name: string }[]>([])
-  // M36/KB-6：本体约束抽取挂载与库级语料预算
-  const [kgOntoID, setKgOntoID] = useState<string | null>(null)
-  const [kgMaxChunks, setKgMaxChunks] = useState<number | null>(null)
-  const [ontos, setOntos] = useState<{ id: string; name: string }[]>([])
+const VIEW_KEY = 'eino.kb.view'
 
-  const active = useMemo(() => kbs.find((k) => k.id === activeId) ?? null, [kbs, activeId])
-  const hasReady = docs.some((d) => d.status === 'success')
-
-  const reloadKBs = () => {
-    api.listKBs()
-      .then((ks) => {
-        setKbs(ks)
-        setLoadErr(null)
-        setActiveId((cur) => (cur && ks.some((k) => k.id === cur) ? cur : (ks[0]?.id ?? null)))
-      })
-      .catch((e: any) => {
-        setKbs([])
-        setActiveId(null)
-        setLoadErr(e?.message ?? '加载失败')
-      })
-  }
-
-  const reloadDocs = (kbId: string) => {
-    setDocsLoading(true)
-    api.listKBDocs(kbId)
-      .then(setDocs)
-      .catch(() => setDocs([]))
-      .finally(() => setDocsLoading(false))
-  }
-
-  useEffect(reloadKBs, [])
-  useEffect(() => {
-    api.listConnections().then((cs) => setConns(cs.filter((c) => c.conn_type === 'chat')))
-      .catch(() => setConns([]))
-  }, [])
-  // M36/KB-6③：本体约束候选（构建平面资产列表；不可达静默降级=仅无挂载可选）
-  useEffect(() => {
-    api.listOntologies().then((os) => setOntos(os ?? []))
-      .catch(() => setOntos([]))
-  }, [])
-
-  // M14 ⑤：双子页签切换 → 选中该模式下的第一个库（当前库不属该模式时）
-  useEffect(() => {
-    const inTab = kbs.filter((k) => modeOf(k) === modeTab)
-    if (active && modeOf(active) !== modeTab) {
-      setActiveId(inTab[0]?.id ?? null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modeTab])
-
-  // M36/KB-13：跨模块聚焦 handoff——消费与审计页「前往知识库治理」经 localStorage 指定选中库
-  useEffect(() => {
-    if (!kbs.length) return
-    const focus = localStorage.getItem('eino.kb.focus')
-    if (!focus) return
-    const kb = kbs.find((k) => k.id === focus)
-    localStorage.removeItem('eino.kb.focus')
-    if (kb) {
-      setModeTab(modeOf(kb))
-      setActiveId(kb.id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kbs])
-
-  // 切换库：重置检索态，载入文档，并以库当前检索参数预填配置
-  useEffect(() => {
-    setQuery('')
-    setHits(null)
-    if (!activeId) {
-      setDocs([])
-      setTopK(4)
-      setMinScore(0)
-      return
-    }
-    const kb = kbs.find((k) => k.id === activeId)
-    setTopK(kb?.top_k ?? 4)
-    setMinScore(kb?.min_score ?? 0)
-    setKgConnID(kb?.kg_conn_id ?? '')
-    setKgPrompt(kb?.kg_prompt ?? '')
-    setKgOntoID(kb?.kg_ontology_id ?? '')
-    setKgMaxChunks(kb?.kg_max_chunks ?? 0)
-    // KB-11：能力开关随选中库回显（缺省按 mode 派生口径）
-    setKbVec(kb ? kb.kb_vector ?? kb.mode !== 'graphrag' : true)
-    setKbGraphOn(kb ? kb.kb_graph ?? kb.mode === 'graphrag' : false)
-    reloadDocs(activeId)
-    // 仅在选中库变化时执行；kbs 仅用于取当前库参数
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId])
-
-  const saveConfig = async () => {
-    if (!active) return
-    setSavingCfg(true)
-    try {
-      await api.updateKB(active.id, {
-        ...active,
-        top_k: topK ?? active.top_k,
-        min_score: minScore ?? active.min_score,
-        kg_conn_id: kgConnID ?? active.kg_conn_id ?? '',
-        kg_prompt: kgPrompt ?? active.kg_prompt ?? '',
-        kg_ontology_id: kgOntoID ?? active.kg_ontology_id ?? '',
-        kg_max_chunks: kgMaxChunks ?? active.kg_max_chunks ?? 0,
-        kb_vector: kbVec, // KB-11：能力开关（全关由后端按 mode 派生兜底）
-        kb_graph: kbGraphOn,
-      })
-      showToast('配置已保存')
-      bumpData()
-      reloadKBs()
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    } finally {
-      setSavingCfg(false)
-    }
-  }
-
-  const doSearch = async () => {
-    if (!active) return
-    const q = query.trim()
-    if (!q) {
-      showToast('请输入检索词', 'err')
-      return
-    }
-    setSearching(true)
-    try {
-      const r = await api.searchPreview(active.id, q, topK ?? undefined, minScore ?? undefined)
-      setSearchMeta({ mode: r.mode, degraded: r.degraded, error: r.error })
-      setHits(r.hits ?? [])
-    } catch (e: any) {
-      showToast(e.message, 'err')
-      setHits(null)
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  const graphragSearch = async () => {
-    if (!active) return
-    const q = query.trim()
-    if (!q) {
-      showToast('请输入检索词', 'err')
-      return
-    }
-    setSearching(true)
-    try {
-      const r = await api.graphragSearchKB(active.id, q, topK ?? undefined)
-      setSearchMeta({ mode: r.mode, degraded: r.degraded, error: r.error })
-      setHits(r.hits ?? [])
-      if (r.degraded) showToast('KG 无命中或不可用，GraphRAG 检索已降级为向量', 'err')
-    } catch (e: any) {
-      showToast(e.message, 'err')
-      setHits(null)
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  const reindex = async (doc: KBDoc) => {
-    if (!active) return
-    setReindexing(doc.id)
-    try {
-      await api.reindexKBDoc(active.id, doc.id)
-      showToast('已提交重建索引')
-      reloadDocs(active.id)
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    } finally {
-      setReindexing(null)
-    }
-  }
-
-  const removeDoc = async (doc: KBDoc) => {
-    if (!active) return
-    try {
-      await api.deleteKBDoc(active.id, doc.id)
-      showToast('已删除文档')
-      reloadDocs(active.id)
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    }
-  }
-
-  const removeKB = async () => {
-    if (!active) return
-    try {
-      await api.deleteKB(active.id)
-      showToast('已删除知识库')
-      bumpData()
-      reloadKBs()
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    }
-  }
-
-  const columns: ColumnsType<KBDoc> = [
-    {
-      title: '文档',
-      dataIndex: 'title',
-      ellipsis: true,
-      render: (v: string) => <Typography.Text strong>{v}</Typography.Text>,
-    },
-    {
-      title: 'Chunks',
-      dataIndex: 'chunk_count',
-      width: 90,
-      align: 'right',
-      render: (v?: number) => (v ?? '—'),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 120,
-      render: (_, d: KBDoc) => {
-        const st = docStatusOf(d.status)
-        const badge = <Badge status={st.status} text={st.text} />
-        const tip = [d.status === 'failed' ? d.error : '', d.graphrag?.degraded ? `KG 抽取降级：${d.graphrag.error ?? '抽取异常'}` : ''].filter(Boolean).join('；')
-        const withGr = d.graphrag && (
-          <span style={{ marginInlineStart: 6 }}>
-            {d.graphrag.degraded ? (
-              <Tag color="warning" style={{ margin: 0, fontSize: 11 }}>KG 降级</Tag>
-            ) : (
-              <Tooltip title={`KG 抽取完成（${d.graphrag.method ?? 'llm'}：实体 ${d.graphrag.entities ?? 0} / 关系 ${d.graphrag.relationships ?? 0}）`}>
-                <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>KG ✓</Tag>
-              </Tooltip>
-            )}
-          </span>
-        )
-        return (
-          <span>
-            {tip ? <Tooltip title={tip}>{badge}</Tooltip> : badge}
-            {withGr}
-          </span>
-        )
-      },
-    },
-    {
-      title: '操作',
-      key: 'ops',
-      width: 180,
-      render: (_, d: KBDoc) => (
-        <Space size={0} wrap>
-          <Button type="link" size="small" loading={reindexing === d.id} onClick={() => reindex(d)}>
-            重建索引
-          </Button>
-          <Popconfirm
-            title={`删除文档「${d.title}」？`}
-            description="将级联删除其全部 chunk 与向量。"
-            okText="删除"
-            okButtonProps={{ danger: true }}
-            cancelText="取消"
-            onConfirm={() => removeDoc(d)}
-          >
-            <Button type="link" size="small" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
-
-  return (
-    <Splitter
-      className="main sidebar-splitter"
-      onResizeEnd={sidebarRemember}
-    >
-      <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
-        {rail.collapsed ? (
-        <CollapsedRail onExpand={rail.toggle} ariaLabel="知识库侧栏（已收起）" />
-      ) : (
-        <aside className="sidebar">
-          <div className="side-head">
-            <span className="side-title">知识库</span>
-            <SidebarCollapseButton onClick={rail.toggle} />
-            <span className="side-count">{kbs.length}</span>
-          </div>
-          <Tabs
-            size="small"
-            activeKey={modeTab}
-            onChange={(k) => setModeTab(k as KBMode)}
-            style={{ margin: '0 12px' }}
-            items={[
-              { key: 'rag', label: `RAG ${kbs.filter((k) => modeOf(k) === 'rag').length}` },
-              { key: 'graphrag', label: `GraphRAG ${kbs.filter((k) => modeOf(k) === 'graphrag').length}` },
-              { key: 'wiki', label: `LLM Wiki ${kbs.filter((k) => modeOf(k) === 'wiki').length}` },
-            ]}
-          />
-          <div className="side-actions">
-            <Button type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              新建库
-            </Button>
-          </div>
-          <div className="side-list">
-            {kbs.filter((k) => modeOf(k) === modeTab).map((k) => (
-              <div key={k.id} className={`side-item${k.id === activeId ? ' active' : ''}`} onClick={() => setActiveId(k.id)}>
-                <div className="side-item-top">
-                  <span className="side-item-name" title={k.name}>
-                    {k.name}
-                  </span>
-                </div>
-                <div className="side-item-meta">
-                  <Tag color={MODE_TAG[modeOf(k)].color} style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>
-                    {MODE_TAG[modeOf(k)].text}
-                  </Tag>
-                  {k.kb_vector && k.kb_graph && (
-                    <Tag color="geekblue" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>
-                      双路
-                    </Tag>
-                  )}
-                  <span>文档 {k.doc_count ?? '—'}</span>
-                  <span className="dot">·</span>
-                  <span>chunks {k.chunk_count ?? '—'}</span>
-                </div>
-              </div>
-            ))}
-            {kbs.length === 0 &&
-              (loadErr ? (
-                <LoadErrorAlert title="知识库列表加载失败" message={loadErr} onRetry={reloadKBs} style={{ margin: 12 }} />
-              ) : (
-                <EmptyGuide
-                  title="创建第一个知识库"
-                  steps={[
-                    '选择类型：RAG（向量检索）/ GraphRAG（向量+KG）/ LLM Wiki（写时合成页面）',
-                    '导入 txt / md 文档（自动切分并向量化）',
-                    '对话中点亮「知识」chip 即可召回',
-                  ]}
-                  actionLabel="＋ 新建知识库"
-                  onAction={() => setCreateOpen(true)}
-                  footer="嵌入模型使用设置页标记默认的向量连接。"
-                />
-              ))}
-          </div>
-        </aside>
-      )}
-      </Splitter.Panel>
-      <Splitter.Panel className="content-panel">
-
-        <div className="work-main">
-          {loadErr ? (
-            <div className="work-empty">
-              <Result
-                status="warning"
-                title="知识库后端未就绪"
-                subTitle={`${loadErr}（M6 后端另行部署）`}
-                extra={<Button onClick={reloadKBs}>重试</Button>}
-              />
-            </div>
-          ) : !active ? (
-            <div className="work-empty">
-              <Result
-                icon={null}
-                title="选择左侧知识库查看详情"
-                subTitle="或点击「新建库」：上传 txt / md → 切分 → 向量化 → 检索试运行（对齐 02 文档 §6.9）。"
-              />
-            </div>
-          ) : (
-            <>
-              <div className="work-head">
-                <div className="work-head-text">
-                  <div className="work-head-title">
-                    <Typography.Title level={4} style={{ margin: 0 }}>
-                      {active.name}
-                      <Tag color={MODE_TAG[modeOf(active)].color} style={{ marginInlineStart: 8, verticalAlign: 'middle' }}>
-                        {MODE_TAG[modeOf(active)].text}
-                      </Tag>
-                      {active.kb_vector && active.kb_graph && (
-                        <Tag color="geekblue" style={{ marginInlineStart: 4, verticalAlign: 'middle' }}>
-                          双路
-                        </Tag>
-                      )}
-                    </Typography.Title>
-                  </div>
-                  <p className="work-head-desc">{active.description || '未填写描述'}</p>
-                </div>
-                <Popconfirm
-                  title={`删除知识库「${active.name}」？`}
-                  description="将删除其全部文档、chunk 与向量数据。"
-                  okText="删除"
-                  okButtonProps={{ danger: true }}
-                  cancelText="取消"
-                  onConfirm={removeKB}
-                >
-                  <Button danger>删除库</Button>
-                </Popconfirm>
-              </div>
-
-              {/* REQ-237（57 号 F6 整改）：GraphRAG 详情四页签——图谱与统计 / 抽取治理 / 全局问答 / 文档与检索，
-                  原「Alert+三大卡先于文档表」纵向巨页退役；RAG 模式维持直排。Tabs 懒挂载：
-                  图谱/治理/全局问答首访才取数，首屏不再全量拉取 */}
-              <div className="stat-strip">
-                <StatTile k="文档" v={docs.length} />
-                <StatTile k="Chunks" v={docs.reduce((s, d) => s + (d.chunk_count ?? 0), 0)} />
-                <StatTile k="TopK" v={active.top_k ?? '—'} />
-                <StatTile k="min_score" v={active.min_score ?? '—'} />
-              </div>
-              {(() => {
-                const docRetrievalCards = (
-                  <>
-              <Card
-                className="work-card"
-                size="small"
-                title="检索参数"
-                extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>保存后用于对话召回（§6.9）</Typography.Text>}
-              >
-                <div className="cfg-row">
-                  <label className="cfg-field">
-                    <span className="cfg-label">TopK（返回片段数）</span>
-                    <InputNumber
-                      min={1}
-                      max={20}
-                      value={topK}
-                      onChange={(v) => setTopK(typeof v === 'number' ? v : null)}
-                      style={{ width: 140 }}
-                    />
-                  </label>
-                  <label className="cfg-field">
-                    <span className="cfg-label">min_score（相似度下限 0~1）</span>
-                    <InputNumber
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      precision={2}
-                      value={minScore}
-                      onChange={(v) => setMinScore(typeof v === 'number' ? v : null)}
-                      style={{ width: 160 }}
-                    />
-                  </label>
-                  <label className="cfg-field">
-                    <span className="cfg-label">{modeOf(active) === 'wiki' ? '检索能力（wiki 库固定：页面评分检索）' : '检索能力（KB-11 可多选）'}</span>
-                    <Space size={12}>
-                      {modeOf(active) !== 'wiki' ? (
-                        <>
-                          <Checkbox checked={kbVec} onChange={(e) => setKbVec(e.target.checked)}>
-                            向量
-                          </Checkbox>
-                          <Checkbox checked={kbGraphOn} onChange={(e) => setKbGraphOn(e.target.checked)}>
-                            图谱
-                          </Checkbox>
-                        </>
-                      ) : (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          读页非读片段（零 embedding 依赖）
-                        </Typography.Text>
-                      )}
-                    </Space>
-                  </label>
-                  <Button type="primary" loading={savingCfg} onClick={saveConfig}>
-                    保存
-                  </Button>
-                </div>
-                {modeOf(active) === 'graphrag' && (
-                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      KG 抽取配置（REQ-129①）：抽取模型与提示词按库覆写；留空 = 跟随全局默认
-                    </Typography.Text>
-                    <Space size={8} wrap>
-                      <Select
-                        showSearch
-                        optionFilterProp="label"
-                        value={kgConnID || undefined}
-                        onChange={(v) => setKgConnID(v || '')}
-                        allowClear
-                        placeholder="抽取模型连接（默认 chat 连接）"
-                        style={{ width: 320 }}
-                        options={conns.map((c) => ({ value: c.id, label: c.name + ' · ' + c.model_name }))}
-                      />
-                      <InputNumber
-                        min={0}
-                        max={2000}
-                        value={kgMaxChunks ?? 0}
-                        onChange={(v) => setKgMaxChunks(typeof v === 'number' ? v : 0)}
-                        style={{ width: 180 }}
-                        addonAfter="chunks 预算"
-                      />
-                    </Space>
-                    <Space size={8} wrap align="center">
-                      <Select
-                        showSearch
-                        optionFilterProp="label"
-                        value={kgOntoID || undefined}
-                        onChange={(v) => setKgOntoID(v || '')}
-                        allowClear
-                        placeholder="本体约束抽取（选择挂载本体，可清除）"
-                        style={{ width: 320 }}
-                        options={ontos.map((o) => ({ value: o.id, label: o.name }))}
-                      />
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                        挂载后抽取 prompt 注入该本体概念/关系词表白名单（本体→KB 出向，差异化能力）；重建 KG 生效
-                      </Typography.Text>
-                    </Space>
-                    <Input.TextArea
-                      value={kgPrompt ?? ''}
-                      onChange={(e) => setKgPrompt(e.target.value)}
-                      placeholder="提示词覆写（追加领域抽取约束，JSON 输出契约保留）"
-                      autoSize={{ minRows: 2, maxRows: 6 }}
-                    />
-                  </div>
-                )}
-              </Card>
-
-              <Card
-                className="work-card"
-                size="small"
-                title={`文档（${docs.length}）`}
-                extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadOpen(true)}>
-                    上传文档
-                  </Button>
-                }
-              >
-                <Table<KBDoc>
-                  rowKey="id"
-                  columns={columns}
-                  dataSource={docs}
-                  loading={docsLoading}
-                  pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }} /* REQ-237 F6：长列表分页（原无限增高） */
-                  size="middle"
-                  locale={{ emptyText: '暂无文档，点击右上「上传文档」导入 txt / md' }}
-                />
-              </Card>
-
-              <Card
-                className="work-card"
-                size="small"
-                title="检索试运行"
-                extra={
-                  hasReady ? (
-                    <Space size={6}>
-                      {modeOf(active) === 'graphrag' && (
-                        <Button size="small" loading={searching} onClick={graphragSearch}>
-                          GraphRAG 直查
-                        </Button>
-                      )}
-                      {searchMeta?.mode && (
-                        <Tag color={searchMeta.mode === 'graphrag' ? 'purple' : searchMeta.mode === 'wiki' ? 'cyan' : 'blue'} style={{ margin: 0 }}>
-                          {searchMeta.mode}
-                        </Tag>
-                      )}
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        命中按相似度排序
-                      </Typography.Text>
-                    </Space>
-                  ) : (
-                    <Tag color="warning" style={{ margin: 0 }}>
-                      索引未就绪，暂不可检索
-                    </Tag>
-                  )
-                }
-              >
-                <div className="search-row">
-                  <Input
-                    allowClear
-                    value={query}
-                    disabled={!hasReady}
-                    placeholder={hasReady ? '输入检索词，回车试运行' : '需至少一篇「就绪」文档'}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onPressEnter={doSearch}
-                    style={{ maxWidth: 420 }}
-                  />
-                  <InputNumber
-                    min={1}
-                    max={20}
-                    value={topK}
-                    disabled={!hasReady}
-                    onChange={(v) => setTopK(typeof v === 'number' ? v : null)}
-                    style={{ width: 128 }}
-                    prefix={<Typography.Text type="secondary" style={{ fontSize: 12 }}>TopK</Typography.Text>}
-                  />
-                  <Button type="primary" icon={<SearchOutlined />} disabled={!hasReady} loading={searching} onClick={doSearch}>
-                    检索
-                  </Button>
-                </div>
-
-                {searchMeta?.degraded && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginTop: 12 }}
-                    title={
-                      searchMeta.mode === 'wiki'
-                        ? 'wiki 检索无命中（页面尚未生成或无匹配页）——请在「Wiki 页面」页签点击「重建 Wiki」'
-                        : 'GraphRAG worker 不可达，本次结果来自向量检索回退（降级不阻断）'
-                    }
-                    description={searchMeta.error}
-                  />
-                )}
-                {hits && hits.length === 0 && (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无命中（可尝试降低 min_score 或补充文档）" style={{ marginTop: 16 }} />
-                )}
-                {hits && hits.length > 0 && (
-                  <div className="hits">
-                    {hits.map((h, i) => {
-                      const score = Number(h.score)
-                      const band = score >= 0.8 ? 'hi' : score >= 0.5 ? 'mid' : 'lo'
-                      return (
-                        <div className={`hit ${band}`} key={`${h.doc}-${h.seq}-${i}`}>
-                          <div className="hit-top">
-                            <span className="hit-doc">{h.doc}</span>
-                            <span className="hit-seq">#{h.seq}</span>
-                            <span className="hit-spacer" />
-                            {h.sources && h.sources.length > 0 && (
-                              <Tooltip title={`来源 chunk：${h.sources.map((s) => `${s.doc ?? '?'}#${s.seq}`).join('、')}（回答引用该页可下钻原文）`}>
-                                <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
-                                  来源 {h.sources.length}
-                                </Tag>
-                              </Tooltip>
-                            )}
-                            <Tag className="hit-score" color={band === 'hi' ? 'green' : band === 'mid' ? 'blue' : 'gold'} style={{ margin: 0 }}>
-                              score {fmtScore(h.score)}
-                            </Tag>
-                          </div>
-                          <div className="hit-excerpt">
-                            <HighlightSpans text={h.excerpt} spans={h.spans} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </Card>
-                </>
-                )
-                return modeOf(active) === 'graphrag' ? (
-                  <Tabs
-                    key={active.id}
-                    defaultActiveKey="graph"
-                    items={[
-                      {
-                        key: 'graph',
-                        label: '图谱与统计',
-                        children: (
-                          <>
-                            <Alert
-                              type="info"
-                              showIcon
-                              style={{ marginBottom: 12 }}
-                              title="GraphRAG 子模块（M14；M16 图谱增强已启用）"
-                              description="文档索引后自动把 chunks 同步抽取为自存 KG（D-O15 自研抽取：REQ-98 LLM 主路径 + 规则回退，零外部进程）；检索优先 GraphRAG，KG 无命中自动回退向量检索（不阻断）。图谱视图支持实体搜索、邻域展开、claims 溯源与聚焦检索（REQ-127/128）。"
-                            />
-                            <KGGraphView kbID={active.id} />
-                          </>
-                        ),
-                      },
-                      { key: 'governance', label: '抽取治理', children: <KGGovernancePanel kbID={active.id} /> },
-                      { key: 'global', label: '全局问答', children: <KGGlobalPanel kbID={active.id} /> },
-                      { key: 'docs', label: '文档与检索', children: docRetrievalCards },
-                    ]}
-                  />
-                ) : modeOf(active) === 'wiki' ? (
-                  /* REQ-241（M67）：wiki 库两页签——写时合成页面 / 文档与检索（Tabs 懒挂载同 GraphRAG） */
-                  <Tabs
-                    key={active.id}
-                    defaultActiveKey="pages"
-                    items={[
-                      {
-                        key: 'pages',
-                        label: 'Wiki 页面',
-                        children: <WikiPagesCard kbID={active.id} docCount={docs.length} conns={conns} />,
-                      },
-                      { key: 'docs', label: '文档与检索', children: docRetrievalCards },
-                    ]}
-                  />
-                ) : (
-                  docRetrievalCards
-                )
-              })()}
-            </>
-          )}
-        </div>
-
-        {createOpen && (
-          <CreateKBModal
-            onClose={() => setCreateOpen(false)}
-            onCreated={(kb) => {
-              setCreateOpen(false)
-              bumpData()
-              setActiveId(kb.id)
-              reloadKBs()
-            }}
-          />
-        )}
-        {uploadOpen && active && (
-          <UploadDocModal
-            kb={active}
-            onClose={() => setUploadOpen(false)}
-            onUploaded={() => {
-              setUploadOpen(false)
-              reloadDocs(active.id)
-              reloadKBs()
-            }}
-          />
-        )}
-      </Splitter.Panel>
-    </Splitter>
-  )
+function readView(): KbView {
+  const v = localStorage.getItem(VIEW_KEY)
+  return v === 'graphrag' || v === 'wiki' ? v : 'rag'
 }
 
-function StatTile({ k, v }: { k: string; v: ReactNode }) {
-  return (
-    <div className="stat-tile">
-      <span className="k">{k}</span>
-      <span className="v">{v}</span>
-    </div>
-  )
-}
-
-/** REQ-241（M67）：wiki 页面类型分组元数据 */
-const WIKI_TYPE_META: Record<string, { label: string; color: string }> = {
-  index: { label: '目录', color: 'default' },
-  summary: { label: '文档摘要', color: 'blue' },
-  entity: { label: '实体', color: 'green' },
-  concept: { label: '概念', color: 'geekblue' },
-  topic: { label: '主题', color: 'orange' },
-  synthesis: { label: '综合', color: 'purple' },
-}
-
-/** REQ-241（M67）：wiki 页面卡——按类型分组列表 + Markdown 预览（可溯源）+ 手动重建（成本预估警告） */
-function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: number; conns: { id: string; name: string; model_name: string }[] }) {
-  const { showToast } = useUI()
-  const [pages, setPages] = useState<WikiPage[]>([])
-  const [loading, setLoading] = useState(false)
-  const [rebuilding, setRebuilding] = useState(false)
-  const [connID, setConnID] = useState<string>('')
-  const [preview, setPreview] = useState<WikiPage | null>(null)
-  const [lastResult, setLastResult] = useState<WikiBuildResult | null>(null)
-
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listWikiPages(kbID)
-      .then((r) => setPages(r.pages ?? []))
-      .catch((e: any) => showToast(e?.message ?? '页面加载失败', 'err'))
-      .finally(() => setLoading(false))
-  }, [kbID, showToast])
-  useEffect(reload, [reload])
-
-  const rebuild = async () => {
-    setRebuilding(true)
-    try {
-      const r = await api.rebuildWiki(kbID, connID)
-      setLastResult(r.result)
-      showToast(`重建完成：${r.result.pages} 页，LLM 调用 ${r.result.llm_calls} 次，未变更跳过 ${r.result.skipped_docs} 篇`)
-      reload()
-    } catch (e: any) {
-      showToast(e?.message ?? '重建失败', 'err')
-    } finally {
-      setRebuilding(false)
-    }
-  }
-
-  const groups = useMemo(() => {
-    const g: Record<string, WikiPage[]> = {}
-    for (const p of pages) (g[p.page_type] ??= []).push(p)
-    return g
-  }, [pages])
-
-  return (
-    <Card
-      className="work-card"
-      size="small"
-      title={`Wiki 页面（${pages.length}）`}
-      extra={
-        <Space size={8} wrap>
-          <Select
-            showSearch
-            optionFilterProp="label"
-            value={connID || undefined}
-            onChange={(v) => setConnID(v || '')}
-            allowClear
-            placeholder="生成模型连接（默认 chat）"
-            style={{ width: 240 }}
-            options={conns.map((c) => ({ value: c.id, label: c.name + ' · ' + c.model_name }))}
-          />
-          <Popconfirm
-            title="重建 Wiki 页面？"
-            description={`将按当前文档全量重新生成（成本 ≈ 文档数 + 1 次 LLM 调用；内容未变更的文档自动跳过）。`}
-            okText="重建"
-            cancelText="取消"
-            onConfirm={rebuild}
-            disabled={docCount === 0}
-          >
-            <Button type="primary" icon={<SyncOutlined />} loading={rebuilding} disabled={docCount === 0}>
-              重建 Wiki
-            </Button>
-          </Popconfirm>
-        </Space>
-      }
-    >
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="LLM Wiki = 写时合成层（REQ-241）：重建按文档数产生 LLM 调用（每文档 1 次摘要 + 聚合页批量 1 次），内容未变更的文档自动跳过；检索读页非读片段，零 embedding 依赖。"
-      />
-      {lastResult && (
-        <Alert
-          type={lastResult.degraded ? 'warning' : 'success'}
-          showIcon
-          style={{ marginBottom: 12 }}
-          title={`上次重建：${lastResult.pages} 页 · LLM 调用 ${lastResult.llm_calls} 次 · 跳过 ${lastResult.skipped_docs} 篇 · ${lastResult.duration_ms}ms`}
-          description={
-            lastResult.warnings?.length ? (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {lastResult.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            ) : undefined
-          }
-        />
-      )}
-      {pages.length === 0 && !loading ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无 wiki 页面：导入文档后点击「重建 Wiki」生成（文档摘要 / 实体 / 概念 / 主题 / 综合五类互链页面）" />
-      ) : (
-        <Collapse
-          size="small"
-          defaultActiveKey={groups['synthesis']?.length ? ['synthesis'] : groups['summary'] ? ['summary'] : undefined}
-          items={(['synthesis', 'topic', 'entity', 'concept', 'summary', 'index'] as const)
-            .filter((t) => groups[t]?.length)
-            .map((t) => ({
-              key: t,
-              label: (
-                <Space size={6}>
-                  <Tag color={WIKI_TYPE_META[t].color} style={{ margin: 0 }}>
-                    {WIKI_TYPE_META[t].label}
-                  </Tag>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {groups[t].length} 页
-                  </Typography.Text>
-                </Space>
-              ),
-              children: (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {groups[t].map((p) => (
-                    <div
-                      key={p.id}
-                      className="wiki-page-row"
-                      onClick={() => setPreview(p)}
-                      style={{ cursor: 'pointer', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--c-border, #d9dcec)', display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <Typography.Text strong style={{ fontSize: 13 }}>
-                        {p.title}
-                      </Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.content_md.replace(/[#*\[\]\n]/g, ' ').slice(0, 80)}
-                      </Typography.Text>
-                      <Tooltip title={`溯源 ${p.sources.length} 个 chunk（预览中可下钻原文）`}>
-                        <Tag style={{ margin: 0, fontSize: 11 }}>溯源 {p.sources.length}</Tag>
-                      </Tooltip>
-                    </div>
-                  ))}
-                </div>
-              ),
-            }))}
-        />
-      )}
-      <Drawer
-        open={!!preview}
-        {...drawerSizeProps('wikipage', DRAWER_SIZES.medium)}
-        title={
-          preview && (
-            <Space size={8}>
-              <Tag color={WIKI_TYPE_META[preview.page_type]?.color ?? 'default'} style={{ margin: 0 }}>
-                {WIKI_TYPE_META[preview.page_type]?.label ?? preview.page_type}
-              </Tag>
-              <span>{preview.title}</span>
-            </Space>
-          )
-        }
-        onClose={() => setPreview(null)}
-        destroyOnHidden
-      >
-        {preview && (
-          <>
-            {preview.sources.length > 0 && (
-              <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-                来源 chunk：{preview.sources.length} 个（{preview.sources.slice(0, 6).join('、')}
-                {preview.sources.length > 6 ? ' …' : ''}）——回答引用该页时可经此下钻原文
-              </Typography.Paragraph>
-            )}
-            <div className="wiki-page-md">
-              <XMarkdown>{preview.content_md}</XMarkdown>
-            </div>
-          </>
-        )}
-      </Drawer>
-    </Card>
-  )
-}
-
-/** 新建知识库：name / description / store_backend（后端无状态字段，索引状态在文档级） */
-function CreateKBModal({ onClose, onCreated }: { onClose: () => void; onCreated: (kb: KnowledgeBase) => void }) {
+/** 新建知识库：name / description / mode / store_backend（后端无状态字段，索引状态在文档级） */
+function CreateKBModal({ defaultMode, onClose, onCreated }: { defaultMode: KBMode; onClose: () => void; onCreated: (kb: KnowledgeBase) => void }) {
   const { showToast } = useUI()
   const [form] = Form.useForm()
   const [busy, setBusy] = useState(false)
@@ -1035,7 +83,7 @@ function CreateKBModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         form={form}
         layout="vertical"
         requiredMark={false}
-        initialValues={{ store_backend: 'qdrant', description: '', mode: 'rag', kb_vector: true, kb_graph: false }}
+        initialValues={{ store_backend: 'qdrant', description: '', mode: defaultMode, kb_vector: defaultMode === 'rag', kb_graph: defaultMode === 'graphrag' }}
       >
         <Form.Item name="name" label="名称" rules={[{ required: true, message: '名称必填' }]}>
           <Input placeholder="如：K8s 运维手册" maxLength={60} />
@@ -1092,77 +140,142 @@ function CreateKBModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   )
 }
 
-/** 上传文档：粘贴文本，或选择本地 txt / md 读取文本填入（仅读取文本，不传文件本体） */
-function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase; onClose: () => void; onUploaded: () => void }) {
-  const { showToast } = useUI()
-  const [form] = Form.useForm()
-  const [busy, setBusy] = useState(false)
+export default function KnowledgePage() {
+  const { bumpData } = useUI()
+  const rail = useSidebarCollapse('eino.kb.sidebar.collapsed')
+  const [view, setView] = useState<KbView>(readView)
+  const [kbs, setKbs] = useState<KnowledgeBase[]>([])
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  /** 跨模块聚焦 handoff（消费与审计「前往知识库治理」）+ 建库后聚焦，消费后置空 */
+  const [focusId, setFocusId] = useState<string | null>(null)
 
-  const save = async () => {
-    let v: any
-    try {
-      v = await form.validateFields()
-    } catch {
-      return
+  const reloadKBs = () => {
+    api.listKBs()
+      .then((ks) => {
+        setKbs(ks)
+        setLoadErr(null)
+      })
+      .catch((e: any) => {
+        setKbs([])
+        setLoadErr(e?.message ?? '加载失败')
+      })
+  }
+
+  useEffect(reloadKBs, [])
+
+  // eino.kb.focus：指定选中库（自动切到其类型页）
+  useEffect(() => {
+    if (!kbs.length) return
+    const focus = localStorage.getItem('eino.kb.focus')
+    if (!focus) return
+    const kb = kbs.find((k) => k.id === focus)
+    if (kb) {
+      localStorage.removeItem('eino.kb.focus')
+      setView(modeOf(kb))
+      setFocusId(kb.id)
     }
-    if (!String(v.content ?? '').trim()) {
-      showToast('文档内容不能为空', 'err')
-      return
-    }
-    setBusy(true)
-    try {
-      await api.uploadKBDoc(kb.id, { name: v.name, content: v.content })
-      showToast('已上传，索引在后台进行')
-      onUploaded()
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    } finally {
-      setBusy(false)
-    }
+  }, [kbs])
+
+  const select = (key: KbView) => {
+    localStorage.setItem(VIEW_KEY, key)
+    setView(key)
+  }
+
+  const pageProps = {
+    kbs,
+    loadErr,
+    onReloadKBs: reloadKBs,
+    onCreate: () => setCreateOpen(true),
+    focusId,
+    onFocusDone: () => setFocusId(null),
   }
 
   return (
-    <Modal
-      open
-      centered
-      title={`上传文档 · ${kb.name}`}
-      width={620}
-      onCancel={onClose}
-      footer={
-        <Space>
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" loading={busy} onClick={save}>
-            上传
-          </Button>
-        </Space>
-      }
-    >
-      <Form form={form} layout="vertical" requiredMark={false}>
-        <Form.Item label="从文件读取（txt / md）" extra="仅在浏览器本地读取文本填入下方，不上传文件本体。">
-          <Upload
-            accept=".txt,.md,text/plain,text/markdown"
-            maxCount={1}
-            showUploadList={false}
-            beforeUpload={(file) => {
-              file
-                .text()
-                .then((t) => {
-                  form.setFieldsValue({ content: t, name: form.getFieldValue('name') || file.name })
-                })
-                .catch(() => showToast('读取文件失败', 'err'))
-              return false
+    // 左栏宽度并入全站单一约定（lib/layout.ts 单源，REQ-237 布局基线）
+    <Splitter className="main sidebar-splitter" onResizeEnd={sidebarRemember}>
+      <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
+        {rail.collapsed ? (
+          <CollapsedRail onExpand={rail.toggle} ariaLabel="知识库侧栏（已收起）" />
+        ) : (
+          <aside className="sidebar">
+            <div className="side-head">
+              <span className="side-title">知识库</span>
+              <SidebarCollapseButton onClick={rail.toggle} />
+              <span className="side-count">{kbs.length}</span>
+            </div>
+            {/* REQ-258：三类型导航（本体五栏同款范式：图标+标题+一句话描述，库计数徽标） */}
+            <div className="onto-nav">
+              {NAV.map((n) => (
+                <button
+                  key={n.key}
+                  type="button"
+                  className={`onto-nav-item${view === n.key ? ' active' : ''}`}
+                  aria-current={view === n.key || undefined}
+                  onClick={() => select(n.key)}
+                >
+                  <span className="onto-nav-icon">{n.icon}</span>
+                  <span className="onto-nav-text">
+                    <span className="onto-nav-label">
+                      {n.label}
+                      <Tag
+                        color={view === n.key ? 'geekblue' : 'default'}
+                        style={{ margin: 0, marginInlineStart: 6, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}
+                      >
+                        {kbs.filter((k) => modeOf(k) === n.key).length}
+                      </Tag>
+                    </span>
+                    <span className="onto-nav-desc">{n.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="side-actions">
+              <Button type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                新建库
+              </Button>
+            </div>
+            <div className="side-reserve-wrap">
+              <div className="reserve-note">
+                <div className="reserve-title">模块定位</div>
+                知识资产管理模块（M14 双子模块 + REQ-241 第三类型）：RAG / GraphRAG / LLM Wiki 三类型独立页面，检索增强对话的知识源。
+              </div>
+            </div>
+          </aside>
+        )}
+      </Splitter.Panel>
+      <Splitter.Panel className="content-panel">
+        {loadErr && !kbs.length ? (
+          <div className="work-empty">
+            <Result
+              status="warning"
+              title="知识库后端未就绪"
+              subTitle={loadErr}
+              extra={<Button onClick={() => reloadKBs()}>重试</Button>}
+            />
+          </div>
+        ) : view === 'graphrag' ? (
+          <GraphRagPage {...pageProps} />
+        ) : view === 'wiki' ? (
+          <WikiPage {...pageProps} />
+        ) : (
+          <RagPage {...pageProps} />
+        )}
+
+        {createOpen && (
+          <CreateKBModal
+            defaultMode={view}
+            onClose={() => setCreateOpen(false)}
+            onCreated={(kb) => {
+              setCreateOpen(false)
+              bumpData()
+              setView(modeOf(kb))
+              setFocusId(kb.id)
+              reloadKBs()
             }}
-          >
-            <Button icon={<UploadOutlined />}>选择文件</Button>
-          </Upload>
-        </Form.Item>
-        <Form.Item name="name" label="文档名" rules={[{ required: true, message: '文档名必填' }]}>
-          <Input placeholder="如：deployment-guide.md" maxLength={120} />
-        </Form.Item>
-        <Form.Item name="content" label="内容" rules={[{ required: true, message: '内容必填' }]}>
-          <Input.TextArea autoSize={{ minRows: 8, maxRows: 18 }} placeholder="粘贴文本，或从上方选择 txt / md 文件自动填入" />
-        </Form.Item>
-      </Form>
-    </Modal>
+          />
+        )}
+      </Splitter.Panel>
+    </Splitter>
   )
 }
