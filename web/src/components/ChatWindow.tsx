@@ -350,7 +350,8 @@ const BUBBLE_ROLES: BubbleListProps['role'] = {
         <span className="agent-glyph" />
       </Avatar>
     ),
-    styles: { content: { background: '#fff', border: '1px solid var(--c-line)', borderRadius: 12, borderBottomLeftRadius: 4 } },
+    // REQ-256 bugfix：气泡随主题（原硬编码 #fff——暗色时白底叠 darkAlgorithm 白字不可读）
+    styles: { content: { background: 'var(--c-panel)', border: '1px solid var(--c-line)', borderRadius: 12, borderBottomLeftRadius: 4 } },
     // 助手正文走 Markdown（XMarkdown）：流式期间尾部游标，hasNextChunk=false 时收尾刷新
     contentRender: (content, info) => (
       <XMarkdown

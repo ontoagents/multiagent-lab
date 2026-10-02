@@ -299,8 +299,8 @@ pre.raw-json {
   background: var(--c-bg-soft); border-radius: 0 8px 8px 0; color: var(--c-ink-2);
 }
 .chat-md.x-markdown hr { border: 0; border-top: 1px solid var(--c-line); }
-/* 行内代码：库已给 padding/圆角，这里补字族与配色 */
-.chat-md.x-markdown code { font-family: var(--mono); background: #f1f2f8; color: #414a63; border: 1px solid var(--c-hover-soft); }
+/* 行内代码：库已给 padding/圆角，这里补字族与配色（REQ-256：亮色硬编码改令牌随主题） */
+.chat-md.x-markdown code { font-family: var(--mono); background: var(--c-bg-soft); color: var(--c-ink); border: 1px solid var(--c-hover-soft); }
 /* 代码块：横向滚动（不换行），浅底细框 */
 .chat-md.x-markdown pre {
   font-family: var(--mono); font-size: 12.5px; line-height: 1.65; white-space: pre;
