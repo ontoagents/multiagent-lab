@@ -1424,9 +1424,15 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 			if len(h.Spans) > 0 { // B1 引用溯源：命中区间（excerpt 内 rune 偏移，前端句级高亮）
 				entry["spans"] = h.Spans
 			}
+			if len(h.Sources) > 0 { // REQ-241：wiki 页溯源定位（doc 标题+chunk 序号，回答可下钻原文）
+				entry["sources"] = h.Sources
+			}
 			hd = append(hd, entry)
 		}
 		data := map[string]any{"kb_id": kbcfg.ID, "mode": mode, "hits": hd} // M14 ④：retrieval 事件带 mode
+		if mode == "wiki" { // REQ-241：wiki 臂命中来源标注（沿 community 先例，过程可观测）
+			data["source"] = "wiki"
+		}
 		if degraded {
 			data["degraded"] = true
 		}

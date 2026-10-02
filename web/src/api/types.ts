@@ -292,8 +292,8 @@ export interface KnowledgeBase {
   id: string
   name: string
   description?: string
-  /** M14 D-KB4 双子模块：rag | graphrag（KB-11 起为展示页签默认；老数据缺省 = rag） */
-  mode?: 'rag' | 'graphrag'
+  /** M14 D-KB4 双子模块 + REQ-241 第三类型：rag | graphrag | wiki（KB-11 起为展示页签默认；老数据缺省 = rag） */
+  mode?: 'rag' | 'graphrag' | 'wiki'
   /** KB-11（M35/D2）：检索能力开关（解除 mode 互斥；两者皆空由后端按 mode 派生） */
   kb_vector?: boolean
   kb_graph?: boolean
@@ -346,12 +346,39 @@ export interface KBHit {
   strategy?: string
   /** B1 引用溯源：excerpt 内命中区间（rune 偏移，start 含 / end 不含） */
   spans?: { start: number; end: number }[]
+  /** REQ-241：wiki 臂命中页溯源（chunk_id 解析为 doc 标题 + 序号，回答可下钻原文；非 wiki 臂为空） */
+  sources?: { doc?: string; seq: number }[]
+}
+
+/** REQ-241（M67）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */
+export interface WikiPage {
+  id: string
+  kb_id: string
+  page_type: 'summary' | 'entity' | 'concept' | 'topic' | 'synthesis' | 'index'
+  title: string
+  content_md: string
+  /** 溯源 chunk_id 数组（页 → chunk 池下钻原文） */
+  sources: string[]
+  created_at: string
+  updated_at: string
+}
+
+/** REQ-241：wiki 重建结果（成本可见：实际 LLM 调用次数 / 未变更跳过数） */
+export interface WikiBuildResult {
+  ok: boolean
+  pages: number
+  llm_calls: number
+  skipped_docs: number
+  degraded?: boolean
+  error?: string
+  warnings?: string[]
+  duration_ms: number
 }
 
 /** 检索响应（M14 ③④：mode = 实际生效的检索路径；degraded = KG 无命中/异常回退向量） */
 export interface KBSearchResult {
   kb_id: string
-  mode?: 'rag' | 'graphrag'
+  mode?: 'rag' | 'graphrag' | 'wiki'
   degraded?: boolean
   error?: string
   hits: KBHit[]

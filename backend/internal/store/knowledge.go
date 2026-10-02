@@ -16,7 +16,7 @@ type KnowledgeBase struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
-	Mode        string  `json:"mode"` // rag | graphrag（KB-11 起为展示页签默认与存量兼容口径；路由按能力开关）
+	Mode        string  `json:"mode"` // rag | graphrag | wiki（REQ-241 起第三类型；KB-11 起为展示页签默认与存量兼容口径，路由按能力开关 + wiki 臂按 mode）
 	TopK        int     `json:"top_k"`
 	MinScore    float64 `json:"min_score"`
 	// KB-11（M35/D2）：检索能力开关（解除 mode 库级二选一互斥；tab 对照展示保留）。
@@ -45,6 +45,8 @@ type KnowledgeDoc struct {
 	Source     string `json:"source"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
+	// REQ-241：wiki 摄取输入指纹（chunk 拼接 sha256；重建时与现值一致 = 未变更跳过 summary 生成）
+	WikiHash string `json:"-"`
 	// Graphrag M14 D-KB4：graphrag 模式文档索引后的 worker 联动结果
 	// （非落库字段，仅当次接口回显；nil = rag 模式或老数据）。
 	Graphrag *GraphragInfo `json:"graphrag,omitempty"`
@@ -79,7 +81,7 @@ type KnowledgeChunk struct {
 }
 
 const kbCols = `id,name,description,mode,top_k,min_score,kb_vector,kb_graph,kg_conn_id,kg_prompt,kg_ontology_id,kg_max_chunks,created_at,updated_at`
-const kdocCols = `id,kb_id,title,status,chunk_count,error,source,created_at,updated_at`
+const kdocCols = `id,kb_id,title,status,chunk_count,error,source,created_at,updated_at,wiki_hash`
 const kchunkCols = `id,kb_id,doc_id,seq,content,parent_content,vector,vector_ref,store_backend,created_at`
 
 func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
@@ -97,7 +99,7 @@ func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
 
 func scanKDoc(row interface{ Scan(...any) error }) (*KnowledgeDoc, error) {
 	var d KnowledgeDoc
-	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt, &d.WikiHash); err != nil {
 		return nil, err
 	}
 	return &d, nil
@@ -139,13 +141,28 @@ func (s *Store) GetKnowledgeBase(id string) (*KnowledgeBase, error) {
 }
 
 // normalizeKBCapabilities KB-11 能力归一：两者皆 false = 未声明/无意义 → 按 mode 派生（D2 存量口径同式）。
+// REQ-241：wiki 库检索读页非读片段（零 embedding 依赖），两开关保持 false（路由按 mode 进 wiki 臂）。
 func normalizeKBCapabilities(k *KnowledgeBase) {
+	if k.Mode == "wiki" {
+		k.KBVector, k.KBGraph = false, false
+		return
+	}
 	if !k.KBVector && !k.KBGraph {
 		if k.Mode == "graphrag" {
 			k.KBGraph = true
 		} else {
 			k.KBVector = true
 		}
+	}
+}
+
+// normalizeKBMode mode 值域白名单（REQ-241 起三值；未知值回落 rag 兼容存量脏数据）。
+func normalizeKBMode(mode string) string {
+	switch mode {
+	case "graphrag", "wiki":
+		return mode
+	default:
+		return "rag"
 	}
 }
 
@@ -160,9 +177,7 @@ func (s *Store) CreateKnowledgeBase(k *KnowledgeBase) (*KnowledgeBase, error) {
 	if k.TopK <= 0 {
 		k.TopK = 4
 	}
-	if k.Mode != "graphrag" {
-		k.Mode = "rag"
-	}
+	k.Mode = normalizeKBMode(k.Mode)
 	normalizeKBCapabilities(k)
 	_, err := s.DB.Exec(`INSERT INTO knowledge_base (`+kbCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		k.ID, k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, now(), now())
@@ -195,9 +210,7 @@ func (s *Store) ListKBsByKGOntology(ontologyID string) ([]*KnowledgeBase, error)
 
 // UpdateKnowledgeBase 全量更新。
 func (s *Store) UpdateKnowledgeBase(k *KnowledgeBase) (*KnowledgeBase, error) {
-	if k.Mode != "graphrag" {
-		k.Mode = "rag"
-	}
+	k.Mode = normalizeKBMode(k.Mode)
 	normalizeKBCapabilities(k)
 	res, err := s.DB.Exec(`UPDATE knowledge_base SET name=?,description=?,mode=?,top_k=?,min_score=?,kb_vector=?,kb_graph=?,kg_conn_id=?,kg_prompt=?,kg_ontology_id=?,kg_max_chunks=?,updated_at=? WHERE id=?`,
 		k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, now(), k.ID)
@@ -225,7 +238,8 @@ func (s *Store) DeleteKnowledgeBase(id string) error {
 	s.DB.Exec(`DELETE FROM knowledge_chunk WHERE kb_id = ?`, id)
 	s.DeleteChunkFTSByKB(id) // KB-10①：词法索引级联清理
 	s.DB.Exec(`DELETE FROM knowledge_doc WHERE kb_id = ?`, id)
-	s.deleteKG(id, "") // D-O15：KG 自存行级联清理
+	s.DeleteWikiPagesByKB(id) // REQ-241：wiki 页级联清理
+	s.deleteKG(id, "")        // D-O15：KG 自存行级联清理
 	return nil
 }
 
@@ -269,8 +283,8 @@ func (s *Store) CreateKnowledgeDoc(d *KnowledgeDoc) (*KnowledgeDoc, error) {
 	if d.Source == "" {
 		d.Source = "paste"
 	}
-	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?)`,
-		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Error, d.Source, now(), now())
+	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Error, d.Source, now(), now(), d.WikiHash)
 	if err != nil {
 		return nil, err
 	}

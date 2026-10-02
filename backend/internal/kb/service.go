@@ -19,6 +19,10 @@ type Service struct {
 
 	// kgExtract KG 抽取注入点（D-O15：internal/kg 实现，api 层装配；nil = graphrag 抽取 degraded）
 	kgExtract KGExtractFunc
+
+	// wikiLLM wiki 页面生成注入点（REQ-241：chat.GenerateStructured 的转接闭包，api 层装配；
+	// nil = wiki 重建引导态「生成器未装配」）
+	wikiLLM WikiLLMFunc
 }
 
 // NewService 构造（backend=qdrant|sqlite，qdrantURL 见 §469 QDRANT_URL）。
@@ -47,7 +51,7 @@ func (s *Service) Import(ctx context.Context, kbID, title, content string) (*sto
 	if err != nil {
 		return nil, err
 	}
-	chunks, err := s.indexDoc(ctx, kbID, doc, pieces)
+	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, pieces)
 	if err != nil {
 		s.Store.UpdateKnowledgeDocStatus(doc.ID, "failed", 0, err.Error())
 		return nil, fmt.Errorf("索引失败: %w", err)
@@ -96,8 +100,12 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 	if err := s.Store.DeleteKnowledgeChunksByDoc(docID); err != nil {
 		return nil, err
 	}
+	// REQ-241：内容将变，wiki 指纹失效（下次重建按变更重生成 summary）
+	if kbcfg.Mode == "wiki" {
+		_ = s.Store.SetDocWikiHash(kbID, docID, "")
+	}
 	s.Store.UpdateKnowledgeDocStatus(docID, "indexing", 0, "")
-	chunks, err := s.indexDoc(ctx, kbID, doc, SplitPieces(sb.String()))
+	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, SplitPieces(sb.String()))
 	if err != nil {
 		s.Store.UpdateKnowledgeDocStatus(docID, "failed", 0, err.Error())
 		return nil, fmt.Errorf("索引失败: %w", err)
@@ -113,8 +121,27 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 }
 
 // indexDoc 切分（KB-10② 父子块）→embed→写入向量库与 chunks→状态回写（返回落库 chunks 供 graphrag 联动）。
-func (s *Service) indexDoc(ctx context.Context, kbID string, doc *store.KnowledgeDoc, pieces []Piece) ([]*store.KnowledgeChunk, error) {
+// REQ-241：wiki 模式走 chunksOnly 路径（chunk 池供 wiki 溯源/重建，不 embed 不写向量——检索读页非片段，
+// 兑现「零 embedding 依赖」：wiki 库无需向量连接即可用）。
+func (s *Service) indexDoc(ctx context.Context, kbcfg *store.KnowledgeBase, kbID string, doc *store.KnowledgeDoc, pieces []Piece) ([]*store.KnowledgeChunk, error) {
 	start := time.Now()
+	if kbcfg.Mode == "wiki" {
+		chunks := make([]*store.KnowledgeChunk, 0, len(pieces))
+		for i, piece := range pieces {
+			chunks = append(chunks, &store.KnowledgeChunk{
+				ID: store.NewID(), KBID: kbID, DocID: doc.ID, Seq: i,
+				Content: piece.Content, ParentContent: piece.Parent, StoreBackend: "none",
+			})
+		}
+		if err := s.Store.InsertKnowledgeChunks(chunks); err != nil {
+			return nil, fmt.Errorf("save chunks: %w", err)
+		}
+		if err := s.Store.UpdateKnowledgeDocStatus(doc.ID, "success", len(pieces), ""); err != nil {
+			return nil, err
+		}
+		log.Printf("[kb] doc %q indexed (wiki, no embedding): %d chunks, %s", doc.Title, len(pieces), time.Since(start).Round(time.Millisecond))
+		return chunks, nil
+	}
 	contents := make([]string, len(pieces))
 	for i, p := range pieces {
 		contents[i] = p.Content
@@ -177,9 +204,10 @@ func (s *Service) indexDoc(ctx context.Context, kbID string, doc *store.Knowledg
 	return chunks, nil
 }
 
-// DeleteDoc 删除文档：向量库级联清理 + chunks + doc。
+// DeleteDoc 删除文档：向量库级联清理 + chunks + doc（wiki 模式移除其 summary 页，聚合页留待重建收敛）。
 func (s *Service) DeleteDoc(ctx context.Context, kbID, docID string) error {
-	if _, err := s.Store.GetKnowledgeDoc(docID); err != nil {
+	doc, err := s.Store.GetKnowledgeDoc(docID)
+	if err != nil {
 		return err
 	}
 	if err := s.Vector.DeleteByDoc(ctx, kbID, docID); err != nil {
@@ -189,10 +217,13 @@ func (s *Service) DeleteDoc(ctx context.Context, kbID, docID string) error {
 	if err := s.Store.DeleteKnowledgeChunksByDoc(docID); err != nil {
 		return err
 	}
+	if kbcfg, kerr := s.Store.GetKnowledgeBase(kbID); kerr == nil && kbcfg.Mode == "wiki" {
+		_ = s.Store.DeleteWikiSummaryPage(kbID, doc.Title)
+	}
 	return s.Store.DeleteKnowledgeDoc(kbID, docID)
 }
 
-// DeleteKB 删除整个知识库（逐 doc 清向量）。
+// DeleteKB 删除整个知识库（逐 doc 清向量；wiki 页面级联清理 REQ-241）。
 func (s *Service) DeleteKB(ctx context.Context, kbID string) error {
 	docs, err := s.Store.ListKnowledgeDocs(kbID)
 	if err != nil {
@@ -200,6 +231,9 @@ func (s *Service) DeleteKB(ctx context.Context, kbID string) error {
 	}
 	for _, d := range docs {
 		s.Vector.DeleteByDoc(ctx, kbID, d.ID)
+	}
+	if err := s.Store.DeleteWikiPagesByKB(kbID); err != nil {
+		log.Printf("[kb] warn: delete wiki pages for kb %s: %v", kbID, err)
 	}
 	return s.Store.DeleteKnowledgeBase(kbID)
 }
@@ -267,9 +301,18 @@ type RetrievalHit struct {
 	Seq      int     `json:"seq"`
 	Score    float64 `json:"score"`
 	Excerpt  string  `json:"excerpt"`
-	Strategy string  `json:"strategy,omitempty"` // KB-10①：vector|lexical|hybrid（只增不改，空 = 历史口径）
+	Strategy string  `json:"strategy,omitempty"` // KB-10①：vector|lexical|hybrid|graph|wiki（只增枚举，空 = 历史口径）
 	// Spans 命中区间（B1 引用溯源：Excerpt 内 rune 偏移；空 = 无词项命中，如实不标）
 	Spans []Span `json:"spans,omitempty"`
+	// Sources 命中页溯源定位（REQ-241 wiki 臂：chunk_id 解析为 doc 标题+序号，回答可下钻原文；
+	// 非wiki 臂为空）
+	Sources []HitSource `json:"sources,omitempty"`
+}
+
+// HitSource wiki 页 sources 的可读定位（doc 标题 + chunk 序号）。
+type HitSource struct {
+	Doc string `json:"doc,omitempty"`
+	Seq int    `json:"seq"`
 }
 
 // RenderContext 检索结果注入文本（§341：[片段 doc:seq score] 格式）。

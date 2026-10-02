@@ -80,6 +80,19 @@ func main() {
 			return &kg.OntoVocab{Name: v.Name, Concepts: v.Concepts, Relations: v.Relations}, nil
 		},
 	}).ExtractForDoc)
+	// REQ-241：wiki 页面生成器注入（chat.GenerateStructured 转接闭包——kb 包不 import chat 防环；
+	// WIKI_LLM_CONN_ID 可选指定生成连接，缺省走默认 chat 连接）
+	wikiConn := getenv("WIKI_LLM_CONN_ID", "")
+	kbSvc.SetWikiLLM(func(ctx context.Context, connID, prompt, schemaJSON string) (string, error) {
+		if connID == "" {
+			connID = wikiConn
+		}
+		res, err := chat.GenerateStructured(ctx, st, box, connID, prompt, schemaJSON)
+		if err != nil {
+			return "", err
+		}
+		return string(res.DraftJSON), nil
+	})
 
 	svc := chat.NewService(st, asm, kbSvc)
 	// REQ-192/M32：平台助手配置单源归一引导——builtin 行 instruction 空时写入当前默认基座

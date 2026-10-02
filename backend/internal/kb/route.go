@@ -27,6 +27,18 @@ func (s *Service) SearchUnified(ctx context.Context, k *store.KnowledgeBase, que
 	if !vecOn && !graphOn { // 归一后不应出现（store 层已派生）；防御走向量
 		vecOn = true
 	}
+	if k.Mode == "wiki" { // REQ-241：wiki 库优先走写时合成臂（读页非读片段，零 embedding 依赖；
+		// 能力开关对 wiki 库无意义——store 派生保持 false/false，此分支在防御赋值前语义不变）
+		hits, werr := s.wikiArm(k, query, maxResults)
+		if werr != nil {
+			return &GraphragDetail{Hits: []RetrievalHit{}}, "wiki", true, werr
+		}
+		if len(hits) == 0 {
+			// 无命中：诚实标注（wiki 页缺失或未建 → degraded 引导重建）
+			return &GraphragDetail{Hits: []RetrievalHit{}}, "wiki", true, nil
+		}
+		return &GraphragDetail{Hits: hits}, "wiki", false, nil
+	}
 	switch {
 	case vecOn && graphOn:
 		var (

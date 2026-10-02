@@ -28,6 +28,8 @@ import type {
   OntoBuildResult,
   OntoBuildSelectableKB,
   OntoDecision,
+  WikiBuildResult,
+  WikiPage,
   OntoDecisionInput,
   PipelineCatalogResponse,
   PipelineDetail,
@@ -287,6 +289,13 @@ export const api = {
   /** M16/REQ-128：增强检索（实体聚焦/跳数/关系类型过滤，返回附实体/关系/claims 明细） */
   graphragSearchEnhanced: (kbId: string, body: { query?: string; max_results?: number; entity?: string; hops?: number; relation_types?: string[] }) =>
     req<any>(`/api/kb/${kbId}/graphrag-search`, { method: 'POST', body: JSON.stringify(body) }),
+  // REQ-241（M67）：LLM Wiki 类型——页面视图与手动全量重建
+  listWikiPages: (kbId: string) => req<{ kb_id: string; pages: WikiPage[] }>(`/api/kb/${kbId}/wiki/pages`),
+  rebuildWiki: (kbId: string, connID?: string) =>
+    req<{ kb_id: string; result: WikiBuildResult }>(`/api/kb/${kbId}/wiki/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({ conn_id: connID || '' }),
+    }),
   // M16 阶段一（REQ-127）：图谱浏览与统计
   kgStats: (kbId: string) => req<any>(`/api/kg/${kbId}/stats`),
   kgEntitySearch: (kbId: string, q: string, limit = 20) =>

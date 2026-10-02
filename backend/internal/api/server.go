@@ -244,6 +244,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/kb/{id}/docs/{did}/reindex", s.reindexKBDoc)
 	m.HandleFunc("POST /api/kb/{id}/search-preview", s.previewKBSearch)
 	m.HandleFunc("POST /api/kb/{id}/graphrag-search", s.graphragSearchKB) // M14 D-KB4：GraphRAG 子模块直查
+	m.HandleFunc("GET /api/kb/{id}/wiki/pages", s.wikiPages)              // REQ-241：wiki 页面视图
+	m.HandleFunc("POST /api/kb/{id}/wiki/rebuild", s.wikiRebuild)         // REQ-241：手动全量重建
 
 	// O13 由知识库构建本体（D-O14/REQ-108，M15）：精确路由压过 /api/ontologies* 反代前缀
 	m.HandleFunc("GET /api/kbs/selectable-for-ontology-build", s.selectableForOntologyBuild)
