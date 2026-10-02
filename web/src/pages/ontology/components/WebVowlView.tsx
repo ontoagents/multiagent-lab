@@ -40,23 +40,59 @@ declare global {
   }
 }
 
-/** 动态注入脚本/样式（幂等） */
+/** 动态注入脚本（幂等）；注入后轮询 webvowl 全局就绪——StrictMode 双挂载下脚本标签
+ *  已存在但可能尚未执行完，仅按「标签在 DOM」放行会误报分发文件缺失 */
 function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve()
+  const ready = new Promise<void>((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve()
+      return
+    }
     const el = document.createElement('script')
     el.src = src
     el.onload = () => resolve()
     el.onerror = () => reject(new Error(`加载失败: ${src}`))
     document.head.appendChild(el)
   })
+  return ready.then(async () => {
+    for (let i = 0; i < 200 && !(window as { webvowl?: unknown }).webvowl; i++) {
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    if (!(window as { webvowl?: unknown }).webvowl) {
+      throw new Error('webvowl 分发文件缺失（public/vendor/webvowl/）——请重新 npm install 并构建（prepare-vendor 自动补齐）')
+    }
+  })
 }
-function loadCss(href: string): void {
-  if (document.querySelector(`link[href="${href}"]`)) return
-  const el = document.createElement('link')
-  el.rel = 'stylesheet'
-  el.href = href
-  document.head.appendChild(el)
+
+/** 画布容器 id（模块级固定——作用域化样式与容器共用，重挂载不换 id，样式注入幂等） */
+const WEBVOWL_BOX_ID = 'webvowl_graph_container'
+
+/** 逐规则给选择器加作用域前缀：vendor css 含 `path, .nofill { fill: none }`、
+ *  `.class, path, line, .fineline { stroke: #000 }` 等**全局元素选择器**，CSS 优先级
+ *  压过 SVG 的 fill/stroke 表现属性——原全局 <link> 注入会把全站图标（AntD 图标=
+ *  currentColor 填充 path）一并置空透明。改为拉取文本按图容器 id 逐条前缀后注入。 */
+function scopeWebvowlCss(css: string, scope: string): string {
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  return noComments.replace(/([^{}]+)\{/g, (_m, sels: string) => {
+    const trimmed = sels.trim()
+    if (!trimmed || trimmed.startsWith('@')) return _m
+    const prefixed = trimmed
+      .split(',')
+      .map((s) => `${scope} ${s.trim()}`)
+      .join(',')
+    return `${prefixed}{`
+  })
+}
+
+async function loadScopedWebvowlCss(href: string, scope: string): Promise<void> {
+  const styleId = 'webvowl-scoped-css'
+  if (document.getElementById(styleId)) return
+  const res = await fetch(href)
+  if (!res.ok) throw new Error(`加载失败: ${href} (HTTP ${res.status})`)
+  const style = document.createElement('style')
+  style.id = styleId
+  style.textContent = scopeWebvowlCss(await res.text(), scope)
+  document.head.appendChild(style)
 }
 
 export default function WebVowlView({ ontologyId }: { ontologyId: string }) {
@@ -65,8 +101,7 @@ export default function WebVowlView({ ontologyId }: { ontologyId: string }) {
   // webvowl 1.1.x 的 graph() 只接受「选择器字符串」——内部 d3.selectAll(选择器) 对单个 DOM
   // 元素会解出空集（redrawGraph 建 svg 失败 → 随后 .on("dblclick.zoom") 读空节点崩溃），
   // 故给容器生成唯一 id、以 #id 传参（2026-09-27 修复）
-  const selRef = useRef<string>('')
-  if (!selRef.current) selRef.current = `wv_${Math.random().toString(36).slice(2, 9)}`
+  // 画布容器 id（模块级固定 WEBVOWL_BOX_ID——作用域化 css 前缀与容器共用，样式注入幂等）
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [ttlBytes, setTtlBytes] = useState(0)
@@ -84,7 +119,7 @@ export default function WebVowlView({ ontologyId }: { ontologyId: string }) {
       const json = await res.json()
       setTtlBytes(JSON.stringify(json).length)
       // 2) 注入 webvowl 分发脚本（public/vendor，prepare-vendor 自 npm 包复制）
-      loadCss('/vendor/webvowl/webvowl.css')
+      await loadScopedWebvowlCss('/vendor/webvowl/webvowl.css', `#${WEBVOWL_BOX_ID}`)
       await loadScript('/vendor/webvowl/webvowl.js')
       if (!window.webvowl) {
         throw new Error('webvowl 分发文件缺失（public/vendor/webvowl/）——请重新 npm install 并构建（prepare-vendor 自动补齐）')
@@ -101,7 +136,7 @@ export default function WebVowlView({ ontologyId }: { ontologyId: string }) {
         graph.options().leftSidebar({ isSidebarVisible: () => false, showSidebar: () => {}, hideCollapseButton: () => {} })
         graph
           .options()
-          .graphContainerSelector(`#${selRef.current}`)
+          .graphContainerSelector(`#${WEBVOWL_BOX_ID}`)
           .width(containerRef.current.clientWidth)
           .height(containerRef.current.clientHeight)
         graph.start()
@@ -183,7 +218,7 @@ export default function WebVowlView({ ontologyId }: { ontologyId: string }) {
       )}
       <div
         ref={containerRef}
-        id={selRef.current}
+        id={WEBVOWL_BOX_ID}
         className="webvowl-box"
         style={{ width: '100%', height: 560, border: '1px solid var(--ant-color-border, #e3e6f0)', borderRadius: 8, background: '#fff', overflow: 'hidden' }}
       />

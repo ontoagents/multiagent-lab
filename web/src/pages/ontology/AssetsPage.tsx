@@ -513,10 +513,21 @@ export default function AssetsPage() {
 
           <Card className="work-card onto-stage-card" size="small">
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              {/* 左锚点分区导航（REQ-183 同款范式：sticky + 常显标签；三簇分组） */}
+              {/* 左锚点分区导航（REQ-183 同款范式：sticky + 常显标签；三簇分组）
+                  REQ-253 bugfix：分区多且竖排高于视口时 sticky 底部不可达——限高 + 纵向滚动 */}
               <nav
                 aria-label="资产详情分区导航"
-                style={{ width: 132, flexShrink: 0, position: 'sticky', top: 8, display: 'flex', flexDirection: 'column', gap: 10 }}
+                style={{
+                  width: 132,
+                  flexShrink: 0,
+                  position: 'sticky',
+                  top: 8,
+                  maxHeight: 'calc(100vh - 16px)',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
               >
                 {groups.map((g) => (
                   <div key={g.title} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
