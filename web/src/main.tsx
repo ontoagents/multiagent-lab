@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN'
 import App from './App'
 import { AntdBridge } from './lib/antd'
 import { initTheme, readTheme, THEME_EVENT, type ThemeName } from './lib/theme'
+import ErrorBoundary from './components/ErrorBoundary'
 import './styles.css'
 import './pages.css'
 
@@ -33,7 +34,9 @@ function ThemedApp() {
     >
       <AntdApp>
         <AntdBridge />
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>
   )
