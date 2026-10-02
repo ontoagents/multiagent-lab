@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
 // ---- 本体对接（M8 §6.10）----
@@ -149,6 +150,14 @@ func (s *Server) deleteOntologyGuard(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 	if out.StatusCode < 300 {
 		s.Companion.OnOntologyDeleted(id) // 快照 + 端点缓存清理（伴生侧收尾）
+		// REQ-250/52 号 E6：本体删除治理审计（subject_kind=ontology）
+		_, _ = s.Store.InsertDecision(&store.OntoDecision{
+			SubjectKind: "ontology",
+			SubjectID:   id,
+			Title:       "[delete] 删除本体",
+			Rationale:   "删除本体（治理审计，REQ-250/52 号 E6）",
+			MetaJSON:    `{"method":"DELETE"}`,
+		})
 	}
 }
 

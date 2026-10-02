@@ -290,6 +290,13 @@ func (s *Server) routes() {
 		m.HandleFunc("DELETE /api/ontologies/{id}", s.deleteOntologyGuard)
 		// REQ-233②/M60：本体「被引用」三源聚合（运行方案挂载/KB 词表/伴生绑定，删除确认预检同源）
 		m.HandleFunc("GET /api/ontologies/{id}/references", s.ontologyReferences)
+		// REQ-250/52 号 E6 余项：本体治理审计——spec 保存/导入/合并/fork/CSV 灌装落 onto_decision
+		// （subject_kind=ontology；精确路由压过反代前缀，转发成功后异步记事件；删除审计在 deleteOntologyGuard 内）
+		m.HandleFunc("PUT /api/ontologies/{id}/spec", s.auditOntologyProxy)
+		m.HandleFunc("POST /api/ontologies/import", s.auditOntologyProxy)
+		m.HandleFunc("POST /api/ontologies/{id}/merge/apply", s.auditOntologyProxy)
+		m.HandleFunc("POST /api/ontologies/{id}/fork", s.auditOntologyProxy)
+		m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.auditOntologyProxy)
 		// REQ-103 模式 A：OntoChat 会话/turn/save 全在构建平面 /api/ontochat/*（bugfix：此前漏注册反代，
 		// 同源请求命中主后端 404 文本，前端 JSON.parse 报 "Unexpected non-whitespace character after JSON"）
 		m.Handle("/api/ontochat", s.Ontology.BuildProxy())
