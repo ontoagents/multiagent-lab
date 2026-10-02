@@ -113,7 +113,7 @@ interface TaskCardDef {
   prereq: string[]
   steps: string[]
   acceptance: string
-  link: { text: string; sidebar: 'build' | 'assets' | 'runtime' }
+  link: { text: string; sidebar: 'build' | 'assets' | 'runtime' ; s1tab?: string }
   difficulty: number
 }
 
@@ -137,7 +137,7 @@ const TASKS: TaskCardDef[] = [
     prereq: ['task_s1_first_ontology'],
     steps: ['写下 3 条能力问题', '在 Spec 编辑器为每条 CQ 补概念与关系', '保存并观察版本号递增'],
     acceptance: '你的哪条 CQ 需要跨概念的关系才能回答？',
-    link: { text: '前往本体资产编辑', sidebar: 'assets' },
+    link: { text: '前往录入 CQ 与建模（构建栏 AI 创建）', sidebar: 'build', s1tab: 'ai' }, // REQ-248/M71：直达 CQ 录入点
     difficulty: 1,
   },
   {
@@ -390,6 +390,24 @@ export default function LearnPage() {
               children: (
                 <>
                   <StructuredText text={m.body} />
+                  {m.key === 'cq' && (
+                    <div style={{ marginTop: 8 }}>
+                      {/* REQ-248/M71：方法论卡「援引到构建」——直达 S1 AI 创建 CQ 输入点（此前纯展示零互链） */}
+                      <Button
+                        size="small"
+                        type="primary"
+                        ghost
+                        onClick={() => {
+                          localStorage.setItem('eino.onto.s1tab', 'ai')
+                          localStorage.setItem('eino.onto.buildPath', 'custom')
+                          localStorage.setItem('eino.onto.sidebar', 'build')
+                          window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+                        }}
+                      >
+                        援引到构建：去 AI 创建录入 CQ →
+                      </Button>
+                    </div>
+                  )}
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
                     来源：seeds/learning/methodology/ 深度全文 · 对应文档 03 §2（REQ-90）
                   </Typography.Text>
@@ -445,7 +463,16 @@ export default function LearnPage() {
                       ))}
                     </ol>
                     <p className="onto-task-accept"><b>验收问题：</b>{t.acceptance}</p>
-                    <Button size="small" type="link" icon={<RightOutlined />} onClick={() => goSidebar(t.link.sidebar)}>
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<RightOutlined />}
+                      onClick={() => {
+                        if (t.link.s1tab) localStorage.setItem('eino.onto.s1tab', t.link.s1tab)
+                        if (t.link.s1tab) localStorage.setItem('eino.onto.buildPath', 'custom')
+                        goSidebar(t.link.sidebar)
+                      }}
+                    >
                       {t.link.text}
                     </Button>
                   </div>

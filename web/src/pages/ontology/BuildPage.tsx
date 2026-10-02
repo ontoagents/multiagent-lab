@@ -228,7 +228,11 @@ function CustomFlow({ onGoKbPath }: { onGoKbPath?: () => void }) {
 // S1 本体来源（导入 / AI 创建 / 内置示例 / 空白 / CSV 灌装）
 // ---------------------------------------------------------------------------
 
+const S1_TAB_KEY = 'eino.onto.s1tab'
+
 function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) => void; onGoKbPath?: () => void }) {
+  // REQ-248/M71：S1 来源 tab 记忆（方法论卡「援引到构建」直达 AI 创建 CQ 输入点的落点）
+  const [s1Tab, setS1Tab] = useState(() => localStorage.getItem(S1_TAB_KEY) ?? 'import')
   const { showToast } = useUI()
   const [importMode, setImportMode] = useState<'file' | 'paste'>('file')
   const [pasteFilename, setPasteFilename] = useState('')
@@ -425,6 +429,8 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
 
   return (
     <Tabs
+      activeKey={s1Tab}
+      onChange={(k) => { setS1Tab(k); localStorage.setItem(S1_TAB_KEY, k) }}
       items={[
         {
           key: 'import',

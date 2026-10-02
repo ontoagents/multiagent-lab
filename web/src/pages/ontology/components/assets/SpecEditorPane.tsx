@@ -80,6 +80,33 @@ export default function SpecEditorPane({
       showToast(`JSON 解析失败：${e.message}`, 'err')
       return
     }
+    // REQ-249/M72：保存前本地轻量查重（概念重名/概念↔实例跨域同名）——后端 Validate 同口径，
+    // 命中即本地呈现可读信息并阻断发送（不必等后端往返；大 Spec 时省一次上传）
+    const localErrs: ValidationError[] = []
+    const cn = new Set<string>()
+    ;(parsed.concepts ?? []).forEach((c, i) => {
+      if (cn.has(c.name)) localErrs.push({ path: `concepts[${i}].name`, message: '概念名重复: ' + c.name })
+      cn.add(c.name)
+    })
+    const inNames = new Set<string>()
+    ;(parsed.instances ?? []).forEach((it, i) => {
+      inNames.add(it.name)
+      if (cn.has(it.name)) localErrs.push({ path: `instances[${i}].name`, message: '概念与实例同名: ' + it.name + '（请改名其一）' })
+    })
+    ;(parsed.instances ?? []).forEach((it) => {
+      if (cn.has(it.name)) inNames.add(it.name)
+    })
+    ;(parsed.instances ?? []).forEach((it, i) =>
+      (it.relations ?? []).forEach((ir, j) => {
+        if (cn.has(it.name) && !inNames.has(ir.target) && ir.target)
+          localErrs.push({ path: `instances[${i}].relations[${j}].target`, message: '引用了未定义实例: ' + ir.target })
+      }),
+    )
+    if (localErrs.length > 0) {
+      setValidationErrors(localErrs)
+      showToast(`本地查重发现 ${localErrs.length} 处命名问题，未发送保存`, 'err')
+      return
+    }
     setSavingSpec(true)
     setValidationErrors([])
     try {
