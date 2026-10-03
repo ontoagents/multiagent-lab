@@ -3,13 +3,17 @@
 package ontobuild
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
@@ -31,11 +35,77 @@ type Service struct {
 	Store *store.Store
 	Box   *secrets.Box
 	KB    *kb.Service
+	// BuildPlaneURL 构建平面基址（REQ-267/M76 统一质量快评用；api 层装配时与反代同源赋值 BUILD_SVC_URL）
+	BuildPlaneURL string
 }
 
 // NewService 构造。
 func NewService(st *store.Store, box *secrets.Box, kbSvc *kb.Service) *Service {
-	return &Service{Store: st, Box: box, KB: kbSvc}
+	return &Service{Store: st, Box: box, KB: kbSvc, BuildPlaneURL: "http://127.0.0.1:8091"}
+}
+
+// QualitySummary 构建平面统一质量快评摘要（REQ-267/M76，D-O22 批次一）。
+// degraded=构建平面不可达，本次仅本地结构校验兜底（快评分不可用，诚实标注不阻断）。
+type QualitySummary struct {
+	Overall      float64 `json:"overall"`
+	ErrorCount   int     `json:"error_count"`
+	WarningCount int     `json:"warning_count"`
+	Degraded     bool    `json:"degraded,omitempty"`
+}
+
+// QualitySnapshot 统一质量快评：经构建平面 POST /api/ontology/quality/check
+// （inline spec+save=false 内存评分零副作用）——backend 生成链草稿与手工/对话/导入路径
+// 自此同用一把 qualitygate 尺（沿 runtime-manager FetchQuality 先例；8s 超时同款）。
+// 不可达时返回 degraded=true 零值摘要：草稿生成本身不依赖构建平面存活，结构兜底仍是本地 ValidateBuildSpec。
+func (s *Service) QualitySnapshot(spec *buildSpec) *QualitySummary {
+	q := &QualitySummary{}
+	if spec == nil {
+		return q
+	}
+	body, err := json.Marshal(map[string]any{"spec": spec, "save": false})
+	if err != nil {
+		q.Degraded = true
+		return q
+	}
+	base := s.BuildPlaneURL
+	if base == "" {
+		base = "http://127.0.0.1:8091"
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/api/ontology/quality/check", bytes.NewReader(body))
+	if err != nil {
+		q.Degraded = true
+		return q
+	}
+	req.Header.Set("Content-Type", "application/json")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req.WithContext(ctx))
+	if err != nil {
+		q.Degraded = true
+		return q
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		q.Degraded = true
+		return q
+	}
+	var out struct {
+		Report struct {
+			ErrorCount   int `json:"error_count"`
+			WarningCount int `json:"warning_count"`
+			Score        struct {
+				Overall float64 `json:"overall"`
+			} `json:"score"`
+		} `json:"report"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out) != nil {
+		q.Degraded = true
+		return q
+	}
+	q.Overall = out.Report.Score.Overall
+	q.ErrorCount = out.Report.ErrorCount
+	q.WarningCount = out.Report.WarningCount
+	return q
 }
 
 const (
@@ -157,9 +227,10 @@ type BuildResult struct {
 	Rounds     int         `json:"rounds"`        // LLM 调用轮数（1 = 首轮即成；2 = 含一次校验修复）
 	ChunksUsed int         `json:"chunks_used"`
 	Truncated  bool        `json:"truncated,omitempty"` // 语料超预算被截断
-	Spec       *buildSpec  `json:"spec_json"`
-	Report     *SpecReport `json:"validation_report"`
-	Warnings   []string    `json:"warnings,omitempty"`
+	Spec       *buildSpec       `json:"spec_json"`
+	Report     *SpecReport      `json:"validation_report"`
+	Quality    *QualitySummary  `json:"quality,omitempty"` // REQ-267/M76：构建平面统一 qualitygate 快评（degraded=不可达仅本地校验）
+	Warnings   []string         `json:"warnings,omitempty"`
 }
 
 // BuildFromKB 主入口：按策略从 KB 生成 spec_json 草稿（校验报告随附，不入库——预览后由前端走构建平面）。
@@ -220,6 +291,12 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 	}
 
 	res.Report = ValidateBuildSpec(res.Spec)
+	// REQ-267/M76：草稿统一经构建平面 quality/check 快评（save=false 零副作用）——与全平台同一把 qualitygate 尺；
+	// 降级仅注记不阻断（LLM 修复环仍用本地口径，防生成链路跨服务耦合）
+	res.Quality = s.QualitySnapshot(res.Spec)
+	if res.Quality.Degraded {
+		res.Warnings = append(res.Warnings, "统一质量快评不可达（构建平面离线），草稿仅本地结构校验兜底")
+	}
 	// 生成物非法且走过 LLM：回喂错误做一轮修复（与 REQ-82 校验循环语义一致，上限 1 轮防失控）
 	if !res.Report.OK && (strategy == "chunk-llm" || (strategy == "hybrid" && res.Rounds > 0)) {
 		errJSON, _ := json.Marshal(res.Report.Errors)
@@ -518,6 +595,7 @@ type StructuredDraft struct {
 	Mapping     []StructuredMapping `json:"mapping"`
 	MainConcept string              `json:"main_concept"`
 	Draft       *buildSpec          `json:"draft_spec"`
+	Quality     *QualitySummary     `json:"quality,omitempty"` // REQ-267/M76：handler 层附统一质量快评
 	Notes       []string            `json:"notes"`
 }
 

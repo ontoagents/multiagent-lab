@@ -407,6 +407,14 @@ export interface OntoBuildSpecReport {
   warnings?: string[]
 }
 
+/** 构建平面统一质量快评（REQ-267/M76：qualitygate 统一口径 save=false 零副作用）；degraded=构建平面不可达，仅本地结构校验兜底 */
+export interface BuildQualitySummary {
+  overall: number
+  error_count: number
+  warning_count: number
+  degraded?: boolean
+}
+
 /** build-from-kb 结果（spec_json 为构建平面 Spec 同形草稿；cqs = REQ-90 能力问题） */
 export interface OntoBuildResult {
   kb_id: string
@@ -420,6 +428,7 @@ export interface OntoBuildResult {
   truncated?: boolean
   spec_json: Spec
   validation_report: OntoBuildSpecReport
+  quality?: BuildQualitySummary
   warnings?: string[]
 }
 
@@ -430,7 +439,7 @@ export interface ChunksToKGResult {
   graphrag: KBGraphragInfo
 }
 
-/** kg-to-spec-json 结果（策略 B 独立入口：KG 薄映射） */
+/** kg-to-spec-json 结果（策略 B 独立入口：KG 薄映射；定位=编程接口无 UI 面，REQ-267③ 收口） */
 export interface KGToSpecResult {
   kb_id: string
   method?: string
@@ -438,6 +447,7 @@ export interface KGToSpecResult {
   kg_relationships: number
   spec_json: Spec
   validation_report: OntoBuildSpecReport
+  quality?: BuildQualitySummary
 }
 
 // ---- M7 技能（02 文档 §5.2 skill DDL / §6.12） ----

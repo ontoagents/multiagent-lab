@@ -1,6 +1,6 @@
 import DoneCTA from './components/DoneCTA'
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Radio, Segmented, Select, Space, Steps, Table, Tag, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Empty, Input, Radio, Segmented, Select, Space, Steps, Table, Tag, Tooltip, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DatabaseOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoBuildSelectableKB, OntoBuildResult, ValidationError } from '../../api/types'
@@ -108,7 +108,13 @@ function KbBuildFlow() {
       setSpecText(JSON.stringify(r.spec_json, null, 2))
       setOntoName(r.spec_json?.name ?? '')
       setStep(2)
-      showToast(r.validation_report?.ok ? '草稿已生成且校验通过' : '草稿已生成，但校验存在问题，请检查或修改')
+      // REQ-267/M76：统一质量快评随 toast 透出（degraded=构建平面离线仅本地结构校验）
+      const q = r.quality
+      showToast(
+        r.validation_report?.ok
+          ? `草稿已生成且校验通过${q && !q.degraded ? `，质量分 ${Math.round(q.overall)}` : ''}`
+          : '草稿已生成，但校验存在问题，请检查或修改',
+      )
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 503) showToast('生成失败：LLM 未配置（503），请到「设置-模型管理」配置', 'err')
       else showToast(e.message, 'err')
@@ -155,6 +161,14 @@ function KbBuildFlow() {
       {result.method && <Tag color="cyan" style={{ margin: 0 }}>KG method {result.method}</Tag>}
       {result.cqs?.length ? <Tag color="orange" style={{ margin: 0 }}>CQ ×{result.cqs.length}</Tag> : null}
       {result.truncated && <Tag color="volcano" style={{ margin: 0 }}>语料已截断</Tag>}
+      {result.quality && !result.quality.degraded && (
+        <Tooltip title="qualitygate 统一口径快评（构建平面 save=false 零副作用，REQ-267）——详细 findings 见入库后资产质量卡">
+          <Tag color={result.quality.error_count > 0 ? 'red' : result.quality.overall >= 80 ? 'green' : 'orange'} style={{ margin: 0 }}>
+            质量 {Math.round(result.quality.overall)}
+          </Tag>
+        </Tooltip>
+      )}
+      {result.quality?.degraded && <Tag style={{ margin: 0 }}>质量快评不可达（本地结构校验兜底）</Tag>}
     </Space>
   )
 
@@ -530,6 +544,12 @@ export function StructuredFlow() {
             <Tag>{(result.draft_spec as any)?.concepts?.length ?? 0} 概念</Tag>
             <Tag>{result.mapping.length} 列</Tag>
             <Tag>{result.draft_spec ? (result.draft_spec as any).instances.length : 0} 实例（采样≤200）</Tag>
+            {result.quality && !result.quality.degraded && (
+              <Tag color={result.quality.error_count > 0 ? 'red' : result.quality.overall >= 80 ? 'green' : 'orange'}>
+                质量 {Math.round(result.quality.overall)}
+              </Tag>
+            )}
+            {result.quality?.degraded && <Tag>质量快评不可达（本地结构校验兜底）</Tag>}
           </Space>
           <table className="onto-report-table" style={{ width: '100%', fontSize: 12, marginBottom: 6 }}>
             <thead>

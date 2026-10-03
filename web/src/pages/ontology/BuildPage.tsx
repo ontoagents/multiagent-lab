@@ -300,7 +300,20 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean)
-      const r = await api.aiDraftOntology(aiDesc.trim(), aiHint.trim() || undefined, cqs.length ? cqs : undefined)
+      // REQ-267/M76：异步提交+轮询（202+job），去 120s 同步阻塞窗口；失败/超时回显可懂错误
+      const { job_id } = await api.aiDraftOntologyAsync(aiDesc.trim(), aiHint.trim() || undefined, cqs.length ? cqs : undefined)
+      showToast('已提交生成任务，生成中…')
+      let r: AiDraftResult | undefined
+      for (let i = 0; i < 160; i++) {
+        await new Promise((res) => setTimeout(res, 1500))
+        const j = await api.aiDraftJob(job_id)
+        if (j.status === 'done') {
+          r = j.result
+          break
+        }
+        if (j.status === 'failed') throw new Error(j.error || 'AI 草案生成失败')
+      }
+      if (!r) throw new Error('生成超时（>240s）——任务仍在后台执行，可稍后重试')
       setAiResult(r)
       // REQ-247/G4：草案质量分展示（此前 REST 丢弃 quality——用户看不到生成质量）
       if (r.quality?.score) {

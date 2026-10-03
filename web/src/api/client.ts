@@ -2,6 +2,7 @@ import type {
   AgentConfigVersion,
   Agent,
   AiDraftResult,
+  BuildQualitySummary,
   McpServeInfo,
   ArtifactMeta,
   Conversation,
@@ -355,6 +356,7 @@ export const api = {
       main_concept: string
       mapping: { column: string; role: string; infer_type: string; sample?: string; matched_concepts?: string[]; level?: number }[]
       draft_spec: unknown
+      quality?: BuildQualitySummary
       notes: string[]
     }>('/api/ontologies/build-from-structured', { method: 'POST', body: JSON.stringify(input) }),
   // D-O15：显式重建自存 KG（原 /api/semantica/chunks-to-kg 退役）
@@ -454,6 +456,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ description, extraHint, capability_questions: capabilityQuestions }),
     }),
+  /** AI 草案异步提交（REQ-267/M76）：202 立返 job_id，配 aiDraftJob 轮询取件——去 120s 同步阻塞窗口 */
+  aiDraftOntologyAsync: (description: string, extraHint?: string, capabilityQuestions?: string[]) =>
+    req<{ job_id: string }>('/api/ontologies/ai-draft-async', {
+      method: 'POST',
+      body: JSON.stringify({ description, extraHint, capability_questions: capabilityQuestions }),
+    }),
+  /** 轮询异步草案任务：running | done（result 与同步端点同形）| failed */
+  aiDraftJob: (jobId: string) =>
+    req<{ id: string; status: 'running' | 'done' | 'failed'; result?: AiDraftResult; error?: string }>(
+      `/api/ai-draft-jobs/${encodeURIComponent(jobId)}`,
+    ),
   /** 导出下载地址（text/turtle attachment） */
   ontologyExportUrl: (id: string, format: string) => `/api/ontologies/${id}/export?format=${encodeURIComponent(format)}`,
   /** 注入指引（经构建平面路由，稳定可用） */

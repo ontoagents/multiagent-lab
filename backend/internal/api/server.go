@@ -85,7 +85,9 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 		log.Printf("[companion] REQ-216 迁移未完成（不影响启动）: %v", err)
 	}
 	chatSvc.Community = &kg.Summarizer{Store: st, Box: box} // KB-5③：全局问答社区摘要源（connID 按库经接口参数传入）
-	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontobuild.NewService(st, box, kbSvc), DBPath: dbPath, DocsRoot: docsRoot, ResearchRoot: researchRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
+	ontoBuildSvc := ontobuild.NewService(st, box, kbSvc)
+	ontoBuildSvc.BuildPlaneURL = onto.BuildURL // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
+	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, ResearchRoot: researchRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器
 	s.routes()
@@ -252,6 +254,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/ontologies/build-from-kb", s.buildFromKB)
 	m.HandleFunc("POST /api/ontologies/build-from-structured", s.buildFromStructured)
 	m.HandleFunc("POST /api/ontologies/kg-to-spec-json", s.kgToSpecJSON)
+	// REQ-267/M76：ai-draft-async 的轮询通道反代（此前异步端点无前端调用方亦无反代路由，前端 GET 会 404）
+	m.Handle("GET /api/ai-draft-jobs/{id}", s.Ontology.BuildProxy())
 
 	// KG 自存 + 消费/审计（D-O15/REQ-110：去-semantica 化，零外部进程）
 	m.HandleFunc("GET /api/kg/{kbID}", s.kgRead)

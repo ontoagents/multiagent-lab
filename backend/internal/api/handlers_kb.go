@@ -288,6 +288,11 @@ func (s *Server) buildFromStructured(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// REQ-267/M76：草稿统一经构建平面 quality/check 快评（save=false 零副作用；降级仅注记不阻断）
+	d.Quality = s.OntoBuild.QualitySnapshot(d.Draft)
+	if d.Quality.Degraded {
+		d.Notes = append(d.Notes, "统一质量快评不可达（构建平面离线），草稿仅本地结构校验兜底")
+	}
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -368,6 +373,7 @@ func (s *Server) kgToSpecJSON(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"kb_id": in.KBID, "method": kg.Method, "kg_entities": len(kg.Entities), "kg_relationships": len(kg.Relationships),
 		"spec_json": spec, "validation_report": ontobuild.ValidateBuildSpec(spec),
+		"quality": s.OntoBuild.QualitySnapshot(spec), // REQ-267/M76：统一 qualitygate 快评（含 degraded 标注）
 	})
 }
 
