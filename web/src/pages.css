@@ -483,6 +483,8 @@
 .proj-bar-btn:hover { background: var(--c-hover-soft); color: var(--c-ink); }
 .proj-bar-btn.active { background: var(--c-active-soft); color: var(--c-brand); }
 .proj-bar-spacer { flex: 1; }
+/* REQ-264：activity bar 簇间分隔线（身份与模型｜执行｜能力与集成｜资产） */
+.proj-bar-sep { flex: none; width: 22px; height: 1px; margin: 2px 0; background: var(--c-border, var(--c-line, #d9dcec)); }
 
 .proj-panel-view { flex: 1; min-width: 0; overflow: auto; padding: 12px 12px 20px; }
 

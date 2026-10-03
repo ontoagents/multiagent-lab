@@ -3,7 +3,6 @@ import { Alert, Badge, Breadcrumb, Button, Card, Checkbox, Collapse, Divider, Em
 import {
   ApiOutlined,
   CloudOutlined,
-  DatabaseOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
   ClusterOutlined,
@@ -13,10 +12,8 @@ import {
   FolderOutlined,
   ReloadOutlined,
   SettingOutlined,
-  ShareAltOutlined,
   AppstoreOutlined,
-  SyncOutlined,
-  ToolOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
@@ -48,33 +45,51 @@ const PANEL_BAR_WIDTH = 44
 
 /** REQ-240 前端优化①（开发者指令「除基本之外的所有配置页迁移到与智能体配置同一级，不要重复」）：
  *  「智能体配置」视图只留「基本」页签；模型/连接器/对外服务已有独立入口（去重复），
- *  Context/Harness/Loop/能力自配置页签提级为同平级入口（REQ-219 分层视角保持，
- *  呈现位从页签升 activity bar 入口）。
- *  REQ-251 布局精简：Graph 入口退役（原纯说明文字零配置项的诚实占位——编排配置在项目侧板
- *  「智能体协作」视图，REQ-205 编排落地时再入）；activity bar 按职责重排 =
- *  身份(config)→模型(model)→执行三层(context/harness/loop)→能力(ability/connectors)→
- *  资产(files/companion)→对外(serve)。 */
+ *  Context/Harness/Loop/能力自配置页签提级为同平级入口（REQ-219 分层视角保持）。
+ *  REQ-264 二级配置层级（62 号分析拍板采纳 B+B′+A）：一级收敛七入口 =
+ *  配置→模型→执行（Context/Harness/Loop 内层 Segmented 三层并列，默认 Harness）→能力→
+ *  对外集成（连接器 client 侧+对外服务 server 侧内层 Segmented）→文件→伴生本体；
+ *  簇间分隔线（身份与模型｜执行｜能力与集成｜资产）。 */
 export type PanelView =
   | 'config'
   | 'model'
-  | 'context'
-  | 'harness'
-  | 'loop'
+  | 'exec'
   | 'ability'
-  | 'connectors'
-  | 'serve'
+  | 'integrations'
   | 'files'
   | 'companion'
 
-const AGENT_FORM_VIEWS: PanelView[] = [
-  'config',
-  'model',
-  'context',
-  'harness',
-  'loop',
-  'ability',
-  'connectors',
-  'serve',
+/** 直接以 AgentConfigForm 承载的一级视图（执行/对外集成经 SegmentedFormView 二级承载） */
+const DIRECT_FORM_VIEWS: PanelView[] = ['config', 'model', 'ability']
+
+/** 一级视图 → AgentConfigForm 页签映射 */
+const FORM_TAB_OF: Partial<Record<PanelView, string[]>> = {
+  config: ['basic'],
+  model: ['model'],
+  ability: ['ability'],
+}
+
+/** REQ-264：存量 localStorage 视图值迁移（context/harness/loop→执行段位记忆；connectors/serve→对外集成段位；graph→配置） */
+const LEGACY_VIEW_OF: Record<string, { view: PanelView; seg?: string }> = {
+  context: { view: 'exec', seg: 'context' },
+  harness: { view: 'exec', seg: 'harness' },
+  loop: { view: 'exec', seg: 'loop' },
+  connectors: { view: 'integrations', seg: 'connectors' },
+  serve: { view: 'integrations', seg: 'serve' },
+  graph: { view: 'config' },
+}
+
+/** REQ-264：执行入口内层三段（五层视角保留为内层并列；默认 Harness=字段最重的一层） */
+const EXEC_SEGMENTS = [
+  { key: 'context', tab: 'context', label: 'Context', title: 'Context 上下文层', desc: '历史预算、压缩与工具结果剪枝——决定模型每轮「真正看到什么」（REQ-201/M37）' },
+  { key: 'harness', tab: 'harness', label: 'Harness', title: 'Harness 执行面', desc: '运行后端、文件安全根、验证背压与工具审批——模型之外「怎么把事做安全、做扎实」（REQ-202/231）' },
+  { key: 'loop', tab: 'loop', label: 'Loop', title: 'Loop 循环层', desc: 'ReAct 迭代上限、挂起恢复与长任务推进——防死循环与跨会话续跑（REQ-204/M39）' },
+]
+
+/** REQ-264：对外集成入口内层两段（client/server 双向闭环，REQ-131/214） */
+const INTEGRATION_SEGMENTS = [
+  { key: 'connectors', tab: 'connectors', label: '连接器', title: '连接器（client 侧）', desc: '本智能体作为客户端调用外部能力（REQ-214）；对外服务=反方向 server 侧（REQ-131）' },
+  { key: 'serve', tab: 'serve', label: '对外服务', title: '对外服务（server 侧）', desc: '本智能体作为 MCP 工具暴露给外部客户端——与连接器构成双向闭环（REQ-131）' },
 ]
 
 /** REQ-214/M46：连接器类型徽标（产品层只呈现「连接器」，MCP 为交付驱动之一） */
@@ -87,12 +102,13 @@ const kindMeta = (k: string) => CONNECTOR_KINDS.find((x) => x.value === k) ?? CO
 
 /**
  * 智能体右侧侧边栏（REQ-103 统一范式 + REQ-132 四分类改版 / M18；REQ-193/M33 双入口）：
- * activity bar（~44px）平级入口——「配置（基本身份）」「模型」「Context」「Harness」「Loop」
- * 「能力」「连接器」「对外服务」八表单视图（REQ-219/M50 五层视角落侧板 + REQ-240① 提级；
- * REQ-251 推理后端自「基本」迁「模型」视图对齐五层 Model=inference 归属）+「文件」
- * （REQ-218④ work_dir 浏览）与「伴生本体」（REQ-193 伴生配置/伴生管理两页）。
- * REQ-251 退役：Graph 入口（纯说明占位，编排配置在项目侧板协作视图）、Git 禁用占位
- * （与项目 Git 视图重复，智能体级 Git 未立项）。
+ * activity bar（~44px）七入口（REQ-264 二级层级定版）——「配置（基本身份）」「模型」
+ * 「执行」（Context/Harness/Loop 内层 Segmented 三层并列，默认 Harness）「能力」「对外集成」
+ * （连接器+对外服务内层 Segmented）「文件」（REQ-218④ work_dir 浏览）「伴生本体」（REQ-193 两页）；
+ * 簇间分隔线=身份与模型｜执行｜能力与集成｜资产。存量 localStorage 旧视图值自动迁移
+ * （context/harness/loop/connectors/serve/graph，见 LEGACY_VIEW_OF）。
+ * 五层视角保留：Model=「模型」入口，Context/Harness/Loop=「执行」入口内层并列（REQ-219 口径：
+ * 并列性自 rail 降为入口内，层职责边界不变，02 §6 五层总纲仍为权威）。
  * 页签面板 forceRender（跨页签字段同表单提交）；字段/校验/提交 API 不变，仅承载重组。
  */
 const PANEL_VIEW_KEY = 'eino.agentpanel.view'
@@ -114,16 +130,26 @@ export default function AgentSidePanel({
   onOpenChange?: (open: boolean) => void
   onChanged?: () => void
 }) {
-  // REQ-218①/M49：activity bar 六入口平级——智能体配置 / 模型 / 连接器 / 对外服务 / 文件 /
-  // 伴生本体（模型/连接器/对外服务自配置视图页签提级；文件为 REQ-218④ work_dir 浏览视图）。
+  // REQ-218①/M49 + REQ-264/M74：activity bar 七入口二级层级——智能体配置 / 模型 / 执行（三层内嵌） /
+  // 能力 / 对外集成（连接器+对外服务内嵌）/ 文件 / 伴生本体；簇间分隔线，旧视图值自动迁移。
   // REQ-217⑤/M48：侧板默认收缩为一竖行按钮常驻右侧——点击按钮展开内容、再点同一按钮收起；
   // 宽度记忆保留（展开时生效）。
   const [view, setView] = useState<PanelView>(() => {
     const saved = localStorage.getItem(PANEL_VIEW_KEY)
-    // REQ-213/251：内置行无伴生入口；'graph' 已退役（存量记忆回退配置视图）
+    // REQ-213/251：内置行无伴生入口；REQ-264：旧视图值（context/harness/loop/connectors/serve/graph）迁移
     if (saved === 'companion' && agent.is_builtin) return 'config'
-    if (saved === 'graph') return 'config'
+    const legacy = saved ? LEGACY_VIEW_OF[saved] : undefined
+    if (legacy) return legacy.view
     return (saved as PanelView) ?? 'config'
+  })
+  // REQ-264：二级段位状态上提（跨视图切换保活；存量旧视图值映射为初始段位）
+  const [execSeg, setExecSeg] = useState<string>(() => {
+    const saved = localStorage.getItem(PANEL_VIEW_KEY)
+    return saved === 'context' || saved === 'harness' || saved === 'loop' ? saved : 'harness'
+  })
+  const [integSeg, setIntegSeg] = useState<string>(() => {
+    const saved = localStorage.getItem(PANEL_VIEW_KEY)
+    return saved === 'serve' ? 'serve' : 'connectors'
   })
   const [collapsed, setCollapsed] = useState(true) // 默认竖条态（REQ-217⑤「默认收缩」）
   // REQ-237：常驻挂载后 open=展开态权威（头部收放按钮/竖条入口双向同步）
@@ -222,42 +248,21 @@ export default function AgentSidePanel({
             <CloudOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="上下文（Context）" placement="left">
+        {/* REQ-264：簇间分隔线（身份与模型｜执行｜能力与集成｜资产） */}
+        <span className="proj-bar-sep" />
+        <Tooltip title="执行（Context/Harness/Loop）" placement="left">
           <button
             type="button"
-            className={`proj-bar-btn${view === 'context' && !collapsed ? ' active' : ''}`}
-            aria-label="上下文"
-            aria-selected={view === 'context' && !collapsed}
+            className={`proj-bar-btn${view === 'exec' && !collapsed ? ' active' : ''}`}
+            aria-label="执行"
+            aria-selected={view === 'exec' && !collapsed}
             role="tab"
-            onClick={() => switchView('context')}
+            onClick={() => switchView('exec')}
           >
-            <DatabaseOutlined />
+            <ThunderboltOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="Harness（执行治理）" placement="left">
-          <button
-            type="button"
-            className={`proj-bar-btn${view === 'harness' && !collapsed ? ' active' : ''}`}
-            aria-label="Harness"
-            aria-selected={view === 'harness' && !collapsed}
-            role="tab"
-            onClick={() => switchView('harness')}
-          >
-            <ToolOutlined />
-          </button>
-        </Tooltip>
-        <Tooltip title="Loop（长任务）" placement="left">
-          <button
-            type="button"
-            className={`proj-bar-btn${view === 'loop' && !collapsed ? ' active' : ''}`}
-            aria-label="Loop"
-            aria-selected={view === 'loop' && !collapsed}
-            role="tab"
-            onClick={() => switchView('loop')}
-          >
-            <SyncOutlined />
-          </button>
-        </Tooltip>
+        <span className="proj-bar-sep" />
         <Tooltip title="能力（技能/工具）" placement="left">
           <button
             type="button"
@@ -270,18 +275,19 @@ export default function AgentSidePanel({
             <AppstoreOutlined />
           </button>
         </Tooltip>
-        <Tooltip title="连接器" placement="left">
+        <Tooltip title="对外集成（连接器/对外服务）" placement="left">
           <button
             type="button"
-            className={`proj-bar-btn${view === 'connectors' && !collapsed ? ' active' : ''}`}
-            aria-label="连接器"
-            aria-selected={view === 'connectors' && !collapsed}
+            className={`proj-bar-btn${view === 'integrations' && !collapsed ? ' active' : ''}`}
+            aria-label="对外集成"
+            aria-selected={view === 'integrations' && !collapsed}
             role="tab"
-            onClick={() => switchView('connectors')}
+            onClick={() => switchView('integrations')}
           >
             <ApiOutlined />
           </button>
         </Tooltip>
+        <span className="proj-bar-sep" />
         <Tooltip title="文件" placement="left">
           <button
             type="button"
@@ -310,20 +316,6 @@ export default function AgentSidePanel({
             </button>
           </Badge>
         </Tooltip>
-        <Tooltip title="对外服务" placement="left">
-          <button
-            type="button"
-            className={`proj-bar-btn${view === 'serve' && !collapsed ? ' active' : ''}`}
-            aria-label="对外服务"
-            aria-selected={view === 'serve' && !collapsed}
-            role="tab"
-            // REQ-213：内置行不开放对外服务（mcp_serve 锁死）
-            hidden={!!agent.is_builtin}
-            onClick={() => switchView('serve')}
-          >
-            <ShareAltOutlined />
-          </button>
-        </Tooltip>
         {/* REQ-251：Git 禁用占位退役——与项目侧板 Git 视图重复，智能体级 Git 未立项（REQ-218「占位保留」口径随之变更） */}
         <span className="proj-bar-spacer" />
         {/* REQ-237：竖条常驻后无「关闭」态——展开/收起即开合（原「关闭侧边栏」按钮退役，与收起语义重复） */}
@@ -350,16 +342,76 @@ export default function AgentSidePanel({
         <div className="proj-panel-view">
           {view === 'companion' && <AgentCompanionView agent={agent} onChanged={onChanged} />}
           {view === 'files' && <AgentFilesView agent={agent} onChanged={onChanged} />}
-          {AGENT_FORM_VIEWS.includes(view) && (
-            <AgentConfigForm
+          {view === 'exec' && (
+            <SegmentedFormView
               agent={agent}
               onChanged={onChanged}
-              visibleTabs={view === 'config' ? ['basic'] : [view === 'model' ? 'model' : view]}
+              segments={EXEC_SEGMENTS}
+              value={execSeg}
+              onChange={setExecSeg}
             />
+          )}
+          {view === 'integrations' && (
+            <SegmentedFormView
+              agent={agent}
+              onChanged={onChanged}
+              // REQ-213：内置行不开放对外服务（mcp_serve 锁死）——段位收敛为仅连接器
+              segments={agent.is_builtin ? INTEGRATION_SEGMENTS.filter((s) => s.key !== 'serve') : INTEGRATION_SEGMENTS}
+              value={integSeg}
+              onChange={setIntegSeg}
+            />
+          )}
+          {DIRECT_FORM_VIEWS.includes(view) && (
+            <AgentConfigForm agent={agent} onChanged={onChanged} visibleTabs={FORM_TAB_OF[view]} />
           )}
         </div>
       )}
     </aside>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// REQ-264 二级配置承载（62 号分析拍板 B/B′）：视图头（当前段位标题+一句话说明）+
+// Segmented 内层切换 + AgentConfigForm 单实例 embedded 渲染（跨段位保活表单状态与
+// 已拉取数据；visibleTabs 机制复用，零后端变更）。沿 AgentCompanionView 两页范式。
+// ---------------------------------------------------------------------------
+
+type FormSegment = { key: string; tab: string; label: string; title: string; desc: string }
+
+function SegmentedFormView({
+  agent,
+  onChanged,
+  segments,
+  value,
+  onChange,
+}: {
+  agent: Agent
+  onChanged?: () => void
+  segments: FormSegment[]
+  value: string
+  onChange: (k: string) => void
+}) {
+  const cur = segments.find((s) => s.key === value) ?? segments[0]
+  return (
+    <div className="proj-view-body">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <Typography.Text strong style={{ fontSize: 13 }}>{cur.title}</Typography.Text>
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 11 }}>{cur.desc}</Typography.Text>
+          </div>
+        </div>
+        {segments.length > 1 && (
+          <Segmented
+            size="small"
+            value={cur.key}
+            onChange={(v) => onChange(v as string)}
+            options={segments.map((s) => ({ value: s.key, label: s.label }))}
+          />
+        )}
+      </div>
+      <AgentConfigForm agent={agent} onChanged={onChanged} visibleTabs={[cur.tab]} embedded />
+    </div>
   )
 }
 
@@ -664,12 +716,15 @@ function AgentConfigForm({
   agent,
   onChanged,
   visibleTabs,
+  embedded,
 }: {
   agent: Agent
   onChanged?: () => void
   /** REQ-218①/M49：activity bar 提级视图复用本表单（单实例全字段 forceRender，保存载荷不受限）——
-   *  传定时仅渲染指定页签（如 ['model'] / ['connectors'] / ['serve']）；空 = 全部八页签（配置视图）。 */
+   *  传定时仅渲染指定页签（如 ['model'] / ['ability']）；空 = 全部页签（配置视图）。 */
   visibleTabs?: string[]
+  /** REQ-264：二级承载模式——外层 proj-view-body 与标题/切换由 SegmentedFormView 负责，本表单只出表单体 */
+  embedded?: boolean
 }) {
   const { showToast, bumpData, setPage } = useUI()
   const [form] = Form.useForm()
@@ -816,8 +871,8 @@ function AgentConfigForm({
     </Divider>
   )
 
-  return (
-    <div className="proj-view-body">
+  const body = (
+    <>
       {isBuiltin && <AssistantProposalBanner onChanged={onChanged} />}
       <Form form={form} layout="vertical" initialValues={agent} requiredMark={false} size="small">
         <Tabs
@@ -913,9 +968,7 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 0 }}>
-                    Context 上下文层（REQ-201/M37 · REQ-219 分层呈现）——历史预算、压缩与工具结果剪枝：决定模型每轮「真正看到什么」，压缩/裁剪均以运行警告诚实标注。
-                  </Typography.Paragraph>
+                  {/* REQ-264：层级介绍自页签内迁「执行」视图头（SegmentedFormView），此处保留可配置项 */}
                   <Form.Item
                     name="context_mode"
                     label="上下文预算"
@@ -947,9 +1000,7 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 0 }}>
-                    Harness 执行面（REQ-202/M38 · REQ-219 分层归位）——工具装配、防护 hooks、验证背压、审批 gating 与沙箱运行后端：模型之外「怎么把事做安全、做扎实」的一层。
-                  </Typography.Paragraph>
+                  {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
                   {sec('运行后端（在哪儿跑）')}
                   <Form.Item name="runtime_backend" label="运行后端" initialValue="inprocess" extra={isBuiltin ? '内置助手固定进程内执行' : 'M10：inprocess=平台进程内装配；docker=per-Agent agentd 容器沙箱；k8s=Pod 沙箱；auto=自动检测（REQ-190：k8s pod 优先→docker 次之→均不可用进程内兜底；平台需配置 SANDBOX_IMAGE）'}>
                     <Select
@@ -1045,9 +1096,7 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 0 }}>
-                    Loop 循环层（REQ-204/M39 · REQ-219 分层呈现）——ReAct 迭代上限、挂起恢复与长任务推进：防死循环与跨会话续跑在这一层。
-                  </Typography.Paragraph>
+                  {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
                   <Form.Item name="max_iteration" label="最大迭代次数（ReAct 上限）" initialValue={25}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} />
                   </Form.Item>
@@ -1200,8 +1249,11 @@ function AgentConfigForm({
         />
       </Form>
 
-      {/* REQ-226/M54：配置版本与一键回滚（保存即版本；回滚动作自身先快照可再滚回） */}
-      {!isBuiltin && <ConfigVersionCard agentId={agent.id} onRolled={onChanged} />}
+      {/* REQ-226/M54：配置版本与一键回滚（保存即版本；回滚动作自身先快照可再滚回）——
+          REQ-264：收敛到「配置（基本）」视图呈现（版本/回滚是全量配置级动作，不在各二级视图重复） */}
+      {!isBuiltin && (!visibleTabs || visibleTabs.includes('basic')) && (
+        <ConfigVersionCard agentId={agent.id} onRolled={onChanged} />
+      )}
 
       <div className="proj-view-actions">
         <Button type="primary" size="small" loading={saving} onClick={save}>
@@ -1222,8 +1274,9 @@ function AgentConfigForm({
           </Popconfirm>
         )}
       </div>
-    </div>
+    </>
   )
+  return embedded ? body : <div className="proj-view-body">{body}</div>
 }
 
 // ---------------------------------------------------------------------------
