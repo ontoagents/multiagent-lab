@@ -125,9 +125,9 @@ type buildRelation struct {
 }
 
 type buildInstance struct {
-	Name       string            `json:"name"`
-	Concept    string            `json:"concept"`
-	Attributes map[string]any    `json:"attributes,omitempty"`
+	Name       string              `json:"name"`
+	Concept    string              `json:"concept"`
+	Attributes map[string]any      `json:"attributes,omitempty"`
 	Relations  []buildInstRelation `json:"relations,omitempty"`
 }
 
@@ -150,7 +150,7 @@ type buildSpec struct {
 type BuildResult struct {
 	KBID       string      `json:"kb_id"`
 	KBName     string      `json:"kb_name"`
-	Strategy   string      `json:"strategy"` // chunk-llm | kg-direct | hybrid
+	Strategy   string      `json:"strategy"`         // chunk-llm | kg-direct | hybrid
 	Method     string      `json:"method,omitempty"` // KG 来源抽取方式（策略 B/C）：llm | lightweight
 	CQMode     string      `json:"cq_mode"`
 	CQs        []string    `json:"cqs,omitempty"` // 生成的/采用的能力问题（REQ-90）
@@ -329,7 +329,7 @@ func buildCorpus(chunks []*store.KnowledgeChunk, maxChunks, maxChars int) (strin
 // 实体 desc（轻量抽取捕获的首个描述句）→ definition。导出给 kg-to-spec-json 端点与策略 B/C 共用。
 func MapKGToSpec(kg *kb.KGData, kbName string) *buildSpec {
 	spec := &buildSpec{
-		Name:        kbName + " 本体",
+		Name: kbName + " 本体",
 		Description: fmt.Sprintf("由知识库「%s」的 GraphRAG KG 直转生成（O13 策略 B，method=%s）；%d 实体 / %d 关系映射，保真度依赖抽取质量。",
 			kbName, kg.Method, len(kg.Entities), len(kg.Relationships)),
 		Concepts: []buildConcept{}, Relations: []buildRelation{}, Instances: []buildInstance{},
@@ -504,7 +504,7 @@ func truncateRunes(s string, n int) string {
 // StructuredMapping 单列映射推荐
 type StructuredMapping struct {
 	Column     string   `json:"column"`
-	Role       string   `json:"role"`  // instance-name | attribute | concept-level（REQ-256 模板模式：该列入概念层级）
+	Role       string   `json:"role"`       // instance-name | attribute | concept-level（REQ-256 模板模式：该列入概念层级）
 	InferType  string   `json:"infer_type"` // string | number | boolean
 	Sample     string   `json:"sample,omitempty"`
 	MatchedCon []string `json:"matched_concepts,omitempty"` // 目标本体中按名/标签命中的概念
@@ -513,12 +513,12 @@ type StructuredMapping struct {
 
 // StructuredDraft 结构化→骨架推导结果
 type StructuredDraft struct {
-	SourceKind string              `json:"source_kind"` // csv | json
-	Mode       string              `json:"mode"`        // instance（默认骨架）| template（REQ-256 概念层级批量生成）
-	Mapping    []StructuredMapping `json:"mapping"`
-	MainConcept string             `json:"main_concept"`
-	Draft      *buildSpec          `json:"draft_spec"`
-	Notes      []string            `json:"notes"`
+	SourceKind  string              `json:"source_kind"` // csv | json
+	Mode        string              `json:"mode"`        // instance（默认骨架）| template（REQ-256 概念层级批量生成）
+	Mapping     []StructuredMapping `json:"mapping"`
+	MainConcept string              `json:"main_concept"`
+	Draft       *buildSpec          `json:"draft_spec"`
+	Notes       []string            `json:"notes"`
 }
 
 // InferStructuredDraftOpts 推导选项（REQ-256：Mode=template 启用概念层级批量生成）。
@@ -560,7 +560,14 @@ func InferStructuredDraftMode(filename, content string, opts InferStructuredDraf
 				arr = []map[string]any{obj}
 			}
 		}
+		// 表头顺序固定：扫描首对象 key 出现序（json.Unmarshal 到 map 无序，随机迭代曾致主概念漂移 flake）
 		seen := map[string]bool{}
+		for _, k := range firstJSONObjKeys(content) {
+			if !seen[k] {
+				seen[k] = true
+				headers = append(headers, k)
+			}
+		}
 		for _, r := range arr {
 			for k := range r {
 				if !seen[k] {
@@ -692,6 +699,54 @@ func rebuildCSV(headers []string, rows [][]string) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// firstJSONObjKeys 扫描 JSON 文本首个对象的 key 出现序（轻量扫描：处理转义与嵌套深度；
+// 仅供列角色推断的表头定序，不做完整 JSON 校验——解析错误由调用方 Unmarshal 兜底）。
+func firstJSONObjKeys(content string) []string {
+	start := strings.Index(content, "{")
+	if start < 0 {
+		return nil
+	}
+	depth := 0
+	var keys []string
+	seen := map[string]bool{}
+	for i := start; i < len(content); i++ {
+		switch content[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return keys
+			}
+		case '"':
+			j := i + 1
+			for j < len(content) {
+				if content[j] == '\\' {
+					j += 2
+					continue
+				}
+				if content[j] == '"' {
+					break
+				}
+				j++
+			}
+			if depth == 1 && j < len(content) {
+				key := content[i+1 : j]
+				k := j + 1
+				for k < len(content) && (content[k] == ' ' || content[k] == '\n' || content[k] == '\t' || content[k] == '\r') {
+					k++
+				}
+				if k < len(content) && content[k] == ':' && !seen[key] {
+					seen[key] = true
+					keys = append(keys, key)
+				}
+			}
+			i = j
+		}
+	}
+	return keys
 }
 
 func isNum(s string) bool {
