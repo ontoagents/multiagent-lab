@@ -162,18 +162,16 @@ export default function AssetsPage() {
     // REQ-240③/M66 + REQ-264：能力雷达全量支持——先读缓存报告；未生成过则
     // save=false 静默跑分（qualitygate 规则检查非 LLM、零副作用不落产物），详情雷达人人有
     if (qualityCache[activeId] === undefined) {
-      api
-        .qualityReport(activeId)
-        .then((r) => {
-          if (r.report) {
-            setQualityCache((m) => ({ ...m, [activeId]: r.report }))
-            return undefined
-          }
-          return api.qualityRun(activeId, false, false, false).then((r2) => {
-            setQualityCache((m) => ({ ...m, [activeId]: r2.report }))
-          })
-        })
-        .catch(() => setQualityCache((m) => ({ ...m, [activeId]: null })))
+      const ensure = (cached?: QualityReport | null) => {
+        if (cached) {
+          setQualityCache((m) => ({ ...m, [activeId]: cached }))
+          return
+        }
+        api.qualityRun(activeId, false, false, false)
+          .then((r2) => setQualityCache((m) => ({ ...m, [activeId]: r2.report })))
+          .catch(() => setQualityCache((m) => ({ ...m, [activeId]: null })))
+      }
+      api.qualityReport(activeId).then((r) => ensure(r.report)).catch(() => ensure(null))
     }
     return () => {
       alive = false
@@ -351,19 +349,6 @@ export default function AssetsPage() {
                     </Tooltip>
                   ) : null
                 })()}
-                {qualityCache[active.id] && (
-                  <Tooltip
-                    title={
-                      <span>
-                        能力雷达：{radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats).map(([k, v]) => `${k} ${Math.round(v)}`).join(' / ')}——详情见「质量卡」分区
-                      </span>
-                    }
-                  >
-                    <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default' }} data-testid="asset-radar">
-                      <QualityRadar dims={radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats)} size={92} compact />
-                    </span>
-                  </Tooltip>
-                )}
               </div>
               {/* REQ-264：描述单行截断（Tooltip 全文）——长描述不再多行挤占头部 */}
               <Tooltip title={active.description || undefined} placement="topLeft">
