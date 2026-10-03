@@ -322,8 +322,47 @@ def main() -> int:
         return parse(fmt)
     if cmd == "export":
         return export(sys.argv[2:])
+    if cmd == "reason":
+        # REQ-255②/M62 批次（60 号 H3）：推理级一致性检查档（owlrl OWL 2 RL 闭包；
+        # 完整 DL 推理 HermiT 不引入——学习定位内 owlrl 够用）。输入 TTL，输出 JSON。
+        fmt = "turtle"
+        if "--format" in sys.argv:
+            fmt = sys.argv[sys.argv.index("--format") + 1]
+        return reason(fmt)
     sys.stderr.write(f"未知命令 {cmd}\n")
     return 2
+
+
+def reason(format: str) -> int:
+    content = sys.stdin.read()
+    g = Graph()
+    fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
+    if fmt is None:
+        sys.stderr.write(f"未知推理检查格式 {format}\n")
+        return 2
+    try:
+        g.parse(data=content, format=fmt)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"RDF 解析失败: {e}\n")
+        return 1
+    try:
+        import owlrl  # 推理检查档依赖（REQ-255②；pip install owlrl）
+        from owlrl.AxiomaticTriples import OWLRL_Axiomatic_Triples, OWLRL_D_Axiomatic_Triples
+        sem = owlrl.OWLRL_Extension(g, OWLRL_Axiomatic_Triples, OWLRL_D_Axiomatic_Triples, rdfs=True)
+        sem.closure()
+        violations = [str(m) for m in sem.error_messages]
+        consistent = len(violations) == 0
+    except ImportError:
+        sys.stderr.write("owlrl 未安装：pip install owlrl（推理检查档依赖）\n")
+        return 3
+    except Exception as e:  # noqa: BLE001
+        # 推理器内部异常不伪装成「一致」——如实报 error 由调用方降级处理
+        json.dump({"consistent": None, "violations": [], "error": f"owlrl 推理失败: {e}",
+                   "note": "OWL 2 RL 闭包一致性检查（owlrl；HermiT 完整 DL 推理不引入）"}, sys.stdout, ensure_ascii=False)
+        return 0
+    json.dump({"consistent": consistent, "violations": violations[:50],
+               "note": "OWL 2 RL 闭包一致性检查（owlrl；HermiT 完整 DL 推理不引入，60 号 H3 口径）"}, sys.stdout, ensure_ascii=False)
+    return 0
 
 
 if __name__ == "__main__":

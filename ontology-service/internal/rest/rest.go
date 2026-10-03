@@ -2,6 +2,7 @@
 package rest
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
@@ -23,7 +26,6 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/pipeline"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/seed"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/toolchain"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/vocabsearch"
@@ -81,6 +83,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/accept", s.acceptEvolutionCandidate)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/reject", s.rejectEvolutionCandidate)
 	m.HandleFunc("GET /api/ontology/quality/report", s.qualityReport)
+	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
+	m.HandleFunc("POST /api/ontologies/{id}/cq-sparql", s.cqSparql)
 	m.HandleFunc("POST /api/ontology/toolchain/{tool}", s.toolchain)
 	m.HandleFunc("GET /api/ontology/vocabularies/search", s.vocabSearch)
 	m.HandleFunc("GET /api/ontology/ontoextend/odps", s.ontoextendListODPs)
@@ -278,6 +282,7 @@ func (s *Server) qualityCheck(w http.ResponseWriter, r *http.Request) {
 		Strict     bool               `json:"strict"`
 		Config     qualitygate.Config `json:"config"`
 		Save       *bool              `json:"save"`
+		Reasoning  *bool              `json:"reasoning"` // REQ-255②：显式请求推理检查档（未带时读本 体配置 reasoning_check）
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, err)
@@ -307,6 +312,50 @@ func (s *Server) qualityCheck(w http.ResponseWriter, r *http.Request) {
 		rep.Pass = true // 宽松模式（默认）：仅告警不阻断
 	}
 	out := map[string]any{"report": rep}
+	// REQ-255② 推理级检查档（owlrl OWL 2 RL 闭包一致性；默认关沿低侵入②）：
+	// 本体配置 reasoning_check 开启或本次请求显式 reasoning=true 时执行——
+	// 导出 TTL（sidecar export）→ sidecar reason → 命中以错误级独立检查项 reasoning_owlrl 并入报告。
+	reasoningOn := req.Reasoning != nil && *req.Reasoning
+	if !reasoningOn && req.OntologyID != "" {
+		if o, gerr := s.Store.GetOntology(req.OntologyID); gerr == nil {
+			reasoningOn = o.ReasoningCheck
+		}
+	}
+	if reasoningOn && s.Sidecar != nil && req.OntologyID != "" {
+		// 检查对象优先取 original 形态（owl/turtle——真实资产含公理才有检出意义；
+		// spec_json 子集无公理，其导出基本恒一致），无 original 退回 spec 导出并标注来源。
+		ttl, src, rdfFmt := "", "spec_export", "turtle"
+		var terr error
+		if c, _, gerr := s.Store.GetArtifact(req.OntologyID, "turtle"); gerr == nil && c != "" {
+			ttl, src = c, "original_turtle"
+		} else if c, _, gerr := s.Store.GetArtifact(req.OntologyID, "owl_rdfxml"); gerr == nil && c != "" {
+			ttl, src, rdfFmt = c, "original_owl_rdfxml", "owl_rdfxml"
+		} else {
+			ttl, terr = importer.ExportTTL(s.Sidecar, req.OntologyID, sp)
+		}
+		if terr == nil {
+			res, rerr := s.reasonCheck(ttl, rdfFmt)
+			switch {
+			case rerr != nil:
+				out["reasoning_error"] = rerr.Error()
+			case res.Consistent == nil || res.Error != "":
+				rep.WarningCount++
+				rep.Findings = append(rep.Findings, qualitygate.Finding{CheckID: "reasoning_owlrl", Title: "OWL 2 RL 推理一致性（owlrl）", Dimension: qualitygate.DimConsistency, Severity: qualitygate.SevWarning, Count: 1, Samples: []string{res.Error}})
+			case !*res.Consistent:
+				samples := res.Violations
+				if len(samples) > 3 {
+					samples = samples[:3]
+				}
+				rep.ErrorCount += len(res.Violations)
+				rep.Findings = append(rep.Findings, qualitygate.Finding{CheckID: "reasoning_owlrl", Title: "OWL 2 RL 推理一致性（owlrl）", Dimension: qualitygate.DimConsistency, Severity: qualitygate.SevError, Count: len(res.Violations), Samples: samples})
+			}
+			if res != nil {
+				out["reasoning"] = map[string]any{"consistent": res.Consistent, "violation_count": len(res.Violations), "source": src}
+			}
+		} else {
+			out["reasoning_error"] = "TTL 导出失败: " + terr.Error()
+		}
+	}
 	// 落库：已存本体默认写 quality-report artifact（可摘除=删该形态 artifact）；内联草稿不落
 	if req.OntologyID != "" && (req.Save == nil || *req.Save) {
 		if b, err := json.Marshal(rep); err == nil {
@@ -602,6 +651,113 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv})
 }
 
+// ---- REQ-255/M62 批次（60 号 H2+H3）：推理级检查档 + CQ→SPARQL 验收闭环 ----
+
+// sidecarReasonOut sidecar reason 子命令输出（owlrl OWL 2 RL 闭包一致性）。
+type sidecarReasonOut struct {
+	Consistent *bool    `json:"consistent"` // nil=推理器内部错误（error 字段承载）
+	Violations []string `json:"violations"`
+	Error      string   `json:"error,omitempty"`
+	Note       string   `json:"note"`
+}
+
+// reasonCheck 导出 TTL 内容经 sidecar reason 跑一致性检测（不落库，报告旁路）。
+func (s *Server) reasonCheck(content, format string) (*sidecarReasonOut, error) {
+	if s.Sidecar == nil || s.Sidecar.Python == "" || s.Sidecar.Script == "" {
+		return nil, fmt.Errorf("sidecar 未配置（SIDECAR_SCRIPT）")
+	}
+	cmd := exec.Command(s.Sidecar.Python, s.Sidecar.Script, "reason", "--format", format)
+	cmd.Stdin = strings.NewReader(content)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		if strings.Contains(errb.String(), "owlrl 未安装") {
+			return nil, fmt.Errorf("owlrl 未安装（pip install owlrl）——推理检查档依赖缺失")
+		}
+		return nil, fmt.Errorf("sidecar reason: %w; stderr: %s", err, strings.TrimSpace(errb.String()))
+	}
+	var res sidecarReasonOut
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		return nil, fmt.Errorf("sidecar reason 输出解析失败: %w", err)
+	}
+	return &res, nil
+}
+
+// cqSparqlReq/cqSparqlItem CQ→SPARQL 翻译（60 号 H2：LLM 辅助翻译+人工确认模板）。
+type cqSparqlItem struct {
+	CQ     string `json:"cq"`
+	Sparql string `json:"sparql"`
+}
+
+// cqSparql POST /api/ontologies/{id}/cq-sparql：spec.CQ 逐条翻译为 SPARQL SELECT
+// （单次 LLM 批量翻译；IRI 模板按 sidecar 导出 urn:o:{oid}:concept:{name} 口径）。
+// 返回 items 供前端人工确认/编辑后经运行方案 SPARQL 端点执行（通过率入质量卡）。
+func (s *Server) cqSparql(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	raw, _, err := s.Store.GetArtifact(id, "spec_json")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	sp := &pkgspec.Spec{}
+	if err := json.Unmarshal([]byte(raw), sp); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "spec_json 解析失败: " + err.Error()})
+		return
+	}
+	if len(sp.CQ) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "该本体无 CQ（能力问题）——先在 Spec 编辑「CQ」面板录入"})
+		return
+	}
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "模型通道未配置（LLM Creator 未装配）"})
+		return
+	}
+	var b strings.Builder
+	b.WriteString("你是本体查询专家。把每条能力问题（CQ）翻译为一条只读 SPARQL 1.1 SELECT 查询。\n")
+	b.WriteString("本体 IRI 模板：概念=<urn:o:" + id + ":concept:名称>，关系=<urn:o:" + id + ":relation:名称>，实例=<urn:o:" + id + ":instance:名称>（名称保持原文，URL 无需转义）。\n")
+	b.WriteString("可用概念：" + strings.Join(namesOf(sp.Concepts), "、") + "\n")
+	b.WriteString("可用关系：" + strings.Join(relNames(sp.Relations), "、") + "\n")
+	b.WriteString("模式：直接用「?x a <概念IRI>」取该概念全部实例（导出 TTL 中个体以 rdf:type 挂概念）；对象属性断言为 <实例IRI> <关系IRI> <实例IRI>。\n")
+	b.WriteString("只输出 JSON 数组，每项 {\"cq\":\"原问题\",\"sparql\":\"SELECT ...\"}，不要 markdown 代码块。\n\nCQ 清单：\n")
+	for i, cq := range sp.CQ {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, cq)
+	}
+	reply, _, err := s.LLM.RawChat(b.String())
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "CQ 翻译失败: " + err.Error()})
+		return
+	}
+	reply = strings.TrimSpace(reply)
+	reply = strings.TrimPrefix(strings.TrimPrefix(reply, "```json"), "```")
+	reply = strings.TrimSuffix(strings.TrimSpace(reply), "```")
+	var items []cqSparqlItem
+	if err := json.Unmarshal([]byte(reply), &items); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "翻译结果解析失败（非 JSON 数组）: " + err.Error()})
+		return
+	}
+	if items == nil {
+		items = []cqSparqlItem{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "items": items, "count": len(items)})
+}
+
+func namesOf(cs []pkgspec.Concept) []string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+func relNames(rs []pkgspec.Relation) []string {
+	out := make([]string, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, r.Name)
+	}
+	return out
+}
+
 // qualityConfigGet / qualityConfigPut REQ-156：本体级 strict 门禁开关读写。
 func (s *Server) qualityConfigGet(w http.ResponseWriter, r *http.Request) {
 	o, err := s.Store.GetOntology(r.PathValue("id"))
@@ -609,23 +765,34 @@ func (s *Server) qualityConfigGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": o.ID, "strict": o.QualityStrict})
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": o.ID, "strict": o.QualityStrict, "reasoning_check": o.ReasoningCheck})
 }
 
+// qualityConfigPut strict + reasoning_check（REQ-255②）两开关独立可写（指针判空=只改传入项）。
 func (s *Server) qualityConfigPut(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Strict *bool `json:"strict"`
+		Strict         *bool `json:"strict"`
+		ReasoningCheck *bool `json:"reasoning_check"`
 	}
-	if err := decodeJSON(r, &body); err != nil || body.Strict == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "strict（bool）必填"})
+	if err := decodeJSON(r, &body); err != nil || (body.Strict == nil && body.ReasoningCheck == nil) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "strict / reasoning_check（bool）至少填一项"})
 		return
 	}
-	if err := s.Store.SetQualityStrict(id, *body.Strict); err != nil {
-		writeErr(w, err)
-		return
+	if body.Strict != nil {
+		if err := s.Store.SetQualityStrict(id, *body.Strict); err != nil {
+			writeErr(w, err)
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "strict": *body.Strict})
+	if body.ReasoningCheck != nil {
+		if err := s.Store.SetReasoningCheck(id, *body.ReasoningCheck); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	o, _ := s.Store.GetOntology(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "strict": o.QualityStrict, "reasoning_check": o.ReasoningCheck})
 }
 
 func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {

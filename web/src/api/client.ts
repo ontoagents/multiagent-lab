@@ -412,13 +412,16 @@ export const api = {
     req<{ ok: boolean; validation_errors: ValidationError[] }>(`/api/ontologies/${id}/validate`, { method: 'POST' }),
   listArtifacts: (id: string) => req<ArtifactMeta[]>(`/api/ontologies/${id}/artifacts`),
   // ---- REQ-156/M-O15 质量卡与门禁开关 ----
-  qualityRun: (id: string, strict = false) =>
-    req<{ report: QualityReport; artifact_saved?: boolean }>(`/api/ontology/quality/check`, { method: 'POST', body: JSON.stringify({ ontology_id: id, strict }) }),
+  qualityRun: (id: string, strict = false, reasoning = false) =>
+    req<{ report: QualityReport; artifact_saved?: boolean; reasoning?: { consistent: boolean | null; violation_count: number; source: string } }>(`/api/ontology/quality/check`, { method: 'POST', body: JSON.stringify({ ontology_id: id, strict, reasoning }) }),
   qualityReport: (id: string) =>
     req<{ ontology_id: string; imported_at: string; report: QualityReport | null }>(`/api/ontology/quality/report?ontology_id=${encodeURIComponent(id)}`),
-  qualityConfig: (id: string) => req<{ ontology_id: string; strict: boolean }>(`/api/ontologies/${id}/quality-config`),
-  setQualityConfig: (id: string, strict: boolean) =>
-    req<{ ontology_id: string; strict: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify({ strict }) }),
+  qualityConfig: (id: string) => req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`),
+  setQualityConfig: (id: string, patch: { strict?: boolean; reasoning_check?: boolean }) =>
+    req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify(patch) }),
+  /** REQ-255/H2：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走 profileSparql） */
+  cqSparql: (id: string) =>
+    req<{ ontology_id: string; items: { cq: string; sparql: string }[]; count: number }>(`/api/ontologies/${id}/cq-sparql`, { method: 'POST', body: '{}' }),
   // ---- REQ-157/M-O15 导入合并（审查向导）----
   mergePreview: (id: string, body: MergeIngest) =>
     req<MergePreview>(`/api/ontologies/${id}/merge/preview`, { method: 'POST', body: JSON.stringify(body) }),

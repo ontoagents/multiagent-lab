@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Empty, Space, Spin, Switch, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Empty, Input, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ReloadOutlined, SafetyOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
+import type { RuntimeProfile } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ const SEV_META: Record<string, { color: string; text: string }> = {
 }
 
 export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: string; onReport?: (r: QualityReport | null) => void }) {
-  const [config, setConfig] = useState<{ strict: boolean } | null>(null)
+  const [config, setConfig] = useState<{ strict: boolean; reasoning_check?: boolean } | null>(null)
   const [report, setReport] = useState<QualityReport | null>(null)
   const [reportAt, setReportAt] = useState<string>('')
   const [loading, setLoading] = useState(false)
@@ -49,10 +50,10 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
 
   useEffect(load, [load])
 
-  const run = (strictFlag: boolean) => {
+  const run = (strictFlag: boolean, reasoningFlag = false) => {
     setRunning(true)
     api
-      .qualityRun(ontologyId, strictFlag)
+      .qualityRun(ontologyId, strictFlag, reasoningFlag)
       .then((r) => {
         setReport(r.report)
         setReportAt(new Date().toISOString())
@@ -65,12 +66,71 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
 
   const flipStrict = (v: boolean) => {
     api
-      .setQualityConfig(ontologyId, v)
+      .setQualityConfig(ontologyId, { strict: v })
       .then((c) => {
-        setConfig({ strict: c.strict })
+        setConfig({ strict: c.strict, reasoning_check: c.reasoning_check })
       })
       .catch((e: any) => setErr(e?.message ?? '开关更新失败'))
   }
+
+  // REQ-255②：推理级检查档开关（owlrl OWL 2 RL；默认关）
+  const flipReasoning = (v: boolean) => {
+    api
+      .setQualityConfig(ontologyId, { reasoning_check: v })
+      .then((c) => {
+        setConfig({ strict: c.strict, reasoning_check: c.reasoning_check })
+      })
+      .catch((e: any) => setErr(e?.message ?? '开关更新失败'))
+  }
+
+  // ---- REQ-255①（60 号 H2）：CQ→SPARQL 验收闭环（LLM 翻译→人工确认→运行方案执行→通过率）----
+  const [cqItems, setCqItems] = useState<{ cq: string; sparql: string }[] | null>(null)
+  const [cqBusy, setCqBusy] = useState(false)
+  const [cqRunning, setCqRunning] = useState(false)
+  const [cqResults, setCqResults] = useState<{ cq: string; sparql: string; rows: number | null; ok: boolean; err?: string }[] | null>(null)
+  const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
+  const [profileId, setProfileId] = useState<string | null>(null)
+  useEffect(() => {
+    api
+      .listRuntimeProfiles()
+      .then((ps) => {
+        setProfiles(ps)
+        setProfileId(ps.find((p) => p.status === 'running')?.id ?? null)
+      })
+      .catch(() => setProfiles([]))
+  }, [ontologyId])
+
+  const translateCq = () => {
+    setCqBusy(true)
+    setErr(null)
+    api
+      .cqSparql(ontologyId)
+      .then((r) => {
+        setCqItems(r.items)
+        setCqResults(null)
+      })
+      .catch((e: any) => setErr(e?.message ?? 'CQ 翻译失败'))
+      .finally(() => setCqBusy(false))
+  }
+
+  const runCq = async () => {
+    if (!profileId || !cqItems?.length) return
+    setCqRunning(true)
+    const out: { cq: string; sparql: string; rows: number | null; ok: boolean; err?: string }[] = []
+    for (const it of cqItems) {
+      try {
+        const { json } = await api.runSparql(profileId, it.sparql)
+        const rows = json?.results?.bindings?.length ?? null
+        out.push({ ...it, rows, ok: (rows ?? 0) > 0 })
+      } catch (e: any) {
+        out.push({ ...it, rows: null, ok: false, err: e?.message ?? '执行失败' })
+      }
+    }
+    setCqResults(out)
+    setCqRunning(false)
+  }
+
+  const cqPassRate = cqResults ? `${cqResults.filter((r) => r.ok).length}/${cqResults.length}` : null
 
   const columns: ColumnsType<NonNullable<QualityReport['findings'][number]>> = [
     {
@@ -101,10 +161,17 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
             <Typography.Text strong>strict 门禁</Typography.Text>
             <Switch checked={config?.strict ?? false} onChange={flipStrict} disabled={!config} />
           </Space>
+          <Space size={6}>
+            <ThunderboltOutlined style={{ color: 'var(--c-brand)' }} />
+            <Tooltip title="REQ-255②：开启后质量检查附跑 OWL 2 RL 推理一致性（owlrl；优先 original 形态），命中以错误级检查项 reasoning_owlrl 并入报告。默认关。">
+              <Typography.Text strong>推理检查</Typography.Text>
+            </Tooltip>
+            <Switch checked={config?.reasoning_check ?? false} onChange={flipReasoning} disabled={!config} data-testid="reasoning-switch" />
+          </Space>
           <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 240 }}>
             开启后，保存 Spec / 导入合并时若质量检查存在错误级命中将被拦截（400 + 明细）；默认宽松（仅本卡告警不阻断）。检查项清单见 qualitygate（REQ-171，11 项数据驱动）。
           </Typography.Text>
-          <Button size="small" icon={<ReloadOutlined />} loading={running} onClick={() => run(config?.strict ?? false)}>
+          <Button size="small" icon={<ReloadOutlined />} loading={running} onClick={() => run(config?.strict ?? false, config?.reasoning_check ?? false)}>
             {report ? '重新生成报告' : '生成质量报告'}
           </Button>
         </div>
@@ -163,11 +230,70 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
                 <Tag color="orange" style={{ margin: 0 }}>告警 {report.warning_count}</Tag>
                 <Tag style={{ margin: 0 }}>提示 {report.info_count}</Tag>
                 <Tag color={report.pass ? 'green' : 'default'} style={{ margin: 0 }}>{report.pass ? '门禁通过' : '存在错误级命中'}</Tag>
+                {cqPassRate && (
+                  <Tooltip title="CQ 验收通过率（REQ-255①）：SPARQL 查询有结果=通过；人工确认模板后经运行方案执行">
+                    <Tag color="geekblue" style={{ margin: 0 }} data-testid="cq-pass-tag"><CheckCircleOutlined /> CQ 验收 {cqPassRate}</Tag>
+                  </Tooltip>
+                )}
                 <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                   规模：{report.stats.concepts} 概念 / {report.stats.relations} 关系 / {report.stats.instances} 实例{reportAt ? ` · ${reportAt.slice(0, 19).replace('T', ' ')}` : ''}
                 </Typography.Text>
               </Space>
             </div>
+          </Card>
+
+          {/* REQ-255①（60 号 H2）：CQ→SPARQL 验收闭环——LLM 翻译→人工确认模板→运行方案执行→通过率 */}
+          <Card size="small" className="work-card" data-testid="cq-verify-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: cqItems ? 10 : 0 }}>
+              <CheckCircleOutlined style={{ color: 'var(--c-brand)' }} />
+              <Typography.Text strong>CQ 验收（SPARQL）</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 220 }}>
+                能力问题逐条翻译为只读 SELECT（LLM 辅助+人工确认模板），经运行方案引擎执行：有结果=通过。
+              </Typography.Text>
+              <Select
+                size="small"
+                style={{ minWidth: 170 }}
+                placeholder="选择运行方案"
+                value={profileId ?? undefined}
+                onChange={setProfileId}
+                options={profiles.map((p) => ({ value: p.id, label: `${p.name}${p.status === 'running' ? '' : `（${p.status}）`}` }))}
+              />
+              {!cqItems ? (
+                <Button size="small" loading={cqBusy} onClick={translateCq} data-testid="cq-translate-btn">
+                  翻译 CQ
+                </Button>
+              ) : (
+                <Space size={6}>
+                  <Button size="small" loading={cqRunning} disabled={!profileId} onClick={runCq} data-testid="cq-run-btn">
+                    执行验证
+                  </Button>
+                  <Button size="small" onClick={translateCq} loading={cqBusy}>重新翻译</Button>
+                </Space>
+              )}
+            </div>
+            {cqItems && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {cqItems.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <Typography.Text style={{ fontSize: 12, width: 260, flexShrink: 0 }}>{it.cq}</Typography.Text>
+                    <Input.TextArea
+                      size="small"
+                      value={it.sparql}
+                      rows={2}
+                      style={{ fontFamily: 'monospace', fontSize: 11, flex: 1 }}
+                      onChange={(e) =>
+                        setCqItems((cur) => (cur ? cur.map((x, j) => (j === i ? { ...x, sparql: e.target.value } : x)) : cur))
+                      }
+                    />
+                    {cqResults?.[i] && (
+                      <Tag color={cqResults[i].ok ? 'green' : 'default'} style={{ margin: 0, flexShrink: 0 }}>
+                        {cqResults[i].err ? '错误' : cqResults[i].ok ? `通过 ${cqResults[i].rows} 行` : '无结果'}
+                      </Tag>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           <Table

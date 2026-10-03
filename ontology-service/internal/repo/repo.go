@@ -32,6 +32,8 @@ type Ontology struct {
 	// 内容变更（spec 保存/合并/恢复）自动回 draft，发布动作显式命名。
 	Status      string `json:"status"`
 	VersionName string `json:"version_name,omitempty"`
+	// REQ-255②：推理级检查档开关（owlrl OWL 2 RL 一致性入质量报告；默认关）
+	ReasoningCheck bool `json:"reasoning_check"`
 	// 统计（从 spec_json 计算，仅列表/详情返回时填充）
 	NConcepts  int `json:"n_concepts,omitempty"`
 	NRelations int `json:"n_relations,omitempty"`
@@ -120,7 +122,7 @@ func (s *Store) DB() *sql.DB { return s.db }
 // ---- 元数据 CRUD ----
 
 func (s *Store) ListOntologies() ([]Ontology, error) {
-	rows, err := s.db.Query(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,'') FROM ontology ORDER BY updated_at DESC, id`)
+	rows, err := s.db.Query(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,''),IFNULL(reasoning_check,0) FROM ontology ORDER BY updated_at DESC, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +130,7 @@ func (s *Store) ListOntologies() ([]Ontology, error) {
 	out := []Ontology{}
 	for rows.Next() {
 		var o Ontology
-		if err := rows.Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName, &o.ReasoningCheck); err != nil {
 			return nil, err
 		}
 		if err := s.fillStats(&o); err != nil {
@@ -141,8 +143,8 @@ func (s *Store) ListOntologies() ([]Ontology, error) {
 
 func (s *Store) GetOntology(id string) (*Ontology, error) {
 	var o Ontology
-	err := s.db.QueryRow(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,'') FROM ontology WHERE id=?`, id).
-		Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName)
+	err := s.db.QueryRow(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,''),IFNULL(reasoning_check,0) FROM ontology WHERE id=?`, id).
+		Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName, &o.ReasoningCheck)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -342,6 +344,12 @@ func (s *Store) CurrentVersions() (map[string]int, error) {
 // SetQualityStrict REQ-156/M-O15：本体级质量门禁 strict 开关。
 func (s *Store) SetQualityStrict(id string, strict bool) error {
 	_, err := s.db.Exec(`UPDATE ontology SET quality_strict=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, b2i(strict), id)
+	return err
+}
+
+// SetReasoningCheck REQ-255②：推理级检查档开关（owlrl；默认关）。
+func (s *Store) SetReasoningCheck(id string, on bool) error {
+	_, err := s.db.Exec(`UPDATE ontology SET reasoning_check=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, b2i(on), id)
 	return err
 }
 
