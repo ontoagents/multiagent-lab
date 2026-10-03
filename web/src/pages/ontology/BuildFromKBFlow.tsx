@@ -25,6 +25,7 @@ const STEPS = [
 const MODE_TAG: Record<string, { color: string; text: string }> = {
   rag: { color: 'blue', text: 'RAG' },
   graphrag: { color: 'purple', text: 'GraphRAG' },
+  wiki: { color: 'geekblue', text: 'LLM Wiki' }, // REQ-241/M67 第三类型（顺修：缺失时 mt undefined 渲染崩）
 }
 
 const STRATEGY_HINT: Record<string, string> = {
@@ -372,6 +373,9 @@ export default KbBuildFlow
 export function StructuredFlow() {
   const { showToast } = useUI()
   const [file, setFile] = useState<{ filename: string; content: string } | null>(null)
+  const [mode, setMode] = useState<'instance' | 'template'>('instance')
+  const [hierarchyCols, setHierarchyCols] = useState<string[]>([])
+  const [headerCols, setHeaderCols] = useState<string[]>([])
   const [targetId, setTargetId] = useState<string | undefined>(undefined)
   const [ontos, setOntos] = useState<{ id: string; name: string }[]>([])
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.buildFromStructured>> | null>(null)
@@ -393,7 +397,13 @@ export function StructuredFlow() {
     setErr(null)
     setResult(null)
     try {
-      const r = await api.buildFromStructured({ filename: file.filename, content: file.content, target_ontology_id: targetId })
+      const r = await api.buildFromStructured({
+        filename: file.filename,
+        content: file.content,
+        target_ontology_id: targetId,
+        mode,
+        hierarchy_columns: mode === 'template' && hierarchyCols.length > 0 ? hierarchyCols : undefined,
+      })
       setResult(r)
     } catch (e: any) {
       setErr(e?.message ?? '推导失败')
@@ -424,16 +434,62 @@ export function StructuredFlow() {
         <span className="onto-sec-title">结构化数据映射（CSV/JSON → 本体骨架，M-O14 P2⑤）</span>
       </div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-        规则推导：首列→实例名（主概念），其余列→属性（类型推断）；可选对目标本体做概念命中标注。关系推导需语义判断——建议在骨架上用「AI 创建」继续加工。
+        {mode === 'instance'
+          ? '规则推导：首列→实例名（主概念），其余列→属性（类型推断）；可选对目标本体做概念命中标注。关系推导需语义判断——建议在骨架上用「AI 创建」继续加工。'
+          : '模板层级（REQ-256）：低基数枚举列→概念层级链（列序=粗→细，共现推断父子），首列高基数时行→实例挂最细层概念。层级为规则推断，语义正确性请审查后入库；含状态/日期等并列维度列时建议显式指定层级列。'}
       </Typography.Paragraph>
+      <div style={{ marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--c-ink-3)', marginInlineEnd: 8 }}>生成模式</span>
+        <Segmented
+          size="small"
+          value={mode}
+          onChange={(v) => {
+            setMode(v as 'instance' | 'template')
+            setResult(null)
+          }}
+          options={[
+            { value: 'instance', label: '实例骨架' },
+            { value: 'template', label: '模板层级（概念批量）' },
+          ]}
+        />
+        {mode === 'template' && headerCols.length > 0 && (
+          <Select
+            mode="multiple"
+            allowClear
+            size="small"
+            style={{ minWidth: 260, marginInlineStart: 10 }}
+            placeholder="层级列（可空=规则推断全部枚举列）"
+            value={hierarchyCols}
+            onChange={setHierarchyCols}
+            options={headerCols.map((h) => ({ value: h, label: h }))}
+          />
+        )}
+      </div>
       <Space wrap style={{ marginBottom: 8 }}>
         <Upload maxCount={1} accept=".csv,.json" showUploadList={false} beforeUpload={() => false} onChange={({ fileList }) => {
           const raw = (fileList[0] as any)?.originFileObj
           if (!raw) return
           const rd = new FileReader()
           rd.onload = () => {
-            setFile({ filename: raw.name, content: String(rd.result ?? '') })
+            const content = String(rd.result ?? '')
+            setFile({ filename: raw.name, content })
             setResult(null)
+            setHierarchyCols([])
+            // 粗探表头列（层级列多选候选项）：CSV 首行 / JSON 首对象 keys
+            let cols: string[] = []
+            try {
+              const t = content.trim()
+              if (raw.name.toLowerCase().endsWith('.json') || t.startsWith('[') || t.startsWith('{')) {
+                const arr = JSON.parse(t)
+                const first = Array.isArray(arr) ? arr[0] : Object.values(arr as any).find((v: any) => Array.isArray(v))?.[0] ?? arr
+                cols = first && typeof first === 'object' ? Object.keys(first) : []
+              } else {
+                cols = (t.split('\n')[0] ?? '').split(',').map((x) => x.trim().replace(/^"|"$/g, '')).filter(Boolean)
+              }
+            } catch {
+              cols = []
+            }
+            setHeaderCols(cols)
           }
           rd.readAsText(raw)
         }}>
@@ -469,7 +525,9 @@ export function StructuredFlow() {
         <>
           <Space size={12} wrap style={{ marginBottom: 6 }}>
             <Tag color="processing">源 {result.source_kind.toUpperCase()}</Tag>
+            {result.mode === 'template' && <Tag color="geekblue">模板层级</Tag>}
             <Tag color="purple">主概念 {result.main_concept}</Tag>
+            <Tag>{(result.draft_spec as any)?.concepts?.length ?? 0} 概念</Tag>
             <Tag>{result.mapping.length} 列</Tag>
             <Tag>{result.draft_spec ? (result.draft_spec as any).instances.length : 0} 实例（采样≤200）</Tag>
           </Space>
@@ -481,7 +539,9 @@ export function StructuredFlow() {
               {result.mapping.map((m) => (
                 <tr key={m.column}>
                   <td>{m.column}</td>
-                  <td>{m.role === 'instance-name' ? '实例名' : '属性'}</td>
+                  <td>
+                    {m.role === 'instance-name' ? '实例名' : m.role === 'concept-level' ? <Tag color="geekblue" style={{ margin: 0 }}>层级 {m.level ?? ''}</Tag> : '属性'}
+                  </td>
                   <td>{m.infer_type}</td>
                   <td>{m.sample || '—'}</td>
                   <td>{m.matched_concepts?.length ? <Tag color="green" style={{ margin: 0 }}>{m.matched_concepts.join(', ')}</Tag> : '—'}</td>

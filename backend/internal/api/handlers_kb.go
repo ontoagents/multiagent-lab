@@ -252,6 +252,8 @@ func (s *Server) buildFromStructured(w http.ResponseWriter, r *http.Request) {
 		Filename           string      `json:"filename"`
 		Content            string      `json:"content"`
 		TargetOntologyID   string      `json:"target_ontology_id,omitempty"`
+		Mode               string      `json:"mode,omitempty"` // REQ-256：instance（默认）| template（概念层级批量生成）
+		HierarchyColumns   []string    `json:"hierarchy_columns,omitempty"` // REQ-256：显式层级列（按序=粗→细）
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -281,7 +283,7 @@ func (s *Server) buildFromStructured(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	d, err := ontobuild.InferStructuredDraft(in.Filename, in.Content, targets)
+	d, err := ontobuild.InferStructuredDraftMode(in.Filename, in.Content, ontobuild.InferStructuredDraftOpts{Mode: in.Mode, HierarchyColumns: in.HierarchyColumns, TargetConcepts: targets})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

@@ -46,3 +46,71 @@ func TestInferStructuredDraftJSON(t *testing.T) {
 		t.Fatalf("诚实注记缺失: %v", d.Notes)
 	}
 }
+
+// REQ-256（60 号 H4）：模板模式——枚举列→概念层级批量生成。
+func TestInferTemplateHierarchy(t *testing.T) {
+	csv := "资产编号,类别,子类别,状态,说明\n" +
+		"SV-001,服务,数据库,运行中,主库\n" +
+		"SV-002,服务,缓存,运行中,Redis\n" +
+		"HW-001,硬件,服务器,停机,机架1\n" +
+		"HW-002,硬件,服务器,运行中,机架2\n"
+	d, err := InferStructuredDraftMode("assets.csv", csv, InferStructuredDraftOpts{Mode: "template", HierarchyColumns: []string{"类别", "子类别"}})
+	if err != nil {
+		t.Fatalf("template 推导失败: %v", err)
+	}
+	if d.Mode != "template" {
+		t.Fatalf("Mode 应为 template，实际 %q", d.Mode)
+	}
+	// 显式层级列：类别→子类别（状态列不参与链，留 attributes）
+	if len(d.Draft.Concepts) != 5 {
+		t.Fatalf("层级概念应 5（服务/硬件 + 数据库/缓存/服务器），实际 %d", len(d.Draft.Concepts))
+	}
+	// 子类别父链：数据库→服务、缓存→服务、服务器→硬件
+	parents := map[string][]string{}
+	for _, c := range d.Draft.Concepts {
+		parents[c.Name] = c.Parents
+	}
+	if len(parents["数据库"]) != 1 || parents["数据库"][0] != "服务" {
+		t.Fatalf("数据库 父应为 服务，实际 %v", parents["数据库"])
+	}
+	if len(parents["服务器"]) != 1 || parents["服务器"][0] != "硬件" {
+		t.Fatalf("服务器 父应为 硬件，实际 %v", parents["服务器"])
+	}
+	// 首列高基数 → 实例挂最细层概念（数据库/缓存/服务器）
+	if len(d.Draft.Instances) != 4 {
+		t.Fatalf("应生成 4 实例，实际 %d", len(d.Draft.Instances))
+	}
+	for _, inst := range d.Draft.Instances {
+		if inst.Concept == "" {
+			t.Fatalf("实例 %s 应挂最细层概念", inst.Name)
+		}
+		if _, has := inst.Attributes["状态"]; !has {
+			t.Fatalf("非层级列应保留 attributes: %v", inst.Attributes)
+		}
+	}
+	// mapping 报告：层级列 role=concept-level 带 level
+	levels := map[string]int{}
+	for _, m := range d.Mapping {
+		if m.Role == "concept-level" {
+			levels[m.Column] = m.Level
+		}
+	}
+	if levels["类别"] != 1 || levels["子类别"] != 2 {
+		t.Fatalf("层级序应 类别=1/子类别=2，实际 %v", levels)
+	}
+}
+
+// REQ-256：无枚举列自动回落实例骨架模式。
+func TestInferTemplateFallsBackToInstance(t *testing.T) {
+	csv := "资产编号,单价,说明\nA-1,100,甲\nA-2,200,乙\nA-3,300,丙\n"
+	d, err := InferStructuredDraftMode("items.csv", csv, InferStructuredDraftOpts{Mode: "template"})
+	if err != nil {
+		t.Fatalf("推导失败: %v", err)
+	}
+	if d.Mode != "instance" {
+		t.Fatalf("无枚举列应回落 instance 模式，实际 %q", d.Mode)
+	}
+	if len(d.Draft.Concepts) != 1 {
+		t.Fatalf("回落骨架应仅主概念，实际 %d", len(d.Draft.Concepts))
+	}
+}

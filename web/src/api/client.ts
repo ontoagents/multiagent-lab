@@ -348,11 +348,12 @@ export const api = {
     custom_cqs?: string[]
   }) => req<OntoBuildResult>('/api/ontologies/build-from-kb', { method: 'POST', body: JSON.stringify(input) }),
   /** M-O14 P2⑤：结构化数据（CSV/JSON）→ 本体骨架映射推导（规则推导不入库；诚实注记关系推导需 LLM 加工） */
-  buildFromStructured: (input: { filename: string; content: string; target_ontology_id?: string }) =>
+  buildFromStructured: (input: { filename: string; content: string; target_ontology_id?: string; mode?: 'instance' | 'template'; hierarchy_columns?: string[] }) =>
     req<{
       source_kind: string
+      mode?: string
       main_concept: string
-      mapping: { column: string; role: string; infer_type: string; sample?: string; matched_concepts?: string[] }[]
+      mapping: { column: string; role: string; infer_type: string; sample?: string; matched_concepts?: string[]; level?: number }[]
       draft_spec: unknown
       notes: string[]
     }>('/api/ontologies/build-from-structured', { method: 'POST', body: JSON.stringify(input) }),

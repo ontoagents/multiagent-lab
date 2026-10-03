@@ -504,24 +504,40 @@ func truncateRunes(s string, n int) string {
 // StructuredMapping 单列映射推荐
 type StructuredMapping struct {
 	Column     string   `json:"column"`
-	Role       string   `json:"role"`  // instance-name | attribute
+	Role       string   `json:"role"`  // instance-name | attribute | concept-level（REQ-256 模板模式：该列入概念层级）
 	InferType  string   `json:"infer_type"` // string | number | boolean
 	Sample     string   `json:"sample,omitempty"`
 	MatchedCon []string `json:"matched_concepts,omitempty"` // 目标本体中按名/标签命中的概念
+	Level      int      `json:"level,omitempty"`            // REQ-256：概念层级序（1=最粗）
 }
 
 // StructuredDraft 结构化→骨架推导结果
 type StructuredDraft struct {
 	SourceKind string              `json:"source_kind"` // csv | json
+	Mode       string              `json:"mode"`        // instance（默认骨架）| template（REQ-256 概念层级批量生成）
 	Mapping    []StructuredMapping `json:"mapping"`
 	MainConcept string             `json:"main_concept"`
 	Draft      *buildSpec          `json:"draft_spec"`
 	Notes      []string            `json:"notes"`
 }
 
-// InferStructuredDraft 从 CSV/JSON 内容推导本体骨架与映射报告。
-// targetConcepts：目标本体（可选）的概念名+标签，用于命中标注。
+// InferStructuredDraftOpts 推导选项（REQ-256：Mode=template 启用概念层级批量生成）。
+type InferStructuredDraftOpts struct {
+	Mode             string   // "" 或 instance=实例骨架（默认）；template=模板层级
+	HierarchyColumns []string // 显式指定层级列（按序=粗→细）；未指定时规则推断全部低基数枚举列按列序（并列维度列可能误链，注记提示人工审查）
+	TargetConcepts   [][2]string
+}
+
+// InferStructuredDraft 从 CSV/JSON 内容推导本体骨架与映射报告（默认实例骨架模式；兼容既有调用方）。
 func InferStructuredDraft(filename, content string, targetConcepts [][2]string) (*StructuredDraft, error) {
+	return InferStructuredDraftMode(filename, content, InferStructuredDraftOpts{Mode: "instance", TargetConcepts: targetConcepts})
+}
+
+// InferStructuredDraftMode 按 Mode 推导：
+//   - instance：首列=实例名/主概念，余列=属性（M-O14 P2⑤ 既有口径）；
+//   - template（REQ-256/H4）：低基数枚举列→概念层级链（唯一值基数升序=粗→细），首列高基数仍为实例挂
+//     最细层级概念；层级=枚举共现规则推断（诚实注记：语义正确性需人工审查），无合格枚举列自动回落 instance。
+func InferStructuredDraftMode(filename, content string, opts InferStructuredDraftOpts) (*StructuredDraft, error) {
 	kind := ""
 	var headers []string
 	var rows [][]string
@@ -584,6 +600,11 @@ func InferStructuredDraft(filename, content string, targetConcepts [][2]string) 
 		notes = append(notes, "CSV 假定首行为表头。")
 	}
 
+	// REQ-256/H4：模板层级模式——低基数枚举列→概念层级链
+	if opts.Mode == "template" {
+		return inferTemplateHierarchy(kind, filename, headers, rows, notes, opts)
+	}
+
 	draft := &buildSpec{Name: "结构化骨架（" + filename + "）", Concepts: []buildConcept{}, Relations: []buildRelation{}, Instances: []buildInstance{}}
 	base := headers[0]
 	for _, suf := range []string{"编号", "名称", "_id", "ID", "id"} {
@@ -642,8 +663,8 @@ func InferStructuredDraft(filename, content string, targetConcepts [][2]string) 
 			}
 		}
 		sm := StructuredMapping{Column: h, Role: role, InferType: typ, Sample: sample}
-		if targetConcepts != nil {
-			for _, tc := range targetConcepts {
+		if opts.TargetConcepts != nil {
+			for _, tc := range opts.TargetConcepts {
 				if strings.EqualFold(tc[0], h) || strings.EqualFold(tc[1], h) {
 					sm.MatchedCon = append(sm.MatchedCon, tc[0])
 				}
@@ -651,7 +672,26 @@ func InferStructuredDraft(filename, content string, targetConcepts [][2]string) 
 		}
 		mapping = append(mapping, sm)
 	}
-	return &StructuredDraft{SourceKind: kind, Mapping: mapping, MainConcept: mainConcept, Draft: draft, Notes: notes}, nil
+	return &StructuredDraft{SourceKind: kind, Mode: "instance", Mapping: mapping, MainConcept: mainConcept, Draft: draft, Notes: notes}, nil
+}
+
+// rebuildCSV 由 headers/rows 重建 CSV 文本（模板模式回落实例骨架时复用解析段）。
+func rebuildCSV(headers []string, rows [][]string) string {
+	var b strings.Builder
+	b.WriteString(strings.Join(headers, ","))
+	b.WriteString("\n")
+	for _, row := range rows {
+		cells := make([]string, len(row))
+		for i, v := range row {
+			if strings.Contains(v, ",") || strings.Contains(v, "\"") {
+				v = "\"" + strings.ReplaceAll(v, "\"", "\"\"") + "\""
+			}
+			cells[i] = v
+		}
+		b.WriteString(strings.Join(cells, ","))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func isNum(s string) bool {
@@ -660,4 +700,199 @@ func isNum(s string) bool {
 	}
 	_, err := strconv.ParseFloat(s, 64)
 	return err == nil
+}
+
+// inferTemplateHierarchy REQ-256（60 号 H4）：枚举列→概念层级批量生成。
+// 列筛选：唯一值数 ∈ [2,50] 且唯一值数 < 行数×0.6（低基数）；层级序=唯一值基数升序（粗→细）。
+// 首列若高基数（≥行数×0.6）保留为实例名挂最细层概念；否则首列也参与层级。
+func inferTemplateHierarchy(kind, filename string, headers []string, rows [][]string, notes []string, opts InferStructuredDraftOpts) (*StructuredDraft, error) {
+	n := len(rows)
+	if n == 0 {
+		return nil, fmt.Errorf("无数据行，无法推断层级")
+	}
+	targets := opts.TargetConcepts
+	// 层级列：显式指定优先（含列序）；否则规则推断=全部低基数枚举列按列序
+	specified := map[string]bool{}
+	for _, h := range opts.HierarchyColumns {
+		specified[h] = true
+	}
+	type enumCol struct {
+		idx  int
+		vals []string
+	}
+	var enums []enumCol
+	if len(opts.HierarchyColumns) > 0 {
+		for _, h := range opts.HierarchyColumns {
+			for c := 0; c < len(headers); c++ {
+				if headers[c] != h {
+					continue
+				}
+				seen := map[string]bool{}
+				order := []string{}
+				for _, row := range rows {
+					if c >= len(row) {
+						continue
+					}
+					v := strings.TrimSpace(row[c])
+					if v == "" || seen[v] {
+						continue
+					}
+					seen[v] = true
+					order = append(order, v)
+				}
+				if len(seen) >= 2 {
+					enums = append(enums, enumCol{idx: c, vals: order})
+				}
+				break
+			}
+		}
+		if len(enums) == 0 {
+			return nil, fmt.Errorf("指定的层级列均不存在或唯一值不足（%v）", opts.HierarchyColumns)
+		}
+	} else {
+		for c := 0; c < len(headers); c++ {
+			seen := map[string]bool{}
+			order := []string{}
+			for _, row := range rows {
+				if c >= len(row) {
+					continue
+				}
+				v := strings.TrimSpace(row[c])
+				if v == "" || seen[v] {
+					continue
+				}
+				seen[v] = true
+				order = append(order, v)
+				if len(seen) > 50 {
+					break
+				}
+			}
+			uv := len(seen)
+			if uv >= 2 && uv <= 50 && float64(uv) < float64(n) {
+				enums = append(enums, enumCol{idx: c, vals: order})
+			}
+		}
+	}
+	if len(enums) == 0 {
+		notes = append(notes, "未发现低基数枚举列（唯一值 2~50 且远小于行数），自动回落实例骨架模式。")
+		return InferStructuredDraftMode(filename, rebuildCSV(headers, rows), InferStructuredDraftOpts{TargetConcepts: targets})
+	}
+	// 层级序=列序（模板表惯例左→右粗→细；指定层级列时按指定序）。
+	// 规则推断下并列维度列（如「状态」）可能误链，注记提示人工审查；显式指定层级列可避免。
+	if len(opts.HierarchyColumns) == 0 {
+		notes = append(notes, "层级列由规则推断（低基数枚举列按列序）——若表含状态/日期等并列维度列，可能误链，建议入库前在草稿中调整或指定层级列重推。")
+	}
+	draft := &buildSpec{Name: "模板层级（" + filename + "）", Concepts: []buildConcept{}, Relations: []buildRelation{}, Instances: []buildInstance{}}
+	mapping := make([]StructuredMapping, 0, len(headers))
+	levelOf := map[int]int{}
+	for li, ec := range enums {
+		levelOf[ec.idx] = li + 1
+		for _, v := range ec.vals {
+			c := buildConcept{Name: v, Label: v, Definition: fmt.Sprintf("由枚举列「%s」推导（层级 %d，REQ-256 模板模式）", headers[ec.idx], li+1)}
+			draft.Concepts = append(draft.Concepts, c)
+		}
+	}
+	// 逐行建父子链 + 实例
+	seenPair := map[string]bool{}
+	seenInst := map[string]bool{}
+	mainConcept := ""
+	limit := rows
+	if len(limit) > 200 {
+		limit = limit[:200]
+		notes = append(notes, "实例仅采样前 200 行（避免超大文件一次全量灌入；余量可二次灌装）。")
+	}
+	// 首列是否高基数（实例名候选）
+	firstUnique := map[string]bool{}
+	for _, row := range rows {
+		if len(row) > 0 && strings.TrimSpace(row[0]) != "" {
+			firstUnique[strings.TrimSpace(row[0])] = true
+		}
+	}
+	firstIsInstance := float64(len(firstUnique)) >= float64(n)*0.9
+	for _, row := range limit {
+		var chain []string
+		for _, ec := range enums {
+			if ec.idx < len(row) {
+				if v := strings.TrimSpace(row[ec.idx]); v != "" {
+					chain = append(chain, v)
+				}
+			}
+		}
+		for i := 0; i+1 < len(chain); i++ {
+			key := chain[i] + "→" + chain[i+1]
+			if !seenPair[key] {
+				seenPair[key] = true
+				for j := range draft.Concepts {
+					if draft.Concepts[j].Name == chain[i+1] {
+						draft.Concepts[j].Parents = append(draft.Concepts[j].Parents, chain[i])
+						break
+					}
+				}
+			}
+		}
+		if len(chain) > 0 {
+			mainConcept = chain[len(chain)-1]
+		}
+		// 实例：首列高基数时行→实例挂最细层概念；其余枚举/数值列仍为 attributes（层级列除外）
+		if firstIsInstance && len(row) > 0 {
+			name := strings.TrimSpace(row[0])
+			if name != "" && !seenInst[name] {
+				seenInst[name] = true
+				inst := buildInstance{Name: name, Attributes: map[string]any{}}
+				if mainConcept != "" {
+					inst.Concept = mainConcept
+				}
+				for c := 1; c < len(headers) && c < len(row); c++ {
+					if _, isLevel := levelOf[c]; isLevel {
+						continue
+					}
+					if v := strings.TrimSpace(row[c]); v != "" {
+						inst.Attributes[headers[c]] = v
+					}
+				}
+				draft.Instances = append(draft.Instances, inst)
+			}
+		}
+	}
+	if mainConcept == "" {
+		mainConcept = draft.Concepts[0].Name
+	}
+	notes = append(notes,
+		fmt.Sprintf("模板层级：%d 个层级列 → %d 个概念（列序=粗→细，共现链推断父子）。", len(enums), len(draft.Concepts)),
+		"层级为枚举共现规则推断，语义正确性（真实分类学关系）需人工审查后再入库。")
+	if !firstIsInstance {
+		notes = append(notes, "首列非高基数：未生成实例（纯概念层级模板）——实例可后续经 CSV 灌装补齐。")
+	}
+	// mapping 报告
+	for c, h := range headers {
+		role, typ := "attribute", "string"
+		if lv, ok := levelOf[c]; ok {
+			role, typ = "concept-level", "string"
+			sm := StructuredMapping{Column: h, Role: role, InferType: typ, Level: lv}
+			mapping = append(mapping, sm)
+			continue
+		}
+		if c == 0 && firstIsInstance {
+			role = "instance-name"
+		}
+		sample := ""
+		if len(rows) > 0 && c < len(rows[0]) {
+			sample = rows[0][c]
+			if isNum(sample) {
+				typ = "number"
+			} else if strings.EqualFold(sample, "true") || strings.EqualFold(sample, "false") {
+				typ = "boolean"
+			}
+		}
+		sm := StructuredMapping{Column: h, Role: role, InferType: typ, Sample: sample}
+		if targets != nil {
+			for _, tc := range targets {
+				if strings.EqualFold(tc[0], h) || strings.EqualFold(tc[1], h) {
+					sm.MatchedCon = append(sm.MatchedCon, tc[0])
+				}
+			}
+		}
+		mapping = append(mapping, sm)
+	}
+	return &StructuredDraft{SourceKind: kind, Mode: "template", Mapping: mapping, MainConcept: mainConcept, Draft: draft, Notes: notes}, nil
 }
