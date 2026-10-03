@@ -2,24 +2,30 @@
 """rdf-sidecar: OWL/RDF ↔ spec_json 双向转换（方案 04 v0.6 §2.2/§6，不自研 RDF 解析）。
 
 用法:
-  sidecar.py parse  --format owl_rdfxml|turtle < input   -> stdout JSON {spec, warnings, lossy, note}
+  sidecar.py parse  --format owl_rdfxml|turtle|jsonld < input   -> stdout JSON {spec, warnings, lossy, note}
   sidecar.py export --ontology-id ID [--format turtle] < spec_json -> stdout TTL
 
-导入映射（REQ-69）: rdfs:label→name、rdfs:subClassOf→parents、
-owl:NamedIndividual+rdf:type→instance、对象属性断言→实例关系、
-其他 datatype 断言→attributes；公理/推理语义丢弃并计入 warnings。
+导入映射（REQ-69 细则定稿，REQ-235/M62 扩 SKOS/JSON-LD/数据属性档）:
+  rdfs:label|skos:prefLabel（pref/alt 优先）→ name/label、rdfs:comment|skos:definition → definition、
+  rdfs:subClassOf|skos:broader|skos:narrower(反向) → parents、
+  owl:Class|rdfs:Class|skos:Concept → concept、
+  owl:NamedIndividual+rdf:type → instance、对象属性断言 → 实例关系、
+  datatype 属性断言 → attributes（实例级）；owl:DatatypeProperty 声明按**固定策略一档**降级：
+  不入 relations、域约束与属性公理丢弃、逐属性 warning 明示（REQ-235② 拍板：不做导入偏好配置）；
+  其余公理/推理语义丢弃并计入 warnings。
 导出 URN 规则与 pkg/ontology/spec 的 sanitize 逐字符一致（查询翻译共用）。
 """
 import sys, json
 
 try:
-    from rdflib import Graph, RDF, RDFS, OWL, URIRef, Literal
+    from rdflib import Graph, RDF, RDFS, OWL, URIRef, Literal, SKOS
 except ImportError:
     sys.stderr.write("rdflib 未安装：pip install rdflib\n")
     sys.exit(3)
 
 RDFXML = "xml"
 TTL = "turtle"
+JSONLD = "json-ld"
 
 
 def sanitize(s: str) -> str:
@@ -34,18 +40,33 @@ def local(uri: str) -> str:
 
 
 def label_or_local(g, subj) -> str:
-    for lab in g.objects(subj, RDFS.label):
-        s = str(lab).strip()
-        if s:
-            return s
+    # REQ-235①：SKOS prefLabel/altLabel 优先于 rdfs:label（SKOS 词表常无 rdfs:label）
+    for pred in (SKOS.prefLabel, SKOS.altLabel, RDFS.label):
+        for lab in g.objects(subj, pred):
+            s = str(lab).strip()
+            if s:
+                return s
     return local(str(subj))
+
+
+def definition_of(g, subj) -> str | None:
+    # REQ-235①：skos:definition 与 rdfs:comment 等价承载定义
+    for pred in (RDFS.comment, SKOS.definition):
+        v = g.value(subj, pred)
+        if v and str(v).strip():
+            return str(v)
+    return None
 
 
 def parse(format: str) -> int:
     content = sys.stdin.read()
     g = Graph()
+    fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
+    if fmt is None:
+        sys.stderr.write(f"未知解析格式 {format}\n")
+        return 2
     try:
-        g.parse(data=content, format=RDFXML if format == "owl_rdfxml" else TTL)
+        g.parse(data=content, format=fmt)
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"RDF 解析失败: {e}\n")
         return 1
@@ -53,14 +74,14 @@ def parse(format: str) -> int:
     warnings, lossy = [], False
     spec = {"name": "", "description": "", "concepts": [], "relations": [], "instances": []}
 
-    # ---- 类：owl:Class / rdfs:Class（跳过系统内建类）----
+    # ---- 类：owl:Class / rdfs:Class / skos:Concept（REQ-235① SKOS 词表；跳过系统内建类）----
     seen_c = {}
-    classes = set(g.subjects(RDF.type, OWL.Class)) | set(g.subjects(RDF.type, RDFS.Class))
+    classes = set(g.subjects(RDF.type, OWL.Class)) | set(g.subjects(RDF.type, RDFS.Class)) | set(g.subjects(RDF.type, SKOS.Concept))
     for c in classes:
         if not isinstance(c, URIRef):
             continue
         uri = str(c)
-        if uri.startswith(str(RDFS)) or uri.startswith(str(OWL)) or uri.startswith(str(RDF)):
+        if uri.startswith(str(RDFS)) or uri.startswith(str(OWL)) or uri.startswith(str(RDF)) or uri.startswith(str(SKOS)):
             continue
         name = label_or_local(g, c)
         if name in seen_c:
@@ -68,9 +89,9 @@ def parse(format: str) -> int:
             continue
         seen_c[uri] = name
         concept = {"name": name}
-        comment = g.value(c, RDFS.comment)
+        comment = definition_of(g, c)
         if comment:
-            concept["definition"] = str(comment)
+            concept["definition"] = comment
         parents = []
         for p in g.objects(c, RDFS.subClassOf):
             if isinstance(p, URIRef) and str(p) in seen_c:
@@ -81,11 +102,12 @@ def parse(format: str) -> int:
             else:
                 lossy = True
                 warnings.append(f"{name} 的匿名父类（限制/公理）丢弃: {p.n3()[:80]}")
+        # REQ-235①：skos:broader/narrower → parents 统一放第二轮（父注册完成后补，避免悬空引用）
         if parents:
             concept["parents"] = parents
         spec["concepts"].append(concept)
 
-    # 第二轮补父类（前向引用）
+    # 第二轮补父类（前向引用；含 SKOS broader/narrower——REQ-235①）
     by_name = {c["name"]: c for c in spec["concepts"]}
     uri_by_name = {v: k for k, v in seen_c.items()}
     name_by_uri = {v: k for k, v in uri_by_name.items()}
@@ -101,6 +123,16 @@ def parse(format: str) -> int:
                 pname = name_by_uri.get(str(p))
                 if pname and pname != mine["name"]:
                     parents.append(pname)
+        # skos:broader → parents；skos:narrower 反向 → parents（目标须已注册为概念，外部引用 warning 丢弃）
+        for p in list(g.objects(c, SKOS.broader)) + list(g.subjects(SKOS.narrower, c)):
+            if not isinstance(p, URIRef):
+                continue
+            pname = name_by_uri.get(str(p))
+            if pname and pname != mine["name"] and pname not in parents:
+                parents.append(pname)
+            elif pname is None and not parents:
+                lossy = True
+                warnings.append(f"{mine['name']} 的 skos:broader/narrower 目标 {local(str(p))} 未注册为概念，丢弃")
         if parents:
             mine["parents"] = parents
 
@@ -137,10 +169,16 @@ def parse(format: str) -> int:
             lossy = True
             warnings.append(f"关系 {name} 值域缺失或未注册为概念")
         spec["relations"].append(rel)
-    # 未标注 range 的 datatype 属性按实例 attributes 处理，不计 relation
-    for pr in set(g.subjects(RDF.type, OWL.DatatypeProperty)):
+    # REQ-235②：datatype 属性声明按**固定策略一档**降级（拍板：不做导入偏好配置）——
+    # 声明不入 relations；实例断言落 attributes（实例段统一处理）；域约束与属性公理丢弃，逐属性 warning 明示。
+    dt_props = set(g.subjects(RDF.type, OWL.DatatypeProperty))
+    for pr in dt_props:
+        if not isinstance(pr, URIRef) or str(pr).startswith((str(RDF), str(RDFS), str(OWL), str(SKOS))):
+            continue
         lossy = True
-        warnings.append(f"datatype 属性 {label_or_local(g, pr)} 转为实例 attributes 处理")
+        dom = g.value(pr, RDFS.domain)
+        dom_s = f"（domain {label_or_local(g, dom)} 丢弃）" if dom is not None else ""
+        warnings.append(f"datatype 属性 {label_or_local(g, pr)} 按固定策略降级为实例 attributes{dom_s}（属性公理丢弃）")
 
     # ---- 实例 ----
     inst_by_uri = {}
@@ -159,11 +197,14 @@ def parse(format: str) -> int:
         if ctypes:
             it["concept"] = seen_c[ctypes[0]]
         else:
+            # REQ-235：类型未注册为概念的实例丢弃（置空保留会产生过不了结构校验的悬空实例，
+            # 卡死合并应用——与 GraphML「未标注概念跳过」同语义），warning 明示
             lossy = True
-            warnings.append(f"实例 {name} 的类型未注册为概念，concept 置空")
+            warnings.append(f"实例 {name} 的类型未注册为概念，已丢弃（可先补概念定义后重新导入）")
+            continue
         for p, o in g.predicate_objects(ind):
             pu, ou = str(p), str(o)
-            if pu in (str(RDF.type), str(RDFS.label), str(RDFS.comment)):
+            if pu in (str(RDF.type), str(RDFS.label), str(RDFS.comment), str(SKOS.prefLabel), str(SKOS.altLabel), str(SKOS.definition)):
                 continue
             if ou.startswith(str(RDF)) or ou.startswith(str(OWL)):
                 continue
@@ -188,7 +229,7 @@ def parse(format: str) -> int:
         spec["instances"].append(it)
 
     out = {"spec": spec, "warnings": warnings, "lossy": lossy,
-           "note": "OWL/TTL 有损导入：仅保留 类层次/对象属性/实例断言；公理、限制、推理语义丢弃（计入 warnings）"}
+           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235）：仅保留 类层次/SKOS 词表层次/对象属性/实例断言，datatype 断言落实例 attributes（固定策略一档）；公理、限制、推理语义丢弃（计入 warnings）"}
     json.dump(out, sys.stdout, ensure_ascii=False)
     return 0
 

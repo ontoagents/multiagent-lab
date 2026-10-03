@@ -547,18 +547,16 @@ func (s *Server) mergePreview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	// M-O14 P2③：TTL 等内容走 importer 时附有损导入报告（warnings 诚实呈现给审查方）
-	if imp != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"import_report": imp, "preview": pv})
-		return
-	}
+	// M-O14 P2③ + REQ-235/H5：有损导入报告内嵌 preview（lossy 清单+warnings 呈现给审查方，
+	// 支撑「补录→重跑对账」动线；此前 wrapper 形态与前端裸 MergePreview 消费错位，一并归一）
+	pv.ImportReport = imp
 	writeJSON(w, http.StatusOK, pv)
 }
 
 // mergeApply REQ-157：按策略应用合并（结构校验 + strict 门禁 + 版本快照）。
 func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_, _, spec, strategy, prefix, _, err := s.mergeIncoming(r)
+	_, _, spec, strategy, prefix, imp, err := s.mergeIncoming(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -600,6 +598,7 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
+	pv.ImportReport = imp // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv})
 }
 

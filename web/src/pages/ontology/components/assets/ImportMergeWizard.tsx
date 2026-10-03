@@ -26,6 +26,7 @@ export default function ImportMergeWizard({
   ontologyId,
   targetSpecText,
   onApplied,
+  onNeedEdit,
 }: {
   open: boolean
   onClose: () => void
@@ -33,6 +34,8 @@ export default function ImportMergeWizard({
   /** 现行 spec 全文（diff 左侧） */
   targetSpecText: string
   onApplied: (version: number) => void
+  /** REQ-235/H5：有损导入后「前往图形编辑补录」回调（跳详情图形编辑分区） */
+  onNeedEdit?: () => void
 }) {
   const [step, setStep] = useState(0)
   const [filename, setFilename] = useState('')
@@ -147,13 +150,20 @@ export default function ImportMergeWizard({
             showIcon
             style={{ marginBottom: 10 }}
             title="将外部本体文件并入当前本体（增量消歧而非一次性重建）"
-            description="支持构建平面可导入的格式（TTL/OWL 走 sidecar、CSV、GraphML、spec_json）。先做冲突预览，确认策略后再应用；应用会生成新版本快照，可随时回退。"
+            description="支持构建平面可导入的格式（TTL/OWL/JSON-LD 走 sidecar、SKOS 词表自动识别、CSV、GraphML、spec_json）。先做冲突预览，确认策略后再应用；应用会生成新版本快照，可随时回退。"
+          />
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 10 }}
+            title="两轨分工（REQ-235⑤）"
+            description="本导入走 spec_json 轻量教学子集（类层次/对象属性/实例断言，datatype 断言落实例 attributes，公理与推理语义有损丢弃并在报告中明示）。重语义资产（含复杂公理/等价类/推理需求）建议走 Open Ontologies（oo）轨承载。"
           />
           <Space direction="vertical" style={{ width: '100%' }} size={10}>
             <Space size={10} wrap>
               <input
                 type="file"
-                accept=".ttl,.owl,.rdf,.xml,.csv,.json,.md,.txt"
+                accept=".ttl,.owl,.rdf,.xml,.csv,.json,.jsonld,.md,.txt"
                 onChange={(e) => {
                   const f = e.target.files?.[0]
                   if (f) void onFile(f)
@@ -215,6 +225,25 @@ export default function ImportMergeWizard({
               重命名清单：{preview.renamed.join('；')}
             </Typography.Paragraph>
           )}
+          {/* REQ-235/H5/M62：有损导入清单——条目可定位，应用后可跳图形编辑补录再重跑对账 */}
+          {preview.import_report && (preview.import_report.lossy || (preview.import_report.warnings?.length ?? 0) > 0) && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 10 }}
+              title={`有损导入（${preview.import_report.format}）：${preview.import_report.warnings?.length ?? 0} 项丢弃/降级`}
+              description={
+                <div style={{ maxHeight: 120, overflowY: 'auto', fontSize: 12 }}>
+                  {(preview.import_report.warnings ?? []).map((w, i) => (
+                    <div key={i}>· {w}</div>
+                  ))}
+                  {preview.import_report.lossy_note && (
+                    <div style={{ color: 'var(--c-ink-3)', marginTop: 4 }}>{preview.import_report.lossy_note}</div>
+                  )}
+                </div>
+              }
+            />
+          )}
           <Typography.Paragraph strong style={{ fontSize: 12, marginBottom: 4 }}>
             现行 vs 合并结果（全文对照）
           </Typography.Paragraph>
@@ -252,12 +281,29 @@ export default function ImportMergeWizard({
                 <p style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #888)' }}>
                   已生成版本快照（可在「版本与源码」页签回看与回退）；strict 门禁开启时错误级命中会被拦截。
                 </p>
+                {preview?.import_report?.lossy && (
+                  <p style={{ fontSize: 12, color: '#d46b08' }}>
+                    本次导入存在 {preview.import_report.warnings?.length ?? 0} 项有损丢弃/降级（公理、datatype 声明等）——可前往图形编辑补录，再重跑本向导对账。
+                  </p>
+                )}
               </>
             }
           />
-          <Button type="primary" style={{ marginTop: 12 }} onClick={close}>
-            完成
-          </Button>
+          <Space style={{ marginTop: 12 }}>
+            {preview?.import_report?.lossy && (
+              <Button
+                onClick={() => {
+                  close()
+                  onNeedEdit?.()
+                }}
+              >
+                前往图形编辑补录
+              </Button>
+            )}
+            <Button type="primary" onClick={close}>
+              完成
+            </Button>
+          </Space>
         </div>
       )}
     </Modal>

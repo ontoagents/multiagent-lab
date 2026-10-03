@@ -46,6 +46,9 @@ type MergePreview struct {
 	Stats      MergeStats      `json:"stats"`
 	TargetName string          `json:"target_name"`
 	MergedSpec *pkgspec.Spec   `json:"merged_spec"` // 应用后的完整结果（diff 预览用）
+	// ImportReport 原文件解析报告（REQ-235/H5：lossy 清单+warnings 透出前端，支撑「补录→重跑对账」动线）；
+	// spec 直传（无文件解析）时为 nil。
+	ImportReport *Report `json:"import_report,omitempty"`
 }
 
 // MergeStats 合并统计。

@@ -504,6 +504,7 @@ export default function AssetsPage() {
                 reloadOntos(active.id)
                 setSpecTick((t) => t + 1)
               }}
+              onNeedEdit={() => setTabKey('graph-edit')} // REQ-235/H5：有损导入补录直达图形编辑
             />
           )}
 

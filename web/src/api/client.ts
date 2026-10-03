@@ -807,6 +807,8 @@ export interface MergePreview {
   stats: { concepts_added: number; concepts_updated: number; relations_added: number; relations_updated: number; instances_added: number; instances_updated: number; instances_renamed: number; total_conflicts: number }
   target_name: string
   merged_spec: unknown
+  /** REQ-235/H5/M62：原文件解析报告（lossy 清单+warnings；spec 直传时缺省） */
+  import_report?: { format: string; lossy: boolean; warnings?: string[]; lossy_note?: string } | null
 }
 
 export interface LifecycleAction {

@@ -20,6 +20,7 @@ const (
 	FormatGraphML  = "graphml"
 	FormatOWLRDF   = "owl_rdfxml"
 	FormatTurtle   = "turtle"
+	FormatJSONLD   = "jsonld" // REQ-235③/M62：JSON-LD（sidecar rdflib json-ld 插件）
 )
 
 // Report 导入报告（统计 + warnings + 有损映射说明）。
@@ -53,11 +54,17 @@ func Sniff(filename, content string) (string, error) {
 		return FormatOWLRDF, nil
 	case strings.HasSuffix(lf, ".graphml"):
 		return FormatGraphML, nil
+	case strings.HasSuffix(lf, ".jsonld"):
+		return FormatJSONLD, nil // REQ-235③/M62
 	case strings.HasSuffix(lf, ".csv"):
 		return FormatCSV, nil
 	case strings.HasSuffix(lf, ".json"):
 		if looksLikeSpec(trimmed) {
 			return FormatSpecJSON, nil
+		}
+		// REQ-235③：.json 里含 @context 的 JSON-LD 文档（@graph/@id RDF 语义，非 spec 三要素）
+		if strings.Contains(trimmed, `"@context"`) {
+			return FormatJSONLD, nil
 		}
 		return "", fmt.Errorf("json 内容不是 spec_json（缺少 concepts/relations/instances 三要素）")
 	default:
@@ -71,10 +78,13 @@ func Sniff(filename, content string) (string, error) {
 		if strings.Contains(trimmed, "<graphml") {
 			return FormatGraphML, nil
 		}
+		if strings.Contains(trimmed, `"@context"`) {
+			return FormatJSONLD, nil
+		}
 		if looksLikeSpec(trimmed) {
 			return FormatSpecJSON, nil
 		}
-		return "", fmt.Errorf("无法识别格式（支持 spec_json / csv / graphml / owl-rdfxml / turtle）")
+		return "", fmt.Errorf("无法识别格式（支持 spec_json / csv / graphml / owl-rdfxml / turtle / jsonld）")
 	}
 }
 
@@ -113,7 +123,7 @@ func Import(sidecar *Sidecar, filename, content string) (*pkgspec.Spec, *Report,
 	case FormatGraphML:
 		sp, rep := parseGraphML(content)
 		return sp, rep, nil
-	case FormatOWLRDF, FormatTurtle:
+	case FormatOWLRDF, FormatTurtle, FormatJSONLD:
 		return parseViaSidecar(sidecar, format, content)
 	}
 	return nil, nil, fmt.Errorf("unsupported format %q", format)
