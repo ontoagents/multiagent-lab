@@ -325,7 +325,7 @@ export default function AssetsPage() {
       ) : (
         <>
           <div className="work-head" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-            <div className="work-head-text" style={{ minWidth: 0, flex: '1 1 620px' }}>
+            <div className="work-head-text" style={{ minWidth: 0, flex: 1 }}>
               <div className="work-head-title">
                 <Typography.Title level={4} style={{ margin: 0 }}>
                   {active.name}
@@ -369,9 +369,9 @@ export default function AssetsPage() {
                 </Tooltip>
               </div>
             </div>
-            {/* REQ-264：能力雷达固定右位（原挤在标题行内把标题行撑到 92px+）+ 动作区；
-                空间不足时动作区整体换行到雷达下方右对齐，标题列始终保有 620px 基数不被挤压 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {/* REQ-264 follow-up：右列=动作按钮在上（与本体名同行顶对齐）+ 能力雷达在按钮下方；
+                描述/元信息在左列，天然位于雷达左侧 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0, alignSelf: 'flex-start' }}>
               {qualityCache[active.id] && (
                 <Tooltip
                   title={
@@ -385,7 +385,7 @@ export default function AssetsPage() {
                   </span>
                 </Tooltip>
               )}
-              <Space>
+              <Space wrap style={{ order: -1 }}>
               {/* REQ-239/M65：发布（命名快照终态）/ 撤回发布（回 draft） */}
               {active.status === 'published' ? (
                 <Popconfirm
