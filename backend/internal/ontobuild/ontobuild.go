@@ -206,12 +206,22 @@ type buildInstRelation struct {
 	Target string `json:"target"`
 }
 
+// buildDataProperty 数据属性声明（REQ-268/M77；与构建平面 pkg spec.DataProperty 契约同形）。
+type buildDataProperty struct {
+	Name       string `json:"name"`
+	Label      string `json:"label,omitempty"`
+	Definition string `json:"definition,omitempty"`
+	Domain     string `json:"domain,omitempty"`
+	Range      string `json:"range,omitempty"` // string|number|integer|boolean|date（空=string）
+}
+
 type buildSpec struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Concepts    []buildConcept  `json:"concepts"`
-	Relations   []buildRelation `json:"relations"`
-	Instances   []buildInstance `json:"instances"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description,omitempty"`
+	Concepts       []buildConcept      `json:"concepts"`
+	Relations      []buildRelation     `json:"relations"`
+	DataProperties []buildDataProperty `json:"data_properties,omitempty"` // REQ-268/M77：声明层（LLM 输出/结构化推导可携带，入库过构建平面校验）
+	Instances      []buildInstance     `json:"instances"`
 
 	cqs []string `json:"-"` // 模型随草稿输出的能力问题（REQ-90），不入 Spec 本体，单列在 BuildResult.CQs
 }
@@ -324,6 +334,7 @@ func ontoExtractPromptHeader(kbName, cqMode string, cqs []string, corpus string,
 		b.WriteString("1. 概念（concepts）：语料中的核心名词类别，给出 name（中文短语）、label（英文）、definition（一句话）；有明确层级时给 parents。\n")
 		b.WriteString("2. 关系（relations）：概念间有意义的关联，from/to 必须引用已有概念 name。\n")
 		b.WriteString("3. 实例（instances）：语料中明确出现的具体个体，concept 引用概念 name，attributes 用语料中的事实。\n")
+		b.WriteString("4. 数据属性（data_properties，可选，REQ-268）：值得声明类型的字面量属性——name 与 attributes 键同名、domain 引用概念 name（可省）、range 用 string|number|integer|boolean|date 短名。\n")
 	}
 	switch cqMode {
 	case "custom":
@@ -340,7 +351,7 @@ func ontoExtractPromptHeader(kbName, cqMode string, cqs []string, corpus string,
 	return b.String()
 }
 
-const ontoExtractSchema = `{"name":"本体名","description":"本体描述","cqs":["能力问题1","能力问题2"],"concepts":[{"name":"概念名","label":"EnglishLabel","definition":"定义","parents":["父概念"]}],"relations":[{"name":"关系名","from":"概念A","to":"概念B","definition":"关系说明"}],"instances":[{"name":"实例名","concept":"概念名","attributes":{"属性":"值"},"relations":[{"rel":"关系名","target":"实例名"}]}]}`
+const ontoExtractSchema = `{"name":"本体名","description":"本体描述","cqs":["能力问题1","能力问题2"],"concepts":[{"name":"概念名","label":"EnglishLabel","definition":"定义","parents":["父概念"]}],"relations":[{"name":"关系名","from":"概念A","to":"概念B","definition":"关系说明"}],"data_properties":[{"name":"属性名","domain":"概念名","range":"string|number|integer|boolean|date"}],"instances":[{"name":"实例名","concept":"概念名","attributes":{"属性":"值"},"relations":[{"rel":"关系名","target":"实例名"}]}]}`
 
 // llmExtract 调 LLM 抽取（hybrid 时 draftJSON 非空 = 校验补全模式）；返回 (spec, cqs, rounds, errMsg)。
 func (s *Service) llmExtract(ctx context.Context, k *store.KnowledgeBase, corpus, cqMode string, cqs []string, connID string, draftJSON []byte) (*buildSpec, []string, int, string) {
@@ -529,6 +540,20 @@ func ValidateBuildSpec(spec *buildSpec) *SpecReport {
 			if !cset[p] {
 				fail(fmt.Sprintf("concepts[%d].parents", i), "parents 引用不存在的概念: "+p)
 			}
+		}
+	}
+	dn := map[string]bool{}
+	for i, dp := range spec.DataProperties {
+		if strings.TrimSpace(dp.Name) == "" {
+			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名必填")
+			continue
+		}
+		if dn[dp.Name] {
+			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名重复: "+dp.Name)
+		}
+		dn[dp.Name] = true
+		if dp.Domain != "" && !cset[dp.Domain] {
+			fail(fmt.Sprintf("data_properties[%d].domain", i), "domain 引用不存在的概念: "+dp.Domain)
 		}
 	}
 	for i, inst := range spec.Instances {
@@ -756,6 +781,11 @@ func InferStructuredDraftMode(filename, content string, opts InferStructuredDraf
 			}
 		}
 		mapping = append(mapping, sm)
+	}
+	// REQ-268/M77：属性列 → 数据属性声明（声明层一等公民——实例 attributes 自此带概念层声明入草稿）
+	dps := dataPropsFromMapping(mapping)
+	if len(dps) > 0 {
+		draft.DataProperties = dps
 	}
 	return &StructuredDraft{SourceKind: kind, Mode: "instance", Mapping: mapping, MainConcept: mainConcept, Draft: draft, Notes: notes}, nil
 }
@@ -1027,5 +1057,29 @@ func inferTemplateHierarchy(kind, filename string, headers []string, rows [][]st
 		}
 		mapping = append(mapping, sm)
 	}
+	// REQ-268/M77：属性列 → 数据属性声明（层级列 role=concept-level 不发声明，仅 attribute 列）
+	dps := dataPropsFromMapping(mapping)
+	if len(dps) > 0 {
+		draft.DataProperties = dps
+	}
 	return &StructuredDraft{SourceKind: kind, Mode: "template", Mapping: mapping, MainConcept: mainConcept, Draft: draft, Notes: notes}, nil
+}
+
+// dataPropsFromMapping REQ-268/M77：映射报告中的 attribute 列 → 数据属性声明。
+// range=推断类型（number/integer/boolean/date 之外的推断值回落 string）。
+func dataPropsFromMapping(mapping []StructuredMapping) []buildDataProperty {
+	out := []buildDataProperty{}
+	for _, m := range mapping {
+		if m.Role != "attribute" {
+			continue
+		}
+		r := m.InferType
+		switch r {
+		case "number", "integer", "boolean", "date":
+		default:
+			r = "string"
+		}
+		out = append(out, buildDataProperty{Name: m.Column, Range: r})
+	}
+	return out
 }

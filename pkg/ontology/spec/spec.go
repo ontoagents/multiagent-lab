@@ -41,6 +41,18 @@ type Instance struct {
 	Relations  []InstanceRel  `json:"relations,omitempty"`
 }
 
+// DataProperty 数据属性（字面量属性的概念层声明，REQ-268/M77 表达力升级一期）。
+// 声明与实例 attributes 键同名关联；TTL 导出使用 attr: 命名空间（与实例属性断言同 IRI，
+// 自 REQ-235⑥「声明丢弃+warning」升档为声明捕获）。Domain 可空=不限定义域；
+// Range 用短名（string/number/integer/boolean/date），未知形态保留原始 IRI，空=string。
+type DataProperty struct {
+	Name       string `json:"name"`
+	Label      string `json:"label,omitempty"`
+	Definition string `json:"definition,omitempty"`
+	Domain     string `json:"domain,omitempty"` // 定义域概念名（引用 concepts.name）
+	Range      string `json:"range,omitempty"`  // 数据类型（短名或 xsd:/完整 IRI）
+}
+
 // Spec 本体归一化形态（spec_json）。
 type Spec struct {
 	ID          string     `json:"id,omitempty"`
@@ -48,10 +60,11 @@ type Spec struct {
 	Description string     `json:"description,omitempty"`
 	// CQ 能力问题（REQ-90/REQ-248）：「本体要回答什么问题」的建模锚点——仅 spec 层
 	// （不入 TTL 导出/vowljson/不参与结构校验），三 LLM 构建路径回写、手工路径可录。
-	CQ        []string   `json:"cq,omitempty"`
-	Concepts  []Concept  `json:"concepts"`
-	Relations []Relation `json:"relations"`
-	Instances []Instance `json:"instances"`
+	CQ             []string        `json:"cq,omitempty"`
+	Concepts       []Concept       `json:"concepts"`
+	Relations      []Relation      `json:"relations"`
+	DataProperties []DataProperty  `json:"data_properties,omitempty"` // REQ-268/M77：可选声明层，存量资产零迁移
+	Instances      []Instance      `json:"instances"`
 }
 
 // ValidationError 单条校验错误（结构化，供 LLM 修正循环回喂）。
@@ -110,6 +123,28 @@ func (s *Spec) Validate() []ValidationError {
 		}
 		if _, ok := cn[r.To]; !ok {
 			add(p+".to", "值域引用了未定义概念: "+r.To)
+		}
+	}
+
+	// ---- data_properties（REQ-268/M77）：name 必填唯一；domain 引用已定义概念 ----
+	// （range 宽松不校验——未知类型诚实保留；实例 attributes 键未声明属完备性提示，
+	//  qualitygate undeclared_attribute_key info 级承载，不在此硬阻断以兼容存量自由属性资产）
+	dn := map[string]int{}
+	for i, dp := range s.DataProperties {
+		p := fmt.Sprintf("data_properties[%d]", i)
+		if strings.TrimSpace(dp.Name) == "" {
+			add(p+".name", "数据属性名不能为空")
+			continue
+		}
+		if _, dup := dn[dp.Name]; dup {
+			add(p+".name", "数据属性名重复: "+dp.Name)
+			continue
+		}
+		dn[dp.Name] = i
+		if dp.Domain != "" {
+			if _, ok := cn[dp.Domain]; !ok {
+				add(p+".domain", "定义域引用了未定义概念: "+dp.Domain)
+			}
 		}
 	}
 

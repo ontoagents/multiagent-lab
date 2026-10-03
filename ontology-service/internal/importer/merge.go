@@ -98,6 +98,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 	for i, c := range pv.MergedSpec.Concepts {
 		cIdx[c.Name] = i
 	}
+	renamedConcepts := map[string]string{} // REQ-268/M77：merge 策略重命名映射（数据属性 domain 改写用）
 	for _, in := range incoming.Concepts {
 		if i, ok := cIdx[in.Name]; ok {
 			cur := pv.MergedSpec.Concepts[i]
@@ -118,6 +119,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 				renamed.Name = newName
 				// 指向该概念的父子引用一并改写（保持层级语义）
 				rewireConceptRefs(pv.MergedSpec, in.Name, newName)
+				renamedConcepts[in.Name] = newName
 				pv.MergedSpec.Concepts = append(pv.MergedSpec.Concepts, renamed)
 				cIdx[newName] = len(pv.MergedSpec.Concepts) - 1
 				conf.Resolution = "renamed"
@@ -132,6 +134,46 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 			pv.Added = append(pv.Added, "concept:"+in.Name)
 			pv.Stats.ConceptsAdded++
 		}
+	}
+
+	// ---- 数据属性声明（REQ-268/M77）：merge 原逐字段重组会丢 data_properties（连 cq 亦然，既有缺口顺修）——
+	// replace=随 incoming 整体替换；merge-overwrite=同名 incoming 覆盖+并集；merge=同名保留现行+incoming 新名并入
+	// （v1 不做声明级冲突检测，审查页可见合并结果）；incoming 声明的 domain 经重命名映射改写防悬空。
+	switch strategy {
+	case StrategyReplace:
+		pv.MergedSpec.DataProperties = incoming.DataProperties
+		pv.MergedSpec.CQ = incoming.CQ
+	case StrategyMergeOverwrite:
+		merged := append([]pkgspec.DataProperty{}, incoming.DataProperties...)
+		seenDp := map[string]bool{}
+		for _, dp := range incoming.DataProperties {
+			seenDp[dp.Name] = true
+		}
+		for _, dp := range target.DataProperties {
+			if !seenDp[dp.Name] {
+				merged = append(merged, dp)
+			}
+		}
+		pv.MergedSpec.DataProperties = merged
+		pv.MergedSpec.CQ = target.CQ
+	default: // merge
+		merged := append([]pkgspec.DataProperty{}, target.DataProperties...)
+		seenDp := map[string]bool{}
+		for _, dp := range target.DataProperties {
+			seenDp[dp.Name] = true
+		}
+		for _, in := range incoming.DataProperties {
+			if seenDp[in.Name] {
+				continue
+			}
+			dp := in
+			if nn, ok := renamedConcepts[dp.Domain]; ok {
+				dp.Domain = nn
+			}
+			merged = append(merged, dp)
+		}
+		pv.MergedSpec.DataProperties = merged
+		pv.MergedSpec.CQ = target.CQ
 	}
 
 	// ---- 关系 ----

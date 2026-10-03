@@ -77,9 +77,10 @@ type Report struct {
 
 // Stats 被检本体规模（报告可读性）。
 type Stats struct {
-	Concepts  int `json:"concepts"`
-	Relations int `json:"relations"`
-	Instances int `json:"instances"`
+	Concepts       int `json:"concepts"`
+	Relations      int `json:"relations"`
+	Instances      int `json:"instances"`
+	DataProperties int `json:"data_properties,omitempty"` // REQ-268/M77
 }
 
 const maxSamples = 20
@@ -107,6 +108,9 @@ func defaultChecks() []checkDef {
 		{id: "instance_type_missing", title: "实例无类型或类型不存在", dimension: DimConsistency, sev: SevError, run: checkInstanceType},
 		{id: "dangling_instance_rel", title: "实例关系断言悬空（关系或目标实例不存在）", dimension: DimConsistency, sev: SevError, run: checkDanglingInstanceRel},
 		{id: "duplicate_name", title: "命名重复（概念/关系/实例各自域内）", dimension: DimConsistency, sev: SevError, run: checkDuplicateName},
+		// REQ-268/M77 数据属性一等公民配套检查
+		{id: "dangling_dataprop_domain", title: "数据属性定义域引用不存在的概念", dimension: DimConsistency, sev: SevError, run: checkDanglingDataPropDomain},
+		{id: "undeclared_attribute_key", title: "实例属性键未声明为数据属性", dimension: DimCompleteness, sev: SevInfo, run: checkUndeclaredAttribute},
 	}
 }
 
@@ -126,6 +130,7 @@ func Check(sp *pkgspec.Spec, cfg Config) *Report {
 	}
 	rep := &Report{Strict: false, Findings: []Finding{}, Stats: Stats{
 		Concepts: len(sp.Concepts), Relations: len(sp.Relations), Instances: len(sp.Instances),
+		DataProperties: len(sp.DataProperties),
 	}}
 	byID := map[string]checkDef{}
 	for _, d := range defaultChecks() {
@@ -357,6 +362,36 @@ func checkDanglingRelation(sp *pkgspec.Spec, add func(string)) {
 		}
 		if _, ok := idx[r.To]; r.To != "" && !ok {
 			add(fmt.Sprintf("relations[%d](%s).to=%s", i, r.Name, r.To))
+		}
+	}
+}
+
+// checkDanglingDataPropDomain REQ-268/M77：数据属性定义域悬空（对称 dangling_relation_endpoint，
+// domain 为空=不限定义域不命中）。
+func checkDanglingDataPropDomain(sp *pkgspec.Spec, add func(string)) {
+	idx := conceptIndex(sp)
+	for i, dp := range sp.DataProperties {
+		if _, ok := idx[dp.Domain]; dp.Domain != "" && !ok {
+			add(fmt.Sprintf("data_properties[%d](%s).domain=%s", i, dp.Name, dp.Domain))
+		}
+	}
+}
+
+// checkUndeclaredAttribute REQ-268/M77：实例属性键未声明为数据属性（完备性提示）。
+// 仅当本体声明过至少一个数据属性时才检查——存量自由属性资产（零声明）不受扰不扣分。
+func checkUndeclaredAttribute(sp *pkgspec.Spec, add func(string)) {
+	if len(sp.DataProperties) == 0 {
+		return
+	}
+	decl := map[string]bool{}
+	for _, dp := range sp.DataProperties {
+		decl[dp.Name] = true
+	}
+	for i, it := range sp.Instances {
+		for k := range it.Attributes {
+			if !decl[k] {
+				add(fmt.Sprintf("instances[%d].attributes[%s]", i, k))
+			}
 		}
 	}
 }

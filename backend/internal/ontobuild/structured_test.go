@@ -114,3 +114,36 @@ func TestInferTemplateFallsBackToInstance(t *testing.T) {
 		t.Fatalf("回落骨架应仅主概念，实际 %d", len(d.Draft.Concepts))
 	}
 }
+
+// REQ-268/M77：结构化推导属性列 → 数据属性声明（range=推断类型映射；层级列不发声明）
+func TestStructuredDataPropsEmitted(t *testing.T) {
+	csv := "设备编号,设备名称,功率,在线\nEQ-001,空压机A,75,true\nEQ-002,水泵B,15,false\n"
+	d, err := InferStructuredDraftMode("devices.csv", csv, InferStructuredDraftOpts{Mode: "instance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Draft.DataProperties) != 3 {
+		t.Fatalf("3 个属性列应发 3 条声明，实际 %+v", d.Draft.DataProperties)
+	}
+	byName := map[string]buildDataProperty{}
+	for _, dp := range d.Draft.DataProperties {
+		byName[dp.Name] = dp
+	}
+	if byName["功率"].Range != "number" || byName["设备名称"].Range != "string" {
+		t.Fatalf("range 推断映射不符: %+v", byName)
+	}
+	if _, ok := byName["设备编号"]; ok {
+		t.Fatalf("首列（实例名）不应发声明: %+v", byName)
+	}
+	// 模板层级模式：层级列 role=concept-level 不发声明
+	tpl := "类别,子类,设备名称,功率\n设备,动力,空压机A,75\n设备,静止,水泵B,15\n仪器,检测,流量计,8\n"
+	d2, err := InferStructuredDraftMode("t.csv", tpl, InferStructuredDraftOpts{Mode: "template", HierarchyColumns: []string{"类别", "子类"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dp := range d2.Draft.DataProperties {
+		if dp.Name == "类别" || dp.Name == "子类" {
+			t.Fatalf("层级列不应发声明: %+v", d2.Draft.DataProperties)
+		}
+	}
+}

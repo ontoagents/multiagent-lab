@@ -545,11 +545,24 @@ export interface SpecInstance {
 }
 
 /** 本体 Spec（GET/PUT /api/ontologies/{id}/spec；PUT 全量、校验门控、递增 version） */
+/** 数据属性声明（REQ-268/M77 表达力升级一期；与实例 attributes 键同名关联，TTL 导出 attr: 命名空间） */
+export interface SpecDataProperty {
+  name: string
+  label?: string
+  definition?: string
+  /** 定义域概念名（可空=不限） */
+  domain?: string
+  /** 数据类型短名 string|number|integer|boolean|date（未知形态保留 IRI，空=string） */
+  range?: string
+}
+
 export interface Spec {
   name: string
   description?: string
   concepts: SpecConcept[]
   relations: SpecRelation[]
+  /** 数据属性声明层（REQ-268/M77；可选，存量资产零迁移） */
+  data_properties?: SpecDataProperty[]
   instances: SpecInstance[]
   /** REQ-248/G2：能力问题（仅 spec 层，不入 TTL/校验） */
   cq?: string[]

@@ -5,15 +5,17 @@
   sidecar.py parse  --format owl_rdfxml|turtle|jsonld < input   -> stdout JSON {spec, warnings, lossy, note}
   sidecar.py export --ontology-id ID [--format turtle] < spec_json -> stdout TTL
 
-导入映射（REQ-69 细则定稿，REQ-235/M62 扩 SKOS/JSON-LD/数据属性档）:
+导入映射（REQ-69 细则定稿，REQ-235/M62 扩 SKOS/JSON-LD/数据属性档；REQ-268/M77 数据属性声明捕获）:
   rdfs:label|skos:prefLabel（pref/alt 优先）→ name/label、rdfs:comment|skos:definition → definition、
   rdfs:subClassOf|skos:broader|skos:narrower(反向) → parents、
   owl:Class|rdfs:Class|skos:Concept → concept、
   owl:NamedIndividual+rdf:type → instance、对象属性断言 → 实例关系、
-  datatype 属性断言 → attributes（实例级）；owl:DatatypeProperty 声明按**固定策略一档**降级：
-  不入 relations、域约束与属性公理丢弃、逐属性 warning 明示（REQ-235② 拍板：不做导入偏好配置）；
-  其余公理/推理语义丢弃并计入 warnings。
-导出 URN 规则与 pkg/ontology/spec 的 sanitize 逐字符一致（查询翻译共用）。
+  datatype 属性断言 → attributes（实例级）；owl:DatatypeProperty 声明 → data_properties（REQ-268
+  自「固定策略一档丢弃+warning」升档为**声明捕获**：name/label/definition/domain/range——
+  domain 未注册为概念则留空不悬空，range xsd:* → 短名 string/number/integer/boolean/date；
+  属性公理（函数性/限制等）仍丢弃 warning 明示）；其余公理/推理语义丢弃并计入 warnings。
+导出 URN 规则与 pkg/ontology/spec 的 sanitize 逐字符一致（查询翻译共用）；
+data_properties 声明导出为 <attr:名> owl:DatatypeProperty（与实例属性断言同 IRI，声明与使用统一）。
 """
 import sys, json
 
@@ -56,6 +58,38 @@ def definition_of(g, subj) -> str | None:
         if v and str(v).strip():
             return str(v)
     return None
+
+
+def label_of(g, subj) -> str | None:
+    # REQ-268/M77：展示标签独立于名称（label_or_local 在无标签时回落 local，不适合判断「有无标签」）
+    for pred in (SKOS.prefLabel, SKOS.altLabel, RDFS.label):
+        for lab in g.objects(subj, pred):
+            s = str(lab).strip()
+            if s:
+                return s
+    return None
+
+
+XSD_SHORT = {
+    "http://www.w3.org/2001/XMLSchema#string": "string",
+    "http://www.w3.org/2001/XMLSchema#double": "number",
+    "http://www.w3.org/2001/XMLSchema#float": "number",
+    "http://www.w3.org/2001/XMLSchema#decimal": "number",
+    "http://www.w3.org/2001/XMLSchema#integer": "integer",
+    "http://www.w3.org/2001/XMLSchema#int": "integer",
+    "http://www.w3.org/2001/XMLSchema#long": "integer",
+    "http://www.w3.org/2001/XMLSchema#boolean": "boolean",
+    "http://www.w3.org/2001/XMLSchema#date": "date",
+    "http://www.w3.org/2001/XMLSchema#dateTime": "date",
+}
+
+
+def range_short(rng) -> str:
+    # REQ-268/M77：rdfs:range → 短名；未知 xsd/自定义 IRI 诚实保留原始 IRI（导出侧按原样回写）
+    if rng is None:
+        return "string"
+    s = str(rng)
+    return XSD_SHORT.get(s, s)
 
 
 def parse(format: str) -> int:
@@ -169,16 +203,39 @@ def parse(format: str) -> int:
             lossy = True
             warnings.append(f"关系 {name} 值域缺失或未注册为概念")
         spec["relations"].append(rel)
-    # REQ-235②：datatype 属性声明按**固定策略一档**降级（拍板：不做导入偏好配置）——
-    # 声明不入 relations；实例断言落 attributes（实例段统一处理）；域约束与属性公理丢弃，逐属性 warning 明示。
+    # REQ-268/M77（D-O22 批次二）：owl:DatatypeProperty 声明捕获入模型——自 REQ-235⑥「丢弃+warning」升档。
+    # name=label 优先（与概念/关系同 label_or_local 口径）；domain 未注册为概念则留空（不产生悬空引用）；
+    # range xsd:* → 短名，未知保留 IRI；函数性/限制等属性公理仍丢弃 warning 明示。
+    # 声明与实例 attributes 键同名关联：实例断言的谓词若命中声明 URI，键归一为声明名（label 可能≠URI local）。
     dt_props = set(g.subjects(RDF.type, OWL.DatatypeProperty))
+    data_properties = []
+    dp_name_by_uri = {}
+    seen_dp = set()
     for pr in dt_props:
         if not isinstance(pr, URIRef) or str(pr).startswith((str(RDF), str(RDFS), str(OWL), str(SKOS))):
             continue
-        lossy = True
+        name = label_or_local(g, pr)
+        if name in seen_dp:
+            warnings.append(f"重复数据属性名 {name} 已跳过")
+            continue
+        seen_dp.add(name)
+        dp_name_by_uri[str(pr)] = name
+        dp = {"name": name}
+        lbl = label_of(g, pr)
+        if lbl and lbl != name:
+            dp["label"] = lbl
+        comment = definition_of(g, pr)
+        if comment:
+            dp["definition"] = comment
         dom = g.value(pr, RDFS.domain)
-        dom_s = f"（domain {label_or_local(g, dom)} 丢弃）" if dom is not None else ""
-        warnings.append(f"datatype 属性 {label_or_local(g, pr)} 按固定策略降级为实例 attributes{dom_s}（属性公理丢弃）")
+        if dom is not None and str(dom) in seen_c:
+            dp["domain"] = seen_c[str(dom)]
+        elif dom is not None:
+            warnings.append(f"数据属性 {name} 定义域 {label_or_local(g, dom)} 未注册为概念，留空")
+        dp["range"] = range_short(g.value(pr, RDFS.range))
+        data_properties.append(dp)
+    if data_properties:
+        spec["data_properties"] = data_properties
 
     # ---- 实例 ----
     inst_by_uri = {}
@@ -215,13 +272,13 @@ def parse(format: str) -> int:
                 else:
                     lossy = True
                     warnings.append(f"实例 {name} 关系 {seen_r[pu]} 的目标 {local(ou)} 不是已注册实例，丢弃")
-            else:  # 其余断言 → attributes
+            else:  # 其余断言 → attributes（REQ-268/M77：谓词命中数据属性声明时键归一为声明名）
                 try:
                     val = o.toPython()
                     val = val.isoformat() if hasattr(val, "isoformat") else val
                 except Exception:  # noqa: BLE001
                     val = ou
-                it["attributes"][local(pu) or pu] = val
+                it["attributes"][dp_name_by_uri.get(pu) or local(pu) or pu] = val
         if not it["attributes"]:
             it.pop("attributes")
         if not it["relations"]:
@@ -229,7 +286,7 @@ def parse(format: str) -> int:
         spec["instances"].append(it)
 
     out = {"spec": spec, "warnings": warnings, "lossy": lossy,
-           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235）：仅保留 类层次/SKOS 词表层次/对象属性/实例断言，datatype 断言落实例 attributes（固定策略一档）；公理、限制、推理语义丢弃（计入 warnings）"}
+           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235；REQ-268 数据属性声明捕获）：保留 类层次/SKOS 词表层次/对象属性/数据属性声明/实例断言，datatype 断言落实例 attributes；公理、限制、推理语义丢弃（计入 warnings）"}
     json.dump(out, sys.stdout, ensure_ascii=False)
     return 0
 
@@ -259,6 +316,20 @@ def export(argv) -> int:
     iu = lambda n: f"{base}instance:{sanitize(n)}"      # noqa: E731
     au = lambda k: f"{base}attr:{sanitize(k)}"          # noqa: E731
 
+    # REQ-268/M77：数据属性 range 短名 → xsd IRI（未知形态：http(s) IRI 原样 <尖括号>，其余回落 xsd:string）
+    XSD_IRI = {
+        "string": "xsd:string", "number": "xsd:double", "integer": "xsd:integer",
+        "boolean": "xsd:boolean", "date": "xsd:date",
+    }
+
+    def range_iri(rng) -> str:
+        r = (rng or "string").strip()
+        if r in XSD_IRI:
+            return XSD_IRI[r]
+        if r.startswith("http://") or r.startswith("https://"):
+            return f"<{r}>"
+        return "xsd:string"
+
     L = []
     L.append(f'@prefix o: <{base}> .')
     L.append('@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .')
@@ -285,6 +356,16 @@ def export(argv) -> int:
             L[-1] += f' ;\n    rdfs:domain <{cu(r["from"])}>'
         if r.get("to"):
             L[-1] += f' ;\n    rdfs:range <{cu(r["to"])}>'
+        L[-1] += ' .'
+    for dp in (spec.get("data_properties") or []):
+        # REQ-268/M77：声明导出为 <attr:名> owl:DatatypeProperty——与实例属性断言同 IRI（声明与使用统一）
+        u = au(dp["name"])
+        L.append(f'<{u}> rdf:type owl:DatatypeProperty ; rdfs:label "{esc(dp["name"])}"')
+        if dp.get("definition"):
+            L[-1] += f' ;\n    rdfs:comment "{esc(dp["definition"])}"'
+        if dp.get("domain"):
+            L[-1] += f' ;\n    rdfs:domain <{cu(dp["domain"])}>'
+        L[-1] += f' ;\n    rdfs:range {range_iri(dp.get("range"))}'
         L[-1] += ' .'
     for it in (spec.get("instances") or []):
         u = iu(it["name"])

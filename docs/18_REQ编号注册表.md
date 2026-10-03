@@ -1,6 +1,6 @@
 # 18_REQ编号注册表与文档治理
 
-> 状态：v2.52 ｜ 2026-10-03 ｜ 维护人：董奎 + 协作 Agent
+> 状态：v2.53 ｜ 2026-10-03 ｜ 维护人：董奎 + 协作 Agent
 > 文档性质：**全局事实源**。REQ 编号的唯一分配权威（裁决 01/03/11/17 各档"REQ-90+ 区段双占用"问题，2026-09-23 开发者授权执行）；同时登记 docs/ 目录编号治理约定。**新需求立项前必须先查本表分配编号**；各需求文档头部编号段说明以本表为准。
 > 裁决依据：交叉引用计数 + 代码引用核对——REQ-90~96 的**全部 57 处代码引用均为本体侧学习增强语义**（`web/src/pages/ontology/*`、`internal/ontobuild` 等），智能体侧技能/沙箱引用仅存在于 01 文档（约 18 处），故迁移智能体侧、保留本体侧（交付资产与代码零迁移）。
 
@@ -150,7 +150,7 @@
 | REQ-265 | 01 智能体 PRD | **侧板表单行内布局与图标去撞**（2026-10-03 立项即交付，开发者两点指令「①配置项与配置值分两行的把短值/可选的改为同一行，描述提示词才两行②执行图标与顶栏技能重合、能力图标与对话右上角侧栏开关重合，需切换」）：①`.item-inline` 行内布局——antd 竖排表单按字段覆写为行（`.ant-form-item-row` flex-direction:row+label flex:none+control flex:1），覆盖智能体侧板=名称/模型五件/上下文预算/运行后端/沙箱两件/工作目录/验证命令/审批三件/技能/工具白名单/对外服务两件/伴生三件，项目侧板=名称/本地目录/协作模式/工作流模式；描述/系统提示词/项目约束等长文本字段保持上下两行；顺带把伴生三字段与本地目录的长尾注 extra 转 tooltip（与上轮悬停化口径归一）+沙箱两件/温度等短注转 tooltip；②图标换型=执行 Thunderbolt→ControlOutlined（撞顶栏「技能」）、能力 Appstore→ToolOutlined（撞对话右上角侧栏开关）；tsc/vite 绿+headless 17/17 smoke/req265/（几何断言：名称/模型连接/温度/tokens/推理后端/审批/最大迭代/对外服务 Switch/项目名称/本地目录/协作模式 label 与控件同行，系统提示词/项目描述保持两行；图标断言 anticon-control/anticon-tool 且 bar 无 thunderbolt/appstore）；**构建注**：主树被并行线 SpecEditorPane WIP 语法半成品阻塞 tsc/vite/dev 三路，本轮以 git worktree（HEAD+本轮 3 文件）干净树构建并将 dist 回填部署目录，零触碰并行文件 | P2 ✅ |
 | REQ-266 | 前端（本体模块） | **资产详情头布局重排+能力雷达全量化**（2026-10-03，开发者报「详情页上方布局不合理：长描述多行占位；能力雷达只有个别才有需全部支持；雷达位置不对需优化」立项即交付）：①**描述单行截断**（ellipsis+Tooltip 全文——「基因与中心法则」「医学常识」级长描述不再多行挤占头部）；②**规模/引用元信息行**（概念·关系·实例·被 N 套方案引用自标题行迁出为轻量文本行，标题行瘦身只剩身份类徽标）；③**能力雷达全量支持**——无缓存报告时 `qualityRun(id,false,false,save=false)` 静默按需跑分（qualitygate 规则检查非 LLM、零副作用不落产物；client qualityRun 增 save 参后端 Save *bool 已支持），GET 404 与 200+null 双路径都触发兜底；④**雷达固定右位**（原内联标题行把标题行撑到 92px+ 且与标签挤缠——迁详情头右侧与动作区成组，空间不足时动作区换行到雷达下方右对齐，标题列 flex-basis 620 不被挤压；顺修初轮重构残留的标题行旧雷达双渲染）；验证 headless 13 断言（三种子全雷达在位右列/标题行单行≤64px/描述截断/元信息行/零页面错误）+tsc 绿 | P1 |
 | REQ-267 | 03 本体需求 | **构建门禁统一与生成链路收口**（2026-10-03 立项即交付，开发者指令「开始将本体升级为实用化/通用平台」，D-O22 批次一/M76）：①backend ontobuild 生成链（build-from-kb 三策略/build-from-structured 两模式/kg-to-spec-json）草稿统一经构建平面 POST /api/ontology/quality/check（inline spec+save=false 内存评分零副作用，沿 runtime-manager FetchQuality 先例）取全平台同一 qualitygate 口径，报告并入响应 quality 字段（overall/error_count/warning_count）；:8091 不可达降级 degraded=true+warnings 如实标注（本地 ValidateBuildSpec 结构兜底与 LLM 修复环保持本地口径，防跨服务耦合）；前端 KbBuildFlow/StructuredFlow 草稿区质量分 Tag+降级提示；②ai-draft 前端异步化——client 增 aiDraftOntologyAsync+aiDraftJob 轮询，backend 补 GET /api/ai-draft-jobs/ 反代精确路由（此前异步端点无前端调用方亦无反代通道），BuildPage「AI 创建」切异步提交+轮询，去 120s 同步阻塞窗口（OntoChat turn 保持同步=诚实边界，随对话流 UX 轮评估）；③kg-to-spec-json 定位收口=保留编程接口（无 UI 面，策略 B 已承载 UI，04 号 §2.2 登记） | P1 ✅（M76，2026-10-03） |
-| REQ-268 | 03 本体需求 | **数据属性一等公民（表达力升级一期）**（2026-10-03 立项，D-O22 批次二/M77；承接 REQ-235 行注数据属性建模遗留与 57 号 V2）：spec_json 模型升级——DataProperty 声明层（name/label/domain/range 数据类型）+实例 attributes 挂数据类型；导入侧 owl:DatatypeProperty 从「只落实例断言、声明丢弃」升级为「声明捕获入模型」（REQ-235⑥ 细则升档）；编辑侧 GraphEditor/JSON 编辑/关系类型页签（REQ-240④ 管理面前身）承载；qualitygate 增数据属性检查项；TTL 导出回写数据属性 | P2 📋（M77 待领取） |
+| REQ-268 | 03 本体需求 | **数据属性一等公民（表达力升级一期）**（2026-10-03 立项，D-O22 批次二/M77；承接 REQ-235 行注数据属性建模遗留与 57 号 V2）：spec_json 模型升级——DataProperty 声明层（name/label/domain/range 数据类型）+实例 attributes 挂数据类型；导入侧 owl:DatatypeProperty 从「只落实例断言、声明丢弃」升级为「声明捕获入模型」（REQ-235⑥ 细则升档）；编辑侧 GraphEditor/JSON 编辑/关系类型页签（REQ-240④ 管理面前身）承载；qualitygate 增数据属性检查项；TTL 导出回写数据属性 | P2 ✅（M77，2026-10-03） |
 | REQ-269 | 03 本体需求 | **公理与约束承载（表达力升级二期）**（2026-10-03 立项，D-O22 批次三/M78）：spec_json 扩公理/约束保留层——disjointWith/equivalentClass 等最小集导入保真保留（自「一律 lossy 丢弃」升档）+TTL 导出回写+与 REQ-255 推理检查档协同（original 形态已有） | 触发驱动 P2~P3（📋 M78，重语义资产导入诉求出现时） |
 | REQ-169+ | 未分配 | 新需求按序分配；跨模块需求归 01（横切），模块内需求归各模块档 | 新需求按序分配；跨模块需求归 01（横切），模块内需求归各模块档 |
 
@@ -178,6 +178,7 @@
 
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
+| v2.53 | 2026-10-03 | REQ-268 转正（✅ M77 立项即交付：数据属性一等公民——Spec.DataProperties 声明层〔类型挂载口径=声明层挂类型〕+sidecar 声明捕获与实例键归一+TTL 导出回写+qualitygate 两新检查项+结构化/LLM 路径发射+顺修 BuildMerged 丢 data_properties/cq 缺口+前端数据属性页签；单测 4 组+真机全链+headless 9/9 smoke/req268/） | 董奎 × 协作 Agent |
 | v2.52 | 2026-10-03 | REQ-267 转正（✅ M76 立项即交付：构建门禁统一与生成链路收口——ontobuild 三生成端点统一经构建平面 quality/check 快评〔save=false，degraded 降级标注〕+ai-draft 前端异步化〔202+轮询+/api/ai-draft-jobs 反代补路〕+kg-to-spec-json 定位编程接口；单测 2 组+真机 GLM 三路全链+headless 10/10 smoke/req267/） | 董奎 × 协作 Agent |
 | v2.51 | 2026-10-03 | REQ-267~269 分配（本体实用化/通用平台升级批次立项，开发者指令「开始将本体升级为实用化/通用平台」，D-O22）：REQ-267 构建门禁统一与生成链路收口（🔨 立项即开发 M76）/REQ-268 数据属性一等公民（M77 待领取）/REQ-269 公理与约束承载（触发驱动 M78）；REQ-258 spec→oo 升级桥触发转正（批次四 M79，依赖 REQ-268） | 董奎 × 协作 Agent |
 | v2.50 | 2026-10-03 | REQ-266 布局 follow-up（开发者指定「发布/Fork 等按钮放右上角与本体名同一行；能力雷达放按钮下方；描述放本体名下方、雷达左侧」）：详情头改两列——左列=标题行/描述单行截断/元信息行，右列=动作按钮行在上顶对齐+能力雷达在下右对齐（flex column order 调整）；headless 6 断言（同行顶对齐/雷达按钮下方/描述雷达左侧/单行截断/头部≤150px/零错误）+tsc 绿 | 董奎 × 协作 Agent |

@@ -31,6 +31,9 @@ const specSchemaHint = `{
     "relations": {"type": "array", "items": {"type": "object", "required": ["name", "from", "to"], "properties": {
       "name": {"type": "string"}, "label": {"type": "string"}, "definition": {"type": "string"},
       "from": {"type": "string"}, "to": {"type": "string"}}}},
+    "data_properties": {"type": "array", "items": {"type": "object", "required": ["name"], "properties": {
+      "name": {"type": "string"}, "label": {"type": "string"}, "definition": {"type": "string"},
+      "domain": {"type": "string"}, "range": {"type": "string"}}}},
     "instances": {"type": "array", "items": {"type": "object", "required": ["name", "concept"], "properties": {
       "name": {"type": "string"}, "concept": {"type": "string"},
       "attributes": {"type": "object"},
@@ -200,6 +203,7 @@ func buildPrompt(description, extraHint string, fixErrors []string, cqs []string
 	b.WriteString(specSchemaHint)
 	b.WriteString("\n\n规则：\n")
 	b.WriteString("- concepts[].name 唯一且非空；relations[].from/to 必须引用已定义概念；instances[].concept 必须引用已定义概念；instances[].relations[].rel/target 必须引用已定义关系/实例。\n")
+	b.WriteString("- data_properties（可选，REQ-268）：实例 attributes 中值得声明类型的字面量属性——name 与 attributes 键同名、domain 引用概念 name（可省）、range 用 string|number|integer|boolean|date 短名。\n")
 	b.WriteString("- 只输出 JSON，不要 markdown 代码块或其他文本。\n\n领域描述：\n")
 	b.WriteString(description)
 	if extraHint != "" {

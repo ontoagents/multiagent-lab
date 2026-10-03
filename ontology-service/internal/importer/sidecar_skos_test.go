@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 )
 
 func TestSniffJSONLD(t *testing.T) {
@@ -139,7 +141,10 @@ ex:replicas a owl:DatatypeProperty ; rdfs:domain ex:Pod ; rdfs:label "副本数"
 ex:pod1 a owl:NamedIndividual, ex:Pod ; rdfs:label "frontend" ; ex:replicas "3" .
 `
 
-func TestSidecarDatatypeDowngradeFixedPolicy(t *testing.T) {
+// REQ-268/M77（原 TestSidecarDatatypeDowngradeFixedPolicy，REQ-235⑥「声明丢弃」口径已升档）：
+// owl:DatatypeProperty 声明捕获入 data_properties；实例断言键归一为声明名（label「副本数」≠ URI local「replicas」）；
+// range 缺省 string、domain 映射注册概念；声明不再计 lossy。
+func TestSidecarDatatypeDeclarationCaptured(t *testing.T) {
 	sc := sidecarAvailable(t)
 	sp, rep, err := Import(sc, "dt.ttl", datatypeFixture)
 	if err != nil {
@@ -148,19 +153,62 @@ func TestSidecarDatatypeDowngradeFixedPolicy(t *testing.T) {
 	if len(sp.Relations) != 0 {
 		t.Fatalf("datatype 声明不得入 relations，实际 %v", sp.Relations)
 	}
-	// REQ-235：datatype 断言落实例 attributes；实例类型已注册（a ex:Pod）故正常保留
-	if len(sp.Instances) != 1 || sp.Instances[0].Attributes["replicas"] != "3" {
-		t.Fatalf("datatype 断言应落实例 attributes，实际 %+v", sp.Instances)
+	if len(sp.DataProperties) != 1 {
+		t.Fatalf("声明应捕获入 data_properties，实际 %+v", sp.DataProperties)
 	}
-	// 无类型实例丢弃分支由真机 API 验证覆盖（merge/apply 400 缺口修复）
+	dp := sp.DataProperties[0]
+	if dp.Name != "副本数" || dp.Domain != "Pod" || dp.Range != "string" {
+		t.Fatalf("声明字段不符（name/domain/range）: %+v", dp)
+	}
+	// 实例断言键归一为声明名「副本数」（谓词 ex:replicas 命中声明 URI）
+	if len(sp.Instances) != 1 || sp.Instances[0].Attributes["副本数"] != "3" {
+		t.Fatalf("实例断言键应归一为声明名，实际 %+v", sp.Instances)
+	}
+	if rep.Lossy {
+		t.Fatalf("纯 datatype 声明+断言不应计 lossy: %v", rep.Warnings)
+	}
 	_ = rep
-	hit := false
-	for _, w := range rep.Warnings {
-		if strings.Contains(w, "固定策略降级") && strings.Contains(w, "副本数") {
-			hit = true
+}
+
+// REQ-268/M77 导出回写：data_properties → owl:DatatypeProperty 声明（attr: 命名空间与实例断言同 IRI）+ range xsd 映射。
+func TestSidecarDatatypeExportRoundTrip(t *testing.T) {
+	sc := sidecarAvailable(t)
+	if sc == nil || sc.Python == "" || sc.Script == "" {
+		t.Skip("sidecar 未配置")
+	}
+	sp := &pkgspec.Spec{
+		Name: "t",
+		Concepts: []pkgspec.Concept{{Name: "Pod"}},
+		DataProperties: []pkgspec.DataProperty{
+			{Name: "副本数", Domain: "Pod", Range: "integer", Definition: "副本数量"},
+			{Name: "自定义", Range: "http://example.org/v#custom"},
+		},
+		Instances: []pkgspec.Instance{{Name: "pod1", Concept: "Pod", Attributes: map[string]any{"副本数": "3"}}},
+	}
+	ttl, err := ExportTTL(sc, "rt", sp)
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+	for _, want := range []string{
+		"rdf:type owl:DatatypeProperty", "rdfs:domain <urn:o:rt:concept:Pod>", "rdfs:range xsd:integer",
+		"<urn:o:rt:attr:副本数>", "rdfs:range <http://example.org/v#custom>",
+	} {
+		if !strings.Contains(ttl, want) {
+			t.Fatalf("导出 TTL 缺少 %q:\n%s", want, ttl)
 		}
 	}
-	if !hit || !rep.Lossy {
-		t.Fatalf("datatype 降级应有固定策略 warning 且 lossy=true: %v", rep.Warnings)
+	// 回读：导出 TTL 再导入，声明与断言往返保留
+	sp2, _, err := Import(sc, "rt.ttl", ttl)
+	if err != nil {
+		t.Fatalf("回读导入失败: %v", err)
+	}
+	if len(sp2.DataProperties) != 2 {
+		t.Fatalf("回读应保留 2 条声明，实际 %+v", sp2.DataProperties)
+	}
+	if sp2.DataProperties[0].Name != "副本数" || sp2.DataProperties[0].Range != "integer" {
+		t.Fatalf("回读声明字段不符: %+v", sp2.DataProperties[0])
+	}
+	if sp2.Instances[0].Attributes["副本数"] != "3" {
+		t.Fatalf("回读实例断言不符: %+v", sp2.Instances[0])
 	}
 }
