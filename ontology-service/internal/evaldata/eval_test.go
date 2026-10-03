@@ -27,6 +27,7 @@ import (
 type evalResult struct {
 	ID       string  `json:"id"`
 	Source   string  `json:"source"` // seed | real
+	Channel  string  `json:"channel"` // REQ-257：构建渠道（seed|fork|import|custom）
 	Overall  float64 `json:"overall"`
 	Concepts int     `json:"concepts"`
 	Relations int    `json:"relations"`
@@ -58,16 +59,16 @@ func structCheck(sp *pkgspec.Spec) (bool, []string) {
 	return len(issues) == 0, issues
 }
 
-func evalSpec(t *testing.T, id, source string, specJSON []byte) evalResult {
+func evalSpec(t *testing.T, id, source, channel string, specJSON []byte) evalResult {
 	t.Helper()
 	var sp pkgspec.Spec
 	if err := json.Unmarshal(specJSON, &sp); err != nil {
-		return evalResult{ID: id, Source: source, Issues: "spec 解析失败: " + err.Error()}
+		return evalResult{ID: id, Source: source, Channel: channel, Issues: "spec 解析失败: " + err.Error()}
 	}
 	ok, issues := structCheck(&sp)
 	rep := qualitygate.Check(&sp, qualitygate.DefaultConfig())
 	sort.Strings(issues)
-	return evalResult{ID: id, Source: source, Overall: rep.Score.Overall, Concepts: len(sp.Concepts),
+	return evalResult{ID: id, Source: source, Channel: channel, Overall: rep.Score.Overall, Concepts: len(sp.Concepts),
 		Relations: len(sp.Relations), StructOK: ok, Issues: strings.Join(issues, "; ")}
 }
 
@@ -86,7 +87,7 @@ func TestOntoEval(t *testing.T) {
 				t.Logf("seed %s 读取失败: %v", e.Name(), rerr)
 				continue
 			}
-			results = append(results, evalSpec(t, strings.TrimSuffix(e.Name(), ".json"), "seed", b))
+			results = append(results, evalSpec(t, strings.TrimSuffix(e.Name(), ".json"), "seed", "seed", b)) // 种子目录=seed 渠道（文件名无 onto_ 前缀，派生规则不适用）
 		}
 	}
 
@@ -116,7 +117,29 @@ func TestOntoEval(t *testing.T) {
 					break
 				}
 			}
-			results = append(results, evalSpec(t, oid, "real", buf))
+			// REQ-257 渠道派生：meta.forked_from + artifacts（original 形态存在=import）
+			forked, hasOrig := "", false
+			if mresp, merr := http.Get(buildURL + "/api/ontologies/" + oid); merr == nil {
+				var meta struct {
+					ForkedFrom string `json:"forked_from"`
+				}
+				_ = json.NewDecoder(mresp.Body).Decode(&meta)
+				mresp.Body.Close()
+				forked = meta.ForkedFrom
+			}
+			if aresp, aerr := http.Get(buildURL + "/api/ontologies/" + oid + "/artifacts"); aerr == nil {
+				var arts []struct {
+					Format string `json:"format"`
+				}
+				_ = json.NewDecoder(aresp.Body).Decode(&arts)
+				aresp.Body.Close()
+				for _, a := range arts {
+					if a.Format == "turtle" || a.Format == "owl_rdfxml" || a.Format == "jsonld" {
+						hasOrig = true
+					}
+				}
+			}
+			results = append(results, evalSpec(t, oid, "real", DeriveChannel(oid, forked, hasOrig), buf))
 		}()
 	}
 
@@ -143,5 +166,40 @@ func TestOntoEval(t *testing.T) {
 	// 硬断言：全部对象结构校验必须通过（结构信号）；质量分只报告不做硬门禁（阈值校准后续轮）
 	if failCount > 0 {
 		t.Errorf("%d/%d 个本体结构校验未通过", failCount, len(results))
+	}
+
+	// REQ-257 分渠道质量画像（60 号 H6）：按渠道分组出质量分布——产品侧「路径选择建议」数据基础。
+	groups := map[string][]evalResult{}
+	for _, r := range results {
+		groups[r.Channel] = append(groups[r.Channel], r)
+	}
+	channels := make([]string, 0, len(groups))
+	for ch := range groups {
+		channels = append(channels, ch)
+	}
+	sort.Strings(channels)
+	t.Logf("")
+	t.Logf("== 分渠道质量画像（REQ-257；custom 含 AI 创建/OntoChat/KB 构建——v1 不细分，生成时落 source_path 标记为观察项）==")
+	t.Logf("%-10s %4s %10s %10s %10s %8s", "渠道", "数量", "均分", "最低", "最高", "结构通过")
+	for _, ch := range channels {
+		rs := groups[ch]
+		st := ChannelStat{Channel: ch, Count: len(rs), MinScore: rs[0].Overall, MaxScore: rs[0].Overall}
+		sum := 0.0
+		okN := 0
+		for _, r := range rs {
+			sum += r.Overall
+			if r.Overall < st.MinScore {
+				st.MinScore = r.Overall
+			}
+			if r.Overall > st.MaxScore {
+				st.MaxScore = r.Overall
+			}
+			if r.StructOK {
+				okN++
+			}
+		}
+		st.AvgScore = sum / float64(len(rs))
+		st.StructOK = okN
+		t.Logf("%-10s %4d %10.2f %10.2f %10.2f %d/%d", st.Channel, st.Count, st.AvgScore, st.MinScore, st.MaxScore, st.StructOK, st.Count)
 	}
 }
