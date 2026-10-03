@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Collapse, Form, Input, Table, Typography } from 'antd'
+import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
 import type { Ontology, Spec, ValidationError } from '../../../../api/types'
@@ -41,6 +41,9 @@ export default function SpecEditorPane({
   const [savingSpec, setSavingSpec] = useState(false)
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
   const [lastVersion, setLastVersion] = useState<number | null>(null)
+  // REQ-253②（59 号 P2）：缩进大纲→概念层级批量导入（教学场景：讲义大纲直接建层级）
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const [outlineText, setOutlineText] = useState('')
 
   useEffect(() => {
     metaForm.setFieldsValue({ name: ontology.name, description: ontology.description ?? '' })
@@ -52,6 +55,49 @@ export default function SpecEditorPane({
   }, [spec])
 
   const large = specText.length > 200_000
+
+  /** REQ-253②：缩进大纲解析——每行 strip 后为概念名，缩进深度（tab=2 空格）=层级；返回 {name,depth} */
+  const parseOutline = (text: string): { name: string; depth: number }[] => {
+    const out: { name: string; depth: number }[] = []
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      const m = line.match(/^(\s*)\S/)
+      const indent = m ? (m[1] ?? '').replace(/\t/g, '  ').length : 0
+      out.push({ name: line.trim(), depth: Math.floor(indent / 2) })
+    }
+    return out
+  }
+
+  /** 大纲并入当前 spec 草稿（specText）——去重已存在概念；父链按缩进深度相邻回溯；仅改草稿不保存（审查后手动保存） */
+  const applyOutline = () => {
+    const items = parseOutline(outlineText)
+    if (items.length === 0) return
+    let parsed: Spec
+    try {
+      parsed = JSON.parse(specText || '{}')
+    } catch {
+      showToast('当前 Spec JSON 解析失败，无法并入', 'err')
+      return
+    }
+    parsed.concepts = parsed.concepts ?? []
+    const existing = new Set(parsed.concepts.map((c) => c.name))
+    const stack: { name: string; depth: number }[] = []
+    let added = 0
+    for (const it of items) {
+      while (stack.length > 0 && stack[stack.length - 1].depth >= it.depth) stack.pop()
+      if (!existing.has(it.name)) {
+        const parents = stack.length > 0 ? [stack[stack.length - 1].name] : undefined
+        parsed.concepts.push(parents ? { name: it.name, parents } : { name: it.name })
+        existing.add(it.name)
+        added++
+      }
+      stack.push({ name: it.name, depth: it.depth })
+    }
+    setSpecText(JSON.stringify(parsed, null, 2))
+    setOutlineOpen(false)
+    setOutlineText('')
+    showToast(`大纲已并入草稿（新增 ${added} 概念；请检查后手动保存）`)
+  }
 
   const saveMeta = async () => {
     let v: any
@@ -155,6 +201,9 @@ export default function SpecEditorPane({
         <Button size="small" icon={<ReloadOutlined />} onClick={onReloadSpec} disabled={specLoading}>
           重新加载
         </Button>
+        <Button size="small" onClick={() => setOutlineOpen(true)} data-testid="outline-import-btn">
+          大纲导入
+        </Button>
         {!spec && !specLoading && (
           <Button size="small" onClick={() => setSpecText(JSON.stringify(emptySpec(ontology.name), null, 2))}>
             初始化空 Spec
@@ -251,6 +300,43 @@ export default function SpecEditorPane({
           {lastVersion != null && validationErrors.length === 0 && <ReloadHintAlert version={lastVersion} />}
         </>
       )}
+
+      {/* REQ-253②（59 号 P2）：缩进大纲→概念层级批量导入（教学场景；仅并入草稿不自动保存） */}
+      <Modal
+        open={outlineOpen}
+        centered
+        title="大纲导入（缩进文本 → 概念层级）"
+        width={560}
+        onCancel={() => setOutlineOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setOutlineOpen(false)}>取消</Button>
+            <Button type="primary" disabled={!outlineText.trim()} onClick={applyOutline} data-testid="outline-apply-btn">
+              并入草稿（不自动保存）
+            </Button>
+          </Space>
+        }
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          每行一个概念；缩进（tab 或 2 空格）表示子层级，父概念=上一个更浅缩进行。已存在的概念名跳过。仅修改草稿，请检查后手动保存。
+        </Typography.Paragraph>
+        <Input.TextArea
+          rows={10}
+          value={outlineText}
+          onChange={(e) => setOutlineText(e.target.value)}
+          placeholder={'云原生\n  容器编排\n    Kubernetes\n  服务网格\n    Istio'}
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+          data-testid="outline-textarea"
+        />
+        {outlineText.trim() && (
+          <div style={{ marginTop: 8 }}>
+            {parseOutline(outlineText).slice(0, 8).map((it, i) => (
+              <Tag key={i} style={{ margin: 2, marginInlineStart: 8 * it.depth }}>{it.name}</Tag>
+            ))}
+            {parseOutline(outlineText).length > 8 && <Typography.Text type="secondary" style={{ fontSize: 11 }}>…</Typography.Text>}
+          </div>
+        )}
+      </Modal>
     </>
   )
 }

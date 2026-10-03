@@ -413,8 +413,8 @@ export const api = {
     req<{ ok: boolean; validation_errors: ValidationError[] }>(`/api/ontologies/${id}/validate`, { method: 'POST' }),
   listArtifacts: (id: string) => req<ArtifactMeta[]>(`/api/ontologies/${id}/artifacts`),
   // ---- REQ-156/M-O15 质量卡与门禁开关 ----
-  qualityRun: (id: string, strict = false, reasoning = false) =>
-    req<{ report: QualityReport; artifact_saved?: boolean; reasoning?: { consistent: boolean | null; violation_count: number; source: string } }>(`/api/ontology/quality/check`, { method: 'POST', body: JSON.stringify({ ontology_id: id, strict, reasoning }) }),
+  qualityRun: (id: string, strict = false, reasoning = false, save = true) =>
+    req<{ report: QualityReport; artifact_saved?: boolean; reasoning?: { consistent: boolean | null; violation_count: number; source: string } }>(`/api/ontology/quality/check`, { method: 'POST', body: JSON.stringify({ ontology_id: id, strict, reasoning, save }) }),
   qualityReport: (id: string) =>
     req<{ ontology_id: string; imported_at: string; report: QualityReport | null }>(`/api/ontology/quality/report?ontology_id=${encodeURIComponent(id)}`),
   qualityConfig: (id: string) => req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`),

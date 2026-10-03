@@ -295,6 +295,21 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
   }, [selectedId, initialEdges, setNodes, setEdges])
 
   const counts = useMemo(() => (spec ? instanceCounts(spec) : new Map<string, number>()), [spec])
+  // 59 号 P7：名称→根的继承链（面包屑数据；环防护）
+  const breadcrumbOf = (name: string): string[] => {
+    if (!spec) return [name]
+    const byName = new Map((spec.concepts ?? []).map((c) => [c.name, c]))
+    const chain = [name]
+    let cur = name
+    for (let i = 0; i < 32; i++) {
+      const c = byName.get(cur)
+      const parent = (c?.parents ?? []).find((p) => byName.has(p))
+      if (!parent) break
+      chain.unshift(parent)
+      cur = parent
+    }
+    return chain
+  }
   const selected = useMemo(
     () => (spec && selectedId && !selectedId.startsWith('i:') ? spec.concepts.find((c) => c.name === selectedId) ?? null : null),
     [spec, selectedId],
@@ -389,6 +404,13 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
             <div className="onto-flow-detail">
               <div className="onto-flow-detail-name">{selected.label || selected.name}</div>
               <div className="onto-flow-detail-key">{selected.name}</div>
+              {/* 59 号 P7/REQ-253：面包屑路径提示——当前选中到根的继承链 */}
+              {breadcrumbOf(selected.name).length > 1 && (
+                <div className="onto-flow-detail-row" data-testid="onto-breadcrumb">
+                  <span className="onto-flow-detail-label">路径</span>
+                  <Typography.Text style={{ fontSize: 11.5 }}>{breadcrumbOf(selected.name).join(' → ')}</Typography.Text>
+                </div>
+              )}
               <p className={`onto-flow-detail-def${selected.definition ? '' : ' muted'}`}>
                 {selected.definition || '未填写定义'}
               </p>

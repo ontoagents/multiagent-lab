@@ -6,6 +6,7 @@ import type { QualityReport } from '../../api/client'
 import { companionApi } from '../../api/companion'
 import type { Ontology, OntologyReferences, RuntimeProfile, Spec } from '../../api/types'
 import QualityRadar, { radarDimsOf } from '../../components/QualityRadar'
+import { expressivityOf } from './shared/expressivity'
 import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
 import CsvIngestPane from './components/CsvIngestPane'
@@ -158,11 +159,20 @@ export default function AssetsPage() {
       .finally(() => {
         if (alive) setSpecLoading(false)
       })
-    // REQ-240③/M66：能力雷达数据——缓存质量报告静默拉取（未生成过报告则不显示，不自动跑分）
+    // REQ-240③/M66 + REQ-264：能力雷达全量支持——先读缓存报告；未生成过则
+    // save=false 静默跑分（qualitygate 规则检查非 LLM、零副作用不落产物），详情雷达人人有
     if (qualityCache[activeId] === undefined) {
       api
         .qualityReport(activeId)
-        .then((r) => setQualityCache((m) => ({ ...m, [activeId]: r.report })))
+        .then((r) => {
+          if (r.report) {
+            setQualityCache((m) => ({ ...m, [activeId]: r.report }))
+            return undefined
+          }
+          return api.qualityRun(activeId, false, false, false).then((r2) => {
+            setQualityCache((m) => ({ ...m, [activeId]: r2.report }))
+          })
+        })
         .catch(() => setQualityCache((m) => ({ ...m, [activeId]: null })))
     }
     return () => {
@@ -316,8 +326,8 @@ export default function AssetsPage() {
         </>
       ) : (
         <>
-          <div className="work-head">
-            <div className="work-head-text">
+          <div className="work-head" style={{ flexWrap: 'wrap', rowGap: 8 }}>
+            <div className="work-head-text" style={{ minWidth: 0, flex: '1 1 620px' }}>
               <div className="work-head-title">
                 <Typography.Title level={4} style={{ margin: 0 }}>
                   {active.name}
@@ -332,13 +342,15 @@ export default function AssetsPage() {
                   <Tag style={{ margin: 0 }}>Draft</Tag>
                 )}
                 <Tag color={sourceTag(active).color} style={{ margin: 0 }}>{sourceTag(active).text}</Tag>
-                <Tag style={{ margin: 0 }}>概念 {active.n_concepts ?? 0}</Tag>
-                <Tag style={{ margin: 0 }}>关系 {active.n_relations ?? 0}</Tag>
-                <Tag style={{ margin: 0 }}>实例 {active.n_instances ?? 0}</Tag>
-                <Tooltip title="被 N 套运行方案引用（只读；启停操作在「本体运行」栏）">
-                  <Tag color="purple" style={{ margin: 0 }}>被 {refCount(active)} 套方案引用</Tag>
-                </Tooltip>
-                {/* REQ-240③/M66：资产卡能力雷达（缓存报告静默拉取；未生成过报告不显示） */}
+                {/* REQ-253④（59 号 P4）：表达性签名徽标（规则映射非推理器） */}
+                {(() => {
+                  const ex = expressivityOf(spec)
+                  return ex.sig ? (
+                    <Tooltip title={`表达性签名（简化 DL 记号）：${ex.feats.join('、')}`}>
+                      <Tag color="cyan" style={{ margin: 0, fontFamily: 'monospace' }} data-testid="expressivity-tag">{ex.sig}</Tag>
+                    </Tooltip>
+                  ) : null
+                })()}
                 {qualityCache[active.id] && (
                   <Tooltip
                     title={
@@ -353,9 +365,42 @@ export default function AssetsPage() {
                   </Tooltip>
                 )}
               </div>
-              <p className="work-head-desc">{active.description || '未填写描述'}</p>
+              {/* REQ-264：描述单行截断（Tooltip 全文）——长描述不再多行挤占头部 */}
+              <Tooltip title={active.description || undefined} placement="topLeft">
+                <p className="work-head-desc" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', margin: '5px 0 4px' }}>
+                  {active.description || '未填写描述'}
+                </p>
+              </Tooltip>
+              {/* 规模与引用元信息行（原标题行内标签迁此，标题行瘦身） */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: 'var(--c-ink-2)' }}>
+                <span>概念 {active.n_concepts ?? 0}</span>
+                <span>·</span>
+                <span>关系 {active.n_relations ?? 0}</span>
+                <span>·</span>
+                <span>实例 {active.n_instances ?? 0}</span>
+                <span>·</span>
+                <Tooltip title="被 N 套运行方案引用（只读；启停操作在「本体运行」栏）">
+                  <span style={{ cursor: 'default' }}>被 {refCount(active)} 套方案引用</span>
+                </Tooltip>
+              </div>
             </div>
-            <Space>
+            {/* REQ-264：能力雷达固定右位（原挤在标题行内把标题行撑到 92px+）+ 动作区；
+                空间不足时动作区整体换行到雷达下方右对齐，标题列始终保有 620px 基数不被挤压 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {qualityCache[active.id] && (
+                <Tooltip
+                  title={
+                    <span>
+                      能力雷达：{radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats).map(([k, v]) => `${k} ${Math.round(v)}`).join(' / ')}——详情见「质量卡」分区
+                    </span>
+                  }
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default' }} data-testid="asset-radar">
+                    <QualityRadar dims={radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats)} size={92} compact />
+                  </span>
+                </Tooltip>
+              )}
+              <Space>
               {/* REQ-239/M65：发布（命名快照终态）/ 撤回发布（回 draft） */}
               {active.status === 'published' ? (
                 <Popconfirm
@@ -491,7 +536,8 @@ export default function AssetsPage() {
                   删除
                 </Button>
               </Popconfirm>
-            </Space>
+              </Space>
+            </div>
           </div>
 
           {mergeOpen && active && (
