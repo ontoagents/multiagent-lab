@@ -775,7 +775,7 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
     <div className="proj-view-body">
       <Form form={form} layout="vertical" requiredMark={false} size="small">
         <Section first>基本信息</Section>
-        <Form.Item name="name" label="名称" rules={[{ required: true, message: '名称必填' }]}>
+        <Form.Item name="name" label="名称" className="item-inline" rules={[{ required: true, message: '名称必填' }]}>
           <Input />
         </Form.Item>
         <Form.Item name="description" label="描述">
@@ -792,7 +792,8 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         />
         <Form.Item
           label="本地目录"
-          extra="支持 Windows 盘符与 POSIX 路径。"
+          className="item-inline"
+          tooltip="支持 Windows 盘符与 POSIX 路径"
         >
           <Space.Compact style={{ width: '100%' }}>
             <Form.Item name="local_dir" noStyle>
@@ -888,10 +889,10 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
         项目会话由主智能体调度（M4 生效）：成员经 agent_as_tool（委派为工具）或 transfer（路由移交）并入运行；工作流模式控制成员执行拓扑。
       </div>
       <Form layout="vertical" requiredMark={false} size="small">
-        <Form.Item label="协作模式">
+        <Form.Item label="协作模式" className="item-inline">
           <Select value={collabMode} options={COLLAB_OPTIONS} onChange={setCollabMode} />
         </Form.Item>
-        <Form.Item label="工作流模式">
+        <Form.Item label="工作流模式" className="item-inline">
           <Select value={workflowMode} options={WORKFLOW_OPTIONS} onChange={setWorkflowMode} />
         </Form.Item>
       </Form>

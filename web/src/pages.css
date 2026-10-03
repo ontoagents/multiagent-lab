@@ -487,6 +487,12 @@
 .proj-bar-sep { flex: none; width: 22px; height: 1px; margin: 2px 0; background: var(--c-border, var(--c-line, #d9dcec)); }
 /* REQ-264 顺调：二级段位承载下隐藏 Tabs 页签行（单段内容直接呈现，双标题退役） */
 .proj-embedded-tabs > .ant-tabs-nav { display: none; }
+/* REQ-265：短值/可选配置行内化——label 与值同行（.item-inline 手工标记；
+   描述/提示词/约束等长文本字段不加此类，保持上下两行） */
+.ant-form-item.item-inline > .ant-form-item-row { flex-direction: row; flex-wrap: nowrap; align-items: center; column-gap: 10px; }
+.ant-form-item.item-inline > .ant-form-item-row > .ant-form-item-label { flex: none; padding: 0; }
+.ant-form-item.item-inline .ant-form-item-label > label { white-space: nowrap; }
+.ant-form-item.item-inline > .ant-form-item-row > .ant-form-item-control { flex: 1 1 auto; min-width: 0; }
 
 .proj-panel-view { flex: 1; min-width: 0; overflow: auto; padding: 12px 12px 20px; }
 

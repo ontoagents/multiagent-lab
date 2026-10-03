@@ -48,6 +48,8 @@
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
 
+- **REQ-265 侧板表单行内布局与图标去撞已交付（2026-10-03，开发者两点指令「①配置项与配置值分两行的把短值/可选的改为同一行，描述提示词才两行②执行图标与顶栏技能重合、能力图标与对话右上角侧栏开关重合需切换」；立项即交付 M75；headless 17/17 smoke/req265/）**：①**.item-inline 行内布局**——pages.css 把竖排表单行按字段覆写为水平行（flex-row+label flex:none padding:0+control flex:1 min-width:0），智能体侧板 20 字段（名称/模型五件/上下文预算/运行后端/沙箱两件/工作目录/验证命令/审批三件/技能/工具白名单/对外服务两件/伴生三件）+项目侧板 4 字段（名称/本地目录/协作模式/工作流模式）配置项与值同行；描述/系统提示词/项目约束等长文本字段保持两行；伴生三字段与本地目录长尾注 extra 转 tooltip（归一 REQ-264 悬停化口径）+温度/沙箱短注 tooltip 化；②**图标换型**=执行 Thunderbolt→ControlOutlined（撞顶栏「技能」）、能力 Appstore→ToolOutlined（撞对话右上角侧栏开关）；17 号 §4.3 v0.60 沉淀行内布局基线与「侧板入口图标不与顶栏/对话头部同形」约定。**构建注**：并行线 SpecEditorPane WIP 语法半成品阻塞主树 tsc/vite/dev 三路——以 git worktree（HEAD+本轮 3 文件）干净树构建 dist 回填部署目录，零触碰并行文件；01 v1.24/02 v0.179/17 v0.60/14 v0.70/18 v2.48/20 v2.04（2.31 行）synced。
+
 - **REQ-257 分渠道质量画像已交付（2026-10-03，排队领取〔60 号 H6〕；纯派生 v1 零迁移）**：evaldata 包 DeriveChannel 渠道派生（seed=种子目录/内置语义 ID｜fork=forked_from｜import=存在 original 形态 artifact〔接 REQ-235 导入管线〕｜custom=其余）+ontoeval 报告按渠道分组统计表（数量/均分/最低最高/结构通过率）+渠道派生单测 6 断言；真机跑分出表（seed 8 份均分 83.68 全结构通过）；诚实边界=AI 创建/OntoChat/KB 构建 v1 合并 custom 不细分（细分需生成时落 source_path 标记，观察项）；03 v0.94/02 v0.177/18 v2.46 synced。
 
 - **REQ-256 批量模板生成路径兑现已交付（2026-10-03，排队领取〔60 号 H4 路径⑥收口〕；headless 7/7 smoke/req256/）**：backend ontobuild 新增 InferStructuredDraftMode——**template 模板层级模式**：低基数枚举列（唯一值 2~50 且<行数）→概念层级链（列序=粗→细，共现推断父子），首列高基数时行→实例挂最细层概念（层级列不重复落 attributes），无合格枚举列自动回落实例骨架；**显式层级列参数 hierarchy_columns**（规则推断默认按列序全枚举列，并列维度列〔状态/日期〕可能误链→诚实注记+人工指定优先）；映射报告新角色 concept-level+层级序；前端 StructuredFlow 增「生成模式」Segmented+层级列多选（表头粗探候选）+层级 Tag；**顺修存量 bug**=KbBuildFlow MODE_TAG 缺 wiki 键（M67 第三类型未同步）致「由知识库构建」路径整页渲染崩（真机截图实证）；单测 2 组+真机 API 全链（5 概念父链正确）+headless 7/7；03 v0.93/02 v0.176/18 v2.45/20 v2.02 S4.48 synced。

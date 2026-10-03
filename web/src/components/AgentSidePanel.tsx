@@ -12,8 +12,8 @@ import {
   FolderOutlined,
   ReloadOutlined,
   SettingOutlined,
-  AppstoreOutlined,
-  ThunderboltOutlined,
+  ToolOutlined,
+  ControlOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
@@ -260,7 +260,8 @@ export default function AgentSidePanel({
             role="tab"
             onClick={() => switchView('exec')}
           >
-            <ThunderboltOutlined />
+            {/* REQ-265：ControlOutlined——原 Thunderbolt 与顶栏「技能」图标撞用 */}
+            <ControlOutlined />
           </button>
         </Tooltip>
         <span className="proj-bar-sep" />
@@ -273,7 +274,8 @@ export default function AgentSidePanel({
             role="tab"
             onClick={() => switchView('ability')}
           >
-            <AppstoreOutlined />
+            {/* REQ-265：ToolOutlined——原 Appstore 与对话右上角侧栏开关图标撞用 */}
+            <ToolOutlined />
           </button>
         </Tooltip>
         <Tooltip title="对外集成（连接器/对外服务）" placement="left">
@@ -569,8 +571,9 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
         <Form form={form} layout="vertical" requiredMark={false} size="small">
           <Form.Item
             name="companion_ontology_id"
-            label="伴生本体（绑定，REQ-216）"
-            extra="对话收尾抽取的知识写入该本体的伴生子图——多智能体绑同一本体即共享沉淀；绑定即确保运行平面宿主方案自动创建并运行。切换/清空绑定：清空=解绑（该智能体候选与游标清除，本体伴生子图数据保留）"
+            label="伴生本体"
+            className="item-inline"
+            tooltip="对话收尾抽取的知识写入该本体的伴生子图——多智能体绑同一本体即共享沉淀；绑定即自动创建并运行宿主方案；清空=解绑（候选与游标清除，伴生子图数据保留）"
           >
             <Select
               allowClear
@@ -599,15 +602,17 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           </Form.Item>
           <Form.Item
             name="companion_extract_conn_id"
-            label="抽取模型连接（可选，REQ-187）"
-            extra="留空 = 跟随「智能体配置」的模型连接（外部 CLI 后端 agent 无生效连接时须指定真实 chat 连接）"
+            label="抽取模型连接"
+            className="item-inline"
+            tooltip="留空=跟随智能体模型连接（外部 CLI 后端 agent 无生效连接时须指定真实 chat 连接）"
           >
             <Select allowClear showSearch optionFilterProp="label" placeholder="跟随智能体模型连接" options={conns.map((c) => ({ value: c.id, label: connLabel(c) }))} />
           </Form.Item>
           <Form.Item
             name="companion_auto_threshold"
-            label="自动入图置信阈值（REQ-187）"
-            extra="0 = 全部候选人工确认（默认，REQ-82 草稿必审）；>0 时置信 ≥ 阈值的候选自动确认入图（图内带 autoConfirmed 标记），其余仍待人工审"
+            label="自动入图置信阈值"
+            className="item-inline"
+            tooltip="0=全部候选人工确认（默认）；>0 时置信达标候选自动入图（带 autoConfirmed 标记），其余仍待人工审"
           >
             <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} placeholder="0（全人工确认）" />
           </Form.Item>
@@ -888,7 +893,7 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  <Form.Item name="name" label="名称" rules={isBuiltin ? [] : [{ required: true, message: '名称必填' }]} tooltip={isBuiltin ? '内置助手名称不可修改' : undefined}>
+                  <Form.Item name="name" label="名称" className="item-inline" rules={isBuiltin ? [] : [{ required: true, message: '名称必填' }]} tooltip={isBuiltin ? '内置助手名称不可修改' : undefined}>
                     <Input placeholder="智能体名称" disabled={isBuiltin} />
                   </Form.Item>
                   <Form.Item name="description" label="描述（多智能体协作时互相理解）" tooltip={isBuiltin ? '内置助手描述不可修改' : undefined}>
@@ -910,6 +915,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="model_conn_id"
                     label="模型连接"
+                    className="item-inline"
                     extra={
                       selectedConn ? (
                         <span className="model-meta" title={selectedConn.base_url}>
@@ -931,10 +937,10 @@ function AgentConfigForm({
                     <Select allowClear showSearch optionFilterProp="label" placeholder="跟随全局默认" options={conns.map((c) => ({ value: c.id, label: connLabel(c) }))} />
                   </Form.Item>
                   {sec('采样参数')}
-                  <Form.Item name="temperature" label="温度（0~2，留空默认）">
+                  <Form.Item name="temperature" label="温度" className="item-inline" tooltip="0~2，留空默认">
                     <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} placeholder="默认" />
                   </Form.Item>
-                  <Form.Item name="max_tokens" label="最大回复 tokens">
+                  <Form.Item name="max_tokens" label="最大回复 tokens" className="item-inline">
                     <InputNumber min={1} style={{ width: '100%' }} placeholder="默认" />
                   </Form.Item>
                   {/* REQ-219：context_mode 迁 Context 层页签（配置聚合呈现，层职责仍归 Context） */}
@@ -943,6 +949,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="inference_backend"
                     label="推理后端"
+                    className="item-inline"
                     tooltip={isBuiltin ? '内置助手固定 eino-adk 自研后端' : 'eino-adk 为平台自研（完整能力）；外部 CLI 后端模型由其自身配置决定（Agent 模型连接不生效），技能/MCP 降级为提示注入，不支持多 Agent 编排'}
                   >
                     <Select
@@ -956,6 +963,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="logo_url"
                     label="自定义后端 Logo URL"
+                    className="item-inline"
                     tooltip={isBuiltin ? '内置助手不可自定义' : '推理后端为自定义/外部部署时，会话列表与对话界面展示此图标；未配置回退默认图标'}
                   >
                     <Input placeholder="https://…/logo.png" allowClear disabled={isBuiltin} />
@@ -975,6 +983,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="context_mode"
                     label="上下文预算"
+                    className="item-inline"
                     tooltip={isBuiltin ? '内置助手固定标准档' : 'REQ-201：历史 token 预算档位——超限时先压缩（LLM 摘要持久化）再裁剪，压缩/裁剪均以运行警告诚实标注。「完整」不限量（存量行为）；「紧凑」约 6k tokens 适合长对话省成本；默认标准约 24k。'}
                   >
                     <Select
@@ -1002,7 +1011,7 @@ function AgentConfigForm({
                 <>
                   {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
                   {sec('运行后端（在哪儿跑）')}
-                  <Form.Item name="runtime_backend" label="运行后端" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
+                  <Form.Item name="runtime_backend" label="运行后端" className="item-inline" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
                     <Select
                       disabled={isBuiltin}
                       options={[
@@ -1015,14 +1024,14 @@ function AgentConfigForm({
                   </Form.Item>
                   {(runtimeBackend === 'docker' || runtimeBackend === 'k8s' || runtimeBackend === 'auto') && (
                     <>
-                      <Form.Item name="sandbox_memory" label="沙箱内存上限" extra="M10/10b：留空 = 默认 512m">
+                      <Form.Item name="sandbox_memory" label="沙箱内存上限" className="item-inline" tooltip="留空默认 512m">
                         <Select
                           allowClear
                           placeholder="512m（默认）"
                           options={[{ value: '256m', label: '256m' }, { value: '512m', label: '512m' }, { value: '1g', label: '1g' }, { value: '2g', label: '2g' }]}
                         />
                       </Form.Item>
-                      <Form.Item name="sandbox_cpus" label="沙箱 CPU 核数" extra="留空 = 默认 1 CPU">
+                      <Form.Item name="sandbox_cpus" label="沙箱 CPU 核数" className="item-inline" tooltip="留空默认 1 CPU">
                         <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} placeholder="1（默认）" />
                       </Form.Item>
                       <SandboxPanel agent={agent} form={form} />
@@ -1032,13 +1041,15 @@ function AgentConfigForm({
                   <Form.Item
                     name="work_dir"
                     label="工作目录"
+                    className="item-inline"
                     tooltip={isBuiltin ? '内置助手不开放文件原语安全根配置' : '文件原语工具（grep/glob/read_file/write_file）的安全根：绝对路径，越界由 SafeJoin 强制拒绝；空=仅项目会话具备文件能力。'}
                   >
                     <Input allowClear disabled={isBuiltin} placeholder="如 /home/user/project（绝对路径，空=不装配文件原语）" />
                   </Form.Item>
                   <Form.Item
                     name="verify_command"
-                    label="验证命令（verify_on_stop）"
+                    label="验证命令"
+                    className="item-inline"
                     tooltip={isBuiltin ? '内置助手不开放 verify_on_stop 配置' : '运行标记完成前在安全根执行（sh -c，10s 超时）：退出码非 0 即背压——本次运行标记为 verify_failed 并在过程时间线透出输出。示例：go build ./...。'}
                   >
                     <Input allowClear disabled={isBuiltin} placeholder="如 go build ./...（空=不验证）" />
@@ -1047,6 +1058,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="tool_approval"
                     label="审批策略"
+                    className="item-inline"
                     initialValue=""
                     tooltip={isBuiltin ? '内置助手不开放审批策略配置' : 'danger=仅危险工具（写类内置/http_fetch/连接器写；read-only 免审）；all=全部工具。开启后对外 MCP server 模式调用默认拒绝；对话级开关可覆盖'}
                   >
@@ -1061,7 +1073,8 @@ function AgentConfigForm({
                   </Form.Item>
                   <Form.Item
                     name="approval_exempt"
-                    label="审批豁免清单（可选）"
+                    label="审批豁免清单"
+                    className="item-inline"
                     tooltip="danger/all 档下勾选的工具直接放行不挂起"
                   >
                     <Select
@@ -1074,7 +1087,8 @@ function AgentConfigForm({
                   </Form.Item>
                   <Form.Item
                     name="approval_timeout_hours"
-                    label="审批挂起超时（小时，可选）"
+                    label="审批挂起超时（小时）"
+                    className="item-inline"
                     tooltip="0=不限（默认）；挂起超过该时长自动拒绝并告知模型超时语义"
                   >
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
@@ -1099,7 +1113,7 @@ function AgentConfigForm({
               children: (
                 <>
                   {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
-                  <Form.Item name="max_iteration" label="最大迭代次数（ReAct 上限）" initialValue={25}>
+                  <Form.Item name="max_iteration" label="最大迭代次数" className="item-inline" tooltip="ReAct 循环单次运行的最大步数上限" initialValue={25}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} />
                   </Form.Item>
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
@@ -1119,6 +1133,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="skills"
                     label="技能"
+                    className="item-inline"
                     tooltip="技能 = 指令 + 工具集 + 资源的打包能力单元；勾选后按对话级开关挂载注入，外部 CLI 后端降级为提示注入"
                   >
                     <Select
@@ -1143,6 +1158,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="tools"
                     label="工具白名单"
+                    className="item-inline"
                     tooltip={toolsErr ? '工具注册表暂不可用，可稍后重试' : isBuiltin ? '内置基座工具（L0/L1）不可摘除（禁用项）；可另行勾选通用工具' : '来自工具注册表（内置 / 本体 / MCP 动态工具）；「propose_assistant_config」为平台助手专属'}
                   >
                     <Select
@@ -1403,12 +1419,13 @@ function McpServeTab({ agent }: { agent: Agent }) {
 
   return (
     <>
-      <Form.Item name="mcp_serve_enabled" label="开启对外服务" valuePropName="checked" tooltip="开启后本智能体作为 MCP 工具经平台 /mcp 端点暴露；服务默认仅回环监听，跨机访问需经反代按需暴露">
+      <Form.Item name="mcp_serve_enabled" label="开启对外服务" className="item-inline" valuePropName="checked" tooltip="开启后本智能体作为 MCP 工具经平台 /mcp 端点暴露；服务默认仅回环监听，跨机访问需经反代按需暴露">
         <Switch />
       </Form.Item>
       <Form.Item
         name="mcp_serve_tool_name"
-        label="工具名（可选覆盖）"
+        label="工具名"
+        className="item-inline"
         tooltip={`缺省为 agent_${agent.id}；须全局唯一，冲突时后注册者跳过`}
       >
         <Input placeholder={`agent_${agent.id}`} allowClear disabled={!enabled} />
