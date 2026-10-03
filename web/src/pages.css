@@ -485,6 +485,8 @@
 .proj-bar-spacer { flex: 1; }
 /* REQ-264：activity bar 簇间分隔线（身份与模型｜执行｜能力与集成｜资产） */
 .proj-bar-sep { flex: none; width: 22px; height: 1px; margin: 2px 0; background: var(--c-border, var(--c-line, #d9dcec)); }
+/* REQ-264 顺调：二级段位承载下隐藏 Tabs 页签行（单段内容直接呈现，双标题退役） */
+.proj-embedded-tabs > .ant-tabs-nav { display: none; }
 
 .proj-panel-view { flex: 1; min-width: 0; overflow: auto; padding: 12px 12px 20px; }
 

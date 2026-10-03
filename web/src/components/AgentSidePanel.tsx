@@ -14,6 +14,7 @@ import {
   SettingOutlined,
   AppstoreOutlined,
   ThunderboltOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
@@ -81,15 +82,15 @@ const LEGACY_VIEW_OF: Record<string, { view: PanelView; seg?: string }> = {
 
 /** REQ-264：执行入口内层三段（五层视角保留为内层并列；默认 Harness=字段最重的一层） */
 const EXEC_SEGMENTS = [
-  { key: 'context', tab: 'context', label: 'Context', title: 'Context 上下文层', desc: '历史预算、压缩与工具结果剪枝——决定模型每轮「真正看到什么」（REQ-201/M37）' },
-  { key: 'harness', tab: 'harness', label: 'Harness', title: 'Harness 执行面', desc: '运行后端、文件安全根、验证背压与工具审批——模型之外「怎么把事做安全、做扎实」（REQ-202/231）' },
-  { key: 'loop', tab: 'loop', label: 'Loop', title: 'Loop 循环层', desc: 'ReAct 迭代上限、挂起恢复与长任务推进——防死循环与跨会话续跑（REQ-204/M39）' },
+  { key: 'context', tab: 'context', label: 'Context', desc: '上下文层——历史预算、压缩与工具结果剪枝，决定模型每轮「真正看到什么」' },
+  { key: 'harness', tab: 'harness', label: 'Harness', desc: '执行面——运行后端、文件安全根、验证背压与工具审批' },
+  { key: 'loop', tab: 'loop', label: 'Loop', desc: '循环层——ReAct 迭代上限、挂起恢复与长任务推进' },
 ]
 
 /** REQ-264：对外集成入口内层两段（client/server 双向闭环，REQ-131/214） */
 const INTEGRATION_SEGMENTS = [
-  { key: 'connectors', tab: 'connectors', label: '连接器', title: '连接器（client 侧）', desc: '本智能体作为客户端调用外部能力（REQ-214）；对外服务=反方向 server 侧（REQ-131）' },
-  { key: 'serve', tab: 'serve', label: '对外服务', title: '对外服务（server 侧）', desc: '本智能体作为 MCP 工具暴露给外部客户端——与连接器构成双向闭环（REQ-131）' },
+  { key: 'connectors', tab: 'connectors', label: '连接器', desc: '作为客户端调用外部能力（REQ-214）；与对外服务构成双向闭环' },
+  { key: 'serve', tab: 'serve', label: '对外服务', desc: '作为 MCP 工具暴露给外部客户端（REQ-131，server 侧）' },
 ]
 
 /** REQ-214/M46：连接器类型徽标（产品层只呈现「连接器」，MCP 为交付驱动之一） */
@@ -371,12 +372,13 @@ export default function AgentSidePanel({
 }
 
 // ---------------------------------------------------------------------------
-// REQ-264 二级配置承载（62 号分析拍板 B/B′）：视图头（当前段位标题+一句话说明）+
-// Segmented 内层切换 + AgentConfigForm 单实例 embedded 渲染（跨段位保活表单状态与
-// 已拉取数据；visibleTabs 机制复用，零后端变更）。沿 AgentCompanionView 两页范式。
+// REQ-264 二级配置承载（62 号分析拍板 B/B′）：Segmented 切换标签置顶 + 表单内容；
+// 一句话说明降为内容区顶部小字（开发者指令「最上面是切换标签，下面是标签内内容」——
+// 原「标题行+页签行」双标题形态退役）。AgentConfigForm embedded 单实例跨段保活
+// （visibleTabs 机制复用，零后端变更）。
 // ---------------------------------------------------------------------------
 
-type FormSegment = { key: string; tab: string; label: string; title: string; desc: string }
+type FormSegment = { key: string; tab: string; label: string; desc: string }
 
 function SegmentedFormView({
   agent,
@@ -394,22 +396,17 @@ function SegmentedFormView({
   const cur = segments.find((s) => s.key === value) ?? segments[0]
   return (
     <div className="proj-view-body">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <Typography.Text strong style={{ fontSize: 13 }}>{cur.title}</Typography.Text>
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 11 }}>{cur.desc}</Typography.Text>
-          </div>
-        </div>
-        {segments.length > 1 && (
-          <Segmented
-            size="small"
-            value={cur.key}
-            onChange={(v) => onChange(v as string)}
-            options={segments.map((s) => ({ value: s.key, label: s.label }))}
-          />
-        )}
-      </div>
+      {segments.length > 1 && (
+        <Segmented
+          block
+          size="small"
+          style={{ marginBottom: 8 }}
+          value={cur.key}
+          onChange={(v) => onChange(v as string)}
+          options={segments.map((s) => ({ value: s.key, label: s.label }))}
+        />
+      )}
+      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>{cur.desc}</Typography.Text>
       <AgentConfigForm agent={agent} onChanged={onChanged} visibleTabs={[cur.tab]} embedded />
     </div>
   )
@@ -668,36 +665,39 @@ const fmtAgentSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFi
  * REQ-219 顺修：普通 agent PUT 为 full-replace（store.UpdateAgent 全字段写入，空值也落库），
  * 载荷必须全字段构造——表单值 + 非本表单字段按 agent 现值透传防清零（REQ-189/213 模式）。
  * 保存与 SandboxPanel 启动共用（此前启动沙箱仅 PUT 两字段，会把其余配置清零）。
+ * REQ-264 顺修：validateFields() 仅返回当前已注册字段的值（二级段位/提级单页签下其余字段
+ * 未挂载），此前 `v.x ?? 默认值` 会把未挂载字段落默认值（如从执行视图保存清空描述/指令/
+ * 工具白名单）——全字段改为 agent 现值兜底；model_conn_id/temperature/max_tokens 等以
+ * null 为合法值的字段用 `!== undefined` 判定（保住「用户清空选择」语义，只在未挂载时取现值）。
  */
 function agentFullPayload(agent: Agent, v: Record<string, any>) {
   return {
     name: v.name ?? agent.name,
-    description: v.description ?? '',
-    instruction: v.instruction ?? '',
-    model_conn_id: v.model_conn_id || null,
-    temperature: v.temperature ?? null,
-    max_tokens: v.max_tokens ?? null,
-    max_iteration: v.max_iteration ?? 25,
-    runtime_backend: v.runtime_backend ?? 'inprocess',
-    sandbox_memory: v.sandbox_memory ?? '',
-    sandbox_cpus: v.sandbox_cpus ?? 0,
-    inference_backend: v.inference_backend ?? 'eino-adk',
-    context_mode: v.context_mode ?? '', // REQ-201/M37：上下文预算档位（Context 层）
-    work_dir: (v.work_dir ?? '').trim(), // REQ-202/M38：文件原语安全根（Harness 层）
-    verify_command: (v.verify_command ?? '').trim(), // REQ-202/M38：verify_on_stop 背压（Harness 层）
-    tool_approval: v.tool_approval ?? '', // REQ-219 顺修：表单项此前存在但未入载荷（审批开关保存不生效）
-    approval_exempt: v.approval_exempt ?? [], // REQ-231②：审批豁免清单
-    approval_timeout_hours: v.approval_timeout_hours ?? 0, // REQ-231③：挂起超时
-    logo_url: (v.logo_url ?? '').trim(), // REQ-137
-    tools: v.tools ?? [],
-    // 后端 PUT 为 full-replace：保留当前挂载，避免未编辑字段被清空
-    skills: agent.skills ?? [],
-    connectors: (v.connectors ?? []) as string[], // REQ-214/M46：连接器授权白名单
+    description: v.description ?? agent.description ?? '',
+    instruction: v.instruction ?? agent.instruction ?? '',
+    model_conn_id: v.model_conn_id !== undefined ? v.model_conn_id : (agent.model_conn_id || null),
+    temperature: v.temperature !== undefined ? v.temperature : (agent.temperature ?? null),
+    max_tokens: v.max_tokens !== undefined ? v.max_tokens : (agent.max_tokens ?? null),
+    max_iteration: v.max_iteration ?? agent.max_iteration ?? 25,
+    runtime_backend: v.runtime_backend ?? agent.runtime_backend ?? 'inprocess',
+    sandbox_memory: v.sandbox_memory ?? agent.sandbox_memory ?? '',
+    sandbox_cpus: v.sandbox_cpus ?? agent.sandbox_cpus ?? 0,
+    inference_backend: v.inference_backend ?? agent.inference_backend ?? 'eino-adk',
+    context_mode: v.context_mode ?? agent.context_mode ?? '', // REQ-201/M37：上下文预算档位（Context 层）
+    work_dir: (v.work_dir ?? agent.work_dir ?? '').trim(), // REQ-202/M38：文件原语安全根（Harness 层）
+    verify_command: (v.verify_command ?? agent.verify_command ?? '').trim(), // REQ-202/M38：verify_on_stop 背压（Harness 层）
+    tool_approval: v.tool_approval ?? agent.tool_approval ?? '', // REQ-219 顺修：审批开关（'' = 关闭为合法值）
+    approval_exempt: v.approval_exempt ?? agent.approval_exempt ?? [], // REQ-231②：审批豁免清单
+    approval_timeout_hours: v.approval_timeout_hours ?? agent.approval_timeout_hours ?? 0, // REQ-231③：挂起超时
+    logo_url: (v.logo_url ?? agent.logo_url ?? '').trim(), // REQ-137
+    tools: v.tools ?? agent.tools ?? [],
+    skills: v.skills ?? agent.skills ?? [],
+    connectors: (v.connectors ?? agent.connectors ?? []) as string[], // REQ-214/M46：连接器授权白名单
     mcp_servers: agent.mcp_servers ?? [], // REQ-214：兼容残留透传（迁移后恒空）
     // REQ-131/M18：对外服务（token 原样保留——重置走专用端点）
     mcp_serve: {
-      enabled: !!v.mcp_serve_enabled,
-      tool_name: (v.mcp_serve_tool_name ?? '').trim(),
+      enabled: v.mcp_serve_enabled !== undefined ? !!v.mcp_serve_enabled : !!agent.mcp_serve?.enabled,
+      tool_name: (v.mcp_serve_tool_name !== undefined ? v.mcp_serve_tool_name : agent.mcp_serve?.tool_name ?? '').trim(),
       token: agent.mcp_serve?.token ?? '',
     },
     // REQ-170/187 + REQ-193：伴生字段自「伴生本体」视图维护——按 agent 现值透传
@@ -878,6 +878,9 @@ function AgentConfigForm({
         <Tabs
           defaultActiveKey={visibleTabs?.[0] ?? 'basic'}
           size="small"
+          // REQ-264 顺调：embedded（执行/对外集成二级段位承载）下隐藏页签行——单段无需页签标题，
+          // items forceRender 保留（全字段值进 form store，保存载荷不受限）
+          className={embedded ? 'proj-embedded-tabs' : undefined}
           items={[
             {
               key: 'basic',
@@ -885,10 +888,10 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  <Form.Item name="name" label="名称" rules={isBuiltin ? [] : [{ required: true, message: '名称必填' }]} extra={isBuiltin ? '内置助手名称不可修改' : undefined}>
+                  <Form.Item name="name" label="名称" rules={isBuiltin ? [] : [{ required: true, message: '名称必填' }]} tooltip={isBuiltin ? '内置助手名称不可修改' : undefined}>
                     <Input placeholder="智能体名称" disabled={isBuiltin} />
                   </Form.Item>
-                  <Form.Item name="description" label="描述（用于多智能体协作时互相理解）" extra={isBuiltin ? '内置助手描述不可修改' : undefined}>
+                  <Form.Item name="description" label="描述（多智能体协作时互相理解）" tooltip={isBuiltin ? '内置助手描述不可修改' : undefined}>
                     <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} disabled={isBuiltin} />
                   </Form.Item>
                   <Form.Item name="instruction" label={<Space size={6}>系统提示词（Instruction）<AIOptimizeButton kind="agent_instruction" value={instructionValue} onApply={(v) => form.setFieldValue('instruction', v)} /></Space>}>
@@ -940,7 +943,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="inference_backend"
                     label="推理后端"
-                    extra={isBuiltin ? '内置助手固定 eino-adk 自研后端' : '「谁来推理」由此决定，「在哪儿跑」由 Harness 运行后端决定：eino-adk 为平台自研（完整能力）；外部 CLI 后端模型由其自身配置决定（Agent 模型连接不生效），技能/MCP 降级为提示注入，不支持多 Agent 编排'}
+                    tooltip={isBuiltin ? '内置助手固定 eino-adk 自研后端' : 'eino-adk 为平台自研（完整能力）；外部 CLI 后端模型由其自身配置决定（Agent 模型连接不生效），技能/MCP 降级为提示注入，不支持多 Agent 编排'}
                   >
                     <Select
                       disabled={isBuiltin}
@@ -952,8 +955,8 @@ function AgentConfigForm({
                   </Form.Item>
                   <Form.Item
                     name="logo_url"
-                    label="自定义后端 Logo URL（REQ-137）"
-                    extra={isBuiltin ? '内置助手不可自定义' : '推理后端为自定义/外部部署（非内置）时，会话列表与对话界面将展示此图标；未配置回退默认图标'}
+                    label="自定义后端 Logo URL"
+                    tooltip={isBuiltin ? '内置助手不可自定义' : '推理后端为自定义/外部部署时，会话列表与对话界面展示此图标；未配置回退默认图标'}
                   >
                     <Input placeholder="https://…/logo.png" allowClear disabled={isBuiltin} />
                   </Form.Item>
@@ -985,11 +988,8 @@ function AgentConfigForm({
                       ]}
                     />
                   </Form.Item>
-                  {sec('进程内固定（观察项，暂不可配）')}
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                    · 压缩策略：超预算先八段式 LLM 摘要（复用本智能体模型连接）持久化，再尾半预算裁剪；
-                    <br />· 召回链：知识库与伴生图召回按序注入（embedding 未配置自动词法兜底）；
-                    <br />· 工具结果剪枝：超 4k 字符保留首尾并标注截断。
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                    压缩/召回/剪枝策略进程内固定（观察项）：超预算先 LLM 摘要再尾半裁剪；知识库与伴生召回按序注入；工具结果超 4k 截断。
                   </Typography.Text>
                 </>
               ),
@@ -1002,7 +1002,7 @@ function AgentConfigForm({
                 <>
                   {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
                   {sec('运行后端（在哪儿跑）')}
-                  <Form.Item name="runtime_backend" label="运行后端" initialValue="inprocess" extra={isBuiltin ? '内置助手固定进程内执行' : 'M10：inprocess=平台进程内装配；docker=per-Agent agentd 容器沙箱；k8s=Pod 沙箱；auto=自动检测（REQ-190：k8s pod 优先→docker 次之→均不可用进程内兜底；平台需配置 SANDBOX_IMAGE）'}>
+                  <Form.Item name="runtime_backend" label="运行后端" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
                     <Select
                       disabled={isBuiltin}
                       options={[
@@ -1048,7 +1048,7 @@ function AgentConfigForm({
                     name="tool_approval"
                     label="审批策略"
                     initialValue=""
-                    extra={isBuiltin ? '内置助手不开放审批策略配置' : 'danger=仅危险工具（写类内置 write_file/save_file/todo_write、http_fetch、连接器/MCP 写操作；read-only 免审）；all=全部工具。开启审批后对外 MCP 服务（server 模式）调用默认拒绝。对话级开关可覆盖本策略（生效策略随 run 事件透出）'}
+                    tooltip={isBuiltin ? '内置助手不开放审批策略配置' : 'danger=仅危险工具（写类内置/http_fetch/连接器写；read-only 免审）；all=全部工具。开启后对外 MCP server 模式调用默认拒绝；对话级开关可覆盖'}
                   >
                     <Select
                       disabled={isBuiltin}
@@ -1061,8 +1061,8 @@ function AgentConfigForm({
                   </Form.Item>
                   <Form.Item
                     name="approval_exempt"
-                    label="审批豁免清单（可选，REQ-231②）"
-                    extra="danger/all 档下勾选的工具直接放行不挂起（个工具覆盖档位；恢复重入的旧挂起不受影响）"
+                    label="审批豁免清单（可选）"
+                    tooltip="danger/all 档下勾选的工具直接放行不挂起"
                   >
                     <Select
                       mode="multiple"
@@ -1074,18 +1074,20 @@ function AgentConfigForm({
                   </Form.Item>
                   <Form.Item
                     name="approval_timeout_hours"
-                    label="审批挂起超时（小时，可选，REQ-231③）"
-                    extra="0=不限（默认）；恢复运行时挂起超过该时长将自动拒绝并告知模型超时语义（治长期挂起遗忘）"
+                    label="审批挂起超时（小时，可选）"
+                    tooltip="0=不限（默认）；挂起超过该时长自动拒绝并告知模型超时语义"
                   >
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
                   </Form.Item>
                   <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} />
-                  {sec('防护 hooks（进程内确定性层，只读——清单来自后端 /api/hooks）')}
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                  {sec('防护 hooks（只读，进程内确定性层）')}
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     {hooksInfo.length > 0
-                      ? hooksInfo.map((h) => `· ${h.name}（${h.active ? '启用' : '预置未启用'}）：${h.description}`).join(' ｜ ')
-                      : 'hook 清单加载中…（/api/hooks）'}
-                    <br />· hook 纪律：只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策。
+                      ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '预置未启用'}）`).join(' · ')
+                      : 'hook 清单加载中…'}
+                    <Tooltip title="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策">
+                      <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--c-ink-3)' }} />
+                    </Tooltip>
                   </Typography.Text>
                 </>
               ),
@@ -1100,11 +1102,8 @@ function AgentConfigForm({
                   <Form.Item name="max_iteration" label="最大迭代次数（ReAct 上限）" initialValue={25}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} />
                   </Form.Item>
-                  {sec('挂起恢复与长任务（会话级，对话窗口配置）')}
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                    · 挂起恢复：审批/追问挂起经 checkpoint 持久化，后端重启后仍可恢复（REQ-204 C1）；
-                    <br />· 对话级定时续跑：对话内配置、cap 硬上限（进程内形态，重启失效）；
-                    <br />· 进度产物：todo_write 落库 + todo.md 导出；usage tokens 随运行事件落库。
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                    挂起恢复与定时续跑为会话级（对话窗口配置，checkpoint 持久化重启可恢复）；进度产物 todo.md，usage 随运行事件落库。
                   </Typography.Text>
                 </>
               ),
@@ -1120,7 +1119,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="skills"
                     label="技能"
-                    extra="技能 = 指令 + 工具集 + 资源的打包能力单元（M9，REQ-120/121）；勾选后按对话级开关挂载注入，外部 CLI 后端降级为提示注入。"
+                    tooltip="技能 = 指令 + 工具集 + 资源的打包能力单元；勾选后按对话级开关挂载注入，外部 CLI 后端降级为提示注入"
                   >
                     <Select
                       mode="multiple"
@@ -1144,7 +1143,7 @@ function AgentConfigForm({
                   <Form.Item
                     name="tools"
                     label="工具白名单"
-                    extra={toolsErr ? '工具注册表暂不可用，可稍后重试。' : isBuiltin ? '内置基座工具（L0/L1）不可摘除（禁用项）；可另行勾选通用工具，保存后生效。' : '来自工具注册表（内置 / 本体 / MCP 动态工具），勾选后随运行装配；「propose_assistant_config」为平台助手专属，不可勾选。'}
+                    tooltip={toolsErr ? '工具注册表暂不可用，可稍后重试' : isBuiltin ? '内置基座工具（L0/L1）不可摘除（禁用项）；可另行勾选通用工具' : '来自工具注册表（内置 / 本体 / MCP 动态工具）；「propose_assistant_config」为平台助手专属'}
                   >
                     <Select
                       mode="multiple"
@@ -1185,13 +1184,10 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  {sec('外部连接器（REQ-214）')}
-                  <div style={{ marginBottom: 8 }}>
-                    <ApiOutlined style={{ marginRight: 6 }} />
-                    <span className="model-meta">
-                      连接外部能力的统一入口（自定义 MCP / Kubernetes / SSH）。工具以 <code>{'{连接器名}__{tool}'}</code> 前缀并入白名单候选，凭据服务端绑定不进模型上下文；勾选 = 授权本智能体使用（连接白名单），连接失败降级不阻断运行。
-                    </span>
-                  </div>
+                  {sec('外部连接器（勾选 = 授权本智能体使用）')}
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                    自定义 MCP / Kubernetes / SSH；凭据服务端绑定不进模型上下文，连接失败降级不阻断运行。
+                  </Typography.Text>
                   {unreachableAuthorized.length > 0 && (
                     <Alert
                       style={{ marginBottom: 8 }}
@@ -1407,13 +1403,13 @@ function McpServeTab({ agent }: { agent: Agent }) {
 
   return (
     <>
-      <Form.Item name="mcp_serve_enabled" label="开启对外服务" valuePropName="checked" extra="开启后，本智能体作为 MCP 工具经平台 /mcp 端点（Streamable HTTP）暴露给外部 MCP 客户端；服务默认仅回环监听，跨机访问需经反代按需暴露">
+      <Form.Item name="mcp_serve_enabled" label="开启对外服务" valuePropName="checked" tooltip="开启后本智能体作为 MCP 工具经平台 /mcp 端点暴露；服务默认仅回环监听，跨机访问需经反代按需暴露">
         <Switch />
       </Form.Item>
       <Form.Item
         name="mcp_serve_tool_name"
         label="工具名（可选覆盖）"
-        extra={<>缺省为 <Typography.Text code>agent_{agent.id}</Typography.Text>；须全局唯一，冲突时后注册者跳过</>}
+        tooltip={`缺省为 agent_${agent.id}；须全局唯一，冲突时后注册者跳过`}
       >
         <Input placeholder={`agent_${agent.id}`} allowClear disabled={!enabled} />
       </Form.Item>
@@ -1469,9 +1465,9 @@ function McpServeTab({ agent }: { agent: Agent }) {
         />
       )}
       {!enabled && (
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          与 §6.11（Agent 作为 MCP client 调用外部服务）构成双向闭环——本页是 server 侧。开启并保存后可见接入信息。
-        </Typography.Paragraph>
+        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+          开启并保存后可见接入信息（端点 / Token / 调用示例）。
+        </Typography.Text>
       )}
     </>
   )
