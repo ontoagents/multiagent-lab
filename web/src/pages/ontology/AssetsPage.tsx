@@ -657,7 +657,7 @@ export default function AssetsPage() {
     return (
       <div className="main" style={{ display: 'flex', minHeight: 0, flex: 1 }}>
         {listAside(true)}
-        <div className="content-panel" style={{ flex: 1, minWidth: 0 }}>{renderBody()}</div>
+        <div className="content-panel asset-detail-scroll" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>{renderBody()}</div>
       </div>
     )
   }
@@ -667,7 +667,7 @@ export default function AssetsPage() {
       <Splitter.Panel defaultSize={Number(localStorage.getItem('eino.assets.width')) || 200} min={180} max={420} className="sidebar-panel">
         {listAside(false)}
       </Splitter.Panel>
-      <Splitter.Panel className="content-panel">{renderBody()}</Splitter.Panel>
+      <Splitter.Panel className="content-panel asset-detail-scroll" style={{ overflowY: 'auto' }}>{renderBody()}</Splitter.Panel>
     </Splitter>
   )
 }

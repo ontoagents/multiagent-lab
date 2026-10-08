@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import GraphPaneShell from './GraphPaneShell'
 import { Alert, Button, Empty, Form, Space, Splitter, Switch, Tag } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import {
@@ -268,8 +269,9 @@ export default function GraphEditor({
           }
         />
       )}
+      <GraphPaneShell>
       <Splitter className="onto-flow-split" orientation="horizontal">
-        <Splitter.Panel defaultSize="68%" min="40%">
+        <Splitter.Panel defaultSize="70%" min="40%">
           <div className="onto-flow-pane" role="application" aria-label="本体图谱画布（拖拽节点排版，点击节点/连线编辑属性）">
             <ReactFlow
               key={d.concepts.map((c) => c.name).join('|')}
@@ -299,7 +301,7 @@ export default function GraphEditor({
             <Button size="small" icon={<MenuUnfoldOutlined />} aria-label="展开编辑面板" onClick={() => setPanelCollapsed(false)} />
           </div>
         ) : (
-        <Splitter.Panel min="24%">
+        <Splitter.Panel defaultSize="24%" min="18%">
           <div className="onto-flow-info">
             <div className="onto-flow-info-title">编辑面板</div>
             {!selection && (
@@ -335,6 +337,7 @@ export default function GraphEditor({
         </Splitter.Panel>
         )}
       </Splitter>
+      </GraphPaneShell>
 
       <AddConceptModal
         open={addOpen}

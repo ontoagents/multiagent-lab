@@ -1,3 +1,4 @@
+import GraphPaneShell from './GraphPaneShell'
 import { useEffect, useMemo, useState } from 'react'
 import { Checkbox, Empty, Splitter, Space, Tag, Typography } from 'antd'
 import { Background, BackgroundVariant, Controls, Handle, MarkerType, MiniMap, Position, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow } from '@xyflow/react'
@@ -332,8 +333,9 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
   }
 
   return (
-    <Splitter className="onto-flow-split" orientation="horizontal">
-      <Splitter.Panel defaultSize="68%" min="40%">
+    <GraphPaneShell>
+      <Splitter className="onto-flow-split" orientation="horizontal">
+        <Splitter.Panel defaultSize="70%" min="40%">
         <div className="onto-flow-pane">
           {/* REQ-240①：筛选条（边类型/实例维度，与三维图例面板正交同语义） */}
           <div className="onto-viz-filter" data-testid="spec-viz-filter">
@@ -376,7 +378,7 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
           </ReactFlow>
         </div>
       </Splitter.Panel>
-      <Splitter.Panel min="22%">
+      <Splitter.Panel defaultSize="22%" min="18%">
         <div className="onto-flow-info">
           <div className="onto-flow-info-title">图例</div>
           <div className="onto-flow-legend">
@@ -458,6 +460,7 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
         </div>
       </Splitter.Panel>
     </Splitter>
+    </GraphPaneShell>
   )
 }
 

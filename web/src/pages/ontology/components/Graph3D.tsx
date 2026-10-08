@@ -29,7 +29,7 @@ const PALETTE = ['#4f46e5', '#0891b2', '#ca8a04', '#dc2626', '#16a34a', '#9333ea
 const LINK_DECOR_THRESHOLD = 800
 /** REQ-185③：图例面板宽度三常量与 localStorage 键 */
 const LEGEND_WIDTH_KEY = 'eino.viz.legend.width'
-const LEGEND_WIDTH_DEFAULT = 280
+const LEGEND_WIDTH_DEFAULT = 240 // REQ-276：默认宽度收窄（240~420 拖拽/双击复位口径不变）
 /** R3：高度数节点标签阈值（度数 ≥ 此值常显标签，随缩放 LOD） */
 const LABEL_DEGREE_THRESHOLD = 12
 /** VIZ-5（REQ-175）：渐进装载阈值（全量节点数超此值触发 TBox+采样模式）与每概念采样上限 */
@@ -208,7 +208,7 @@ export default function Graph3D({
   // REQ-185③：图例面板宽度（240~420 拖拽，localStorage 记忆，双击复位 280）与折叠
   const [legendWidth, setLegendWidth] = useState(() => {
     const saved = Number(localStorage.getItem(LEGEND_WIDTH_KEY))
-    return saved >= 240 && saved <= 420 ? saved : 280
+    return saved >= 240 && saved <= 420 ? saved : LEGEND_WIDTH_DEFAULT
   })
   const [legendOpen, setLegendOpen] = useState(true)
   // R3：两节点路径高亮（Shift+点击顺序选两点 → 可见图 BFS 最短路；空数组=未启用）
