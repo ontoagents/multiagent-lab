@@ -18,6 +18,7 @@ import { RenameModal, VizTabs } from './components/assets/AssetExtras'
 import OntologyCompanionPane from './components/companion/OntologyCompanionPane'
 import EvolutionPane from './components/assets/EvolutionPane'
 import RelationTypesPane from './components/assets/RelationTypesPane'
+import AxiomsPane from './components/assets/AxiomsPane'
 import DataPropertiesPane from './components/assets/DataPropertiesPane'
 import AssetList from './components/assets/AssetList'
 import QualityCardPane from './components/assets/QualityCardPane'
@@ -50,6 +51,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
         { key: 'graph-edit', label: '图形编辑' },
         { key: 'reltypes', label: '关系类型' },
         { key: 'dataprops', label: '数据属性' },
+        { key: 'axioms', label: '公理' },
         { key: 'ingest', label: 'CSV 灌装' },
       ],
     },
@@ -630,6 +632,7 @@ export default function AssetsPage() {
                 )}
                 {secKey === 'reltypes' && <RelationTypesPane spec={spec} />}
                 {secKey === 'dataprops' && <DataPropertiesPane spec={spec} />}
+                {secKey === 'axioms' && <AxiomsPane spec={spec} />}
                 {secKey === 'export' && <ExportPane ontology={active} />}
                 {secKey === 'ingest' && (
                   <CsvIngestPane ontologyId={active.id} spec={spec} onIngested={() => refreshAfterSave()} />

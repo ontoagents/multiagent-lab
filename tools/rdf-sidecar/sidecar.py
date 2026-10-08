@@ -237,6 +237,35 @@ def parse(format: str) -> int:
     if data_properties:
         spec["data_properties"] = data_properties
 
+    # REQ-269/M78（D-O22 批次三）：类级公理捕获——owl:disjointWith / owl:equivalentClass。
+    # 双端均已注册为概念才入 axioms（URI → 已注册概念名归一）；任一端未注册则 warning 丢弃
+    # （防悬空引用，沿 SKOS broader/narrower 先例）；同 (type, subject) 多目标合并为一条。
+    axioms = []
+    ax_index = {}
+    for pred, atype in ((OWL.disjointWith, "disjoint_with"), (OWL.equivalentClass, "equivalent_class")):
+        for subj, obj in g.subject_objects(pred):
+            if not isinstance(subj, URIRef) or not isinstance(obj, URIRef):
+                continue  # 匿名/空白节点公理（限制类）仍丢弃 lossy，warning 于类遍历段已有口径
+            s_name = seen_c.get(str(subj))
+            o_name = seen_c.get(str(obj))
+            if s_name is None or o_name is None:
+                miss = s_name if s_name is None else o_name
+                warnings.append(f"公理 {atype} 端点 {label_or_local(g, subj if s_name is None else obj)} 未注册为概念，丢弃")
+                lossy = True
+                _ = miss
+                continue
+            if s_name == o_name:
+                continue
+            key = (atype, s_name)
+            if key in ax_index:
+                if o_name not in axioms[ax_index[key]]["targets"]:
+                    axioms[ax_index[key]]["targets"].append(o_name)
+            else:
+                ax_index[key] = len(axioms)
+                axioms.append({"type": atype, "subject": s_name, "targets": [o_name]})
+    if axioms:
+        spec["axioms"] = axioms
+
     # ---- 实例 ----
     inst_by_uri = {}
     for ind in g.subjects(RDF.type, OWL.NamedIndividual):
@@ -367,6 +396,12 @@ def export(argv) -> int:
             L[-1] += f' ;\n    rdfs:domain <{cu(dp["domain"])}>'
         L[-1] += f' ;\n    rdfs:range {range_iri(dp.get("range"))}'
         L[-1] += ' .'
+    # REQ-269/M78：公理导出回写——<概念> owl:disjointWith / owl:equivalentClass <目标>（概念同 IRI 口径）
+    for ax in (spec.get("axioms") or []):
+        pred = "owl:disjointWith" if ax.get("type") == "disjoint_with" else "owl:equivalentClass"
+        tgts = ", ".join(f"<{cu(t)}>" for t in (ax.get("targets") or []))
+        if tgts:
+            L.append(f'<{cu(ax["subject"])}> {pred} {tgts} .')
     for it in (spec.get("instances") or []):
         u = iu(it["name"])
         L.append(f'<{u}> rdf:type owl:NamedIndividual')

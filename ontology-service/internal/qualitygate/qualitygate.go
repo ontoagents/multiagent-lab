@@ -81,6 +81,7 @@ type Stats struct {
 	Relations      int `json:"relations"`
 	Instances      int `json:"instances"`
 	DataProperties int `json:"data_properties,omitempty"` // REQ-268/M77
+	Axioms         int `json:"axioms,omitempty"`           // REQ-269/M78
 }
 
 const maxSamples = 20
@@ -110,6 +111,7 @@ func defaultChecks() []checkDef {
 		{id: "duplicate_name", title: "命名重复（概念/关系/实例各自域内）", dimension: DimConsistency, sev: SevError, run: checkDuplicateName},
 		// REQ-268/M77 数据属性一等公民配套检查
 		{id: "dangling_dataprop_domain", title: "数据属性定义域引用不存在的概念", dimension: DimConsistency, sev: SevError, run: checkDanglingDataPropDomain},
+		{id: "dangling_axiom_ref", title: "公理主体/目标引用不存在的概念", dimension: DimConsistency, sev: SevError, run: checkDanglingAxiomRef},
 		{id: "undeclared_attribute_key", title: "实例属性键未声明为数据属性", dimension: DimCompleteness, sev: SevInfo, run: checkUndeclaredAttribute},
 	}
 }
@@ -130,7 +132,7 @@ func Check(sp *pkgspec.Spec, cfg Config) *Report {
 	}
 	rep := &Report{Strict: false, Findings: []Finding{}, Stats: Stats{
 		Concepts: len(sp.Concepts), Relations: len(sp.Relations), Instances: len(sp.Instances),
-		DataProperties: len(sp.DataProperties),
+		DataProperties: len(sp.DataProperties), Axioms: len(sp.Axioms),
 	}}
 	byID := map[string]checkDef{}
 	for _, d := range defaultChecks() {
@@ -373,6 +375,22 @@ func checkDanglingDataPropDomain(sp *pkgspec.Spec, add func(string)) {
 	for i, dp := range sp.DataProperties {
 		if _, ok := idx[dp.Domain]; dp.Domain != "" && !ok {
 			add(fmt.Sprintf("data_properties[%d](%s).domain=%s", i, dp.Name, dp.Domain))
+		}
+	}
+}
+
+// checkDanglingAxiomRef REQ-269/M78：公理主体/目标引用未定义概念（一致性）。
+// spec.Validate 亦拦截（错误级阻断保存）；此处置于 qualitygate 供非保存路径（导入/生成）同一把尺。
+func checkDanglingAxiomRef(sp *pkgspec.Spec, add func(string)) {
+	idx := conceptIndex(sp)
+	for i, ax := range sp.Axioms {
+		if _, ok := idx[ax.Subject]; !ok && ax.Subject != "" {
+			add(fmt.Sprintf("axioms[%d].subject=%s", i, ax.Subject))
+		}
+		for j, tgt := range ax.Targets {
+			if _, ok := idx[tgt]; !ok && tgt != "" {
+				add(fmt.Sprintf("axioms[%d].targets[%d]=%s", i, j, tgt))
+			}
 		}
 	}
 }

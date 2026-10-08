@@ -22,6 +22,29 @@ func findingOf(rep *Report, id string) *Finding {
 	return nil
 }
 
+func TestDanglingAxiomRef(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Concepts: []pkgspec.Concept{{Name: "药物"}},
+		Axioms: []pkgspec.Axiom{
+			{Type: "disjoint_with", Subject: "药物", Targets: []string{"幽灵"}},
+			{Type: "equivalent_class", Subject: "不存在", Targets: []string{"药物"}},
+		},
+	}
+	rep := Check(sp, nil)
+	found := false
+	for _, f := range rep.Findings {
+		if f.CheckID == "dangling_axiom_ref" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("dangling_axiom_ref 未命中: %+v", rep.Findings)
+	}
+	if rep.Stats.Axioms != 2 {
+		t.Fatalf("Stats.Axioms 未统计: %+v", rep.Stats)
+	}
+}
+
 func TestChecksTrigger(t *testing.T) {
 	sp := specOf(
 		[]pkgspec.Concept{

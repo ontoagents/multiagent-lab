@@ -53,6 +53,15 @@ type DataProperty struct {
 	Range      string `json:"range,omitempty"`  // 数据类型（短名或 xsd:/完整 IRI）
 }
 
+// Axiom 公理/约束保留层（REQ-269/M78，D-O22 表达力升级二期）。
+// v1 最小集：类级 disjoint_with / equivalent_class——由真实资产导入保真承载
+// （严格语义不由 LLM 生成，诚实边界随行）；TTL 导出以 owl:disjointWith/owl:equivalentClass 回写。
+type Axiom struct {
+	Type    string   `json:"type"`    // disjoint_with | equivalent_class
+	Subject string   `json:"subject"` // 主体概念名（引用 concepts.name）
+	Targets []string `json:"targets"` // 目标概念名（≥1，全部引用已定义概念）
+}
+
 // Spec 本体归一化形态（spec_json）。
 type Spec struct {
 	ID          string     `json:"id,omitempty"`
@@ -64,6 +73,7 @@ type Spec struct {
 	Concepts       []Concept       `json:"concepts"`
 	Relations      []Relation      `json:"relations"`
 	DataProperties []DataProperty  `json:"data_properties,omitempty"` // REQ-268/M77：可选声明层，存量资产零迁移
+	Axioms         []Axiom         `json:"axioms,omitempty"`          // REQ-269/M78：可选公理保留层，存量资产零迁移
 	Instances      []Instance      `json:"instances"`
 }
 
@@ -146,6 +156,42 @@ func (s *Spec) Validate() []ValidationError {
 				add(p+".domain", "定义域引用了未定义概念: "+dp.Domain)
 			}
 		}
+	}
+
+	// ---- axioms（REQ-269/M78）：type 枚举；subject/targets 必填且引用已定义概念——
+	// 公理是严格语义，悬空引用直接错误级（导入侧已防：未注册目标 warning 丢弃不落库）----
+	an := map[string]int{}
+	for i, ax := range s.Axioms {
+		p := fmt.Sprintf("axioms[%d]", i)
+		if ax.Type != "disjoint_with" && ax.Type != "equivalent_class" {
+			add(p+".type", "不支持的公理类型: "+ax.Type+"（仅 disjoint_with/equivalent_class）")
+			continue
+		}
+		if strings.TrimSpace(ax.Subject) == "" {
+			add(p+".subject", "公理主体不能为空")
+			continue
+		}
+		if _, ok := cn[ax.Subject]; !ok {
+			add(p+".subject", "主体引用了未定义概念: "+ax.Subject)
+		}
+		if len(ax.Targets) == 0 {
+			add(p+".targets", "公理目标不能为空")
+			continue
+		}
+		for j, tgt := range ax.Targets {
+			if strings.TrimSpace(tgt) == "" {
+				add(fmt.Sprintf("%s.targets[%d]", p, j), "公理目标不能为空")
+				continue
+			}
+			if _, ok := cn[tgt]; !ok {
+				add(fmt.Sprintf("%s.targets[%d]", p, j), "目标引用了未定义概念: "+tgt)
+			}
+		}
+		key := ax.Type + "|" + ax.Subject
+		if _, dup := an[key]; dup {
+			add(p, "重复公理（同类型同主体）: "+ax.Subject)
+		}
+		an[key] = i
 	}
 
 	// ---- instances：name 必填唯一；concept/relations 引用完整性 ----

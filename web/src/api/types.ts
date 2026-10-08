@@ -556,6 +556,13 @@ export interface SpecDataProperty {
   range?: string
 }
 
+/** REQ-269/M78：公理保留层（disjoint_with/equivalent_class；导入保真承载，TTL 同 IRI 回写） */
+export interface SpecAxiom {
+  type: 'disjoint_with' | 'equivalent_class'
+  subject: string
+  targets: string[]
+}
+
 export interface Spec {
   name: string
   description?: string
@@ -563,6 +570,7 @@ export interface Spec {
   relations: SpecRelation[]
   /** 数据属性声明层（REQ-268/M77；可选，存量资产零迁移） */
   data_properties?: SpecDataProperty[]
+  axioms?: SpecAxiom[] // REQ-269/M78：可选公理保留层
   instances: SpecInstance[]
   /** REQ-248/G2：能力问题（仅 spec 层，不入 TTL/校验） */
   cq?: string[]
