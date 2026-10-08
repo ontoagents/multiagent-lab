@@ -21,16 +21,20 @@ import PipelinePane from './components/PipelinePane'
 // ---------------------------------------------------------------------------
 // 方法论卡片（REQ-90 五模块，v0.2 深度版：body 精简骨架 + deep 深度增量；全文见 seeds/learning/methodology/）
 // REQ-139：要点结构化渲染——按 ①②③/序号/句读自动分段为要点列表（排版降噪），全部卡片统一受益
+// REQ-270 修复：序号标记的前导符扩为「。；;：:」（原文「三个技法：①」的 ① 前是「：」不命中），
+// 且改用带捕获组的 split——marker 与文本天然逐段对齐，不再出现「；②文本」式的错位 marker。
 function structuredPoints(text: string): { marker: string; text: string }[] {
-  // 先按 ①②③/1.2.3. 等序号标记切分
-  const m = text.match(/(?:^|[。；;]\s*)([①②③④⑤⑥⑦⑧⑨]|\d+[.、])\s*/g)
-  if (m && m.length >= 2) {
-    const parts = text.split(/(?:^|[。；;]s*)(?:[①②③④⑤⑥⑦⑧⑨]|\d+[.、])\s*/).filter((x) => x.trim())
-    if (parts.length >= 2) {
-      return parts.map((t, i) => ({ marker: i < m.length ? (m[i]?.trim() || '') : '', text: t.trim() }))
-        .map((x) => ({ marker: x.marker || '', text: x.text }))
-        .filter((x) => x.text)
+  const segs = text.split(/(?:^|[。；;：:])\s*([①②③④⑤⑥⑦⑧⑨]|\d+[.、])\s*/)
+  // split 带捕获组：[导语?, 序号1, 段1, 序号2, 段2, ...]——奇数位是纯序号
+  if (segs.length >= 4) {
+    const pts: { marker: string; text: string }[] = []
+    const lead = segs[0].trim()
+    if (lead) pts.push({ marker: '', text: lead })
+    for (let i = 1; i < segs.length; i += 2) {
+      const body = (segs[i + 1] ?? '').trim()
+      if (body) pts.push({ marker: segs[i], text: body })
     }
+    if (pts.length >= 2) return pts
   }
   // 无序号：按句切分为要点
   return text
@@ -73,7 +77,7 @@ const METHODOLOGY: { key: string; stage: string; title: string; tag: string; bod
     title: '领域分析与概念抽取',
     tag: '方法论',
     body: '领域分析的输入是文档、访谈、流程图与既有数据表；输出是一份"候选概念清单 + 关系草案"。三个实用技法：①名词/动词扫描——在需求文本里圈出名词（候选概念或实例）与动词（候选关系）；②上下位追问——对每个候选问"它是什么的一种？"（得到父类）与"它有哪几种？"（得到子类），层次自然浮现；③边界测试——两个概念若属性完全相同则合并，若只在某个属性上不同则考虑保留父子而非平级。注意区分"类"与"实例"：Pod 是类，pod-nginx-7f9 是实例；一个词条在 CQ 里被"逐个列举"时往往是实例。',
-    deep: '三条来源路径差异：文档要警惕"流程步骤被误抽为概念"；数据表是现成草案（表→概念、外键→关系），但连接表是多对多关系的物化、不该抽成概念；词表先查重再自造。层次泛滥反例："缺陷→软件缺陷→在线缺陷→支付在线缺陷"——每多一层必须能说出该层独有的属性或关系，说不出就合并。属性 vs 关系的判定：问"这个值以后要不要当查询主体？"——要就是关系（可导航的连接），不要就是属性（描述）。',
+    deep: '每条来源路径的差异：文档要警惕"流程步骤被误抽为概念"；数据表是现成草案（表→概念、外键→关系），但连接表是多对多关系的物化、不该抽成概念；词表先查重再自造。层次泛滥反例："缺陷→软件缺陷→在线缺陷→支付在线缺陷"——每多一层必须能说出该层独有的属性或关系，说不出就合并。属性 vs 关系的判定：问"这个值以后要不要当查询主体？"——要就是关系（可导航的连接），不要就是属性（描述）。',
   },
   {
     key: 'reuse',
@@ -121,11 +125,11 @@ const TASKS: TaskCardDef[] = [
   {
     id: 'task_s1_first_ontology',
     stage: 's1',
-    title: '建立第一个本体（三条来源路径各走一遍）',
-    goal: '体会 S1 三条来源路径的差异与产物形态',
+    title: '建立第一个本体（每条来源路径都走一遍）',
+    goal: '体会 S1 每条来源路径的差异与产物形态',
     prereq: [],
     steps: ['创建内置示例（seed-sample）', '用「AI 创建」生成一个小领域草稿并确认入库', '粘贴一段 TTL 走「导入文件」（观察导入报告与有损警告）'],
-    acceptance: '三条路径的产物分别是什么形态？哪条有损、为什么？',
+    acceptance: '每条路径的产物分别是什么形态？哪条有损、为什么？',
     link: { text: '前往自定义构建 S1', sidebar: 'build' },
     difficulty: 1,
   },
@@ -490,8 +494,8 @@ export default function LearnPage() {
 
 
   // REQ-182：左导航子模块定义（徽标带进度）。
-  // 开发者拍板（2026-09-29）：「学习路径/方法论与任务卡两重复，保留一个」——methods 视图删除，
-  // 全阶段方法论总览并入 path 视图（单阶段聚焦卡片下方，默认收起）
+  // 开发者拍板（2026-09-29）：「学习路径/方法论与任务卡两重复，保留一个」——methods 视图删除；
+  // REQ-270：path 视图底部的「全部阶段方法论总览」收起区亦退役——步骤条已按阶段切换，全量重复无增量
   const menuItems = [
     { key: 'path', label: <Space size={6}>学习路径<Tag style={{ margin: 0 }} color="geekblue">{totalDone}/{TASKS.length}</Tag></Space> },
     { key: 'build-paths', label: '构建方式对照' },
@@ -557,32 +561,6 @@ export default function LearnPage() {
               <div className="onto-learn-stage-detail" role="tabpanel">
                 {stageDetail(activeStage)}
               </div>
-              {/* 开发者拍板合并：全阶段方法论总览收起区（原独立「方法论与任务卡」页内容并入，去重复页签） */}
-              <Collapse
-                size="small"
-                ghost
-                style={{ marginTop: 12 }}
-                items={[{
-                  key: 'all-methods',
-                  label: <span style={{ fontSize: 13, fontWeight: 600 }}>全部阶段的方法论与任务卡（{STAGE_DEFS.length} 阶段总览）</span>,
-                  children: STAGE_DEFS.map((st) => {
-                    const prog = stageProgress.get(st.key) ?? { total: 0, done: 0 }
-                    return (
-                      <div key={st.key} className="onto-learn-methods-group" style={{ marginBottom: 14 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                          <span className="onto-learn-step-key" style={{ background: STAGE_COLORS[st.key], display: 'inline-flex', width: 34, height: 22, borderRadius: 5, alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 600 }}>{st.key.toUpperCase()}</span>
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>{st.short}</span>
-                          {prog.total > 0 && <Tag style={{ margin: 0 }}>任务 {prog.done}/{prog.total}</Tag>}
-                          <Button size="small" type="link" style={{ padding: 0 }} onClick={() => { setActiveStage(st.key); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-                            聚焦此阶段 ↑
-                          </Button>
-                        </div>
-                        {stageDetail(st.key)}
-                      </div>
-                    )
-                  }),
-                }]}
-              />
             </Card>
           )}
 

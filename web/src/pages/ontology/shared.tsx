@@ -7,7 +7,7 @@ import type { Ontology, RuntimeProfile, Spec, ValidationError } from '../../api/
 // 七阶段定义（REQ-74 模型；D-O11 后为学习中心理论骨架 + 自定义构建 S1~S4）
 // ---------------------------------------------------------------------------
 
-/** 七阶段：key / 简称 / 可用路径徽标（S1 三条路径，其余内置） */
+/** 七阶段：key / 简称 / 可用路径徽标（S1 多条来源路径随构建页页签演进，其余内置） */
 export const STAGE_DEFS: { key: string; short: string; modes: { t: string; c: string }[] }[] = [
   { key: 's1', short: '本体来源', modes: [{ t: '内置示例', c: 'default' }, { t: 'AI 创建', c: 'blue' }, { t: '导入+手动', c: 'purple' }] },
   { key: 's2', short: '编辑', modes: [{ t: '内置', c: 'default' }] },

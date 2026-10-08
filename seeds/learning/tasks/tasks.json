@@ -5,15 +5,15 @@
     {
       "id": "task_s1_first_ontology",
       "stage": "s1",
-      "title": "建立第一个本体（三条来源路径各走一遍）",
-      "goal": "体会 S1 三条来源路径的差异与产物形态",
+      "title": "建立第一个本体（每条来源路径都走一遍）",
+      "goal": "体会 S1 每条来源路径的差异与产物形态",
       "prereq": [],
       "steps": [
         "创建内置示例（seed-sample）",
         "用「AI 创建」生成一个小领域草稿并确认入库",
         "粘贴一段 TTL 走「导入文件」（观察导入报告与有损警告）"
       ],
-      "acceptance_question": "三条路径的产物分别是什么形态？哪条有损、为什么？",
+      "acceptance_question": "每条路径的产物分别是什么形态？哪条有损、为什么？",
       "tools": ["builtin_import", "builtin_ai_draft", "builtin_seed"],
       "difficulty": 1
     },

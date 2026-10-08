@@ -1,6 +1,6 @@
 # 18_REQ编号注册表与文档治理
 
-> 状态：v2.53 ｜ 2026-10-03 ｜ 维护人：董奎 + 协作 Agent
+> 状态：v2.54 ｜ 2026-10-08 ｜ 维护人：董奎 + 协作 Agent
 > 文档性质：**全局事实源**。REQ 编号的唯一分配权威（裁决 01/03/11/17 各档"REQ-90+ 区段双占用"问题，2026-09-23 开发者授权执行）；同时登记 docs/ 目录编号治理约定。**新需求立项前必须先查本表分配编号**；各需求文档头部编号段说明以本表为准。
 > 裁决依据：交叉引用计数 + 代码引用核对——REQ-90~96 的**全部 57 处代码引用均为本体侧学习增强语义**（`web/src/pages/ontology/*`、`internal/ontobuild` 等），智能体侧技能/沙箱引用仅存在于 01 文档（约 18 处），故迁移智能体侧、保留本体侧（交付资产与代码零迁移）。
 
@@ -152,6 +152,7 @@
 | REQ-267 | 03 本体需求 | **构建门禁统一与生成链路收口**（2026-10-03 立项即交付，开发者指令「开始将本体升级为实用化/通用平台」，D-O22 批次一/M76）：①backend ontobuild 生成链（build-from-kb 三策略/build-from-structured 两模式/kg-to-spec-json）草稿统一经构建平面 POST /api/ontology/quality/check（inline spec+save=false 内存评分零副作用，沿 runtime-manager FetchQuality 先例）取全平台同一 qualitygate 口径，报告并入响应 quality 字段（overall/error_count/warning_count）；:8091 不可达降级 degraded=true+warnings 如实标注（本地 ValidateBuildSpec 结构兜底与 LLM 修复环保持本地口径，防跨服务耦合）；前端 KbBuildFlow/StructuredFlow 草稿区质量分 Tag+降级提示；②ai-draft 前端异步化——client 增 aiDraftOntologyAsync+aiDraftJob 轮询，backend 补 GET /api/ai-draft-jobs/ 反代精确路由（此前异步端点无前端调用方亦无反代通道），BuildPage「AI 创建」切异步提交+轮询，去 120s 同步阻塞窗口（OntoChat turn 保持同步=诚实边界，随对话流 UX 轮评估）；③kg-to-spec-json 定位收口=保留编程接口（无 UI 面，策略 B 已承载 UI，04 号 §2.2 登记） | P1 ✅（M76，2026-10-03） |
 | REQ-268 | 03 本体需求 | **数据属性一等公民（表达力升级一期）**（2026-10-03 立项，D-O22 批次二/M77；承接 REQ-235 行注数据属性建模遗留与 57 号 V2）：spec_json 模型升级——DataProperty 声明层（name/label/domain/range 数据类型）+实例 attributes 挂数据类型；导入侧 owl:DatatypeProperty 从「只落实例断言、声明丢弃」升级为「声明捕获入模型」（REQ-235⑥ 细则升档）；编辑侧 GraphEditor/JSON 编辑/关系类型页签（REQ-240④ 管理面前身）承载；qualitygate 增数据属性检查项；TTL 导出回写数据属性 | P2 ✅（M77，2026-10-03） |
 | REQ-269 | 03 本体需求 | **公理与约束承载（表达力升级二期）**（2026-10-03 立项，D-O22 批次三/M78）：spec_json 扩公理/约束保留层——disjointWith/equivalentClass 等最小集导入保真保留（自「一律 lossy 丢弃」升档）+TTL 导出回写+与 REQ-255 推理检查档协同（original 形态已有） | 触发驱动 P2~P3（📋 M78，重语义资产导入诉求出现时） |
+| REQ-270 | 03 本体需求 | **学习中心文案与渲染优化三件**（2026-10-08 立项即交付，开发者三点指令「根据最新的方案，对学习中心进行优化」）：①S1「三条来源路径」→「每条来源路径」通用化（不与来源路径条数耦合，LearnPage+seeds 内容单源同步）②方法论卡结构化要点渲染修复（structuredPoints 序号前导符组缺「：」致 marker 错位、「；②文本」式列表项——捕获组 split 重写，领域分析/命名/OWL 模式三卡受益）③学习路径底部「全部阶段的方法论与任务卡」收起区退役（与七阶段步骤条重复）；headless 13/13 smoke/req270/ | P2 ✅（2026-10-08） |
 | REQ-169+ | 未分配 | 新需求按序分配；跨模块需求归 01（横切），模块内需求归各模块档 | 新需求按序分配；跨模块需求归 01（横切），模块内需求归各模块档 |
 
 ## 2. 决策记录
@@ -178,6 +179,7 @@
 
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
+| v2.54 | 2026-10-08 | REQ-270 分配+转正（✅ 立项即交付：学习中心文案与渲染优化三件——S1「三条来源路径」→「每条」通用化 seeds 单源同步/structuredPoints 序号 marker 错位修复〔前导符组缺「：」+捕获组 split 重写〕/「全部阶段的方法论与任务卡」收起区退役；headless 13/13 smoke/req270/） | 董奎 × 协作 Agent |
 | v2.53 | 2026-10-03 | REQ-268 转正（✅ M77 立项即交付：数据属性一等公民——Spec.DataProperties 声明层〔类型挂载口径=声明层挂类型〕+sidecar 声明捕获与实例键归一+TTL 导出回写+qualitygate 两新检查项+结构化/LLM 路径发射+顺修 BuildMerged 丢 data_properties/cq 缺口+前端数据属性页签；单测 4 组+真机全链+headless 9/9 smoke/req268/） | 董奎 × 协作 Agent |
 | v2.52 | 2026-10-03 | REQ-267 转正（✅ M76 立项即交付：构建门禁统一与生成链路收口——ontobuild 三生成端点统一经构建平面 quality/check 快评〔save=false，degraded 降级标注〕+ai-draft 前端异步化〔202+轮询+/api/ai-draft-jobs 反代补路〕+kg-to-spec-json 定位编程接口；单测 2 组+真机 GLM 三路全链+headless 10/10 smoke/req267/） | 董奎 × 协作 Agent |
 | v2.51 | 2026-10-03 | REQ-267~269 分配（本体实用化/通用平台升级批次立项，开发者指令「开始将本体升级为实用化/通用平台」，D-O22）：REQ-267 构建门禁统一与生成链路收口（🔨 立项即开发 M76）/REQ-268 数据属性一等公民（M77 待领取）/REQ-269 公理与约束承载（触发驱动 M78）；REQ-258 spec→oo 升级桥触发转正（批次四 M79，依赖 REQ-268） | 董奎 × 协作 Agent |
