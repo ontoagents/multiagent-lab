@@ -446,6 +446,73 @@ func (s *Server) runOntoChatCQAnalyze(jobID string, sess *ontochat.Session, maxC
 	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil)
 }
 
+// ontoCoverageTest POST /api/ontologies/{id}/cq-coverage {cqs?} → 202 job（REQ-274）：
+// CQ 覆盖测试快筛（默认关——本端点即质量卡显式开启动作）；cqs 缺省用 spec.CQ。
+// job session_id 用合成标识 onto:{ontologyID}（本体级任务，无会话消息留痕）。
+func (s *Server) ontoCoverageTest(w http.ResponseWriter, r *http.Request) {
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	oid := r.PathValue("id")
+	raw, _, err := s.Store.GetArtifact(oid, "spec_json")
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var sp pkgspec.Spec
+	if err := json.Unmarshal([]byte(raw), &sp); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "spec 解析失败: " + err.Error()})
+		return
+	}
+	var req struct {
+		CQs []string `json:"cqs"`
+	}
+	_ = decodeJSON(r, &req)
+	cqs := req.CQs
+	if len(cqs) == 0 {
+		cqs = sp.CQ
+	}
+	if len(cqs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "本体的 spec.CQ 为空：请先在构建会话抽取并确认能力问题（生成草稿时回写），或显式传入 cqs"})
+		return
+	}
+	if active, aerr := s.ontoChatStore().ActiveJobBySession("onto:" + oid); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "该本体已有测试任务进行中，请等待完成或取消后再试"})
+		return
+	}
+	job, err := s.ontoChatStore().CreateJob(newOntoJobID(), "onto:"+oid)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
+	go s.runOntoCoverageTest(job.ID, &sp, cqs)
+}
+
+// runOntoCoverageTest 后台执行覆盖测试：逐条进度 → TestCoverage → 终态落 job（无会话留痕）。
+func (s *Server) runOntoCoverageTest(jobID string, sp *pkgspec.Spec, cqs []string) {
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
+	_ = s.ontoChatStore().UpdateJobStatus(jobID, "running", "")
+	progress := func(done, total int, msg string) {
+		_ = s.ontoChatStore().UpdateJobProgress(jobID, fmt.Sprintf("%s（%d/%d）", msg, done, total))
+	}
+	verdicts, err := s.OntoChat.TestCoverage(ctx, sp, cqs, progress)
+	if err != nil && ctx.Err() != nil {
+		_ = s.ontoChatStore().UpdateJobStatus(jobID, "cancelled", "")
+		return
+	}
+	if err != nil {
+		_ = s.ontoChatStore().UpdateJobStatus(jobID, "error", err.Error())
+		return
+	}
+	sum := ontochat.SummarizeCoverage(verdicts)
+	bts, _ := json.Marshal(sum)
+	_ = s.ontoChatStore().SetJobResult(jobID, bts)
+	_ = s.ontoChatStore().UpdateJobStatus(jobID, "done", "")
+}
+
 // listOntoChatPrompts GET /api/ontochat/prompts → 提示词清单（只读，REQ-271⑥ 定案：只显示不可修改；
 // 返回值即运行时注入的同一批常量，页面显示零复制）。
 func (s *Server) listOntoChatPrompts(w http.ResponseWriter, _ *http.Request) {

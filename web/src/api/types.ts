@@ -657,6 +657,10 @@ export interface OntoChatJob {
     duplicate_count?: number
     clusters?: OntoChatCluster[] // REQ-273：CQ 分析 job 终态簇
     dedup_count?: number
+    verdicts?: OntoChatCQVerdict[] // REQ-274：覆盖测试判定（Yes/No/Unknown）
+    passed?: number
+    total?: number
+    pass_rate?: number
   }
   created_at: string
   updated_at: string
@@ -666,6 +670,13 @@ export interface OntoChatJob {
 export interface OntoChatExtractedCQ {
   cq: string
   origin?: string
+}
+
+/** REQ-274：单条 CQ 覆盖判定（Unknown=单条调用失败如实标注，不静默放行） */
+export interface OntoChatCQVerdict {
+  cq: string
+  verdict: 'Yes' | 'No' | 'Unknown'
+  explanation?: string
 }
 
 /** REQ-273：CQ 主题簇（去重+聚类结果，人工确认后应用写回） */

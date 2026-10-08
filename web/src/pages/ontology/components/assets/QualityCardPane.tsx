@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Empty, Input, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlertOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
-import type { RuntimeProfile } from '../../../../api/types'
+import type { OntoChatCQVerdict, RuntimeProfile } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,19 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
   const [cqResults, setCqResults] = useState<{ cq: string; sparql: string; rows: number | null; ok: boolean; err?: string }[] | null>(null)
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [profileId, setProfileId] = useState<string | null>(null)
+
+  // ---- REQ-274：CQ 覆盖测试快筛（OntoChat 论文路线；默认关=本按钮显式开启；成本=N 次逐条调用）----
+  const [covBusy, setCovBusy] = useState(false)
+  const [covProgress, setCovProgress] = useState('')
+  const [covResult, setCovResult] = useState<{ verdicts: OntoChatCQVerdict[]; passed: number; total: number; pass_rate: number } | null>(null)
+  const [covErr, setCovErr] = useState<string | null>(null)
+  const [covCQs, setCovCQs] = useState<string[]>([])
+  useEffect(() => {
+    api
+      .getSpec(ontologyId)
+      .then((sp: any) => setCovCQs(Array.isArray(sp?.cq) ? sp.cq.map((c: string) => String(c)) : []))
+      .catch(() => setCovCQs([]))
+  }, [ontologyId])
   useEffect(() => {
     api
       .listRuntimeProfiles()
@@ -98,7 +111,36 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
         setProfileId(ps.find((p) => p.status === 'running')?.id ?? null)
       })
       .catch(() => setProfiles([]))
-  }, [ontologyId])
+  }, [])
+
+  const runCoverage = async (cqs: string[]) => {
+    setCovBusy(true)
+    setCovErr(null)
+    setCovProgress('任务排队中…')
+    try {
+      const j = await api.coverageCQTest(ontologyId, cqs)
+      const timer = setInterval(async () => {
+        try {
+          const job = await api.getOntoChatJob(j.job_id)
+          if (job.progress) setCovProgress(job.progress)
+          if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
+            clearInterval(timer)
+            setCovBusy(false)
+            setCovProgress('')
+            if (job.status === 'error') setCovErr(job.error ?? '测试失败')
+            else if (job.status === 'cancelled') setCovErr('已取消')
+            else if (job.result) setCovResult(job.result as { verdicts: OntoChatCQVerdict[]; passed: number; total: number; pass_rate: number })
+          }
+        } catch {
+          /* 单次轮询失败下次重试 */
+        }
+      }, 1500)
+    } catch (e: any) {
+      setCovBusy(false)
+      setCovProgress('')
+      setCovErr(e?.message ?? '提交失败')
+    }
+  }
 
   const translateCq = () => {
     setCqBusy(true)
@@ -293,6 +335,69 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
                   </div>
                 ))}
               </div>
+            )}
+          </Card>
+
+
+          {/* REQ-274（63 号 §1.3 模块 4）：CQ 覆盖测试快筛——口语化+逐条独立判定（默认关=本卡显式开启；存疑转上方 SPARQL 精判） */}
+          <Card size="small" className="work-card" data-testid="cq-coverage-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <AlertOutlined style={{ color: 'var(--c-brand)' }} />
+              <Typography.Text strong>覆盖测试快筛（口语化判定）</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 220 }}>
+                {covCQs.length === 0
+                  ? '本体 spec.CQ 为空：请先在构建会话中「抽取 CQ」并确认（生成草稿时回写），再回来快筛。'
+                  : '本体口语化为纯文本后，逐条能力问题独立判定 Yes/No（每条单独调用防泄漏——成本=N 次模型调用）。默认关闭，点「开始快筛」显式执行；判定「No」的存疑项请到上方「CQ 验收（SPARQL）」卡精判。'}
+              </Typography.Text>
+              <Popconfirm
+                title={`将对 ${covCQs.length} 条能力问题各执行 1 次模型调用，确认开始？`}
+                onConfirm={() => runCoverage(covCQs)}
+                disabled={covBusy || covCQs.length === 0}
+              >
+                <Button size="small" loading={covBusy} disabled={covBusy || covCQs.length === 0} data-testid="coverage-run-btn">
+                  开始快筛
+                </Button>
+              </Popconfirm>
+            </div>
+            {covProgress && (
+              <div style={{ marginBottom: 8 }}>
+                <Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>{covProgress}</Typography.Text>
+              </div>
+            )}
+            {covErr && <Alert type="error" showIcon style={{ marginBottom: 8 }} title={covErr} />}
+            {covResult && (
+              <>
+                <Space size={6} style={{ marginBottom: 8 }}>
+                  <Tag color="green" data-testid="coverage-pass-tag">通过 {covResult.passed}/{covResult.total}</Tag>
+                  <Tag color="geekblue">快筛通过率 {Math.round(covResult.pass_rate * 100)}%</Tag>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    快筛为口语化判定（对可推断不显式的需求偏乐观）——「No」项以上方 SPARQL 精判为准。
+                  </Typography.Text>
+                </Space>
+                <Table
+                  size="small"
+                  rowKey={(r) => r.cq}
+                  dataSource={covResult.verdicts}
+                  pagination={{ pageSize: 6 }}
+                  columns={[
+                    { title: '能力问题', dataIndex: 'cq', ellipsis: true },
+                    {
+                      title: '判定',
+                      dataIndex: 'verdict',
+                      width: 90,
+                      render: (v: string) =>
+                        v === 'Yes' ? (
+                          <Tag color="green" icon={<CheckCircleOutlined />}>Yes</Tag>
+                        ) : v === 'No' ? (
+                          <Tag color="red" icon={<CloseCircleOutlined />}>No</Tag>
+                        ) : (
+                          <Tag icon={<AlertOutlined />}>Unknown</Tag>
+                        ),
+                    },
+                    { title: '解释', dataIndex: 'explanation', ellipsis: true },
+                  ]}
+                />
+              </>
             )}
           </Card>
 

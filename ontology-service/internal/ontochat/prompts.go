@@ -60,6 +60,13 @@ func Prompts() []PromptDef {
 			Text:    strings.Replace(strings.Replace(cqAnalyzePrompt, "{clusterCount}", clusterCountAuto, 1), "{cqs}", "1. 问题一\n2. 问题二\n……", 1),
 		},
 		{
+			ID:      "cq_coverage_test",
+			Label:   "CQ 覆盖测试判定提示词",
+			Purpose: "覆盖测试快筛（默认关，质量卡显式开启）：本体口语化文本+单条 CQ → Yes/No 判定附解释；每条 CQ 独立调用防泄漏（成本=N 次调用，入口有成本预估警告）",
+			Source:  "63 号 P7/P8 蓝本（King-s KG Lab ontolib.py::cqt_prompt_a/b + verbaliser.py；论文 §1.3 模块 4）+中文适配；诚实边界=口语化判定对「可推断但不显式」需求有系统性乐观偏误（论文 87.5% 系 56 条小样本），存疑项转 REQ-255 SPARQL 精判",
+			Text:    coveragePrompt,
+		},
+		{
 			ID:      "ontology_llm_system",
 			Label:   "平台结构化生成 system 提示",
 			Purpose: "主平台 /api/ontology-llm/generate 通道的 system 角色：要求只输出符合 Schema 的 JSON（草稿与归纳轮共用同一代理）",

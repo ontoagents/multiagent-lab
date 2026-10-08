@@ -646,6 +646,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ max_clusters: maxClusters ?? 0 }),
     }),
+  /** REQ-274：CQ 覆盖测试快筛（异步 job；cqs 缺省用 spec.CQ；默认关=质量卡显式开启动作） */
+  coverageCQTest: (id: string, cqs?: string[]) =>
+    req<{ job_id: string; total: number }>(`/api/ontologies/${id}/cq-coverage`, {
+      method: 'POST',
+      body: JSON.stringify({ cqs: cqs ?? [] }),
+    }),
   /** REQ-271：生成 job 轮询（1.5s 间隔；done 时 result 含 reply/draft/warning/session） */
   getOntoChatJob: (jobId: string) => req<OntoChatJob>(`/api/ontochat/jobs/${jobId}`),
   /** REQ-271：会话当前活跃任务（无则 job:null；重进会话/刷新后据此恢复轮询） */
