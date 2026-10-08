@@ -90,14 +90,15 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, msgs)
 }
 
-// listEvents GET /api/conversations/{id}/events?run_id=&type=&limit=&offset=
+// listEvents GET /api/conversations/{id}/events?run_id=&type=&type_prefix=&limit=&offset=
 // REQ-217③：query 过滤扩展（不带参数=全量裸数组，向后兼容）；X-Total-Count 头恒回命中总数供分页。
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	q := store.EventQuery{
-		RunID:  strings.TrimSpace(r.URL.Query().Get("run_id")),
-		Type:   strings.TrimSpace(r.URL.Query().Get("type")),
-		Limit:  atoiDefault(r.URL.Query().Get("limit"), 0),
-		Offset: atoiDefault(r.URL.Query().Get("offset"), 0),
+		RunID:      strings.TrimSpace(r.URL.Query().Get("run_id")),
+		Type:       strings.TrimSpace(r.URL.Query().Get("type")),
+		TypePrefix: strings.TrimSpace(r.URL.Query().Get("type_prefix")), // REQ-281：伴生事件族前缀过滤
+		Limit:      atoiDefault(r.URL.Query().Get("limit"), 0),
+		Offset:     atoiDefault(r.URL.Query().Get("offset"), 0),
 	}
 	events, total, err := s.Store.ListEventsQ(r.PathValue("id"), q)
 	if err != nil {

@@ -114,6 +114,26 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       const n = Array.isArray(d?.hits) ? d.hits.length : 0
       return { text: `📚 知识召回 · ${n} 条` }
     }
+    // REQ-281：伴生沉淀过程事件族（抽取/候选/入图判定/拒绝——收尾后旁路产生，经轮询或回放进流）
+    case 'companion.extract': {
+      if (d?.phase === 'started') return { text: `🧩 伴生沉淀 · 收尾触发（${d?.fresh ?? 0} 条新消息 · ${d?.windows ?? 0} 窗${d?.pending_windows ? ` · 积压 ${d.pending_windows} 窗待续` : ''}）` }
+      if (d?.phase === 'done') return { text: `🧩 伴生沉淀完成 · 候选 ${d?.candidates ?? 0} 条${d?.auto_ingested ? ` · 自动入图 ${d.auto_ingested} 条` : ''}` }
+      if (d?.phase === 'error') return { text: `🧩 伴生沉淀失败${d?.window ? `（第 ${d.window}/${d?.total ?? '?'} 窗）` : ''} · ${d?.message ?? '未知错误'}`, err: true }
+      return { text: '🧩 伴生沉淀 · 抽取中…' }
+    }
+    case 'companion.candidates': {
+      if (!d?.count) return { text: `🧩 伴生沉淀 · 第 ${d?.window ?? '?'}/${d?.total ?? '?'} 窗无可抽内容` }
+      return { text: `🧩 伴生候选 · 第 ${d?.window ?? '?'}/${d?.total ?? '?'} 窗新增 ${d.count} 条` }
+    }
+    case 'companion.decision':
+      return { text: `🧩 自动入图判定 · ${d?.name ?? ''} · 置信 ${fmtNum(d?.confidence)} ≥ 阈值 ${fmtNum(d?.threshold)} 且分位 ${fmtNum(d?.batch_rank)} ≥ 0.5` }
+    case 'companion.ingest': {
+      const mode = d?.mode === 'auto' ? '自动入图' : '确认入图'
+      const result = d?.result === 'aggregate' ? ` · 印证聚合（第 ${d?.confirm_count ?? '?'} 次确认）` : d?.result === 'conflict_replace' ? ' · 矛盾旧边已失效化' : ''
+      return { text: `🧩 伴生${mode} · ${d?.name ?? ''}${result}` }
+    }
+    case 'companion.reject':
+      return { text: `🧩 候选拒绝 · ${d?.name ?? ''}` }
     // M8：本体（经 facade，via=mcp）
     case 'ontology.query':
       return { text: `🔗 本体查询${d?.profile_id ? ` · ${d.profile_id}` : ''}` }
@@ -137,9 +157,13 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
   }
 }
 
+// REQ-281：数值紧凑展示（0.95→0.95；undefined→'—'），供伴生判定文案
+function fmtNum(v: any): string {
+  return typeof v === 'number' ? String(Math.round(v * 100) / 100) : '—'
+}
+
 // run.finished 摘要：耗时 / token 用量 / finish_reason
-function finishSummary(d: any): string {
-  const parts = ['✓ 运行完成']
+function finishSummary(d: any): string {  const parts = ['✓ 运行完成']
   if (typeof d?.elapsed_ms === 'number') {
     parts.push(d.elapsed_ms >= 1000 ? `${(d.elapsed_ms / 1000).toFixed(1)}s` : `${d.elapsed_ms}ms`)
   }
@@ -163,6 +187,7 @@ function eventSource(evType: string | undefined, evData: any): EventSource {
   if (evType === 'skill.loaded') return 'skill'
   if (evType === 'subagent.enter' || evType === 'subagent.exit') return 'subagent'
   if (evType === 'retrieval') return 'retrieval'
+  if (evType?.startsWith('companion.')) return 'onto' // REQ-281：伴生沉淀归本体青色族（伴生图=本体域资产）
   if (evType === 'ontology.query' || evType === 'ontology.unavailable') return 'onto'
   const src = evData?.source
   if (typeof src === 'string' && src) {
@@ -466,6 +491,41 @@ export default function ChatWindow({
   const [reasoningOpen, setReasoningOpen] = useState<Record<string, boolean>>({})
   const runRef = useRef<{ abort: () => void; done: Promise<void> } | null>(null)
   const runKeyRef = useRef('')
+  // REQ-281：伴生沉淀过程事件实时补齐——事件在 run 收尾后旁路产生（SSE 已关），
+  // 收尾后短轮询 companion.* 事件追加进流；已见事件 id 集合防重复（历史回放与轮询共用）。
+  const seenEventsRef = useRef<Set<string>>(new Set())
+  const companionPollRef = useRef<number | null>(null)
+  const stopCompanionPoll = () => {
+    if (companionPollRef.current != null) {
+      window.clearInterval(companionPollRef.current)
+      companionPollRef.current = null
+    }
+  }
+  const startCompanionPoll = (convId: string) => {
+    stopCompanionPoll()
+    let ticks = 0
+    let emptyAfterDone = 0
+    let sawDone = false
+    const tick = async () => {
+      ticks++
+      try {
+        const evs = await api.listEvents(convId, { type_prefix: 'companion.', limit: 50 })
+        const fresh = evs.filter((e) => !seenEventsRef.current.has(e.id))
+        for (const e of fresh) {
+          seenEventsRef.current.add(e.id)
+          let d: any = {}
+          try { d = e.data ? JSON.parse(e.data) : {} } catch { /* 忽略坏数据 */ }
+          if (e.type === 'companion.extract' && (d?.phase === 'done' || d?.phase === 'error')) sawDone = true
+          const desc = describeEvent(e.type, d)
+          setItems((prev) => [...prev, { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d, evKey: `ce-${e.id}` }])
+        }
+        emptyAfterDone = sawDone && fresh.length === 0 ? emptyAfterDone + 1 : 0
+      } catch { /* 网络抖动下一轮重试 */ }
+      if (ticks >= 60 || (sawDone && emptyAfterDone >= 2)) stopCompanionPoll()
+    }
+    companionPollRef.current = window.setInterval(tick, 2000)
+    void tick()
+  }
   // REQ-150②：用户主动停止标记——abort 断流后 run.finished 不会到达，收尾据此把流式消息置终态
   const stopFlagRef = useRef(false)
 
@@ -474,6 +534,7 @@ export default function ChatWindow({
     // B3（platform-knowledge/智能体/ChatWindow渲染与SSE链路审查）：切换会话先中止旧流，防止旧会话事件写入新会话列表
     runRef.current?.abort()
     runRef.current = null
+    stopCompanionPoll() // REQ-281：切会话同时停旧会话的伴生事件轮询
     setRunning(false)
     let alive = true
     setItems([])
@@ -481,6 +542,7 @@ export default function ChatWindow({
     Promise.all([api.listMessages(conversation.id), api.listEvents(conversation.id).catch(() => [] as never[])])
       .then(([msgs, evs]) => {
         if (!alive) return
+        seenEventsRef.current = new Set(evs.map((e) => e.id)) // REQ-281：已回放事件标记，轮询只补增量
         const timeline: { ts: string; item: ChatItem }[] = []
         msgs.forEach((m) =>
           timeline.push({ ts: m.created_at, item: { kind: 'msg', role: m.role, content: m.content } }),
@@ -916,6 +978,46 @@ export default function ChatWindow({
         </div>
       )
     }
+    // REQ-281：伴生沉淀过程卡（本体青色族；候选批与入图结果可展开明细）
+    if (it.evType?.startsWith('companion.')) {
+      const cands: Array<{ id?: string; kind?: string; name?: string; confidence?: number; batch_rank?: number; aligned?: boolean }> =
+        Array.isArray(it.evData?.items) ? it.evData.items : []
+      const kindLabel: Record<string, string> = { concept: '概念', relation: '关系', event: '事件' }
+      return (
+        <div key={i} className="event-card src-onto" style={depthStyle(it.subDepth)}>
+          <span>{it.eventText}</span>
+          {it.evType === 'companion.candidates' && cands.length > 0 && (
+            <Collapse
+              ghost
+              size="small"
+              items={[{
+                key: 'items',
+                label: <span className="event-link">展开候选明细（{cands.length}）</span>,
+                children: (
+                  <ul className="retrieval-hits">
+                    {cands.map((c, ci) => (
+                      <li key={ci} className="retrieval-hit">
+                        <div className="retrieval-meta">
+                          <span className="retrieval-doc" title={c.name}>{kindLabel[c.kind ?? ''] ?? c.kind} · {c.name}</span>
+                          <span className="retrieval-score">置信 {fmtNum(c.confidence)} · 分位 {fmtNum(c.batch_rank)}{c.aligned ? ' · 已对齐' : ''}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              }]}
+            />
+          )}
+          {it.evType === 'companion.ingest' && (it.evData?.mode === 'auto' || it.evData?.result === 'aggregate') && (
+            <div className="retrieval-excerpt">
+              {it.evData?.mode === 'auto' && <span style={{ marginRight: 10 }}>置信 {fmtNum(it.evData?.confidence)} ≥ 阈值 {fmtNum(it.evData?.threshold)} · 分位 {fmtNum(it.evData?.batch_rank)}</span>}
+              {it.evData?.result === 'aggregate' && <span>同事实印证 · confirmCount={it.evData?.confirm_count ?? '?'}</span>}
+            </div>
+          )}
+          {showRaw && it.evData && <pre className="raw-json">{JSON.stringify(it.evData, null, 2)}</pre>}
+        </div>
+      )
+    }
     const isTool = it.evType === 'tool.call' || it.evType === 'tool.result'
 
     // M6：知识召回引用块（可展开命中片段，绿族强调）
@@ -1203,6 +1305,9 @@ export default function ChatWindow({
     runRef.current = null
     bumpData()
     onConversationUpdated()
+    // REQ-281：伴生抽取在收尾后旁路异步执行（LLM 一轮 60~90s），SSE 已关——
+    // 绑定伴生本体的 agent 收尾后短轮询补齐沉淀过程事件；未绑定零轮询。
+    if (convAgent?.companion_ontology) startCompanionPoll(conversation.id)
   }
 
   const send = async () => {

@@ -242,13 +242,29 @@ func (s *Service) graphUpdate(ctx context.Context, ontologyID, sparql string) er
 	return err
 }
 
+// emitEvent 伴生过程事件落会话事件流（REQ-281：候选/入图决策过程对话内可见）。
+// 只追加 run_event（schema_version=2 契约），失败仅日志——旁路管线低侵入三原则不变。
+func (s *Service) emitEvent(convID, runID, eventType string, data map[string]any) {
+	if s == nil || s.Store == nil || convID == "" {
+		return
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	if _, err := s.Store.InsertEvent(&store.RunEvent{ConversationID: convID, RunID: runID, Type: eventType, Data: string(b), SchemaVersion: 2}); err != nil {
+		log.Printf("[companion] 过程事件写入失败（%s）: %v", eventType, err)
+	}
+}
+
 // OnRunComplete Run/Resume 收尾触发点（API 层调用；非阻塞、零错误上抛）。
 // 未绑定本体 / 会话与 Agent 归属不符 → 静默返回，对话主链路无感知。
 // 归属校验（2026-09-27 修复：项目会话此前被 Scope 守卫整类拦截，候选从不产生）：
 //   - agent 会话：conv.AgentID == agent.ID；
 //   - project 会话：agent 为该项目的 coordinator 或成员之一（运行 agent 由 resolveRunTarget
 //     按主智能体优先解析传入）——「项目由开启伴生的 agent 管理」时项目处理信息同样产生候选。
-func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent) {
+// runID 触发轮运行 id（REQ-281：伴生过程事件回链 run_event.run_id，空串=无运行上下文）。
+func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, runID string) {
 	if s == nil || conv == nil || agent == nil {
 		return
 	}
@@ -301,7 +317,7 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent) {
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
-		n, err := s.ExtractNew(ctx, conv.ID, agent.ID)
+		n, err := s.ExtractNew(ctx, conv.ID, agent.ID, runID)
 		if err != nil {
 			log.Printf("[companion] 会话 %s 抽取失败（不影响对话）: %v", conv.ID, err)
 			return
@@ -344,7 +360,8 @@ func (s *Service) knownEntityLabels(ctx context.Context, ontologyID string) []st
 // ExtractNew 游标续抽（REQ-194③分窗）：读新消息 → 分窗 → 逐窗 LLM 结构化抽取 → 候选落库 →
 // 游标逐窗推进。返回新增候选数。窗口语义：每窗 ≤16 条且 ≤8k 字符、单次最多 3 窗；
 // 上一窗实体进下窗对齐清单（跨窗归并）；某窗失败 → 游标停在上一成功窗末（可重试）。
-func (s *Service) ExtractNew(ctx context.Context, convID, agentID string) (int, error) {
+// REQ-281：runID 非空时抽取各决策点落 companion.* 会话事件（触发/逐窗候选/自动入图判定/结果与失败）。
+func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string) (int, error) {
 	agent, err := s.Store.GetAgent(agentID)
 	if err != nil {
 		return 0, err
@@ -372,19 +389,29 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID string) (int, 
 	known := s.knownEntityLabels(ctx, ontID)
 
 	windows := splitWindows(fresh)
+	pendingWindows := 0
 	if len(windows) > maxWindowsPerRun {
 		// 超长积压：本轮只处理前 3 窗，游标停在第 3 窗末，后续 Run 自然续抽
+		pendingWindows = len(windows) - maxWindowsPerRun
 		windows = windows[:maxWindowsPerRun]
 	}
+	emit := func(eventType string, data map[string]any) { s.emitEvent(convID, runID, eventType, data) }
+	emit("companion.extract", map[string]any{
+		"phase": "started", "agent_id": agentID, "fresh": len(fresh),
+		"windows": len(windows), "pending_windows": pendingWindows,
+	})
+	autoIngested := 0
 	total := 0
 	for i, win := range windows {
 		res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID,
 			companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)), companionSchema)
 		if err != nil {
+			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": err.Error()})
 			return total, fmt.Errorf("LLM 抽取失败（第 %d/%d 窗，游标停在上一成功窗末可重试）: %w", i+1, len(windows), err)
 		}
 		var out extractOut
 		if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
+			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "抽取输出解析失败: " + err.Error()})
 			return total, fmt.Errorf("抽取输出解析失败（第 %d/%d 窗）: %w", i+1, len(windows), err)
 		}
 
@@ -392,17 +419,29 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID string) (int, 
 		markAligned(cands, known) // REQ-194①：对齐标记落库
 		markBatchRank(cands)      // REQ-227②：批内分位（置信校准——治 LLM 自评虚高）
 		if err := s.Store.CreateCompanionCandidates(cands); err != nil {
+			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "候选落库失败: " + err.Error()})
 			return total, err
 		}
+		// REQ-281：逐窗候选批事件（空窗 count=0 如实呈现——「本窗无可抽内容」不再不可见）
+		emit("companion.candidates", map[string]any{
+			"window": i + 1, "total": len(windows), "count": len(cands),
+			"items": candidateSummaries(cands, 30),
+		})
 		// REQ-187：置信度阈值自动入图（0=全人工审；≥阈值自动 confirmCandidate——含矛盾旧边失效化
 		// 与 REQ-194⑤语义矛盾检测；自动入图走与人工确认完全相同的链路，区别仅在来源标记 bot:autoConfirmed）
 		if agent.CompanionAutoThreshold > 0 {
 			for _, c := range cands {
 				if c.Confidence >= agent.CompanionAutoThreshold && c.BatchRank >= 0.5 {
-					if _, err := s.ConfirmCandidate(ctx, c.ID); err != nil {
+					// REQ-281：自动入图判定留痕（置信/阈值/批内分位三元组即判定依据）
+					emit("companion.decision", map[string]any{
+						"action": "auto_ingest", "candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
+						"confidence": c.Confidence, "threshold": agent.CompanionAutoThreshold, "batch_rank": c.BatchRank,
+					})
+					if _, err := s.ConfirmCandidate(ctx, c.ID, "auto"); err != nil {
 						log.Printf("[companion] 自动入图失败（候选 %s，不影响其余候选）: %v", c.ID, err)
 						continue
 					}
+					autoIngested++
 					// bot:autoConfirmed 溯源标记（区分自动入图与人工确认）
 					_ = s.graphUpdate(ctx, ontID, MarkAutoConfirmed(ontID, c.ID))
 					log.Printf("[companion] 候选 %s 置信 %.2f ≥ 阈值 %.2f，已自动入图", c.Name, c.Confidence, agent.CompanionAutoThreshold)
@@ -417,7 +456,25 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID string) (int, 
 			return total, err
 		}
 	}
+	emit("companion.extract", map[string]any{
+		"phase": "done", "candidates": total, "auto_ingested": autoIngested, "windows": len(windows),
+	})
 	return total, nil
+}
+
+// candidateSummaries REQ-281 候选批事件条目摘要（截断前 n 条防事件过大；relation 呈三元组可读态）。
+func candidateSummaries(cands []*store.CompanionCandidate, limit int) []map[string]any {
+	out := make([]map[string]any, 0, len(cands))
+	for i, c := range cands {
+		if i >= limit {
+			break
+		}
+		out = append(out, map[string]any{
+			"id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
+			"confidence": c.Confidence, "batch_rank": c.BatchRank, "aligned": c.Aligned,
+		})
+	}
+	return out
 }
 
 // toCandidates LLM 输出 → 候选记录（evidence/name 回链最近包含该文本的消息 id）。
@@ -472,7 +529,8 @@ func toCandidates(convID, agentID string, msgs []*store.Message, out *extractOut
 // 同本体多 agent 共享沉淀；种子 schema 幂等预置 + INSERT + 矛盾旧边失效化）。
 // REQ-194⑤：同主体+同关系名走确定性失效化（既有路径）；不同关系名的语义冲突交 LLM 二分类
 // （冲突才 invalidAt；不确定双保留 + 候选 note「疑似矛盾待人工」；失败仅日志不阻断入图）。
-func (s *Service) ConfirmCandidate(ctx context.Context, candID string) (*store.CompanionCandidate, error) {
+// mode REQ-281："auto"=REQ-187 阈值自动入图 / "manual"=人工确认——随 companion.ingest 事件透出。
+func (s *Service) ConfirmCandidate(ctx context.Context, candID, mode string) (*store.CompanionCandidate, error) {
 	c, err := s.Store.GetCompanionCandidate(candID)
 	if err != nil {
 		return nil, err
@@ -484,6 +542,14 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID string) (*store.C
 	ontID := boundOntology(agent)
 	if ontID == "" {
 		return nil, fmt.Errorf("agent %s 未绑定伴生本体（REQ-216 起入图写入绑定本体伴生子图）", c.AgentID)
+	}
+	// REQ-281：入图结果事件（写失败不产生事件——错误经返回值由调用方留痕）
+	emitIngest := func(result string, confirmCount int) {
+		s.emitEvent(c.ConversationID, "", "companion.ingest", map[string]any{
+			"candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
+			"mode": mode, "confidence": c.Confidence, "batch_rank": c.BatchRank,
+			"threshold": agent.CompanionAutoThreshold, "result": result, "confirm_count": confirmCount,
+		})
 	}
 	now := time.Now()
 	if err := s.graphUpdate(ctx, ontID, SeedSchema()); err != nil {
@@ -504,6 +570,7 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID string) (*store.C
 			}
 			log.Printf("[companion] 印证聚合：候选 %s（%s —%s→ %s）与活跃边同事实，confirmCount=%d", c.ID, c.Name, c.RelName, c.RelTarget, oldCount+1)
 			s.audit("companion_confirm_aggregate", c.ID, fmt.Sprintf("伴生印证聚合：%s —%s→ %s（第 %d 次确认）", c.Name, c.RelName, c.RelTarget, oldCount+1), map[string]any{"agent_id": c.AgentID, "ontology_id": ontID, "edge": edge})
+			emitIngest("aggregate", oldCount+1)
 			s.invalidateLabelCache(ontID)
 			if base, berr := s.Plans.EnsureHostPlan(ctx, ontID); berr == nil {
 				s.snapshotRefresh(ctx, ontID, base)
@@ -521,12 +588,14 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID string) (*store.C
 		if err := s.graphUpdate(ctx, ontID, InsertRelationTriples(ontID, c.ID, c.RelName, c.Name, c.RelTarget, c.Definition, c.Confidence, c.SourceMessageID, now)); err != nil {
 			return nil, fmt.Errorf("关系入图失败: %w", err)
 		}
+		emitIngest("conflict_replace", 0)
 	} else {
 		// REQ-229① 同名异义提醒：图内已有同名实体且定义相似度低 → 候选注记待人工（不阻断）
 		s.disambiguationCheck(ctx, ontID, c)
 		if err := s.graphUpdate(ctx, ontID, InsertNodeTriples(ontID, c.ID, c.Kind, c.Name, c.Definition, c.TimeScope, c.Confidence, c.SourceMessageID, now)); err != nil {
 			return nil, fmt.Errorf("入图失败: %w", err)
 		}
+		emitIngest("insert", 0)
 	}
 	s.invalidateLabelCache(ontID) // REQ-194②：图写入失效标签向量缓存（REQ-216 起按本体图）
 	s.audit("companion_confirm", candID, fmt.Sprintf("伴生确认入图：%s", companionCandTitle(c)), map[string]any{"agent_id": c.AgentID, "ontology_id": ontID, "kind": c.Kind})
@@ -755,6 +824,10 @@ func (s *Service) RejectCandidate(ctx context.Context, candID string) (*store.Co
 	c, err := s.Store.DecideCompanionCandidate(candID, "rejected")
 	if err == nil && c != nil {
 		s.audit("companion_reject", candID, fmt.Sprintf("伴生拒绝：%s", companionCandTitle(c)), map[string]any{"agent_id": c.AgentID})
+		// REQ-281：人工拒绝镜像会话事件（与确认入图对偶，对话内可回溯处置决策）
+		s.emitEvent(c.ConversationID, "", "companion.reject", map[string]any{
+			"candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c), "mode": "manual",
+		})
 	}
 	return c, err
 }

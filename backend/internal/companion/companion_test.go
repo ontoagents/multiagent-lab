@@ -190,7 +190,7 @@ func TestOnRunCompleteProjectScope(t *testing.T) {
 		s.running = map[string]bool{}
 		s.mu.Unlock()
 		a, _ := st.GetAgent(c.agent)
-		s.OnRunComplete(conv, a)
+		s.OnRunComplete(conv, a, "")
 		s.mu.Lock()
 		_, fired := s.running[conv.ID]
 		s.mu.Unlock()
@@ -211,7 +211,7 @@ func TestOnRunCompleteProjectScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ := st.GetAgent("agt_coord")
-	s.OnRunComplete(conv, a)
+	s.OnRunComplete(conv, a, "")
 	s.mu.Lock()
 	_, fired := s.running[conv.ID]
 	s.mu.Unlock()

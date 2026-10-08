@@ -108,10 +108,11 @@ func (s *Store) ListEvents(convID string) ([]*RunEvent, error) {
 
 // EventQuery 事件查询过滤（REQ-217③：run_id/type/limit/offset；零值字段不参与过滤）。
 type EventQuery struct {
-	RunID  string // 按运行过滤（轨迹面板「重放此运行」/单运行视图）
-	Type   string // 精确类型过滤（tool.call/tool.result/…）
-	Limit  int    // ≤0 = 不限
-	Offset int    // ≥0，配 Limit 分页
+	RunID      string // 按运行过滤（轨迹面板「重放此运行」/单运行视图）
+	Type       string // 精确类型过滤（tool.call/tool.result/…）
+	TypePrefix string // REQ-281：类型前缀过滤（companion. → LIKE 'companion.%'；转义 %/_）
+	Limit      int    // ≤0 = 不限
+	Offset     int    // ≥0，配 Limit 分页
 }
 
 // ListEventsQ 过滤版事件查询（升序不变；返回命中总数供分页——limit 生效时 out 可能是总数的前窗）。
@@ -125,6 +126,10 @@ func (s *Store) ListEventsQ(convID string, q EventQuery) ([]*RunEvent, int, erro
 	if q.Type != "" {
 		where = append(where, "type = ?")
 		args = append(args, q.Type)
+	}
+	if q.TypePrefix != "" {
+		where = append(where, "type LIKE ? ESCAPE '\\'")
+		args = append(args, escapeLike(q.TypePrefix)+"%")
 	}
 	total := 0
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM run_event WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
@@ -154,6 +159,12 @@ func (s *Store) ListEventsQ(convID string, q EventQuery) ([]*RunEvent, int, erro
 func (s *Store) TouchConversation(convID string) error {
 	_, err := s.DB.Exec(`UPDATE conversation SET updated_at = ? WHERE id = ?`, now(), convID)
 	return err
+}
+
+// escapeLike LIKE 通配转义（配 SQL 端 ESCAPE '\'；kg.go 同约定，REQ-281 前缀过滤引入共享助手）。
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
 }
 
 // ---- REQ-204/M39 C1：中断检查点持久化 ----

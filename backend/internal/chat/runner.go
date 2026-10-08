@@ -1472,6 +1472,10 @@ func (s *Service) recallCompanion(ctx context.Context, conv *store.Conversation,
 		return histMsgs
 	}
 	if text == "" {
+		// REQ-281：零命中也外显（原静默——绑定伴生的 agent「这次没召回」对用户不可见即不可解释）
+		s.emitAndRecord(ctx, conv, runID, newEvent("retrieval", runID, map[string]any{
+			"source": "companion", "conversation_id": conv.ID, "entities": []any{},
+		}), emit)
 		return histMsgs
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("retrieval", runID, map[string]any{

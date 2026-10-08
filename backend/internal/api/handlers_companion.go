@@ -82,7 +82,7 @@ func (s *Server) listCompanionCandidates(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) confirmCompanionCandidate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	c, err := s.Companion.ConfirmCandidate(r.Context(), id)
+	c, err := s.Companion.ConfirmCandidate(r.Context(), id, "manual")
 	if err != nil {
 		writeErr(w, err)
 		return

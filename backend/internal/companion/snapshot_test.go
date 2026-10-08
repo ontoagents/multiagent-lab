@@ -44,7 +44,7 @@ func TestSnapshotReinflationAfterWipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range cands {
-		if _, err := svc.ConfirmCandidate(ctx, c.ID); err != nil {
+		if _, err := svc.ConfirmCandidate(ctx, c.ID, "manual"); err != nil {
 			t.Fatalf("确认入图失败: %v", err)
 		}
 	}
@@ -213,10 +213,10 @@ func TestConfirmAggregation(t *testing.T) {
 	if err := st.CreateCompanionCandidates(cands); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ConfirmCandidate(ctx, cands[0].ID); err != nil {
+	if _, err := svc.ConfirmCandidate(ctx, cands[0].ID, "manual"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ConfirmCandidate(ctx, cands[1].ID); err != nil {
+	if _, err := svc.ConfirmCandidate(ctx, cands[1].ID, "manual"); err != nil {
 		t.Fatal(err)
 	}
 	// 同事实：图内应单边 confirmCount=2
@@ -244,7 +244,7 @@ func TestConfirmAggregation(t *testing.T) {
 		t.Fatalf("同事实应单边 confirmCount=2，got 边数=%d count=%d", activeHPA, count)
 	}
 	// object 不同：失效化旧边+新边（既有矛盾路径）
-	if _, err := svc.ConfirmCandidate(ctx, cands[2].ID); err != nil {
+	if _, err := svc.ConfirmCandidate(ctx, cands[2].ID, "manual"); err != nil {
 		t.Fatal(err)
 	}
 	raw2, _ := svc.graphQuery(ctx, "ont_smoke", SelectEdges("ont_smoke"))
@@ -342,7 +342,7 @@ func TestDisambiguationNote(t *testing.T) {
 	if err := st.CreateCompanionCandidates([]*store.CompanionCandidate{c}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ConfirmCandidate(ctx, c.ID); err != nil {
+	if _, err := svc.ConfirmCandidate(ctx, c.ID, "manual"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := st.GetCompanionCandidate(c.ID)

@@ -221,7 +221,7 @@ export const api = {
   /** REQ-113①：对话导出 Markdown（events=1 附过程事件附录） */
   exportConversation: (id: string, events = false) =>
     reqText(`/api/conversations/${id}/export${events ? '?events=1' : ''}`),
-  listEvents: (id: string, q?: { run_id?: string; type?: string; limit?: number; offset?: number }) => {
+  listEvents: (id: string, q?: { run_id?: string; type?: string; type_prefix?: string; limit?: number; offset?: number }) => {
     const qs = q ? Object.entries(q).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&') : ''
     return req<RunEventDTO[]>(`/api/conversations/${id}/events${qs ? '?' + qs : ''}`)
   },

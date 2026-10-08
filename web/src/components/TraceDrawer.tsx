@@ -27,6 +27,8 @@ const TYPE_GROUPS = [
   { value: 'harness', label: 'Harness 审计', types: ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded'] },
   { value: 'subagent', label: '子智能体', types: ['subagent.enter', 'subagent.exit'] },
   { value: 'retrieval', label: '知识召回', types: ['retrieval'] },
+  // REQ-281：伴生沉淀过程事件域（抽取/候选/入图判定/拒绝镜像）
+  { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
   { value: 'artifact', label: '产物', types: ['artifact.saved'] },
   { value: 'cli', label: 'CLI 输出', types: ['debug.cli'] },
   { value: 'run', label: '运行始末', types: ['run.started', 'run.finished', 'run.error'] },
@@ -40,6 +42,8 @@ const typesOfGroups = (gs: string[]) => {
 const TYPE_COLOR: Record<string, string> = {
   'tool.call': 'blue', 'tool.result': 'geekblue', 'model.step': 'purple', 'run.warning': 'orange',
   'run.interrupted': 'gold', 'subagent.enter': 'cyan', 'subagent.exit': 'cyan', 'retrieval': 'green',
+  'companion.extract': 'cyan', 'companion.candidates': 'cyan', 'companion.decision': 'gold',
+  'companion.ingest': 'green', 'companion.reject': 'red',
   'artifact.saved': 'magenta', 'debug.cli': 'default', 'run.started': 'default', 'run.finished': 'green',
   'run.error': 'red', 'reasoning': 'default', 'skill.loaded': 'default',
 }
