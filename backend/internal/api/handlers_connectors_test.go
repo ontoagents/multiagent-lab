@@ -129,10 +129,10 @@ func TestConnectorAPIEncryptedAndMasked(t *testing.T) {
 
 func TestConnectorDeleteProtection(t *testing.T) {
 	s := newConnectorAPIFixture(t)
-	if err := s.Store.EnsureBuiltinOpenOntologiesConnector(); err != nil {
+	builtin, err := s.Store.CreateConnector(&store.Connector{Kind: store.ConnectorKindMCP, Name: "builtin-fixture", Config: map[string]any{"url": "http://x/mcp"}, IsBuiltin: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	builtin, _ := s.Store.GetConnectorByName(store.BuiltinConnectorOpenOntologies)
 	// 内置不可删
 	w := doConnectorReq(s, "DELETE", "/api/connectors/"+builtin.ID, nil)
 	if w.Code != 400 {

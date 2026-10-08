@@ -1239,7 +1239,7 @@ function AgentConfigForm({
                   </Form.Item>
                   {connectors.length === 0 && (
                     <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                      暂无连接器——在设置页「连接器」分区创建（内置 open-ontologies 已就绪）。
+                      暂无连接器——在设置页「连接器」分区创建（MCP / Kubernetes / SSH）。
                     </Typography.Text>
                   )}
                   <Button size="small" icon={<SettingOutlined />} onClick={goConnectorSettings}>

@@ -18,17 +18,16 @@ import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import ReferenceMaterialsPanel from './components/ReferenceMaterialsPanel'
 import OntoExtendFlow from './components/OntoExtendFlow'
-import OoTtlImport from './components/OoTtlImport'
 
 // ---------------------------------------------------------------------------
 // 本体构建（BuildPage，REQ-104 ②）：按构建路径分二级模块（六路径分层标注状态）
 //   自定义构建（可用，现有页面主体 S1~S4）| OntoChat 流程（可用，REQ-103 模式 A 载体）
 //   | 由知识库构建（部分可用，O13/D-O14 REQ-108 独立流程页）| KG 消费流程（入口卡，D-O15 改造）
-//   | OntoExtend 流程（部分可用，M-O14 P2②）| Open Ontologies 流程（引导+回流）
-//   未工程化路径显示引导卡、不做空壳交互（D-O11）
+//   | OntoExtend 流程（部分可用，M-O14 P2②）
+//   未工程化路径显示引导卡、不做空壳交互（D-O11）；Open Ontologies 双轨已退役（66 号拍板，方案 B）
 // ---------------------------------------------------------------------------
 
-type BuildPath = 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'oo' | 'kb'
+type BuildPath = 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'kb'
 
 const PATHS: { key: BuildPath; label: string; state: 'ok' | 'partial' | 'guide'; desc: string }[] = [
   { key: 'custom', label: '自定义构建', state: 'ok', desc: 'S1 来源 → S2 编辑 → S3 校验 → S4 可视化（七阶段前 4 步）' },
@@ -36,7 +35,6 @@ const PATHS: { key: BuildPath; label: string; state: 'ok' | 'partial' | 'guide';
   { key: 'kb', label: '由知识库构建', state: 'partial', desc: 'KB chunk→LLM / KG→直转 / 混合三策略独立流程页（O13，D-O14/REQ-108）' },
   { key: 'kg', label: 'KG 消费流程', state: 'guide', desc: '入口卡跳转「消费与审计」栏（D-O15 自研 KG，原 semantica 流程改造）' },
   { key: 'ontoextend', label: 'OntoExtend 流程', state: 'partial', desc: 'ODP 模式推荐 + LOV 词表扩展 → 审查入库（M-O14 P2②）' },
-  { key: 'oo', label: 'Open Ontologies 流程', state: 'guide', desc: '双轨引导 + TTL 产物回流走审查底座（M-O14 P2③；REQ-78 互通仍冻结）' },
 ]
 
 const STATE_TAG: Record<BuildPath, { color: string; text: string }> = {
@@ -45,14 +43,13 @@ const STATE_TAG: Record<BuildPath, { color: string; text: string }> = {
   kb: { color: 'orange', text: '部分可用' },
   kg: { color: 'cyan', text: '引导' },
   ontoextend: { color: 'gold', text: '部分可用' },
-  oo: { color: 'cyan', text: '引导' },
 }
 
 const ONTO_BUILD_PATH_KEY = 'eino.onto.buildPath'
 
 function readBuildPath(): BuildPath {
   const v = localStorage.getItem(ONTO_BUILD_PATH_KEY)
-  return v === 'ontochat' || v === 'kg' || v === 'semantica' /* 旧值兼容 */ || v === 'ontoextend' || v === 'oo' || v === 'kb'
+  return v === 'ontochat' || v === 'kg' || v === 'semantica' /* 旧值兼容 */ || v === 'ontoextend' || v === 'kb'
     ? (v as BuildPath)
     : 'custom'
 }
@@ -113,7 +110,6 @@ export default function BuildPage() {
           {buildPath === 'kb' && (<><KbBuildFlow /><StructuredFlow /></>)}
           {buildPath === 'kg' && <KgGuide />}
           {buildPath === 'ontoextend' && <OntoExtendFlow />}
-          {buildPath === 'oo' && <OoGuide />}
         </div>
       </div>
     </div>
@@ -812,49 +808,6 @@ function KgGuide() {
 // ---------------------------------------------------------------------------
 // OntoExtend 流程（引导卡先行，工程化登记需求池）
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Open Ontologies 流程（双轨引导 + 产物回流）
-// ---------------------------------------------------------------------------
-
-function OoGuide() {
-  return (
-    <Card className="work-card" size="small">
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="Open Ontologies 流程——双轨构建（oo serve-http :8092 已集成，M8.5）"
-        description="open-ontologies v2.0.1（Rust 单二进制，MIT）：119 个 onto_* MCP 工具（推理/SHACL/映射/Data Pipeline/版本/FOL），serve-http 原生 Streamable HTTP；平台经 /api/oo/ 同源反代，对话可在智能体 MCP 预设一键挂载。其本体为 TTL 文件集（data-dir 自管），不进主线 spec_json 体系。"
-      />
-      <div className="onto-sec" style={{ marginTop: 0 }}>
-        <span className="onto-sec-title">学习要点</span>
-      </div>
-      <ul className="onto-report-list">
-        <li>物化推理与主线「显式重载」的差异：oo 建库即物化，主线查询时精确匹配</li>
-        <li>SHACL 约束建模 vs 主线 JSON Schema + 引用完整性校验</li>
-        <li>119 个 onto_* MCP 工具（v2）vs 主线 facade 5 个固定签名工具</li>
-      </ul>
-      <div className="onto-sec">
-        <span className="onto-sec-title">产物回流（P1 手工）</span>
-      </div>
-      <ol className="onto-report-list">
-        <li>oo 工作台导出 TTL</li>
-        <li>「自定义构建 → S1 → 导入文件」上传该 TTL（有损导入，映射规则见导入报告）</li>
-        <li>REQ-78 双轨 TTL 互通（P2）后自动化</li>
-      </ol>
-      <Space style={{ marginTop: 12 }} wrap>
-        <Button type="primary" href="/api/oo/mcp" target="_blank" rel="noreferrer">
-          查看 oo MCP 端点（/api/oo/mcp）
-        </Button>
-        <Button icon={<RightOutlined />} onClick={() => { localStorage.setItem('eino.onto.sidebar', 'runtime'); window.dispatchEvent(new CustomEvent('onto-sidebar-change')) }}>
-          查看运行栏 oo 引导页
-        </Button>
-      </Space>
-      <OoTtlImport />
-    </Card>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // CSV 灌装（REQ-96 P2a 同名映射 + P2b 映射向导）在资产栏「CSV 灌装」页签（CsvIngestPane）

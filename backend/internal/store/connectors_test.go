@@ -1,9 +1,8 @@
-// REQ-214/M46 外部连接器存储层单测：CRUD/名称冲突/凭据保留口径/存量 mcp_servers 幂等迁移/oo 内置引导。零依赖。
+// REQ-214/M46 外部连接器存储层单测：CRUD/名称冲突/凭据保留口径/存量 mcp_servers 幂等迁移。零依赖。
 package store
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -69,15 +68,15 @@ func TestMigrateAgentMCPToConnectorsIdempotent(t *testing.T) {
 	st := newConnectorTestStore(t)
 	ag, err := st.CreateAgent(&Agent{Name: "ops-agent", Instruction: "x", MaxIteration: 5,
 		MCPServers: []MCPServer{
-			{Name: "open-ontologies", URL: "http://127.0.0.1:8092/mcp"},
+			{Name: "legacy-mcp-a", URL: "http://127.0.0.1:9002/mcp"},
 			{Name: "legacy-mcp", URL: "http://127.0.0.1:9001/mcp"},
 		}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 预置同名连接器（迁移应复用而非重建）
-	if _, err := st.CreateConnector(&Connector{Kind: ConnectorKindMCP, Name: "open-ontologies",
-		Config: map[string]any{"url": "http://127.0.0.1:8092/mcp"}}); err != nil {
+	if _, err := st.CreateConnector(&Connector{Kind: ConnectorKindMCP, Name: "legacy-mcp-a",
+		Config: map[string]any{"url": "http://127.0.0.1:9002/mcp"}}); err != nil {
 		t.Fatal(err)
 	}
 	n, err := st.MigrateAgentMCPToConnectors()
@@ -99,26 +98,6 @@ func TestMigrateAgentMCPToConnectorsIdempotent(t *testing.T) {
 	// 幂等：二次迁移 0
 	if n2, err := st.MigrateAgentMCPToConnectors(); err != nil || n2 != 0 {
 		t.Fatalf("二次迁移应 n=0, got n=%d err=%v", n2, err)
-	}
-}
-
-func TestEnsureBuiltinOpenOntologiesConnector(t *testing.T) {
-	st := newConnectorTestStore(t)
-	if err := st.EnsureBuiltinOpenOntologiesConnector(); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.EnsureBuiltinOpenOntologiesConnector(); err != nil { // 幂等
-		t.Fatal(err)
-	}
-	c, err := st.GetConnectorByName(BuiltinConnectorOpenOntologies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !c.IsBuiltin || c.Kind != ConnectorKindMCP {
-		t.Fatalf("内置 oo 连接器属性: %+v", c)
-	}
-	if !strings.Contains(c.Description, "/api/oo/mcp") {
-		t.Fatalf("描述应含同源等价地址: %s", c.Description)
 	}
 }
 

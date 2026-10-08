@@ -1,15 +1,16 @@
 ---
 module: 本体
 topic: open-ontologies 双轨退役与自研借鉴可行性分析
-desc: 摘掉后端 oo 服务、借鉴转自研的可行性判定——真机零使用取证 + 九大能力面×主线已有能力对照 + 三方案与分批落地路线
+desc: 摘掉后端 oo 服务、借鉴转自研的可行性判定——真机零使用取证 + 九大能力面×主线已有能力对照 + 三方案与分批落地路线（2026-10-08 拍板方案 B 并当日落地，§7）
 synced: 2026-10-08
 ---
 
 # open-ontologies 双轨退役与自研借鉴可行性分析
 
-> 状态：v1.0 ｜ 日期：2026-10-08 ｜ 动因：开发者指令「根据最新的 open ontology 调研文档，分析去掉后端运行 open-ontology 服务、改为自研借鉴部分的方案可行性」
+> 状态：v1.1（**2026-10-08 开发者拍板方案 B 并当日落地，见 §7**）｜ 日期：2026-10-08 ｜ 动因：开发者指令「根据最新的 open ontology 调研文档，分析去掉后端运行 open-ontology 服务、改为自研借鉴部分的方案可行性」
 
-> **拍板注记（2026-10-08）**：开发者指令「分析当前项目还不具备 open-ontologies 开源项目的哪些能力，为不具备的能力立项，降低优先级待后续逐步开发」——§2 对照的残余缺口已立项 **REQ-278（变更影响分析，P2 触发驱动）/REQ-279（蕴含保持切片检索，P3 触发驱动）/REQ-280（双时序版本化，P3 触发驱动）**（03 v1.10 §2.25/18 v2.63）；对齐面沿用 REQ-79 既有号；不立项判定（语义 diff/物化进图/溯源半环/断言支撑率/多格式灌装/证书四内核等）已如实留档。**本档 §3 方案 A/B/C（oo 服务退役与集成面诚实化）不在该指令范围，仍待拍板**；§4 第一批零代码（A/C 簇纪律）与第二批低成本（B2/B5/B3）随方案拍板后执行。
+> **立项注记（2026-10-08，并行轮）**：开发者指令「分析当前项目还不具备 open-ontologies 开源项目的哪些能力，为不具备的能力立项，降低优先级待后续逐步开发」——§2 对照的残余缺口已立项 **REQ-278（变更影响分析，P2 触发驱动）/REQ-279（蕴含保持切片检索，P3 触发驱动）/REQ-280（双时序版本化，P3 触发驱动）**（03 §2.25/18 号）；对齐面沿用 REQ-79 既有号；不立项判定（语义 diff/物化进图/溯源半环/断言支撑率/多格式灌装/证书四内核等）已如实留档。~~本档 §3 方案 A/B/C（oo 服务退役与集成面诚实化）不在该指令范围，仍待拍板~~（**已拍板：方案 B，同日落地见 §7**）；§4 第一批零代码（A/C 簇纪律）与第二批低成本（B2/B5/B3）转为触发驱动单独领取，远期三项已由 REQ-278~280 占号承接。
+ (feat: oo 双轨退役（REQ-100 ⛔）交付——开发者对 66 号《双轨退役与自研借鉴可行性分析》拍板「采纳方案 B」立项即交付，oo 降级纯调研档（headless 12/12 smoke/oo-retire/）——①代码摘除 ≈200 行：run-dev.sh oo 托管块（顺修 ONT_PID=$! 落 oo 块后 oo 一旦启动 EXIT trap 错杀 oo 放过 ontologyd 的休眠腐烂隐患）/backend ooProxy+/api/oo 路由（server.go 顺清 4 个仅其使用的 import）/EnsureBuiltinOpenOntologiesConnector 调用与定义+BuiltinConnectorOpenOntologies 常量/两连接器测试 oo 用例（删除保护用例改本地 builtin 夹具保 IsBuiltin 语义；MCP 迁移夹具中性化 legacy-mcp-a）/BuildPage oo 路径项与 STATE_TAG 与渲染分支与 OoGuide/RuntimePage oo 引擎项与 OpenOntologiesGuide/LearnPage 构建路径+运行方式两对照卡/OoTtlImport.tsx 组件文件删除（TTL 回流入口随退役；导入审查底座保留面向任意 TTL）/ImportMergeWizard「两轨分工」文案改「有损导入」+图形编辑补录兜底（两轨分工指引撤销）/AgentSidePanel 空连接器提示去「内置 open-ontologies 已就绪」；②验证=go build 全仓+store/api 包绿+tsc 绿+vite dist 重建+backend 重启新二进制 /api/oo 与 /api/oo/mcp 均 404+headless 12/12（构建页路径项=5/运行页引擎项=3/存量 localStorage oo 值双向回退〔buildPath→custom、engineKey→oxigraph〕/学习中心无 oo 卡/页内 fetch 404/零页面错误）+顺带恢复 :8090 runtimed（backend 子进程被杀致 run-dev cleanup trap 连带退出，M60 先例同参数重启对账领养 4 方案）；③文档全量回写=01 v1.25（REQ-100 ⛔+REQ-99/111/§3 布局注）/02 v0.182（§4.1 进程清单/§4.3 目录树/架构图 oo 框退役注/§6.15 标题注）/03 v1.10（D-O16① 演进注「可摘除原则」兑现/工具链候选两条件撤销〔S1 灌装 S3 校验推理——主线同族物 REQ-96/REQ-255 承载〕/REQ-78 ⛔ 编号保留/REQ-171 P2③ 注）/04 v1.14（§1.1 架构图/§2 模型边界/§2.4 两轨分工撤销/§6 A-1 注/§7 退役索引新增 oo 双轨项）/14 v0.73（构建树运行树/学习中心两对照区/两节标退役/localStorage 回退口径）/16 v0.7（服务表 oo 行删除/Rust 盘点收一处/网络边界警告收两服务）/17 v0.62（REQ-111 决议退役注/§3.1 运行行/构建路径表 4 ✕/REQ-214 交付注④注/REQ-115 映射行）/18 v2.63（REQ-100 行注 编号不复用）/20 v2.15（S4.28 ⛔ 退役标注+smoke/oo-retire/ 替代检查）/15 号 v2.29（Open Ontologies ✅→⏸ 退役留档+头版本 v2.28→v2.29）/66 号 v1.1（§7 拍板落地记录）/34/65 号头部注/本体导读页（路径 4 ✕/引擎清单/设计原理链接改学习资料）/AGENTS（项目定位+当前状态）；④保留=34/65 号纯学习档+上游资料链接（seeds/learning/external-resources.md）+REQ-214 连接器模块三 kind 不受影响；66 号 §2 九能力面对照与 §4 自研三批路线留作触发驱动重评底稿（变更影响分析=唯一真缺口未立项）)
 > 依据：**65 号（能力档案：122 工具全景 + 借鉴三层 A1~C4）** + **34 号（集成档案：双轨拍板 REQ-100/M8.5）** + 本档 §1 真机与代码一手取证
 > 关联：REQ-100/111、D-O16①（OO 导航归位 + 双轨可摘除原则）、**D-O23（OntoChat 自研化批次——同日先例）**、D-O15（semantica 归档先例）、REQ-78（双轨互通，冻结）、REQ-79（对齐，P2 远期）、15 号 v2.17/v2.27、20 号 S4.28
 
@@ -160,6 +161,23 @@ M8.5 实际交付形态比 34 号 §8 设想的「oo-worker Go 薄服务 + 工�
 4. **65 号自身边界继承**：65 号未运行 oo（沙箱无法 clone），本档对其能力面的引用均系该项目自述/源码阅读口径；本档新增的一手取证仅为**本项目侧**集成面与运行态。
 
 ---
+
+## 7. 拍板与落地记录（v1.1，2026-10-08 当日）
+
+**开发者拍板：采纳方案 B（彻底摘除）**，当日交付：
+
+**代码摘除（≈200 行全清）**：
+- `run-dev.sh` oo 托管块删除；`ONT_PID=$!` 移回 ontologyd 启动之后——§1.1 的 trap 错杀隐患随块删除自然消除。
+- backend：`ooProxy` + `/api/oo/` 路由注册删除（server.go，顺带清 4 个仅其使用的 import）；`EnsureBuiltinOpenOntologiesConnector` 调用（main.go）与定义+`BuiltinConnectorOpenOntologies` 常量（connectors.go）删除；connectors_test 删除 oo 内置用例、handlers_connectors_test 删除保护用例改本地 builtin 夹具（IsBuiltin 语义测试保留）；MCP 迁移测试夹具中性化（open-ontologies→legacy-mcp-a）。
+- 前端：BuildPage `oo` 路径项/STATE_TAG/渲染分支/`OoGuide` 全删（存量 `eino.onto.buildPath=oo` 回落 custom）；RuntimePage `oo` 引擎项与 `OpenOntologiesGuide` 全删（存量 `eino.onto.engineKey=oo` 回落 oxigraph）；LearnPage 构建路径与运行方式两张 oo 对照卡删除；`OoTtlImport.tsx` 组件文件删除（TTL 回流入口随之退役）；ImportMergeWizard「两轨分工」文案改「有损导入」（去 oo 轨指引，保留图形编辑补录指路）；AgentSidePanel 空连接器提示去「内置 open-ontologies 已就绪」。
+
+**验证**：go build 全仓 + store/api 包测试绿；tsc 绿；vite dist 重建；backend 重启新二进制后 `/api/oo/` 与 `/api/oo/mcp` 均 **404**；headless **12/12** `smoke/oo-retire/`（构建页路径项=5 与运行页引擎项=3、两处存量 localStorage oo 值双向回退、学习中心无 oo 卡、页内 fetch /api/oo/mcp=404、零页面错误）。
+
+**文档回写**：01（REQ-100 ⛔ 退役+REQ-99/111/§3 注）｜02（§4.1 进程清单/§4.3 目录树/§6.15 退役注）｜03（D-O16① 演进注/工具链候选撤销/REQ-78 退役/REQ-171 P2③ 注）｜04（§1.1 架构图/§2 模型边界与两轨分工/§4.6/4.7 候选/§6 已知边界/**§7 退役索引新增一项**）｜14（构建树/运行树/学习中心两对照区/六处）｜15（⏸ 退役留档 v2.30）｜16（服务表/语言盘点/网络边界警告收两服务）｜17（REQ-111 决议注/§3.1 运行行/构建路径表 4 ✕/REQ-214 交付注定案）｜20（S4.28 退役标注 v2.15）｜18（REQ-100 行注 v2.64）｜本体导读页（路径 4 ✕/引擎清单/设计原理链接改学习资料）｜AGENTS（项目定位+当前状态）。
+
+**保留与边界**：34/65 号为纯学习调研档继续有效；`seeds/learning/external-resources.md` 上游链接保留（学习资料）；REQ-100 编号保留不复用；oo 数据面零迁移（本就无 data-dir）；REQ-214 连接器模块本身不受影响（MCP 直通/k8s/ssh 三 kind 照常，仅 oo 预设内置连接器随退役摘除）。
+
+**与并行立项轮（REQ-278~280）的关系**：§2 残余缺口的远期三项已由并行轮占号——REQ-278 变更影响分析（P2 触发驱动，即 §2 唯一真缺口）/REQ-279 蕴含保持切片检索（P3）/REQ-280 双时序版本化（P3）；65 号 B 簇其余低成本条目（B2/B5 报告三态、B3 plan_id 生命周期化）与 A/C 簇工程纪律仍按 §4 触发驱动单独领取——本档 §2 对照表与 §4 路线继续有效，作为实施与重评的底稿。
 
 ## 参考资料
 

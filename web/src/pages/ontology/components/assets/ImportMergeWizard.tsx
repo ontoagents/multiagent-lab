@@ -156,8 +156,8 @@ export default function ImportMergeWizard({
             type="warning"
             showIcon
             style={{ marginBottom: 10 }}
-            title="两轨分工（REQ-235⑤）"
-            description="本导入走 spec_json 轻量教学子集（类层次/对象属性/实例断言，datatype 断言落实例 attributes，公理与推理语义有损丢弃并在报告中明示）。重语义资产（含复杂公理/等价类/推理需求）建议走 Open Ontologies（oo）轨承载。"
+            title="有损导入（REQ-235⑤）"
+            description="本导入走 spec_json 轻量教学子集（类层次/对象属性/实例断言，datatype 断言落实例 attributes，公理与推理语义有损丢弃并在报告中明示）；丢失项可经「前往图形编辑补录」补齐。"
           />
           <Space direction="vertical" style={{ width: '100%' }} size={10}>
             <Space size={10} wrap>

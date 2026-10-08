@@ -279,15 +279,8 @@ const BUILD_PATH_CARDS: { key: string; title: string; scene: string; points: str
     state: { color: 'gold', text: '部分可用' },
     example: 'ontoextend：组织与人员 ODP → 合并审查 → 新版本（M-O14 P2②）',
   },
-  {
-    key: 'oo',
-    title: 'Open Ontologies 流程',
-    scene: '双轨 TTL 构建（物化推理 / SHACL / 影响分析）',
-    points: '推理型本体工程的完整工具面（39 工具）',
-    state: { color: 'cyan', text: '引导+回流' },
-    example: '设备故障知识（SKOS 分类+灌装路径演示）',
-  },
 ]
+
 
 // ---------------------------------------------------------------------------
 // 运行方式对照（引擎差异卡；O6 已交付，推理对照已激活）
@@ -308,14 +301,8 @@ const RUNTIME_CARDS: { engine: string; tag: { color: string; text: string };推�
     points: '推理对照（REQ-94）已激活：同本体建两套方案一开一关推理，同一 SPARQL 对照结果差异（如 subClassOf 实例类型传导）；对照实验建议见方案向导',
     entry: '本体运行 → Fuseki',
   },
-  {
-    engine: 'Open Ontologies',
-    tag: { color: 'cyan', text: '引导页' },
-    推理: '物化推理（RDFS/OWL-RL 建库即物化）',
-    points: '39 工具 MCP；SHACL 校验；变更影响分析；双轨数据不进主线仓库',
-    entry: '本体运行 → Open Ontologies',
-  },
 ]
+
 
 export default function LearnPage() {
   const { showToast } = useUI()

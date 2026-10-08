@@ -146,14 +146,11 @@ func main() {
 	}
 
 	// REQ-214/M46：外部连接器启动引导——存量 mcp_servers 挂载幂等迁移为连接器实例+引用
-	//（实例名沿用原 name，装配前缀槽位不变=工具名零破坏；mcp_servers 置空即完成）+ oo 预设内置化。
+	//（实例名沿用原 name，装配前缀槽位不变=工具名零破坏；mcp_servers 置空即完成）。
 	if n, err := st.MigrateAgentMCPToConnectors(); err != nil {
 		log.Printf("[backend] migrate agent mcp_servers to connectors: %v", err)
 	} else if n > 0 {
 		log.Printf("[backend] REQ-214: 已迁移 %d 个 agent 的存量 MCP 挂载为连接器引用", n)
-	}
-	if err := st.EnsureBuiltinOpenOntologiesConnector(); err != nil {
-		log.Printf("[backend] ensure builtin open-ontologies connector: %v", err)
 	}
 	// REQ-214/M46 阶段二：平台托管自研 Go MCP 插件服务（进程内嵌、loopback 独立端口）——
 	// kubernetes/ssh 连接器经此走标准 MCP 客户端管线，凭据服务端绑定不进 LLM 上下文不进工具参数。

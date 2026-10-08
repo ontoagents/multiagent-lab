@@ -51,7 +51,7 @@ import TraceTable from './components/TraceTable'
 //   正交红线：不调用任何写仓库接口（编辑本体去「本体资产」栏）
 // ---------------------------------------------------------------------------
 
-type EngineKey = 'oxigraph' | 'fuseki' | 'oo' | 'cayley'
+type EngineKey = 'oxigraph' | 'fuseki' | 'cayley'
 
 /** 运行栏引擎选中项（模块内持久化） */
 const ONTO_ENGINE_KEY = 'eino.onto.engineKey'
@@ -59,20 +59,18 @@ const ONTO_ENGINE_KEY = 'eino.onto.engineKey'
 const ENGINES: { key: EngineKey; label: string; state: 'ok' | 'soon' | 'guide' | 'disabled'; desc: string }[] = [
   { key: 'oxigraph', label: 'Oxigraph', state: 'ok', desc: 'SPARQL 型 · 轻量快速（无推理）' },
   { key: 'fuseki', label: 'Fuseki', state: 'ok', desc: 'SPARQL 型 · RDFS/OWL 推理可配（O6）' },
-  { key: 'oo', label: 'Open Ontologies', state: 'guide', desc: '独立托管双轨 · 引导页（非 managed 引擎）' },
   { key: 'cayley', label: 'Cayley', state: 'disabled', desc: '轻量内存图 · P2 可选（D-O5 v0.4）' },
 ]
 
 const STATE_TAG: Record<EngineKey, { color: string; text: string }[]> = {
   oxigraph: [{ color: 'green', text: '可用' }],
   fuseki: [{ color: 'green', text: '可用' }, { color: 'blue', text: '推理' }],
-  oo: [{ color: 'cyan', text: '引导页' }],
   cayley: [{ color: 'default', text: 'P2' }],
 }
 
 function readEngineKey(): EngineKey {
   const v = localStorage.getItem(ONTO_ENGINE_KEY)
-  return v === 'fuseki' || v === 'oo' || v === 'cayley' ? (v as EngineKey) : 'oxigraph'
+  return v === 'fuseki' || v === 'cayley' ? (v as EngineKey) : 'oxigraph'
 }
 
 /** last_error 关键词 → 友好预检文案（D-O9：engines 预检段未提供前的兜底） */
@@ -183,11 +181,7 @@ export default function RuntimePage() {
         })}
       </div>
 
-      {engineKey === 'oo' ? (
-        <OpenOntologiesGuide />
-      ) : (
-        <EngineProfilesPage engine={engineKey} engineStatus={engineStatus(engineKey)} />
-      )}
+      <EngineProfilesPage engine={engineKey} engineStatus={engineStatus(engineKey)} />
     </div>
   )
 }
@@ -1070,42 +1064,4 @@ function QueryMountPane({ profile, profilesErr }: { profile: RuntimeProfile; pro
 // Open Ontologies 引导页（非 managed 引擎，无启停管理）
 // ---------------------------------------------------------------------------
 
-function OpenOntologiesGuide() {
-  return (
-    <Card className="work-card" size="small">
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="Open Ontologies：独立托管双轨（oo-worker :8092）"
-        description="Rust 单二进制（MIT，Oxigraph 0.5 后端）：RDFS/OWL-RL 物化推理、SHACL 校验、不一致检查、变更影响分析、数据装载、MCP server（39 个 onto_* 工具）。与主线两平面并行双轨、无接口依赖、可整体摘除。"
-      />
-      <div className="onto-sec" style={{ marginTop: 0 }}>
-        <span className="onto-sec-title">能力面</span>
-      </div>
-      <ul className="onto-report-list">
-        <li>物化推理：RDFS / OWL-RL 全量物化，subClassOf / subPropertyOf 传导可见</li>
-        <li>SHACL 校验与不一致检查：约束违规与矛盾路径输出</li>
-        <li>变更影响分析（plan / blast radius）：改一条公理前先看波及面</li>
-        <li>数据装载：CSV / XLSX / JSON → RDF（S1 段 guided 候选）</li>
-        <li>MCP server：39 个 onto_* 工具（主线 facade 为 4 个固定签名的子集）</li>
-      </ul>
-      <div className="onto-sec">
-        <span className="onto-sec-title">数据边界</span>
-      </div>
-      <Alert type="warning" showIcon title="oo 数据不进主线仓库（spec_json 体系）" description="双轨数据 P1 不互通；回流路径：导出 TTL → 主线「本体构建 → 导入文件」（REQ-78 双轨互通 P2 后自动化）。" />
-      <div className="onto-sec">
-        <span className="onto-sec-title">工作台入口</span>
-      </div>
-      <Space>
-        <Button type="primary" href="/api/oo/" target="_blank" rel="noreferrer">
-          前往 Open Ontologies 工作台（oo-worker :8092）
-        </Button>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          需先启动 oo-worker（run-dev.sh 编排；未启动时反代 502）
-        </Typography.Text>
-      </Space>
-    </Card>
-  )
-}
 

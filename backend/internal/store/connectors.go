@@ -22,9 +22,6 @@ const (
 // ConnectorKinds 合法类型白名单。
 var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH}
 
-// BuiltinConnectorOpenOntologies 内置 open-ontologies 连接器实例名（oo 预设迁移，REQ-214 批次一）。
-const BuiltinConnectorOpenOntologies = "open-ontologies"
-
 func scanConnector(row interface{ Scan(...any) error }) (*Connector, error) {
 	var c Connector
 	var configJSON, toolsJSON string
@@ -212,27 +209,6 @@ func (s *Store) MigrateAgentMCPToConnectors() (int, error) {
 		}
 	}
 	return migrated, nil
-}
-
-// EnsureBuiltinOpenOntologiesConnector 内置 open-ontologies 连接器（oo 预设迁移，幂等）。
-// 沿用原预设 URL（oo 原生 :8092/mcp；平台同源等价地址 /api/oo/mcp）。
-func (s *Store) EnsureBuiltinOpenOntologiesConnector() error {
-	_, err := s.GetConnectorByName(BuiltinConnectorOpenOntologies)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return err
-	}
-	_, err = s.CreateConnector(&Connector{
-		Kind:        ConnectorKindMCP,
-		Name:        BuiltinConnectorOpenOntologies,
-		Description: "内置：open-ontologies 双轨 MCP（119 onto_* 工具，Streamable HTTP；v2.0.1）——平台同源等价地址 /api/oo/mcp",
-		Config:      map[string]any{"url": "http://127.0.0.1:8092/mcp"},
-		Status:      "unknown",
-		IsBuiltin:   true,
-	})
-	return err
 }
 
 func containsID(ids []string, id string) bool {

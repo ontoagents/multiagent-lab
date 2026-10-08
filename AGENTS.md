@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-「智能体构建平台」——Go + CloudWeGo Eino/ADK 的智能体构建平台（单机可部署），六模块 + 设置（智能体 / 项目 / 本体 / 知识库 / 技能 / 📖平台知识 REQ-116/161 / ⚙设置；OpenOntologies 双轨经本体模块入口承载，REQ-111）。双核心：**智能体工程**（对话 / 多智能体协作 / 知识·技能·本体增强，01）+ **本体工程**（构建 → 资产 → 运行 → 消费审计闭环，03），能力边界诚实标注（如 KG 增强检索为轻量实现）。
+「智能体构建平台」——Go + CloudWeGo Eino/ADK 的智能体构建平台（单机可部署），六模块 + 设置（智能体 / 项目 / 本体 / 知识库 / 技能 / 📖平台知识 REQ-116/161 / ⚙设置；OpenOntologies 双轨已退役〔2026-10-08，66 号方案 B，REQ-100 ⛔〕）。双核心：**智能体工程**（对话 / 多智能体协作 / 知识·技能·本体增强，01）+ **本体工程**（构建 → 资产 → 运行 → 消费审计闭环，03），能力边界诚实标注（如 KG 增强检索为轻量实现）。
 
 ## 仓库结构
 
@@ -47,6 +47,8 @@
 7. **知识同步**：需求/方案档发生**语义级变更**（新增/变更 REQ 行、新增/反转 D-* 决策、口径退役）的同一轮交付里，必须同步更新 `sources` 命中的 `platform-knowledge/` 模块导读页（每篇头部有源指针 frontmatter；原 seeds/learning/reference/，2026-09-25 迁入）；纯笔误/版本递增不触发。知识分层职责见 17 §1.4，页面渲染检查在 20 号冒烟清单 S1。
 
 ## 当前状态（2026-09-30，由协作 Agent 维护）
+
+- **oo 双轨退役（REQ-100 ⛔）已交付（2026-10-08，开发者对 66 号《双轨退役与自研借鉴可行性分析》拍板「采纳方案 B」立项即交付；headless 12/12 smoke/oo-retire/）**：①**代码摘除**——run-dev.sh oo 托管块（顺修 ONT_PID=$! 落 oo 块后、oo 一旦启动 EXIT trap 错杀 oo 放过 ontologyd 的休眠腐烂隐患）/backend ooProxy+/api/oo 路由/EnsureBuiltinOpenOntologiesConnector+内置连接器常量/两连接器测试 oo 用例（删除保护改本地 builtin 夹具；MCP 迁移夹具中性化 legacy-mcp-a）/BuildPage oo 路径与 OoGuide/RuntimePage oo 引擎项与 OpenOntologiesGuide/LearnPage 构建路径+运行方式两对照卡/OoTtlImport 组件文件/ImportMergeWizard「两轨分工」文案改「有损导入」/AgentSidePanel 空连接器提示去「内置 open-ontologies 已就绪」；②**验证**——go build 全仓+store/api 包绿+tsc 绿+vite dist 重建+backend 重启后 /api/oo 与 /api/oo/mcp 均 404+headless 12/12（构建页路径项=5/运行页引擎项=3/存量 localStorage oo 值双向回退〔buildPath→custom、engineKey→oxigraph〕/学习中心无 oo 卡/零页面错误）；③**文档**——01 v1.25（REQ-100 ⛔+REQ-99/111/§3 注）/02 v0.182（§4.1/§4.3/架构图/§6.15 退役注）/03 v1.11（D-O16① 演进注/工具链候选两条件撤销/REQ-78 ⛔/REQ-171 P2③ 注；v1.10 被并行 REQ-278~280 立项轮占用顺延）/04 v1.14（§1.1/§2/§2.4 两轨分工撤销/§6/**§7 退役索引新增 oo 双轨项**）/14 v0.73/16 v0.7（服务表与网络边界警告收两服务）/17 v0.62/18 v2.64/20 v2.15（S4.28 ⛔ 退役标注）/15 号 v2.30（Open Ontologies ✅→⏸ 退役留档）/66 号 v1.1（§7 拍板落地记录）/34/65 号头部注/本体导读页（路径 4 ✕）synced；**保留**——oo 降级纯调研档（34/65/66 号）+上游学习资料链接（seeds/learning/external-resources.md）；REQ-214 连接器模块与 MCP/k8s/ssh 三 kind 不受影响；66 号 §2 九能力面对照与 §4 自研三批路线留作触发驱动重评底稿（变更影响分析=唯一真缺口，未立项）。
 
 - **REQ-276 资产详情页滚动与图形视图布局优化已交付（2026-10-08，开发者两点指令「①详情页右侧垂直滚动条支持整区滚动②图形编辑/可视化减小右侧图例框宽度、画板下方支持拖动调整」立项即交付；headless 12/12 smoke/req276/）**：①**详情整区滚动**——AssetsPage 两个渲染分支内容面板挂 `.asset-detail-scroll`（height:100%+overflow-y:auto+scrollbar-gutter:stable+WebKit 可见滚动条 var(--c-line) 圆角拇指），治 `.sidebar-splitter` 面板 overflow:hidden 裁剪长内容；左锚点导航 sticky 于滚动容器内保持常显；②**图例/编辑面板减宽**——SpecGraph 右图例面板 defaultSize 32%→**22%**（min 18%）、GraphEditor 右编辑面板 →**24%**（min 18%）、Graph3D 图例默认 280→**240**（240~420 拖拽+双击复位口径不变，存量 localStorage 记忆优先）；③**画板高度拖拽**——新增 GraphPaneShell 外壳（SpecGraph/GraphEditor 包裹，website DemoPage 复用兼容）：画板下沿 12px 手柄（row-resize+品牌色 grab-bar）拖动调高 320px~85vh（localStorage `eino.onto.flow.height` 记忆，双击复位默认 clamp(380px,58vh,640px)；拖拽态 body cursor/userSelect 锁定+pointer capture；.graph-pane-override 接管时子级 Splitter height:100% 覆盖默认 clamp）；验证=headless **12/12**（overflow auto+小视口滚动能力/可视化右板 23.9%·编辑右板 25.5%/拖拽 557→703+记忆/双击复位/3D 图例 240/零页面错误）+tsc 绿+dist 重建；03 v1.06（§2.24）/18 v2.59/20 v2.11（S4.56）/14 v0.72/17 v0.61（布局基线补两条）/导读页 synced。
 
