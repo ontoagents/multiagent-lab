@@ -3,8 +3,8 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
-import { ApartmentOutlined, CommentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
+import { ApartmentOutlined, CommentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
@@ -119,6 +119,31 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     } catch (e: any) {
       showToast(e.message, 'err')
     }
+  }
+
+  // REQ-277：文件材料导入（纯本地轮零 LLM；story 访谈阶段禁用）
+  const importFile = async (file: File) => {
+    if (!active) return false
+    if (active.stage === 'story') {
+      showToast('访谈阶段请直接回答当前问题；文件材料可在完成访谈后导入', 'err')
+      return false
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('文件超过 2MB 上限', 'err')
+      return false
+    }
+    setTurning(true)
+    try {
+      const content = await file.text()
+      const r = await api.ontoChatTurn(active.id, '', undefined, { name: file.name, content })
+      setActive(r.session)
+      if (r.reply) showToast(r.reply.split('\n')[0].slice(0, 80))
+    } catch (e: any) {
+      showToast(e?.message ?? '导入失败', 'err')
+    } finally {
+      setTurning(false)
+    }
+    return false // 阻止 antd Upload 自动上传
   }
 
   // REQ-272：抽取 CQ 候选（异步 job，复用轮询；done 时经 startJobPoll 填充确认卡）
@@ -751,6 +776,19 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                       </Button>
                     </>
                   )}
+                  <Upload
+                    accept=".md,.markdown,.yaml,.yml,.txt,.json,.csv,.log"
+                    showUploadList={false}
+                    beforeUpload={(file) => {
+                      importFile(file)
+                      return false
+                    }}
+                    disabled={turning || (storyActive && !draftStory)}
+                  >
+                    <Button icon={<PaperClipOutlined />} disabled={turning || (storyActive && !draftStory)} title="导入文本文件材料（md/yaml/txt 等，≤2MB）——进入会话上下文供归纳/抽取/生成使用">
+                      导入文件
+                    </Button>
+                  </Upload>
                   <Button icon={<SolutionOutlined />} disabled={turning} onClick={extractCQs}>
                     抽取 CQ
                   </Button>

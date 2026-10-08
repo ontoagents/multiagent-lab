@@ -89,8 +89,12 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text     string `json:"text"`
-		Feedback string `json:"feedback"`
+		Text       string `json:"text"`
+		Feedback   string `json:"feedback"`
+		ImportFile *struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"import_file"` // REQ-277：文件材料导入（纯本地轮，零 LLM）
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, err)
@@ -102,7 +106,8 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	if strings.TrimSpace(req.Text) == "" && strings.TrimSpace(req.Feedback) == "" {
+	isImport := req.ImportFile != nil && strings.TrimSpace(req.ImportFile.Name) != ""
+	if !isImport && strings.TrimSpace(req.Text) == "" && strings.TrimSpace(req.Feedback) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text 不能为空"})
 		return
 	}
@@ -111,7 +116,29 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
 		return
 	}
-	// 用户消息落库（refine 轮 text 可为空，仅意见）
+	// 用户消息落库（refine 轮 text 可为空，仅意见；导入轮存摘要防消息列表爆炸）
+	if isImport {
+		userMsg := fmt.Sprintf("📎 从文件「%s」导入材料（%d 字符）", req.ImportFile.Name, len([]rune(req.ImportFile.Content)))
+		if err := st.Append(sess.ID, ontochat.Message{Role: "user", Content: userMsg}, nil, nil, nil); err != nil {
+			writeErr(w, err)
+			return
+		}
+		res, err := s.OntoChat.ImportFile(st, sess, req.ImportFile.Name, req.ImportFile.Content)
+		if err != nil {
+			if r.Context().Err() == nil {
+				_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "本轮处理失败：" + err.Error()}, nil, nil, nil)
+			}
+			writeErr(w, err)
+			return
+		}
+		fresh, gerr := st.Get(sess.ID)
+		if gerr != nil {
+			writeErr(w, gerr)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"reply": res.Reply, "stage": res.NextStage, "round": fresh.Round, "session": fresh})
+		return
+	}
 	if strings.TrimSpace(req.Text) != "" {
 		if err := st.Append(sess.ID, ontochat.Message{Role: "user", Content: req.Text}, nil, nil, nil); err != nil {
 			writeErr(w, err)

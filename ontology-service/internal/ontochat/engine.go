@@ -141,6 +141,52 @@ func (e *Engine) turnStory(ctx context.Context, st *Store, sess *Session, userTe
 	return &TurnResult{Reply: reply, NextStage: stage}, nil
 }
 
+// ImportFileMaxChars 导入材料截断上限（防 prompt 爆炸；超出部分截断并在回复中如实标注）。
+const ImportFileMaxChars = 30000
+
+// ImportFile 文件材料导入轮（REQ-277）：纯本地落库零 LLM——内容以「[文件导入 name]」前缀
+// 进 Hints（全量，后续归纳/抽取/生成 prompt 自动携带）；快速模式首轮（cq 且描述为空）同时
+// 以文件名+首段补 Description 并推进 domain；story 访谈阶段禁用（问答语义绑定）。
+func (e *Engine) ImportFile(st *Store, sess *Session, name string, content string) (*TurnResult, error) {
+	if sess.Stage == "story" {
+		return nil, fmt.Errorf("访谈阶段请直接回答当前问题；文件材料可在完成访谈后的补全/草稿阶段导入")
+	}
+	if sess.Stage == "done" {
+		return nil, fmt.Errorf("会话已结束，如需继续请新建会话")
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, fmt.Errorf("文件内容为空")
+	}
+	truncated := false
+	if len([]rune(content)) > ImportFileMaxChars {
+		content = string([]rune(content)[:ImportFileMaxChars])
+		truncated = true
+	}
+	hint := "[文件导入 " + name + "]\n" + content
+	sess.Context.Hints = append(sess.Context.Hints, hint)
+	stage := sess.Stage
+	var reply string
+	if sess.Stage == "cq" && strings.TrimSpace(sess.Context.Description) == "" {
+		// 快速模式首轮导入：以文件名补描述 + 推进 domain（沿 turnCQ 后的动线）
+		desc := name
+		if idx := strings.IndexAny(content, "\n。；"); idx > 0 {
+			desc = string([]rune(content)[:min(idx, 120)])
+		}
+		sess.Context.Description = desc
+		stage = "domain"
+		reply = fmt.Sprintf("已导入文件材料「%s」（%d 字符%s），并以「%s」作为领域描述。可继续补充或直接点击「生成草稿」。",
+			name, len([]rune(content)), map[bool]string{true: "，截断至 " + fmt.Sprint(ImportFileMaxChars), false: ""}[truncated], truncate(desc, 40))
+	} else {
+		reply = fmt.Sprintf("已导入文件材料「%s」（%d 字符%s）进入会话上下文——后续归纳/能力问题抽取/生成草稿均会携带。可继续补充，或点击「生成草稿」。",
+			name, len([]rune(content)), map[bool]string{true: "，截断至 " + fmt.Sprint(ImportFileMaxChars), false: ""}[truncated])
+	}
+	if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, &stage, nil, &sess.Context); err != nil {
+		return nil, err
+	}
+	return &TurnResult{Reply: reply, NextStage: stage}, nil
+}
+
 // StoryBack 访气回退一步（REQ-275 交互不变式③：可回退）：清草稿、步数-1 并重发该问。
 func (e *Engine) StoryBack(st *Store, sess *Session) (*TurnResult, error) {
 	step := sess.Context.StoryStep

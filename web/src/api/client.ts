@@ -631,12 +631,13 @@ export const api = {
   storyTemplates: () => req<{ label: string; text: string }[]>('/api/ontochat/story-templates'),
   getOntoChatSession: (id: string) => req<OntoChatSession>(`/api/ontochat/sessions/${id}`),
   deleteOntoChatSession: (id: string) => req<{ deleted: string }>(`/api/ontochat/sessions/${id}`, { method: 'DELETE' }),
-  /** 一轮交互：text 用户输入；feedback 非空 = refine 修正轮（意见回喂重新生成）。
+  /** 一轮交互：text 用户输入；feedback 非空 = refine 修正轮（意见回喂重新生成）；
+   *  import_file = 文件材料导入（REQ-277，纯本地轮零 LLM）。
    *  REQ-271/M80：同步轮（cq/domain 归纳）200 全量结果；生成轮 202 {job_id, session}（轮询 jobs） */
-  ontoChatTurn: (id: string, text: string, feedback?: string) =>
+  ontoChatTurn: (id: string, text: string, feedback?: string, importFile?: { name: string; content: string }) =>
     req<OntoChatTurnResult & { job_id?: string }>(`/api/ontochat/sessions/${id}/turn`, {
       method: 'POST',
-      body: JSON.stringify({ text, feedback }),
+      body: JSON.stringify({ text, feedback, import_file: importFile }),
     }),
   /** REQ-272：抽取 CQ 候选（异步 job；终态 result={cqs,duplicate_count}） */
   extractOntoChatCQs: (id: string) =>
