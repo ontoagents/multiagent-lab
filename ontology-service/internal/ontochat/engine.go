@@ -181,19 +181,17 @@ func (e *Engine) turnDomain(ctx context.Context, st *Store, sess *Session, userT
 
 // turnDraft 生成轮：累积上下文 → llmcreate.Draft（内含校验回喂循环，最多 3 轮）。
 func (e *Engine) turnDraft(ctx context.Context, st *Store, sess *Session, onProgress ...RoundProgress) (*TurnResult, error) {
-	// 组装 extraHint：CQ + 逐轮补全要点
-	var hints []string
-	if len(sess.Context.CQs) > 0 {
-		hints = append(hints, "能力问题：\n"+joinNumbered(sess.Context.CQs))
-	}
-	hints = append(hints, sess.Context.Hints...)
+	// 组装 extraHint：逐轮补全要点（CQ 不再拼入 hints——改经 DraftWithCQ 的 cqs 参数进
+	// CQ 强调块并回写 spec.CQ，REQ-272 闭合 REQ-248 OntoChat 路径缺口；避免双份重复）
+	hints := append([]string(nil), sess.Context.Hints...)
+	cqs := sess.Context.CQs
 	rounds := make([]func(int, string), 0, len(onProgress))
 	for _, p := range onProgress {
 		if p != nil {
 			rounds = append(rounds, func(r int, msg string) { p(r, msg) })
 		}
 	}
-	res, err := e.LLM.Draft(ctx, sess.Context.Description, strings.Join(hints, "\n\n"), rounds...)
+	res, err := e.LLM.DraftWithCQ(ctx, sess.Context.Description, strings.Join(hints, "\n\n"), cqs, rounds...)
 	if err != nil && res == nil {
 		return nil, err
 	}

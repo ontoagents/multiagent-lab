@@ -147,19 +147,25 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 	go s.runOntoChatJob(job.ID, sess, req.Text, req.Feedback)
 }
 
-// runOntoChatJob 后台执行生成轮：进度透出 → Turn/Refine → 终态落 job + 错误留痕。
-func (s *Server) runOntoChatJob(jobID string, sess *ontochat.Session, text, feedback string) {
-	st := s.ontoChatStore()
+// registerOntoJobCancel 运行期取消句柄注册（返回收尾函数：cancel+摘除）。
+func (s *Server) registerOntoJobCancel(jobID string) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.jobCancelsMu.Lock()
 	s.jobCancels[jobID] = cancel
 	s.jobCancelsMu.Unlock()
-	defer func() {
+	return ctx, func() {
 		cancel()
 		s.jobCancelsMu.Lock()
 		delete(s.jobCancels, jobID)
 		s.jobCancelsMu.Unlock()
-	}()
+	}
+}
+
+// runOntoChatJob 后台执行生成轮：进度透出 → Turn/Refine → 终态落 job + 错误留痕。
+func (s *Server) runOntoChatJob(jobID string, sess *ontochat.Session, text, feedback string) {
+	st := s.ontoChatStore()
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
 	_ = st.UpdateJobStatus(jobID, "running", "")
 	progress := func(_ int, msg string) {
 		_ = st.UpdateJobProgress(jobID, msg)
@@ -251,6 +257,126 @@ func (s *Server) cancelOntoChatJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, fresh)
+}
+
+// ontoChatCQExtract POST /api/ontochat/sessions/{id}/cq-extract → 202 job（REQ-272）：
+// 从领域描述+累积补充信息抽 CQ 候选（两净化算子），终态 result={cqs,duplicate_count}；
+// assistant 留痕提示确认。与生成轮共用 job 表与会话互斥。
+func (s *Server) ontoChatCQExtract(w http.ResponseWriter, r *http.Request) {
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage == "done" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话已结束，如需继续请新建会话"})
+		return
+	}
+	if active, aerr := st.ActiveJobBySession(sess.ID); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
+		return
+	}
+	job, err := st.CreateJob(newOntoJobID(), sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID})
+	go s.runOntoChatCQExtract(job.ID, sess)
+}
+
+// runOntoChatCQExtract 后台执行 CQ 抽取：进度 → ExtractCQs → 终态落 job + 错误留痕。
+func (s *Server) runOntoChatCQExtract(jobID string, sess *ontochat.Session) {
+	st := s.ontoChatStore()
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
+	_ = st.UpdateJobStatus(jobID, "running", "")
+	progress := func(_ int, msg string) {
+		_ = st.UpdateJobProgress(jobID, msg)
+	}
+	cqs, dup, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
+	if err != nil && ctx.Err() != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "已取消能力问题抽取。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "cancelled", "")
+		return
+	}
+	if err != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "CQ 抽取失败：" + err.Error() + "\n可重试，或手动在首轮输入中补充能力问题。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "error", err.Error())
+		return
+	}
+	result := map[string]any{"cqs": cqs, "duplicate_count": dup}
+	bts, _ := json.Marshal(result)
+	_ = st.SetJobResult(jobID, bts)
+	_ = st.UpdateJobStatus(jobID, "done", "")
+	var b strings.Builder
+	fmt.Fprintf(&b, "已抽取能力问题候选 %d 条", len(cqs))
+	if dup > 0 {
+		fmt.Fprintf(&b, "（与已有重复滤除 %d 条）", dup)
+	}
+	b.WriteString("。请在确认卡中逐条编辑/勾选后写入会话——确认后生成草稿将据此补充建模，并把能力问题回写进本体资产（spec.CQ 可追溯）。")
+	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil)
+}
+
+// ontoChatSetCQs POST /api/ontochat/sessions/{id}/cqs {cqs: [...]} → 人工确认写入会话上下文
+// （analyze 确认步定案保留）；生成轮自此经 DraftWithCQ 回写 spec.CQ（REQ-248 缺口闭合）。
+func (s *Server) ontoChatSetCQs(w http.ResponseWriter, r *http.Request) {
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage == "done" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话已结束，无法修改能力问题"})
+		return
+	}
+	var req struct {
+		CQs []string `json:"cqs"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	cqs := make([]string, 0, len(req.CQs))
+	seen := map[string]bool{}
+	for _, c := range req.CQs {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		cqs = append(cqs, c)
+	}
+	if len(cqs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cqs 不能为空（清空请逐条删除后不提交）"})
+		return
+	}
+	if err := st.UpdateContext(sess.ID, func(c *ontochat.Context) { c.CQs = cqs }); err != nil {
+		writeErr(w, err)
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "已确认能力问题 %d 条：", len(cqs))
+	for i, q := range cqs {
+		fmt.Fprintf(&b, "\n%d. %s", i+1, q)
+	}
+	b.WriteString("\n生成草稿时将据此补充建模，并回写 spec.CQ 入资产可追溯。")
+	if err := st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil); err != nil {
+		writeErr(w, err)
+		return
+	}
+	fresh, err := st.Get(sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": fresh})
 }
 
 // listOntoChatPrompts GET /api/ontochat/prompts → 提示词清单（只读，REQ-271⑥ 定案：只显示不可修改；

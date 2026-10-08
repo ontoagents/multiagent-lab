@@ -132,6 +132,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("DELETE /api/ontochat/sessions/{id}", s.deleteOntoChatSession)
 	m.HandleFunc("POST /api/ontochat/sessions/{id}/turn", s.ontoChatTurn)
 	m.HandleFunc("POST /api/ontochat/sessions/{id}/save", s.ontoChatSave)
+	m.HandleFunc("POST /api/ontochat/sessions/{id}/cq-extract", s.ontoChatCQExtract)
+	m.HandleFunc("POST /api/ontochat/sessions/{id}/cqs", s.ontoChatSetCQs)
 	m.HandleFunc("GET /api/ontochat/jobs/{id}", s.getOntoChatJob)
 	m.HandleFunc("GET /api/ontochat/sessions/{id}/job", s.getOntoChatSessionJob)
 	m.HandleFunc("POST /api/ontochat/jobs/{id}/cancel", s.cancelOntoChatJob)

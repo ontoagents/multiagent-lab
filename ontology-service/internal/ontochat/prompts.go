@@ -42,6 +42,13 @@ func Prompts() []PromptDef {
 			Text:    llmcreate.FewShotHeaderPrompt + "\n```json\n{\"concepts\":[最相近种子前 4 个概念完整 JSON],\"relations\":[前 3 条关系完整 JSON]}\n```",
 		},
 		{
+			ID:      "cq_extraction",
+			Label:   "CQ 抽取提示词",
+			Purpose: "从领域描述与累积补充信息抽取能力问题候选，应用两净化算子（拆非原子问题/命名实体抽象）后输出 JSON 数组，供人工确认编辑后写入会话（生成草稿时回写 spec.CQ 入资产）",
+			Source:  "63 号 P5 蓝本（King-s KG Lab functions.py/ontolib.py；论文 §1.3 模块 2）+中文适配——论文全英文评估，中文有效性以真机验证为准（63 号 §6.3）；v1 两算子合一次调用（论文为分步，诚实标注）",
+			Text:    cqExtractPrompt,
+		},
+		{
 			ID:      "ontology_llm_system",
 			Label:   "平台结构化生成 system 提示",
 			Purpose: "主平台 /api/ontology-llm/generate 通道的 system 角色：要求只输出符合 Schema 的 JSON（草稿与归纳轮共用同一代理）",

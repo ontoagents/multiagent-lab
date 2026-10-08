@@ -169,3 +169,21 @@ func TestPromptsInventory(t *testing.T) {
 		}
 	}
 }
+
+// REQ-272：UpdateContext 定点更新（CQ 确认写入，不追加消息）。
+func TestUpdateContextCQs(t *testing.T) {
+	st := newJobTestStore(t)
+	if err := st.UpdateContext("sess-1", func(c *Context) { c.CQs = []string{"药物可治疗哪些疾病？", "疾病簇由哪些症状组成？"} }); err != nil {
+		t.Fatal(err)
+	}
+	back, err := st.Get("sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Context.CQs) != 2 || back.Context.CQs[0] != "药物可治疗哪些疾病？" {
+		t.Fatalf("CQs 未写入: %+v", back.Context.CQs)
+	}
+	if n := len(back.Messages); n != 0 {
+		t.Fatalf("UpdateContext 不应追加消息: %d", n)
+	}
+}

@@ -653,9 +653,17 @@ export interface OntoChatJob {
     warning?: string
     draft?: Spec
     session?: OntoChatSession
+    cqs?: OntoChatExtractedCQ[] // REQ-272：CQ 抽取 job 终态候选
+    duplicate_count?: number
   }
   created_at: string
   updated_at: string
+}
+
+/** REQ-272：单条 CQ 抽取候选（origin=抽取|拆分|抽象，两净化算子标注） */
+export interface OntoChatExtractedCQ {
+  cq: string
+  origin?: string
 }
 
 /** GET /api/ontochat/prompts：提示词只读清单（REQ-271⑥，页面显示=运行时注入同一份数据） */

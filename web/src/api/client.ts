@@ -631,6 +631,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, feedback }),
     }),
+  /** REQ-272：抽取 CQ 候选（异步 job；终态 result={cqs,duplicate_count}） */
+  extractOntoChatCQs: (id: string) =>
+    req<{ job_id: string }>(`/api/ontochat/sessions/${id}/cq-extract`, { method: 'POST' }),
+  /** REQ-272：人工确认 CQ 写入会话（analyze 确认步；生成草稿时回写 spec.CQ） */
+  setOntoChatCQs: (id: string, cqs: string[]) =>
+    req<{ session: OntoChatSession }>(`/api/ontochat/sessions/${id}/cqs`, {
+      method: 'POST',
+      body: JSON.stringify({ cqs }),
+    }),
   /** REQ-271：生成 job 轮询（1.5s 间隔；done 时 result 含 reply/draft/warning/session） */
   getOntoChatJob: (jobId: string) => req<OntoChatJob>(`/api/ontochat/jobs/${jobId}`),
   /** REQ-271：会话当前活跃任务（无则 job:null；重进会话/刷新后据此恢复轮询） */

@@ -3,10 +3,10 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import { Alert, Button, Card, Drawer, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
-import { DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Drawer, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
+import { DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
+import type { OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
@@ -37,6 +37,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [job, setJob] = useState<OntoChatJob | null>(null)
   const [promptsOpen, setPromptsOpen] = useState(false)
   const [prompts, setPrompts] = useState<OntoChatPrompt[] | null>(null)
+  const [cqDraft, setCqDraft] = useState<{ text: string; origin?: string; checked: boolean }[] | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const jobRef = useRef<string | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
@@ -77,7 +78,10 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           const s = await api.getOntoChatSession(j.session_id)
           setActive(s)
           await refreshList()
-          if (j.status === 'done' && j.result?.draft) {
+          if (j.status === 'done' && j.result?.cqs?.length) {
+            // REQ-272：CQ 候选 → 可编辑确认卡
+            setCqDraft(j.result.cqs.map((c: OntoChatExtractedCQ) => ({ text: c.cq, origin: c.origin, checked: true })))
+          } else if (j.status === 'done' && j.result?.draft) {
             setDraft(j.result.draft)
             setSaveName(j.result.draft.name || '')
             setDraftWarning(j.result.warning || '')
@@ -100,6 +104,46 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
       showToast('正在取消…')
     } catch (e: any) {
       showToast(e.message, 'err')
+    }
+  }
+
+  // REQ-272：抽取 CQ 候选（异步 job，复用轮询；done 时经 startJobPoll 填充确认卡）
+  const extractCQs = async () => {
+    if (!active) return
+    setTurning(true)
+    try {
+      const r = await api.extractOntoChatCQs(active.id)
+      if (r.job_id) {
+        jobRef.current = r.job_id
+        setJob({ id: r.job_id, session_id: active.id, status: 'running', created_at: '', updated_at: '' })
+        startJobPoll(r.job_id)
+      }
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      if (!jobRef.current) setTurning(false)
+    }
+  }
+
+  // REQ-272：人工确认写入会话（analyze 确认步定案保留；生成草稿时回写 spec.CQ）
+  const confirmCQs = async () => {
+    if (!active || !cqDraft) return
+    const list = cqDraft.filter((c) => c.checked && c.text.trim()).map((c) => c.text.trim())
+    if (list.length === 0) {
+      showToast('请至少勾选并填写一条能力问题', 'err')
+      return
+    }
+    setTurning(true)
+    try {
+      const r = await api.setOntoChatCQs(active.id, list)
+      setActive(r.session)
+      setCqDraft(null)
+      await refreshList()
+      showToast(`已确认能力问题 ${list.length} 条`)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setTurning(false)
     }
   }
 
@@ -343,6 +387,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
               <Space size={8} style={{ marginBottom: 8 }} wrap>
                 <Tag {...stageTag} style={{ margin: 0 }}>{stageTag.text}</Tag>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>轮数 {active.round}</Typography.Text>
+                {!!active.context?.cqs?.length && (
+                  <Tag color="purple" style={{ margin: 0 }}>CQ {active.context.cqs.length}</Tag>
+                )}
                 <Button size="small" icon={<FileTextOutlined />} onClick={openPrompts}>
                   提示词
                 </Button>
@@ -358,7 +405,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 style={{ maxHeight: 380, overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
               >
                 {(active.messages ?? []).map((m, i) => {
-                  const isErr = m.role === 'assistant' && (m.content.startsWith('生成失败：') || m.content.startsWith('本轮处理失败：'))
+                  const isErr = m.role === 'assistant' && (m.content.startsWith('生成失败：') || m.content.startsWith('本轮处理失败：') || m.content.startsWith('CQ 抽取失败：'))
                   const isCancel = m.role === 'assistant' && m.content.startsWith('已取消生成')
                   return (
                     <div
@@ -398,6 +445,49 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 )}
                 <div ref={listEndRef} />
               </div>
+
+              {/* CQ 候选确认卡（REQ-272：analyze 人工确认步） */}
+              {cqDraft && !isDone && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 10 }}
+                  title={`能力问题候选确认（勾选 ${cqDraft.filter((c) => c.checked && c.text.trim()).length}/${cqDraft.length}）`}
+                >
+                  {cqDraft.map((row, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <Checkbox
+                        checked={row.checked}
+                        onChange={(e) => setCqDraft(cqDraft.map((r2, j2) => (j2 === i ? { ...r2, checked: e.target.checked } : r2)))}
+                      />
+                      <Input
+                        size="small"
+                        value={row.text}
+                        onChange={(e) => setCqDraft(cqDraft.map((r2, j2) => (j2 === i ? { ...r2, text: e.target.value } : r2)))}
+                        style={{ flex: 1 }}
+                      />
+                      {row.origin && <Tag style={{ margin: 0, fontSize: 11 }}>{row.origin}</Tag>}
+                      <Button size="small" type="text" icon={<DeleteOutlined />} aria-label="删除候选" onClick={() => setCqDraft(cqDraft.filter((_, j2) => j2 !== i))} />
+                    </div>
+                  ))}
+                  <Space style={{ marginTop: 4 }} size={8}>
+                    <Button size="small" onClick={() => setCqDraft([...cqDraft, { text: '', checked: true }])}>
+                      手动添加
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      loading={turning}
+                      disabled={cqDraft.filter((c) => c.checked && c.text.trim()).length === 0}
+                      onClick={confirmCQs}
+                    >
+                      确认写入 {cqDraft.filter((c) => c.checked && c.text.trim()).length} 条
+                    </Button>
+                  </Space>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+                    确认后生成草稿将据此补充建模，并回写 spec.CQ 入本体资产（可追溯）。
+                  </Typography.Paragraph>
+                </Card>
+              )}
 
               {/* 草稿预览 + 入库（REQ-82 门控：必须经用户确认） */}
               {draft && !isDone && (
@@ -448,6 +538,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                       }
                     }}
                   />
+                  <Button icon={<SolutionOutlined />} disabled={turning} onClick={extractCQs}>
+                    抽取 CQ
+                  </Button>
                   {(stage === 'domain' || stage === 'draft' || stage === 'refine') && (
                     <Button icon={<ThunderboltOutlined />} disabled={turning} onClick={() => send('生成草稿')}>
                       生成草稿

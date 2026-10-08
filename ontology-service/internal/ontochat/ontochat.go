@@ -140,6 +140,18 @@ func (s *Store) Append(id string, msg Message, stage *string, round *int, ctx *C
 	return err
 }
 
+// UpdateContext 定点更新上下文（不追加消息；REQ-272 CQ 确认写入等场景）。
+func (s *Store) UpdateContext(id string, mutate func(*Context)) error {
+	sess, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	mutate(&sess.Context)
+	rawCtx, _ := json.Marshal(sess.Context)
+	_, err = s.db.Exec(`UPDATE ontochat_session SET context_json = ?, updated_at = ? WHERE id = ?`, string(rawCtx), now(), id)
+	return err
+}
+
 // BindOntology 入库后回填产物 id 并置 done。
 func (s *Store) BindOntology(id, ontologyID string) error {
 	ts := now()

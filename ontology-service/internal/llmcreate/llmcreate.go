@@ -283,7 +283,13 @@ func (c *Creator) RawChat(ctx context.Context, prompt string) (reply string, usa
 }
 
 func (c *Creator) callGenerate(ctx context.Context, prompt string) (draft string, usage any, err error) {
-	body, _ := json.Marshal(map[string]any{"prompt": prompt, "schema": SpecSchemaHint})
+	return c.Chat(ctx, prompt, SpecSchemaHint)
+}
+
+// Chat 结构化生成通用入口（REQ-272：CQ 抽取/后续 REQ-273 聚类、REQ-274 判定共用底座）——
+// schema 参数化；返回模型输出的 JSON 字符串（调用方自行解析）与 usage；错误归一与 callGenerate 一致。
+func (c *Creator) Chat(ctx context.Context, prompt, schema string) (draft string, usage any, err error) {
+	body, _ := json.Marshal(map[string]any{"prompt": prompt, "schema": schema})
 	resp, err := c.doGenerate(ctx, body)
 	if err != nil {
 		return "", nil, fmt.Errorf("调用主平台模型代理失败: %w", err)
