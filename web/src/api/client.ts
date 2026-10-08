@@ -640,6 +640,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cqs }),
     }),
+  /** REQ-273：CQ 去重与主题聚类（异步 job；max_clusters 0=自动；终态 result={clusters,dedup_count}） */
+  analyzeOntoChatCQs: (id: string, maxClusters?: number) =>
+    req<{ job_id: string }>(`/api/ontochat/sessions/${id}/cq-analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ max_clusters: maxClusters ?? 0 }),
+    }),
   /** REQ-271：生成 job 轮询（1.5s 间隔；done 时 result 含 reply/draft/warning/session） */
   getOntoChatJob: (jobId: string) => req<OntoChatJob>(`/api/ontochat/jobs/${jobId}`),
   /** REQ-271：会话当前活跃任务（无则 job:null；重进会话/刷新后据此恢复轮询） */

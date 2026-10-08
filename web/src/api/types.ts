@@ -655,6 +655,8 @@ export interface OntoChatJob {
     session?: OntoChatSession
     cqs?: OntoChatExtractedCQ[] // REQ-272：CQ 抽取 job 终态候选
     duplicate_count?: number
+    clusters?: OntoChatCluster[] // REQ-273：CQ 分析 job 终态簇
+    dedup_count?: number
   }
   created_at: string
   updated_at: string
@@ -664,6 +666,12 @@ export interface OntoChatJob {
 export interface OntoChatExtractedCQ {
   cq: string
   origin?: string
+}
+
+/** REQ-273：CQ 主题簇（去重+聚类结果，人工确认后应用写回） */
+export interface OntoChatCluster {
+  label: string
+  cqs: string[]
 }
 
 /** GET /api/ontochat/prompts：提示词只读清单（REQ-271⑥，页面显示=运行时注入同一份数据） */

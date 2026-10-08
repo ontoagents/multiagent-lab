@@ -379,6 +379,73 @@ func (s *Server) ontoChatSetCQs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session": fresh})
 }
 
+// ontoChatCQAnalyze POST /api/ontochat/sessions/{id}/cq-analyze {max_clusters?} → 202 job（REQ-273）：
+// 会话 CQs 去重+主题聚类，终态 result={clusters,dedup_count}；应用写回复用 POST /cqs（人工确认步）。
+func (s *Server) ontoChatCQAnalyze(w http.ResponseWriter, r *http.Request) {
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage == "done" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话已结束，如需继续请新建会话"})
+		return
+	}
+	if len(sess.Context.CQs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话尚无能力问题：请先「抽取 CQ」或手动补充后再分析"})
+		return
+	}
+	var req struct {
+		MaxClusters int `json:"max_clusters"`
+	}
+	_ = decodeJSON(r, &req)
+	if active, aerr := st.ActiveJobBySession(sess.ID); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
+		return
+	}
+	job, err := st.CreateJob(newOntoJobID(), sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID})
+	go s.runOntoChatCQAnalyze(job.ID, sess, req.MaxClusters)
+}
+
+// runOntoChatCQAnalyze 后台执行 CQ 分析：进度 → AnalyzeCQs → 终态落 job + 错误留痕。
+func (s *Server) runOntoChatCQAnalyze(jobID string, sess *ontochat.Session, maxClusters int) {
+	st := s.ontoChatStore()
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
+	_ = st.UpdateJobStatus(jobID, "running", "")
+	progress := func(_ int, msg string) {
+		_ = st.UpdateJobProgress(jobID, msg)
+	}
+	clusters, dedup, err := s.OntoChat.AnalyzeCQs(ctx, sess, maxClusters, progress)
+	if err != nil && ctx.Err() != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "已取消能力问题分析。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "cancelled", "")
+		return
+	}
+	if err != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "CQ 分析失败：" + err.Error() + "\n可重试，或直接人工整理能力问题。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "error", err.Error())
+		return
+	}
+	result := map[string]any{"clusters": clusters, "dedup_count": dedup}
+	bts, _ := json.Marshal(result)
+	_ = st.SetJobResult(jobID, bts)
+	_ = st.UpdateJobStatus(jobID, "done", "")
+	var b strings.Builder
+	fmt.Fprintf(&b, "CQ 分析完成：%d 个主题簇，去重合并 %d 条（语义等价保留最清晰表述）。请在分析卡中确认后应用写回——聚类仅供参考分组，不能单独支撑完整分析。", len(clusters), dedup)
+	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil)
+}
+
 // listOntoChatPrompts GET /api/ontochat/prompts → 提示词清单（只读，REQ-271⑥ 定案：只显示不可修改；
 // 返回值即运行时注入的同一批常量，页面显示零复制）。
 func (s *Server) listOntoChatPrompts(w http.ResponseWriter, _ *http.Request) {

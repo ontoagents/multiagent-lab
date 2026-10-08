@@ -4,7 +4,11 @@
 // REQ-272~275 新增阶段（story/抽取/聚类/测试）的提示词统一落此处续行，Source 标注 63 号 P 编号溯源。
 package ontochat
 
-import "github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+import (
+	"strings"
+
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+)
 
 // PromptDef 单条提示词（只读透出形态；Text 为模板骨架，{占位符} 标注运行时动态段）。
 type PromptDef struct {
@@ -47,6 +51,13 @@ func Prompts() []PromptDef {
 			Purpose: "从领域描述与累积补充信息抽取能力问题候选，应用两净化算子（拆非原子问题/命名实体抽象）后输出 JSON 数组，供人工确认编辑后写入会话（生成草稿时回写 spec.CQ 入资产）",
 			Source:  "63 号 P5 蓝本（King-s KG Lab functions.py/ontolib.py；论文 §1.3 模块 2）+中文适配——论文全英文评估，中文有效性以真机验证为准（63 号 §6.3）；v1 两算子合一次调用（论文为分步，诚实标注）",
 			Text:    cqExtractPrompt,
+		},
+		{
+			ID:      "cq_analyze",
+			Label:   "CQ 去重与聚类提示词",
+			Purpose: "对会话确认后的 CQ 清单做 paraphrase 去重（语义等价合并保留最清晰表述）+ 主题聚类（带中文标签簇，可选簇数）；产出经人工确认应用写回会话 CQs",
+			Source:  "63 号 P6 蓝本（King-s KG Lab analysis.py::llm_cq_clustering；论文 §1.3 模块 3）+中文适配——论文 paraphrase 与聚类为两步，v1 合步；诚实边界=聚类不能单独支撑完整分析（论文 62.5% 直观度），须人工确认",
+			Text:    strings.Replace(strings.Replace(cqAnalyzePrompt, "{clusterCount}", clusterCountAuto, 1), "{cqs}", "1. 问题一\n2. 问题二\n……", 1),
 		},
 		{
 			ID:      "ontology_llm_system",

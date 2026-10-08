@@ -3,10 +3,10 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import { Alert, Button, Card, Checkbox, Drawer, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
-import { DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
+import { ApartmentOutlined, DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
+import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
@@ -38,6 +38,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [promptsOpen, setPromptsOpen] = useState(false)
   const [prompts, setPrompts] = useState<OntoChatPrompt[] | null>(null)
   const [cqDraft, setCqDraft] = useState<{ text: string; origin?: string; checked: boolean }[] | null>(null)
+  const [clusterDraft, setClusterDraft] = useState<{ label: string; rows: { text: string; checked: boolean }[] }[] | null>(null)
+  const [analyzeOpen, setAnalyzeOpen] = useState(false)
+  const [analyzeMax, setAnalyzeMax] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const jobRef = useRef<string | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
@@ -78,7 +81,16 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           const s = await api.getOntoChatSession(j.session_id)
           setActive(s)
           await refreshList()
-          if (j.status === 'done' && j.result?.cqs?.length) {
+          if (j.status === 'done' && j.result?.clusters?.length) {
+            // REQ-273：簇结果 → Collapse 勾选卡（人工确认步）
+            setClusterDraft(
+              (j.result.clusters as OntoChatCluster[]).map((cl) => ({
+                label: cl.label,
+                rows: (cl.cqs ?? []).map((q) => ({ text: q, checked: true })),
+              })),
+            )
+            setAnalyzeOpen(false)
+          } else if (j.status === 'done' && j.result?.cqs?.length) {
             // REQ-272：CQ 候选 → 可编辑确认卡
             setCqDraft(j.result.cqs.map((c: OntoChatExtractedCQ) => ({ text: c.cq, origin: c.origin, checked: true })))
           } else if (j.status === 'done' && j.result?.draft) {
@@ -140,6 +152,46 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
       setCqDraft(null)
       await refreshList()
       showToast(`已确认能力问题 ${list.length} 条`)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setTurning(false)
+    }
+  }
+
+  // REQ-273：CQ 去重与主题聚类（异步 job；可选簇数；结果经人工确认应用写回）
+  const runAnalyze = async () => {
+    if (!active) return
+    setTurning(true)
+    try {
+      const r = await api.analyzeOntoChatCQs(active.id, analyzeMax ?? 0)
+      setAnalyzeOpen(false)
+      if (r.job_id) {
+        jobRef.current = r.job_id
+        setJob({ id: r.job_id, session_id: active.id, status: 'running', created_at: '', updated_at: '' })
+        startJobPoll(r.job_id)
+      }
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      if (!jobRef.current) setTurning(false)
+    }
+  }
+
+  const applyClusters = async () => {
+    if (!active || !clusterDraft) return
+    const list = clusterDraft.flatMap((cl) => cl.rows.filter((r) => r.checked && r.text.trim()).map((r) => r.text.trim()))
+    if (list.length === 0) {
+      showToast('请至少勾选一条能力问题', 'err')
+      return
+    }
+    setTurning(true)
+    try {
+      const r = await api.setOntoChatCQs(active.id, list)
+      setActive(r.session)
+      setClusterDraft(null)
+      await refreshList()
+      showToast(`已应用去重结果：写入能力问题 ${list.length} 条`)
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {
@@ -446,6 +498,46 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 <div ref={listEndRef} />
               </div>
 
+              {/* CQ 聚类结果卡（REQ-273：人工确认步——聚类仅供参考分组） */}
+              {clusterDraft && !isDone && (
+                <Card size="small" style={{ marginTop: 10 }} title="CQ 主题聚类（人工确认后应用）">
+                  <Collapse
+                    size="small"
+                    defaultActiveKey={clusterDraft.map((_, i) => String(i))}
+                    items={clusterDraft.map((cl, i) => ({
+                      key: String(i),
+                      label: `${cl.label}（${cl.rows.filter((r) => r.checked).length}/${cl.rows.length}）`,
+                      children: cl.rows.map((row, j) => (
+                        <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                          <Checkbox
+                            checked={row.checked}
+                            onChange={(e) =>
+                              setClusterDraft(
+                                clusterDraft.map((c2, k) =>
+                                  k === i ? { ...c2, rows: c2.rows.map((r2, m) => (m === j ? { ...r2, checked: e.target.checked } : r2)) } : c2,
+                                ),
+                              )
+                            }
+                          />
+                          <Typography.Text style={{ fontSize: 13, flex: 1 }}>{row.text}</Typography.Text>
+                        </div>
+                      )),
+                    }))}
+                  />
+                  <Space style={{ marginTop: 8 }}>
+                    <Button size="small" type="primary" loading={turning} onClick={applyClusters}>
+                      应用去重结果（写回 {clusterDraft.reduce((n, cl) => n + cl.rows.filter((r) => r.checked && r.text.trim()).length, 0)} 条）
+                    </Button>
+                    <Button size="small" onClick={() => setClusterDraft(null)}>
+                      放弃
+                    </Button>
+                  </Space>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+                    诚实边界：聚类仅供参考分组、不能单独支撑完整分析——写回后生成草稿仍以全部勾选问题为能力问题依据（spec.CQ 可追溯）。
+                  </Typography.Paragraph>
+                </Card>
+              )}
+
               {/* CQ 候选确认卡（REQ-272：analyze 人工确认步） */}
               {cqDraft && !isDone && (
                 <Card
@@ -541,6 +633,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   <Button icon={<SolutionOutlined />} disabled={turning} onClick={extractCQs}>
                     抽取 CQ
                   </Button>
+                  <Button
+                    icon={<ApartmentOutlined />}
+                    disabled={turning || !active?.context?.cqs?.length}
+                    title={active?.context?.cqs?.length ? '对已确认的能力问题做去重与主题聚类' : '先抽取或补充能力问题后再分析'}
+                    onClick={() => setAnalyzeOpen(true)}
+                  >
+                    CQ 分析
+                  </Button>
                   {(stage === 'domain' || stage === 'draft' || stage === 'refine') && (
                     <Button icon={<ThunderboltOutlined />} disabled={turning} onClick={() => send('生成草稿')}>
                       生成草稿
@@ -555,6 +655,19 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           )}
         </div>
       </div>
+      <Modal title="CQ 分析：去重与主题聚类" open={analyzeOpen} onCancel={() => setAnalyzeOpen(false)} footer={null}>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          对当前会话已确认的 {active?.context?.cqs?.length ?? 0} 条能力问题做语义去重（等价合并保留最清晰表述）与主题聚类。
+          诚实边界：聚类仅供参考分组、不能单独支撑完整分析——结果须人工确认后才应用写回。
+        </Typography.Paragraph>
+        <Space>
+          <span style={{ fontSize: 13 }}>簇数（留空自动）</span>
+          <InputNumber min={2} max={8} value={analyzeMax} onChange={(v) => setAnalyzeMax(v ?? null)} />
+          <Button type="primary" icon={<ApartmentOutlined />} loading={turning} onClick={runAnalyze}>
+            开始分析
+          </Button>
+        </Space>
+      </Modal>
       <Drawer
         title="OntoChat 提示词（只读）"
         open={promptsOpen}
