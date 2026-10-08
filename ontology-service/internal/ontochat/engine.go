@@ -6,9 +6,13 @@
 //	domain 补全轮：用户逐轮补充领域信息 → 引擎归纳要点，询问是否足够生成
 //	draft  生成轮：把累积上下文整体喂给生成器产出 spec 草稿（复用 llmcreate 校验循环）
 //	refine 修正轮：草稿校验错误回喂 → 重新生成（引擎内已含，最多 3 轮）
+//
+// REQ-271/M80：ctx 贯穿（异步 job 取消依赖）；Turn 增可选 onProgress 回调（生成-校验环
+// 轮次透出给异步 job）；WillGenerate 导出供 REST 层判定同步/异步路径。
 package ontochat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -31,6 +35,9 @@ type TurnResult struct {
 	Warning   string        // 草稿带警告（如达最大修正轮数仍有错误）
 }
 
+// RoundProgress(round, note) 生成-校验环轮次进度回调（异步 job 进度透出，REQ-271）。
+type RoundProgress func(round int, note string)
+
 // domainSufficientPrompt 补全轮的归纳 prompt：让模型归纳已给信息并判断是否可生成。
 const domainSufficientPrompt = `你是本体建模访谈专家。用户正在逐步补充领域信息，请：
 1. 用 2~4 条要点归纳用户本轮补充的信息（不要重复已有要点）；
@@ -39,21 +46,36 @@ const domainSufficientPrompt = `你是本体建模访谈专家。用户正在逐
 4. 若已足够，回复以「可以生成」开头，并简述你准备建模的概念范围。
 要求：中文、简洁（150 字内）、不要输出 JSON。`
 
+// WillGenerate 判定该轮将进入生成器（REST 层同步/异步路径判定依据，REQ-271）：
+// draft/refine 阶段任意输入（修正意见/空文本重生成）都触发生成；domain 阶段命中生成意图才生成；
+// cq 阶段纯本地解析不生成。
+func WillGenerate(stage, userText string) bool {
+	switch stage {
+	case "draft", "refine":
+		return true
+	case "domain":
+		return isGenerateIntent(strings.TrimSpace(userText))
+	default:
+		return false
+	}
+}
+
 // Turn 处理一轮用户输入，推进状态机并落库。
-func (e *Engine) Turn(st *Store, sess *Session, userText string) (*TurnResult, error) {
+// ctx：平台代理调用取消（异步 job cancel / 请求断连）；onProgress：可选生成轮次进度回调。
+func (e *Engine) Turn(ctx context.Context, st *Store, sess *Session, userText string, onProgress ...RoundProgress) (*TurnResult, error) {
 	switch sess.Stage {
 	case "cq":
 		return e.turnCQ(st, sess, userText)
 	case "domain":
-		return e.turnDomain(st, sess, userText)
+		return e.turnDomain(ctx, st, sess, userText, onProgress...)
 	case "draft", "refine":
 		// REQ-246/G5 修复「refine 前端断链」：此阶段用户文本此前被 turnDraft 完全忽略——
 		// 界面承诺「回复修改意见进入修正轮」实际不生效。现非空文本一律作为修正意见走 Refine
 		// （并入 Hints 重生成）；纯「生成」意图或空文本才直接重生成。
 		if fb := strings.TrimSpace(userText); fb != "" && !isGenerateIntent(fb) {
-			return e.Refine(st, sess, fb)
+			return e.Refine(ctx, st, sess, fb, onProgress...)
 		}
-		return e.turnDraft(st, sess)
+		return e.turnDraft(ctx, st, sess, onProgress...)
 	default:
 		return nil, fmt.Errorf("会话已结束（stage=done），如需继续请新建会话")
 	}
@@ -108,7 +130,7 @@ func (e *Engine) turnCQ(st *Store, sess *Session, userText string) (*TurnResult,
 	} else {
 		b.WriteString("\n尚未提供能力问题（可选）。建议列 3~5 个本体要回答的问题，能显著提升建模质量；也可以直接进入补全阶段。")
 	}
-	b.WriteString("\n\n下一步：请继续补充领域信息（关键概念、层级、关系、实例来源等），补充充分后回复「生成草稿」即可产出 spec_json。")
+	b.WriteString("\n\n下一步：请继续补充领域信息（关键概念、层级、关系、实例来源等），补充充分后点击「生成草稿」即可产出 spec_json。")
 	reply := b.String()
 	stage := "domain"
 	round := 0
@@ -118,14 +140,14 @@ func (e *Engine) turnCQ(st *Store, sess *Session, userText string) (*TurnResult,
 	return &TurnResult{Reply: reply, NextStage: stage}, nil
 }
 
-// turnDomain 补全轮：归纳要点；用户说「生成草稿」则直接进入 draft。
-func (e *Engine) turnDomain(st *Store, sess *Session, userText string) (*TurnResult, error) {
+// turnDomain 补全轮：归纳要点；用户说「生成草稿」则直接进入 draft（onProgress 透传，REQ-271）。
+func (e *Engine) turnDomain(ctx context.Context, st *Store, sess *Session, userText string, onProgress ...RoundProgress) (*TurnResult, error) {
 	text := strings.TrimSpace(userText)
 	if text == "" {
-		return nil, fmt.Errorf("请输入内容：补充领域信息，或回复「生成草稿」")
+		return nil, fmt.Errorf("请输入内容：补充领域信息，或点击「生成草稿」")
 	}
 	if isGenerateIntent(text) {
-		return e.turnDraft(st, sess)
+		return e.turnDraft(ctx, st, sess, onProgress...)
 	}
 	sess.Context.Hints = append(sess.Context.Hints, text)
 
@@ -145,7 +167,7 @@ func (e *Engine) turnDomain(st *Store, sess *Session, userText string) (*TurnRes
 			fmt.Fprintf(&b, "\n%d. %s", i+1, h)
 		}
 	}
-	reply, _, err := e.LLM.RawChat(b.String())
+	reply, _, err := e.LLM.RawChat(ctx, b.String())
 	if err != nil {
 		return nil, err
 	}
@@ -158,14 +180,20 @@ func (e *Engine) turnDomain(st *Store, sess *Session, userText string) (*TurnRes
 }
 
 // turnDraft 生成轮：累积上下文 → llmcreate.Draft（内含校验回喂循环，最多 3 轮）。
-func (e *Engine) turnDraft(st *Store, sess *Session) (*TurnResult, error) {
+func (e *Engine) turnDraft(ctx context.Context, st *Store, sess *Session, onProgress ...RoundProgress) (*TurnResult, error) {
 	// 组装 extraHint：CQ + 逐轮补全要点
 	var hints []string
 	if len(sess.Context.CQs) > 0 {
 		hints = append(hints, "能力问题：\n"+joinNumbered(sess.Context.CQs))
 	}
 	hints = append(hints, sess.Context.Hints...)
-	res, err := e.LLM.Draft(sess.Context.Description, strings.Join(hints, "\n\n"))
+	rounds := make([]func(int, string), 0, len(onProgress))
+	for _, p := range onProgress {
+		if p != nil {
+			rounds = append(rounds, func(r int, msg string) { p(r, msg) })
+		}
+	}
+	res, err := e.LLM.Draft(ctx, sess.Context.Description, strings.Join(hints, "\n\n"), rounds...)
 	if err != nil && res == nil {
 		return nil, err
 	}
@@ -192,22 +220,33 @@ func (e *Engine) turnDraft(st *Store, sess *Session) (*TurnResult, error) {
 }
 
 // Refine 修正轮：用户修改意见 + 上稿校验错误回喂重新生成（由 turnDraft 复用：把意见并入 Hints 后再生成）。
-func (e *Engine) Refine(st *Store, sess *Session, feedback string) (*TurnResult, error) {
+func (e *Engine) Refine(ctx context.Context, st *Store, sess *Session, feedback string, onProgress ...RoundProgress) (*TurnResult, error) {
 	if fb := strings.TrimSpace(feedback); fb != "" {
 		sess.Context.Hints = append(sess.Context.Hints, "修正意见："+fb)
 	}
-	return e.turnDraft(st, sess)
+	return e.turnDraft(ctx, st, sess, onProgress...)
 }
 
+// isGenerateIntent 生成意图识别（REQ-271 放宽：去 ≤12 rune 硬阈）。
+// 规则：精确短指令直接命中；含「生成」且 ≤12 rune 的短句命中（沿 REQ-246/G5 口径）；
+// 含「生成」且出现「草稿/出稿/draft/spec」目标词的长句也命中（如「信息差不多了，帮我生成草稿吧」）；
+// 含「生成」但无目标词的长句视为普通建模输入（如「生成关系的设计思路」，避免误触发分钟级生成）。
 func isGenerateIntent(text string) bool {
 	t := strings.TrimSpace(strings.ToLower(text))
-	// REQ-246/G5：放宽识别——此前仅精确匹配「生成草稿/生成/generate/draft」，
-	// 「请生成草稿吧」这类自然措辞被当普通补充信息吞掉。含「生成」且不超过一句
-	// （≤12 rune，避免把带建模内容的长文本误判为生成意图）即视为生成指令。
-	if len([]rune(t)) > 12 {
+	if t == "" {
 		return false
 	}
-	return strings.Contains(t, "生成") || t == "generate" || t == "draft" || t == "出稿" || t == "出草稿"
+	if t == "generate" || t == "draft" || t == "出稿" || t == "出草稿" {
+		return true
+	}
+	if !strings.Contains(t, "生成") {
+		return false
+	}
+	if len([]rune(t)) <= 12 {
+		return true
+	}
+	return strings.Contains(t, "草稿") || strings.Contains(t, "出稿") ||
+		strings.Contains(t, "draft") || strings.Contains(t, "spec")
 }
 
 func joinNumbered(items []string) string {

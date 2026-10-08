@@ -639,6 +639,34 @@ export interface OntoChatTurnResult {
   session: OntoChatSession
 }
 
+/** REQ-271/M80：生成轮异步 job（202 返回 job_id；GET /api/ontochat/jobs/{id} 轮询终态） */
+export interface OntoChatJob {
+  id: string
+  session_id: string
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  error?: string
+  progress?: string
+  result?: {
+    reply?: string
+    stage?: OntoChatStage
+    round?: number
+    warning?: string
+    draft?: Spec
+    session?: OntoChatSession
+  }
+  created_at: string
+  updated_at: string
+}
+
+/** GET /api/ontochat/prompts：提示词只读清单（REQ-271⑥，页面显示=运行时注入同一份数据） */
+export interface OntoChatPrompt {
+  id: string
+  label: string
+  purpose: string
+  source: string
+  text: string
+}
+
 /** 注入指引（GET /api/ontologies/{id}/guide） */
 export interface GuideResponse {
   ontology_id: string

@@ -3,6 +3,7 @@ package rest
 
 import (
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
@@ -41,10 +43,16 @@ type Server struct {
 	pipelineDB *pipeline.Store     // 惰性初始化（rest_pipeline.go）
 	evoDB      *evolution.Store    // REQ-207/M43：进化候选（惰性初始化）
 	vocab      *vocabsearch.Client // REQ-171 P1：LOV 词表搜索（惰性初始化；LOV_API_BASE 可注入测试桩）
+
+	jobCancelsMu sync.Mutex
+	// jobCancels OntoChat 生成 job 的运行期取消句柄（jobID→cancel；终态后摘除）。
+	// job 状态本体在 SQLite（ontochat_job，重启可恢复）；此 map 仅运行期句柄，缺失时取消走收敛兜底。
+	jobCancels map[string]context.CancelFunc
 }
 
 func New(st *repo.Store, sc *importer.Sidecar, llm *llmcreate.Creator) *Server {
-	return &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm}}
+	return &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm},
+		jobCancels: map[string]context.CancelFunc{}}
 }
 
 // Mount 注册到主平台兼容的 1.22 pattern mux。
@@ -117,13 +125,17 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("DELETE /api/pipelines/{id}", s.deletePipeline)
 	m.HandleFunc("POST /api/pipelines/{id}/check", s.checkPipeline)
 	m.HandleFunc("POST /api/ontologies/{id}/fork", s.fork)
-	// OntoChat 多轮引导（REQ-103 模式 A）
+	// OntoChat 多轮引导（REQ-103 模式 A；REQ-271/M80 生成轮异步化+提示词只读透出）
 	m.HandleFunc("GET /api/ontochat/sessions", s.listOntoChatSessions)
 	m.HandleFunc("POST /api/ontochat/sessions", s.createOntoChatSession)
 	m.HandleFunc("GET /api/ontochat/sessions/{id}", s.getOntoChatSession)
 	m.HandleFunc("DELETE /api/ontochat/sessions/{id}", s.deleteOntoChatSession)
 	m.HandleFunc("POST /api/ontochat/sessions/{id}/turn", s.ontoChatTurn)
 	m.HandleFunc("POST /api/ontochat/sessions/{id}/save", s.ontoChatSave)
+	m.HandleFunc("GET /api/ontochat/jobs/{id}", s.getOntoChatJob)
+	m.HandleFunc("GET /api/ontochat/sessions/{id}/job", s.getOntoChatSessionJob)
+	m.HandleFunc("POST /api/ontochat/jobs/{id}/cancel", s.cancelOntoChatJob)
+	m.HandleFunc("GET /api/ontochat/prompts", s.listOntoChatPrompts)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -723,7 +735,7 @@ func (s *Server) cqSparql(w http.ResponseWriter, r *http.Request) {
 	for i, cq := range sp.CQ {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, cq)
 	}
-	reply, _, err := s.LLM.RawChat(b.String())
+	reply, _, err := s.LLM.RawChat(r.Context(), b.String())
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "CQ 翻译失败: " + err.Error()})
 		return
@@ -1008,7 +1020,7 @@ func (s *Server) aiDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// REQ-248/G2：CQ 显式入参（DraftWithCQ 并入 prompt 且回写 spec.CQ 入资产）
-	res, err := s.LLM.DraftWithCQ(req.Description, req.ExtraHint, req.CapabilityQuestions)
+	res, err := s.LLM.DraftWithCQ(r.Context(), req.Description, req.ExtraHint, req.CapabilityQuestions)
 	if res == nil {
 		writeErr(w, err)
 		return

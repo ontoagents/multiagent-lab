@@ -3,11 +3,12 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import { Alert, Button, Card, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
-import { DeleteOutlined, PlusOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Drawer, Empty, Input, List, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
+import { DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { OntoChatSession, Spec } from '../../api/types'
+import type { OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
+import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
 
 const STAGE_TAG: Record<string, { color: string; text: string }> = {
@@ -33,6 +34,11 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [draftWarning, setDraftWarning] = useState('')
   const [saveName, setSaveName] = useState('')
   const [restored, setRestored] = useState<{ round: number; draft: boolean } | null>(null)
+  const [job, setJob] = useState<OntoChatJob | null>(null)
+  const [promptsOpen, setPromptsOpen] = useState(false)
+  const [prompts, setPrompts] = useState<OntoChatPrompt[] | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const jobRef = useRef<string | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
 
   const refreshList = useCallback(async () => {
@@ -46,6 +52,68 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
       return []
     }
   }, [])
+
+  const stopJobPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  // REQ-271：生成 job 轮询（1.5s）——终态拉会话最新态（消息含回复/错误留痕），done 附带草稿
+  const startJobPoll = useCallback((jobId: string) => {
+    stopJobPoll()
+    jobRef.current = jobId
+    setJob({ id: jobId, session_id: '', status: 'running', created_at: '', updated_at: '' })
+    pollRef.current = setInterval(async () => {
+      try {
+        const j = await api.getOntoChatJob(jobId)
+        setJob(j)
+        if (j.status === 'done' || j.status === 'error' || j.status === 'cancelled') {
+          stopJobPoll()
+          jobRef.current = null
+          setJob(null)
+          setTurning(false)
+          const s = await api.getOntoChatSession(j.session_id)
+          setActive(s)
+          await refreshList()
+          if (j.status === 'done' && j.result?.draft) {
+            setDraft(j.result.draft)
+            setSaveName(j.result.draft.name || '')
+            setDraftWarning(j.result.warning || '')
+          } else if (j.status === 'error') {
+            showToast(`生成失败：${j.error ?? '未知错误'}`, 'err')
+          } else if (j.status === 'cancelled') {
+            showToast('已取消生成')
+          }
+        }
+      } catch {
+        /* 单次轮询失败下次重试 */
+      }
+    }, 1500)
+  }, [refreshList, showToast, stopJobPoll])
+
+  const cancelJob = async () => {
+    if (!job) return
+    try {
+      await api.cancelOntoChatJob(job.id)
+      showToast('正在取消…')
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+
+  // REQ-271⑥：提示词只读清单（懒加载；页面显示=运行时注入同一份数据）
+  const openPrompts = async () => {
+    setPromptsOpen(true)
+    if (!prompts) {
+      try {
+        setPrompts(await api.listOntoChatPrompts())
+      } catch (e: any) {
+        showToast(e.message, 'err')
+      }
+    }
+  }
 
   const openSession = useCallback(async (id: string) => {
     setLoading(true)
@@ -64,12 +132,24 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
       }
       setDraftWarning('')
       setSaveName(s.title || '')
+      // REQ-271：重进会话/刷新后恢复进行中生成任务的轮询
+      if (jobRef.current == null) {
+        try {
+          const { job: aj } = await api.getOntoChatSessionActiveJob(id)
+          if (aj) {
+            setTurning(true)
+            startJobPoll(aj.id)
+          }
+        } catch {
+          /* 忽略 */
+        }
+      }
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {
       setLoading(false)
     }
-  }, [showToast])
+  }, [showToast, startJobPoll])
 
   useEffect(() => {
     ;(async () => {
@@ -82,6 +162,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [active?.messages?.length, turning])
+
+  useEffect(() => () => stopJobPoll(), [stopJobPoll])
 
   const newSession = async () => {
     try {
@@ -122,8 +204,13 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     setTurning(true)
     try {
       const r = await api.ontoChatTurn(active.id, text, feedback)
-      setActive(r.session)
       setInput('')
+      setActive(r.session)
+      if (r.job_id) {
+        // REQ-271 生成轮异步：202 → 轮询 job 终态（进度可看/可取消）
+        startJobPoll(r.job_id)
+        return
+      }
       if (r.draft) {
         setDraft(r.draft)
         setSaveName(r.draft.name || '')
@@ -134,8 +221,15 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 503) showToast('LLM 未配置：请在「设置-模型连接」配置默认 chat 连接', 'err')
       else showToast(e.message, 'err')
+      // REQ-271 错误留痕：服务端已落 assistant 错误消息，刷新会话让错误气泡可见（不再只有转瞬 toast）
+      try {
+        const s = await api.getOntoChatSession(active.id)
+        setActive(s)
+      } catch {
+        /* 忽略 */
+      }
     } finally {
-      setTurning(false)
+      if (!jobRef.current) setTurning(false)
     }
   }
 
@@ -168,8 +262,17 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     stage === 'cq'
       ? `第一行领域描述，其后每行一条能力问题（CQ），如：\n${CQ_TEMPLATE}`
       : stage === 'domain'
-        ? '补充领域信息（概念/层级/关系/实例来源）…或回复「生成草稿」直接产出'
+        ? '补充领域信息（概念/层级/关系/实例来源）…或点击「生成草稿」直接产出'
         : '回复修改意见进入修正轮（如：给 Deployment 增加副本数属性）…'
+
+  const msgs = active?.messages ?? []
+  const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant')
+  const lastUserMsg = [...msgs].reverse().find((m) => m.role === 'user')
+  const lastUserText = lastUserMsg?.content
+  // REQ-271：末条 assistant 为错误留痕时给一键重试（重发上一条用户输入）
+  const canRetry =
+    !turning && !job && !!lastAssistant && !!lastUserText &&
+    (lastAssistant.content.startsWith('生成失败：') || lastAssistant.content.startsWith('本轮处理失败：'))
 
   return (
     <Card className="work-card" size="small">
@@ -177,8 +280,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
         type="success"
         showIcon
         style={{ marginBottom: 12 }}
-        title="对话式本体构建（OntoChat 流程，REQ-103 模式 A 已交付）"
-        description="对话式 CQ 引导 → 逐轮补全领域信息 → spec_json 草稿（生成-校验循环后端内聚）→ 预览确认入库。复用主平台模型代理，无新服务。"
+        title="对话式本体构建（OntoChat 流程，REQ-103 模式 A；REQ-271 生成异步化）"
+        description="对话式 CQ 引导 → 逐轮补全领域信息 → 「生成草稿」异步产出 spec_json（生成-校验循环后端内聚；进度可看、可取消、失败留痕可重试）→ 预览确认入库。右上「提示词」可查看实际注入模型的提示词（只读）。"
       />
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         {/* 会话列表 */}
@@ -240,6 +343,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
               <Space size={8} style={{ marginBottom: 8 }} wrap>
                 <Tag {...stageTag} style={{ margin: 0 }}>{stageTag.text}</Tag>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>轮数 {active.round}</Typography.Text>
+                <Button size="small" icon={<FileTextOutlined />} onClick={openPrompts}>
+                  提示词
+                </Button>
                 {active.ontology_id && (
                   <Tag color="green" style={{ margin: 0 }}>产物 {active.ontology_id}</Tag>
                 )}
@@ -251,26 +357,43 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 className="onto-chat-msgs"
                 style={{ maxHeight: 380, overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
               >
-                {(active.messages ?? []).map((m, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                      maxWidth: '86%',
-                      background: m.role === 'user' ? 'var(--ant-color-primary-bg, #e6f4ff)' : 'var(--ant-color-bg-layout, #f5f5f5)',
-                      borderRadius: 8,
-                      padding: '6px 10px',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: 13,
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {m.content}
-                  </div>
-                ))}
-                {turning && (
+                {(active.messages ?? []).map((m, i) => {
+                  const isErr = m.role === 'assistant' && (m.content.startsWith('生成失败：') || m.content.startsWith('本轮处理失败：'))
+                  const isCancel = m.role === 'assistant' && m.content.startsWith('已取消生成')
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                        maxWidth: '86%',
+                        background: m.role === 'user'
+                          ? 'var(--ant-color-primary-bg, #e6f4ff)'
+                          : isErr
+                            ? 'var(--ant-color-error-bg, #fff2f0)'
+                            : 'var(--ant-color-bg-layout, #f5f5f5)',
+                        border: isErr ? '1px solid var(--ant-color-error-border, #ffccc7)' : undefined,
+                        borderRadius: 8,
+                        padding: '6px 10px',
+                        whiteSpace: 'pre-wrap',
+                        fontSize: 13,
+                        lineHeight: 1.6,
+                        opacity: isCancel ? 0.75 : 1,
+                      }}
+                    >
+                      {m.content}
+                    </div>
+                  )
+                })}
+                {turning && !job && (
                   <div style={{ alignSelf: 'flex-start' }}>
                     <Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>思考中…</Typography.Text>
+                  </div>
+                )}
+                {job && (
+                  <div className="onto-chat-job-bubble" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ant-color-bg-layout, #f5f5f5)', borderRadius: 8, padding: '6px 10px' }}>
+                    <Spin size="small" />
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{job.progress || '任务排队中…'}</Typography.Text>
+                    <Button size="small" onClick={cancelJob}>取消</Button>
                   </div>
                 )}
                 <div ref={listEndRef} />
@@ -305,8 +428,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
 
               {/* 输入区 */}
               {!isDone && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  {canRetry && (
+                    <Button danger onClick={() => lastUserText && send(lastUserText)}>
+                      重试上一轮
+                    </Button>
+                  )}
                   <Input.TextArea
+                    style={{ flex: 1 }}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder={placeholder}
@@ -319,6 +448,11 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                       }
                     }}
                   />
+                  {(stage === 'domain' || stage === 'draft' || stage === 'refine') && (
+                    <Button icon={<ThunderboltOutlined />} disabled={turning} onClick={() => send('生成草稿')}>
+                      生成草稿
+                    </Button>
+                  )}
                   <Button type="primary" icon={<SendOutlined />} loading={turning} onClick={() => send(input)}>
                     发送
                   </Button>
@@ -328,6 +462,35 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           )}
         </div>
       </div>
+      <Drawer
+        title="OntoChat 提示词（只读）"
+        open={promptsOpen}
+        onClose={() => setPromptsOpen(false)}
+        {...drawerSizeProps('ontoChatPrompts', DRAWER_SIZES.medium)}
+      >
+        {(prompts ?? []).map((p) => (
+          <Card key={p.id} size="small" title={p.label} style={{ marginBottom: 12 }}>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>{p.purpose}</Typography.Paragraph>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 8 }}>来源：{p.source}</Typography.Paragraph>
+            <pre
+              style={{
+                margin: 0,
+                padding: 10,
+                background: 'var(--ant-color-bg-layout, #f5f5f5)',
+                borderRadius: 6,
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 360,
+                overflowY: 'auto',
+              }}
+            >
+              {p.text}
+            </pre>
+          </Card>
+        ))}
+        {!prompts && <Skeleton active />}
+      </Drawer>
     </Card>
   )
 }

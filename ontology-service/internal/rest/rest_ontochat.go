@@ -1,12 +1,18 @@
-// rest_ontochat.go OntoChat 多轮引导端点（REQ-103 模式 A）。
+// rest_ontochat.go OntoChat 多轮引导端点（REQ-103 模式 A；REQ-271/M80 生成轮异步化）。
 // 会话状态机：cq（领域描述+CQ）→ domain（逐轮补全）→ draft/refine（草稿+校验回喂）→ done（已入库）。
 // 模型能力归主平台（复用 llmcreate.Creator → /api/ontology-llm/generate），校验归构建平面（spec.Validate）。
+// REQ-271 定案口径：生成轮（ontochat.WillGenerate，含 refine 修正轮）走 202+job 轮询——job 与
+// session 同库 SQLite 持久化（定案②），支持取消与生成-校验环轮次进度透出；同步轮（cq/domain 归纳）
+// 与生成轮失败一律落 assistant 错误消息留痕（此前裸 500 仅 3s toast，用户消息成孤儿）。
 package rest
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
@@ -58,7 +64,9 @@ func (s *Server) deleteOntoChatSession(w http.ResponseWriter, r *http.Request) {
 
 // ontoChatTurn POST /api/ontochat/sessions/{id}/turn
 // {text, feedback?}：text 为用户输入；feedback 非空表示 refine 修正轮（意见回喂重新生成）。
-// 返回 {reply, stage, round, draft?, warning?, session}；draft 仅在生成轮产出。
+// 同步轮（cq 首轮/domain 归纳）→ 200 {reply, stage, round, session}；
+// 生成轮 → 202 {job_id, session}，终态经 GET /api/ontochat/jobs/{id} 轮询
+// （done：result={reply,stage,round,session,draft?,warning?}；error/cancelled：错误留痕已落会话消息）。
 func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 	if s.LLM == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
@@ -82,6 +90,11 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text 不能为空"})
 		return
 	}
+	// 同会话互斥：已有生成任务进行中则拒绝（并发保护）
+	if active, aerr := st.ActiveJobBySession(sess.ID); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
+		return
+	}
 	// 用户消息落库（refine 轮 text 可为空，仅意见）
 	if strings.TrimSpace(req.Text) != "" {
 		if err := st.Append(sess.ID, ontochat.Message{Role: "user", Content: req.Text}, nil, nil, nil); err != nil {
@@ -89,35 +102,161 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var res *ontochat.TurnResult
-	if strings.TrimSpace(req.Feedback) != "" {
-		res, err = s.OntoChat.Refine(st, sess, req.Feedback)
+	// 生成轮（draft/refine 任意输入、domain 生成意图）→ 异步；其余同步
+	async := strings.TrimSpace(req.Feedback) != "" || ontochat.WillGenerate(sess.Stage, req.Text)
+	if !async {
+		res, err := s.OntoChat.Turn(r.Context(), st, sess, req.Text)
+		if err != nil {
+			// REQ-271 错误留痕：同步轮失败落 assistant 消息（客户端已断连则跳过，避免噪音）
+			if r.Context().Err() == nil {
+				_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "本轮处理失败：" + err.Error() + "\n请重试或补充信息后重试。"}, nil, nil, nil)
+			}
+			writeErr(w, err)
+			return
+		}
+		fresh, err := st.Get(sess.ID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		out := map[string]any{
+			"reply":   res.Reply,
+			"stage":   res.NextStage,
+			"round":   fresh.Round,
+			"session": fresh,
+		}
+		if res.Draft != nil {
+			out["draft"] = res.Draft
+		}
+		if res.Warning != "" {
+			out["warning"] = res.Warning
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	job, err := st.CreateJob(newOntoJobID(), sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	fresh, gerr := st.Get(sess.ID)
+	if gerr != nil {
+		fresh = sess
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "session": fresh})
+	go s.runOntoChatJob(job.ID, sess, req.Text, req.Feedback)
+}
+
+// runOntoChatJob 后台执行生成轮：进度透出 → Turn/Refine → 终态落 job + 错误留痕。
+func (s *Server) runOntoChatJob(jobID string, sess *ontochat.Session, text, feedback string) {
+	st := s.ontoChatStore()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.jobCancelsMu.Lock()
+	s.jobCancels[jobID] = cancel
+	s.jobCancelsMu.Unlock()
+	defer func() {
+		cancel()
+		s.jobCancelsMu.Lock()
+		delete(s.jobCancels, jobID)
+		s.jobCancelsMu.Unlock()
+	}()
+	_ = st.UpdateJobStatus(jobID, "running", "")
+	progress := func(_ int, msg string) {
+		_ = st.UpdateJobProgress(jobID, msg)
+	}
+	var (
+		res *ontochat.TurnResult
+		err error
+	)
+	if strings.TrimSpace(feedback) != "" {
+		res, err = s.OntoChat.Refine(ctx, st, sess, feedback, progress)
 	} else {
-		res, err = s.OntoChat.Turn(st, sess, req.Text)
+		res, err = s.OntoChat.Turn(ctx, st, sess, text, progress)
 	}
-	if err != nil {
-		writeErr(w, err)
+	if err != nil && ctx.Err() != nil {
+		// 取消：留痕 + 终态 cancelled（cancel 端点已置状态，此处幂等）
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "已取消生成。可点击「生成草稿」重新发起，或继续补充信息。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "cancelled", "")
 		return
 	}
-	// 重新读取（Append 已更新 stage/round/context）
-	fresh, err := st.Get(sess.ID)
 	if err != nil {
-		writeErr(w, err)
+		// REQ-271 错误留痕：失败落 assistant 消息（此前仅 3s toast、聊天区零反馈、用户消息成孤儿——
+		// 真机会话 4 条孤儿「生成草稿」即此形态）
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "生成失败：" + err.Error() + "\n可点击「生成草稿」重新生成，或补充信息后重试。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "error", err.Error())
 		return
 	}
-	out := map[string]any{
-		"reply":   res.Reply,
-		"stage":   res.NextStage,
-		"round":   fresh.Round,
-		"session": fresh,
+	result := map[string]any{"reply": res.Reply, "stage": res.NextStage}
+	if fresh, ferr := st.Get(sess.ID); ferr == nil {
+		result["round"] = fresh.Round
+		result["session"] = fresh
 	}
 	if res.Draft != nil {
-		out["draft"] = res.Draft
+		result["draft"] = res.Draft
 	}
 	if res.Warning != "" {
-		out["warning"] = res.Warning
+		result["warning"] = res.Warning
 	}
-	writeJSON(w, http.StatusOK, out)
+	bts, _ := json.Marshal(result)
+	_ = st.SetJobResult(jobID, bts)
+	_ = st.UpdateJobStatus(jobID, "done", "")
+}
+
+// getOntoChatJob GET /api/ontochat/jobs/{id} → 任务状态（前端 1.5s 轮询）。
+func (s *Server) getOntoChatJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.ontoChatStore().GetJob(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+// getOntoChatSessionJob GET /api/ontochat/sessions/{id}/job → 会话当前活跃任务（无则 job:null；
+// 前端重进会话/刷新后据此恢复轮询，REQ-271）。
+func (s *Server) getOntoChatSessionJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.ontoChatStore().ActiveJobBySession(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"job": job})
+}
+
+// cancelOntoChatJob POST /api/ontochat/jobs/{id}/cancel → 取消生成（运行中即时中止上游 LLM 调用）。
+func (s *Server) cancelOntoChatJob(w http.ResponseWriter, r *http.Request) {
+	st := s.ontoChatStore()
+	job, err := st.GetJob(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if job.Status != "queued" && job.Status != "running" {
+		writeJSON(w, http.StatusOK, job) // 终态幂等返回
+		return
+	}
+	s.jobCancelsMu.Lock()
+	cancel := s.jobCancels[job.ID]
+	s.jobCancelsMu.Unlock()
+	if cancel != nil {
+		cancel() // goroutine 收尾：留痕 assistant 消息 + 置 cancelled
+	} else {
+		// 运行时句柄缺失（进程重启悬挂）：直接收敛，消息留痕由 ActiveJobBySession 自愈兜底
+		_ = st.Append(job.SessionID, ontochat.Message{Role: "assistant", Content: "已取消生成（任务中断收敛）。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(job.ID, "cancelled", "")
+	}
+	fresh, gerr := st.GetJob(job.ID)
+	if gerr != nil {
+		writeErr(w, gerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, fresh)
+}
+
+// listOntoChatPrompts GET /api/ontochat/prompts → 提示词清单（只读，REQ-271⑥ 定案：只显示不可修改；
+// 返回值即运行时注入的同一批常量，页面显示零复制）。
+func (s *Server) listOntoChatPrompts(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, ontochat.Prompts())
 }
 
 // ontoChatSave POST /api/ontochat/sessions/{id}/save {name} → 草稿入库（预览确认门控，REQ-82）
@@ -186,4 +325,8 @@ func mustSession(st *ontochat.Store, id string) *ontochat.Session {
 		return nil
 	}
 	return sess
+}
+
+func newOntoJobID() string {
+	return fmt.Sprintf("ontoj_%d", time.Now().UnixNano())
 }

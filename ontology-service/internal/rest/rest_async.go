@@ -6,6 +6,7 @@ package rest
 // 进程内 map（单机教学尺度；重启丢任务=前端重新发起，可接受诚实边界）。
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -55,7 +56,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
 	go func() {
-		res, err := s.LLM.DraftWithCQ(req.Description, req.ExtraHint, req.CapabilityQuestions) // REQ-248/242：CQ 回写+质量透出
+		res, err := s.LLM.DraftWithCQ(context.Background(), req.Description, req.ExtraHint, req.CapabilityQuestions) // REQ-248/242：CQ 回写+质量透出
 		draftJobsMu.Lock()
 		defer draftJobsMu.Unlock()
 		if err != nil {

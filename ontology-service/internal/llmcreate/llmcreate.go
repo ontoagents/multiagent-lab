@@ -7,9 +7,12 @@ package llmcreate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +22,15 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/seed"
 )
 
-const specSchemaHint = `{
+// 生成提示词静态骨架（REQ-271⑥：ontochat/prompts.go 同源透出页面只读展示，避免复制双源）。
+const (
+	SpecRolePrompt  = "你是本体建模专家。请根据领域描述生成一个本体 spec_json，严格遵循以下 JSON Schema：\n"
+	SpecRulesPrompt = "\n\n规则：\n- concepts[].name 唯一且非空；relations[].from/to 必须引用已定义概念；instances[].concept 必须引用已定义概念；instances[].relations[].rel/target 必须引用已定义关系/实例。\n- data_properties（可选，REQ-268）：实例 attributes 中值得声明类型的字面量属性——name 与 attributes 键同名、domain 引用概念 name（可省）、range 用 string|number|integer|boolean|date 短名。\n- 只输出 JSON，不要 markdown 代码块或其他文本。"
+	// FewShotHeaderPrompt 种子范例段前缀（buildFewShot 注入；无命中种子时整段不进 prompt）。
+	FewShotHeaderPrompt = "\n\n参考范例（同领域种子本体的结构与粒度，仅供参照——不要照抄概念名）："
+)
+
+const SpecSchemaHint = `{
   "type": "object",
   "required": ["name", "concepts", "relations", "instances"],
   "properties": {
@@ -49,7 +60,15 @@ type Creator struct {
 }
 
 func New(platformURL string) *Creator {
-	return &Creator{PlatformURL: platformURL, HTTP: &http.Client{Timeout: 120 * time.Second}, MaxRounds: 3}
+	// REQ-271 定案：默认 300s（真机实测多轮会话单轮生成 220.3s，原 120s 硬超时必掐断致「生成草稿无输出」）；
+	// ONTOCHAT_LLM_TIMEOUT 秒数可配。
+	timeout := 300 * time.Second
+	if v := os.Getenv("ONTOCHAT_LLM_TIMEOUT"); v != "" {
+		if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+			timeout = time.Duration(n) * time.Second
+		}
+	}
+	return &Creator{PlatformURL: platformURL, HTTP: &http.Client{Timeout: timeout}, MaxRounds: 3}
 }
 
 // GenerateResult 生成-校验循环结果。
@@ -62,12 +81,20 @@ type GenerateResult struct {
 }
 
 // Draft 领域描述 → spec_json 草稿；校验失败把错误列表回喂模型修正。
-func (c *Creator) Draft(description, extraHint string) (*GenerateResult, error) {
-	return c.DraftWithCQ(description, extraHint, nil)
+// ctx 贯穿至平台代理 HTTP 调用（REQ-271：异步 job 取消依赖）；onRound 可选进度回调（轮次+阶段描述）。
+func (c *Creator) Draft(ctx context.Context, description, extraHint string, onRound ...func(round int, msg string)) (*GenerateResult, error) {
+	return c.DraftWithCQ(ctx, description, extraHint, nil, onRound...)
 }
 
 // DraftWithCQ REQ-248/G2：CQ 显式传入——并入 prompt 且**回写进草案 spec.CQ**（能力问题入资产可追溯）。
-func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*GenerateResult, error) {
+func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string, cqs []string, onRound ...func(round int, msg string)) (*GenerateResult, error) {
+	notify := func(round int, msg string) {
+		for _, f := range onRound {
+			if f != nil {
+				f(round, msg)
+			}
+		}
+	}
 	if len(cqs) > 0 {
 		var b strings.Builder
 		b.WriteString(extraHint)
@@ -80,7 +107,8 @@ func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*Gen
 	prompt := buildPrompt(description, extraHint, nil, cqs)
 	var usage any
 	for round := 1; round <= c.MaxRounds; round++ {
-		draftRaw, u, err := c.callGenerate(prompt)
+		notify(round, fmt.Sprintf("第 %d/%d 轮：调用模型生成中", round, c.MaxRounds))
+		draftRaw, u, err := c.callGenerate(ctx, prompt)
 		if err != nil {
 			return nil, err
 		}
@@ -90,6 +118,7 @@ func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*Gen
 		var sp pkgspec.Spec
 		if err := json.Unmarshal([]byte(draftRaw), &sp); err != nil {
 			// 结构坏：把解析错误回喂
+			notify(round, fmt.Sprintf("第 %d 轮产出不是合法 spec_json，回喂重试", round))
 			prompt = buildPrompt(description, extraHint, []string{"输出不是合法 spec_json: " + err.Error() + "。请只输出 JSON 本体，不要多余文本。"}, cqs)
 			continue
 		}
@@ -98,6 +127,7 @@ func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*Gen
 			// REQ-171 P1：结构合法后过质量门禁——错误级命中回喂修复，告警级透出不阻断
 			rep := qualitygate.Check(&sp, nil)
 			if fix := rep.ErrorMessages(); len(fix) == 0 {
+				notify(round, fmt.Sprintf("第 %d 轮通过结构校验与质量门禁", round))
 				sp.CQ = append(sp.CQ, cqs...) // REQ-248：CQ 回写资产
 				return &GenerateResult{Spec: &sp, Rounds: round, Usage: usage, Quality: rep, QualityPass: true}, nil
 			} else if round == c.MaxRounds {
@@ -109,6 +139,7 @@ func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*Gen
 					fix = append(fix, warns...)
 				}
 				fix = append(fix, "（以上为质量门禁检查，请修正后重新输出完整 spec_json）")
+				notify(round, fmt.Sprintf("第 %d 轮有 %d 处质量门禁问题，回喂重试", round, len(fix)))
 				prompt = buildPrompt(description, extraHint, fix, cqs)
 				continue
 			}
@@ -118,6 +149,7 @@ func (c *Creator) DraftWithCQ(description, extraHint string, cqs []string) (*Gen
 			return &GenerateResult{Spec: &sp, Rounds: round, Usage: usage},
 				fmt.Errorf("已达最大修正轮数，仍有 %d 处校验问题，草稿供预览参考", len(errs))
 		}
+		notify(round, fmt.Sprintf("第 %d 轮有 %d 处结构校验问题，回喂重试", round, len(errs)))
 		msgs := make([]string, 0, len(errs))
 		for _, e := range errs {
 			msgs = append(msgs, e.Error())
@@ -145,8 +177,8 @@ func buildFewShot(description string) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\n参考范例（同领域种子本体的结构与粒度，仅供参照——不要照抄概念名）：\n")
-	b.WriteString(fmt.Sprintf("```json\n{\"concepts\":["))
+	b.WriteString(FewShotHeaderPrompt)
+	b.WriteString("\n```json\n{\"concepts\":[")
 	for i, c := range sp.Concepts {
 		if i >= 4 {
 			break
@@ -173,6 +205,8 @@ func buildFewShot(description string) string {
 }
 
 // pickSeed 关键词匹配（领域描述包含种子主题词即命中；顺序即优先级）。
+// REQ-271⑤ 顺修：删除 k8s 行——onto_k8s_ops.json 在 internal/seed/examples 从不存在，
+// ExampleRaw 恒失败 → few-shot 对 k8s 域静默落空（死代码期未暴露，接线后成为静默 bug）。
 func pickSeed(description string) string {
 	d := strings.ToLower(description)
 	type kv struct {
@@ -184,7 +218,6 @@ func pickSeed(description string) string {
 		{[]string{"基因", "蛋白", "转录", "生物", "细胞"}, "gene_core.json"},
 		{[]string{"软件", "缺陷", "bug", "项目", "迭代", "测试"}, "defects.json"},
 		{[]string{"组织", "人员", "部门", "员工", "公司"}, "orgs.json"},
-		{[]string{"k8s", "kubernetes", "集群", "容器", "pod", "部署"}, "onto_k8s_ops.json"},
 		{[]string{"设备", "故障", "运维", "工单"}, "failure.json"},
 	}
 	for _, e := range table {
@@ -199,12 +232,14 @@ func pickSeed(description string) string {
 
 func buildPrompt(description, extraHint string, fixErrors []string, cqs []string) string {
 	var b strings.Builder
-	b.WriteString("你是本体建模专家。请根据领域描述生成一个本体 spec_json，严格遵循以下 JSON Schema：\n")
-	b.WriteString(specSchemaHint)
-	b.WriteString("\n\n规则：\n")
-	b.WriteString("- concepts[].name 唯一且非空；relations[].from/to 必须引用已定义概念；instances[].concept 必须引用已定义概念；instances[].relations[].rel/target 必须引用已定义关系/实例。\n")
-	b.WriteString("- data_properties（可选，REQ-268）：实例 attributes 中值得声明类型的字面量属性——name 与 attributes 键同名、domain 引用概念 name（可省）、range 用 string|number|integer|boolean|date 短名。\n")
-	b.WriteString("- 只输出 JSON，不要 markdown 代码块或其他文本。\n\n领域描述：\n")
+	b.WriteString(SpecRolePrompt)
+	b.WriteString(SpecSchemaHint)
+	b.WriteString(SpecRulesPrompt)
+	// REQ-271⑤：few-shot 种子范例接线（M70 死代码转正——按领域关键词注入最相近种子的紧凑片段）
+	if fs := buildFewShot(description); fs != "" {
+		b.WriteString(fs)
+	}
+	b.WriteString("\n\n领域描述：\n")
 	b.WriteString(description)
 	if extraHint != "" {
 		b.WriteString("\n\n补充要求：\n" + extraHint)
@@ -219,9 +254,9 @@ func buildPrompt(description, extraHint string, fixErrors []string, cqs []string
 }
 
 // RawChat 自由文本对话（REQ-103 模式 A 补全轮归纳用）：同一平台代理，不做 schema 约束。
-func (c *Creator) RawChat(prompt string) (reply string, usage any, err error) {
+func (c *Creator) RawChat(ctx context.Context, prompt string) (reply string, usage any, err error) {
 	body, _ := json.Marshal(map[string]any{"prompt": prompt, "schema": `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"]}`})
-	resp, err := c.HTTP.Post(strings.TrimRight(c.PlatformURL, "/")+"/api/ontology-llm/generate", "application/json", bytes.NewReader(body))
+	resp, err := c.doGenerate(ctx, body)
 	if err != nil {
 		return "", nil, fmt.Errorf("调用主平台模型代理失败: %w", err)
 	}
@@ -247,9 +282,9 @@ func (c *Creator) RawChat(prompt string) (reply string, usage any, err error) {
 	return res.DraftJSON, res.Usage, nil
 }
 
-func (c *Creator) callGenerate(prompt string) (draft string, usage any, err error) {
-	body, _ := json.Marshal(map[string]any{"prompt": prompt, "schema": specSchemaHint})
-	resp, err := c.HTTP.Post(strings.TrimRight(c.PlatformURL, "/")+"/api/ontology-llm/generate", "application/json", bytes.NewReader(body))
+func (c *Creator) callGenerate(ctx context.Context, prompt string) (draft string, usage any, err error) {
+	body, _ := json.Marshal(map[string]any{"prompt": prompt, "schema": SpecSchemaHint})
+	resp, err := c.doGenerate(ctx, body)
 	if err != nil {
 		return "", nil, fmt.Errorf("调用主平台模型代理失败: %w", err)
 	}
@@ -266,4 +301,15 @@ func (c *Creator) callGenerate(prompt string) (draft string, usage any, err erro
 		return "", nil, fmt.Errorf("主平台模型代理错误: %s", res.Error)
 	}
 	return res.DraftJSON, res.Usage, nil
+}
+
+// doGenerate 统一 POST（ctx 贯穿：异步 job 取消 / 请求断连即时中止上游调用，REQ-271）。
+func (c *Creator) doGenerate(ctx context.Context, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(c.PlatformURL, "/")+"/api/ontology-llm/generate", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.HTTP.Do(req)
 }

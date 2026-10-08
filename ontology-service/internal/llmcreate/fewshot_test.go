@@ -14,7 +14,9 @@ func TestPickSeed(t *testing.T) {
 	}{
 		{"做一个医学常识本体，覆盖疾病与症状", "med_common.json"},
 		{"软件项目缺陷管理领域", "defects.json"},
-		{"Kubernetes 集群运维，容器与部署", "onto_k8s_ops.json"},
+		// REQ-271⑤ 顺修：onto_k8s_ops.json 内嵌示例从不存在（M70 测试固化了死键），
+		// k8s 行已删；k8s 文案命中「运维」落 failure.json——错误域范例仅 advisory 可接受
+		{"Kubernetes 集群运维，容器与部署", "failure.json"},
 		{"完全无关的领域描述xyz", ""},
 	}
 	for _, c := range cases {

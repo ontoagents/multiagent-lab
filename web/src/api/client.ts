@@ -42,6 +42,8 @@ import type {
   OntologyReferences,
   OntoChatSession,
   OntoChatTurnResult,
+  OntoChatJob,
+  OntoChatPrompt,
   Project,
   ProjectDirListing,
   ProviderModelList,
@@ -622,12 +624,23 @@ export const api = {
     req<OntoChatSession>('/api/ontochat/sessions', { method: 'POST', body: JSON.stringify({ title }) }),
   getOntoChatSession: (id: string) => req<OntoChatSession>(`/api/ontochat/sessions/${id}`),
   deleteOntoChatSession: (id: string) => req<{ deleted: string }>(`/api/ontochat/sessions/${id}`, { method: 'DELETE' }),
-  /** 一轮交互：text 用户输入；feedback 非空 = refine 修正轮（意见回喂重新生成） */
+  /** 一轮交互：text 用户输入；feedback 非空 = refine 修正轮（意见回喂重新生成）。
+   *  REQ-271/M80：同步轮（cq/domain 归纳）200 全量结果；生成轮 202 {job_id, session}（轮询 jobs） */
   ontoChatTurn: (id: string, text: string, feedback?: string) =>
-    req<OntoChatTurnResult>(`/api/ontochat/sessions/${id}/turn`, {
+    req<OntoChatTurnResult & { job_id?: string }>(`/api/ontochat/sessions/${id}/turn`, {
       method: 'POST',
       body: JSON.stringify({ text, feedback }),
     }),
+  /** REQ-271：生成 job 轮询（1.5s 间隔；done 时 result 含 reply/draft/warning/session） */
+  getOntoChatJob: (jobId: string) => req<OntoChatJob>(`/api/ontochat/jobs/${jobId}`),
+  /** REQ-271：会话当前活跃任务（无则 job:null；重进会话/刷新后据此恢复轮询） */
+  getOntoChatSessionActiveJob: (id: string) =>
+    req<{ job: OntoChatJob | null }>(`/api/ontochat/sessions/${id}/job`),
+  /** REQ-271：取消生成（运行中即时中止上游调用；错误留痕落会话消息） */
+  cancelOntoChatJob: (jobId: string) =>
+    req<OntoChatJob>(`/api/ontochat/jobs/${jobId}/cancel`, { method: 'POST' }),
+  /** REQ-271⑥：提示词清单（只读，页面显示=运行时注入同一份数据） */
+  listOntoChatPrompts: () => req<OntoChatPrompt[]>('/api/ontochat/prompts'),
   /** 草稿入库（预览确认门控，REQ-82）：201 {ontology, session} */
   ontoChatSave: (id: string, name: string) =>
     req<{ ontology: Ontology; session: OntoChatSession }>(`/api/ontochat/sessions/${id}/save`, {
