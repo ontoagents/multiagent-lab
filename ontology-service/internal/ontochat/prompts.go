@@ -67,6 +67,13 @@ func Prompts() []PromptDef {
 			Text:    coveragePrompt,
 		},
 		{
+			ID:      "story_summary",
+			Label:   "用户故事汇总提示词",
+			Purpose: "访谈五问毕 one-shot 汇总为结构化用户故事（Persona/Goal/Scenario/Data/Outcomes 小节）+ 给后续 CQ 抽取与建模的建议；精修轮按意见修订（独立 prompt 同源）",
+			Source:  "63 号 P1/P2 蓝本（King-s KG Lab functions.py 访谈脚本 + Backend_Prompts.md；论文 §1.3 模块 1）+中文适配；v1 访谈问题脚本化（P4 子集五问，交互不变式严格满足）、LLM 仅汇总/精修——「LLM 主动推荐下一步」以 suggest 字段落点（2408 未来工作）",
+			Text:    storySummaryPrompt,
+		},
+		{
 			ID:      "ontology_llm_system",
 			Label:   "平台结构化生成 system 提示",
 			Purpose: "主平台 /api/ontology-llm/generate 通道的 system 角色：要求只输出符合 Schema 的 JSON（草稿与归纳轮共用同一代理）",

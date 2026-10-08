@@ -33,12 +33,28 @@ func (s *Server) listOntoChatSessions(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) createOntoChatSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title string `json:"title"`
+		Mode  string `json:"mode"` // REQ-275 定案①：guided=访谈模式（story 阶段起）；缺省 quick=快速模式（cq 起，现状）
 	}
 	_ = decodeJSON(r, &req) // body 可省略
 	sess, err := s.ontoChatStore().Create(newID(), strings.TrimSpace(req.Title))
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if strings.TrimSpace(req.Mode) == "guided" {
+		// 访谈模式：stage=story + 确定性发第 1 问（纯本地，无 LLM）
+		stage := "story"
+		sess.Stage = stage
+		q := ontochat.StoryStepQuestion(0)
+		if err := s.ontoChatStore().Append(sess.ID, ontochat.Message{Role: "assistant", Content: q + "\n\n（一问一轮；点「上一步」回退，无相关信息可点「跳过」）"}, &stage, nil, nil); err != nil {
+			writeErr(w, err)
+			return
+		}
+		sess, err = s.ontoChatStore().Get(sess.ID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, sess)
 }
@@ -513,6 +529,99 @@ func (s *Server) runOntoCoverageTest(jobID string, sp *pkgspec.Spec, cqs []strin
 	_ = s.ontoChatStore().UpdateJobStatus(jobID, "done", "")
 }
 
+// ontoChatStoryBack POST /api/ontochat/sessions/{id}/story-back → 访气回退一步（REQ-275 不变式③）。
+func (s *Server) ontoChatStoryBack(w http.ResponseWriter, r *http.Request) {
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage != "story" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅访谈阶段支持回退"})
+		return
+	}
+	res, err := s.OntoChat.StoryBack(st, sess)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	fresh, gerr := st.Get(sess.ID)
+	if gerr != nil {
+		writeErr(w, gerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reply": res.Reply, "stage": res.NextStage, "session": fresh})
+}
+
+// ontoChatStoryFinish POST /api/ontochat/sessions/{id}/story-finish → 202 job（REQ-275）：
+// 访谈完成——以用户故事为材料抽 CQ 候选（REQ-272 复用）并推进 story→cq；候选经确认卡写回。
+func (s *Server) ontoChatStoryFinish(w http.ResponseWriter, r *http.Request) {
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage != "story" || strings.TrimSpace(sess.Context.DraftStory) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "访谈尚未生成用户故事，无法完成"})
+		return
+	}
+	if active, aerr := st.ActiveJobBySession(sess.ID); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
+		return
+	}
+	job, err := st.CreateJob(newOntoJobID(), sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID})
+	go s.runOntoChatStoryFinish(job.ID, sess)
+}
+
+// runOntoChatStoryFinish 后台：以故事为材料抽 CQ → 阶段推进 story→cq + 留痕。
+func (s *Server) runOntoChatStoryFinish(jobID string, sess *ontochat.Session) {
+	st := s.ontoChatStore()
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
+	_ = st.UpdateJobStatus(jobID, "running", "")
+	progress := func(_ int, msg string) {
+		_ = st.UpdateJobProgress(jobID, msg)
+	}
+	cqs, dup, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
+	if err != nil && ctx.Err() != nil {
+		_ = st.UpdateJobStatus(jobID, "cancelled", "")
+		return
+	}
+	if err != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "CQ 抽取失败：" + err.Error() + "\n可重试，或手动在输入框按「能力问题：」格式补充。"}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "error", err.Error())
+		return
+	}
+	// 阶段推进 story→domain（描述与 CQ 已就绪：候选经 REQ-272 确认卡写回后即可「生成草稿」；
+	// 进 domain 而非 cq——cq 是快速模式首轮「录入描述」语义，避免后续输入被当新领域描述）
+	stage := "domain"
+	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: fmt.Sprintf("访谈完成。已从用户故事抽取能力问题候选 %d 条（去重滤除 %d 条），请在确认卡中勾选编辑后写入——确认后可直接「生成草稿」或继续补充领域信息。", len(cqs), dup)}, &stage, nil, nil)
+	result := map[string]any{"cqs": cqs, "duplicate_count": dup}
+	bts, _ := json.Marshal(result)
+	_ = st.SetJobResult(jobID, bts)
+	_ = st.UpdateJobStatus(jobID, "done", "")
+}
+
+// ontoChatStoryTemplates GET /api/ontochat/story-templates → 引导卡模板（REQ-275，P3 中文适配只读透出）。
+func (s *Server) ontoChatStoryTemplates(w http.ResponseWriter, _ *http.Request) {
+	out := make([]map[string]string, 0, len(ontochat.StoryTemplates))
+	for _, t := range ontochat.StoryTemplates {
+		out = append(out, map[string]string{"label": t.Label, "text": t.Text})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // listOntoChatPrompts GET /api/ontochat/prompts → 提示词清单（只读，REQ-271⑥ 定案：只显示不可修改；
 // 返回值即运行时注入的同一批常量，页面显示零复制）。
 func (s *Server) listOntoChatPrompts(w http.ResponseWriter, _ *http.Request) {
@@ -567,6 +676,10 @@ func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.Store.SaveVersion(o.ID, 1, string(bts), "", "")
+	// REQ-275：访谈制品归档——用户故事落 artifact story_md 供学习中心/任务卡援引（REQ-91）
+	if sess.Context.DraftStory != "" {
+		_ = s.Store.PutArtifact(o.ID, "story_md", sess.Context.DraftStory, true)
+	}
 	_ = st.BindOntology(sess.ID, o.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"ontology": o, "session": mustSession(st, sess.ID)})
 }

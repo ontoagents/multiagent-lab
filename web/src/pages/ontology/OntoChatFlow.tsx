@@ -3,8 +3,8 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import { Alert, Button, Card, Checkbox, Collapse, Drawer, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
-import { ApartmentOutlined, DeleteOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography } from 'antd'
+import { ApartmentOutlined, CommentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
@@ -12,11 +12,12 @@ import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
 
 const STAGE_TAG: Record<string, { color: string; text: string }> = {
-  cq: { color: 'default', text: '① 能力问题' },
-  domain: { color: 'processing', text: '② 领域补全' },
-  draft: { color: 'blue', text: '③ 草稿就绪' },
-  refine: { color: 'warning', text: '③ 草稿待修正' },
-  done: { color: 'green', text: '④ 已入库' },
+  story: { color: 'geekblue', text: '① 用户故事访谈' },
+  cq: { color: 'default', text: '② 能力问题' },
+  domain: { color: 'processing', text: '③ 领域补全' },
+  draft: { color: 'blue', text: '④ 草稿就绪' },
+  refine: { color: 'warning', text: '④ 草稿待修正' },
+  done: { color: 'green', text: '⑤ 已入库' },
 }
 
 /** 首轮输入模板（cq 阶段占位提示） */
@@ -41,6 +42,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [clusterDraft, setClusterDraft] = useState<{ label: string; rows: { text: string; checked: boolean }[] }[] | null>(null)
   const [analyzeOpen, setAnalyzeOpen] = useState(false)
   const [analyzeMax, setAnalyzeMax] = useState<number | null>(null)
+  const [storyTpl, setStoryTpl] = useState<{ label: string; text: string }[] | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const jobRef = useRef<string | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
@@ -199,6 +201,41 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     }
   }
 
+  // REQ-275：访谈动作
+  const backStory = async () => {
+    if (!active) return
+    try {
+      const r = await api.storyBack(active.id)
+      setActive(r.session)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+  const finishStory = async () => {
+    if (!active) return
+    setTurning(true)
+    try {
+      const r = await api.storyFinish(active.id)
+      if (r.job_id) {
+        jobRef.current = r.job_id
+        setJob({ id: r.job_id, session_id: active.id, status: 'running', created_at: '', updated_at: '' })
+        startJobPoll(r.job_id)
+      }
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      if (!jobRef.current) setTurning(false)
+    }
+  }
+  const loadTemplates = async () => {
+    if (storyTpl) return
+    try {
+      setStoryTpl(await api.storyTemplates())
+    } catch {
+      /* 引导卡失败静默（辅助功能） */
+    }
+  }
+
   // REQ-271⑥：提示词只读清单（懒加载；页面显示=运行时注入同一份数据）
   const openPrompts = async () => {
     setPromptsOpen(true)
@@ -261,10 +298,10 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
 
   useEffect(() => () => stopJobPoll(), [stopJobPoll])
 
-  const newSession = async () => {
+  const newSession = async (mode?: 'guided') => {
     try {
       setRestored(null)
-      const s = await api.createOntoChatSession(`引导 ${new Date().toLocaleString()}`)
+      const s = await api.createOntoChatSession(`引导 ${new Date().toLocaleString()}`, mode)
       await refreshList()
       setActive(s)
       setDraft(null)
@@ -352,12 +389,23 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   }
 
   const stage = active?.stage ?? 'cq'
+  const storyActive = stage === 'story'
+  const draftStory = active?.context?.draft_story ?? ''
+  const storyStep = active?.context?.story_step ?? 0
+  useEffect(() => {
+    if (storyActive) loadTemplates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyActive])
   const stageTag = STAGE_TAG[stage] ?? STAGE_TAG.cq
   const isDone = stage === 'done'
   const placeholder =
-    stage === 'cq'
-      ? `第一行领域描述，其后每行一条能力问题（CQ），如：\n${CQ_TEMPLATE}`
-      : stage === 'domain'
+    stage === 'story'
+      ? draftStory
+        ? '回复修改意见精修用户故事…或点「完成并抽取 CQ」'
+        : '回答当前问题（一问一轮）…可点下方模板快速填写'
+      : stage === 'cq'
+        ? `第一行领域描述，其后每行一条能力问题（CQ），如：\n${CQ_TEMPLATE}`
+        : stage === 'domain'
         ? '补充领域信息（概念/层级/关系/实例来源）…或点击「生成草稿」直接产出'
         : '回复修改意见进入修正轮（如：给 Deployment 增加副本数属性）…'
 
@@ -384,9 +432,20 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
         <div style={{ width: 220, flexShrink: 0 }}>
           <Space style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }}>
             <Typography.Text strong>会话</Typography.Text>
-            <Button size="small" icon={<PlusOutlined />} onClick={newSession}>
-              新建
-            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'quick', label: '快速模式（直接描述领域）' },
+                  { key: 'guided', label: '访谈模式（用户故事共创，REQ-275）' },
+                ],
+                onClick: ({ key }) => newSession(key === 'guided' ? 'guided' : undefined),
+              }}
+              trigger={['click']}
+            >
+              <Button size="small" icon={<PlusOutlined />}>
+                新建 <DownOutlined style={{ fontSize: 10 }} />
+              </Button>
+            </Dropdown>
           </Space>
           {sessionsErr && (
             <LoadErrorAlert
@@ -441,6 +500,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>轮数 {active.round}</Typography.Text>
                 {!!active.context?.cqs?.length && (
                   <Tag color="purple" style={{ margin: 0 }}>CQ {active.context.cqs.length}</Tag>
+                )}
+                {storyActive && !draftStory && (
+                  <Tag color="geekblue" style={{ margin: 0 }}>访谈 {Math.min(storyStep + 1, 5)}/5</Tag>
                 )}
                 <Button size="small" icon={<FileTextOutlined />} onClick={openPrompts}>
                   提示词
@@ -497,6 +559,38 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 )}
                 <div ref={listEndRef} />
               </div>
+
+              {/* 用户故事卡（REQ-275：访谈制品 + 精修 + 完成入口） */}
+              {storyActive && draftStory && (
+                <Card size="small" style={{ marginTop: 10 }} title="用户故事（访谈制品，可精修）" data-testid="story-card">
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 10,
+                      background: 'var(--ant-color-bg-layout, #f5f5f5)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: 260,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {draftStory}
+                  </pre>
+                  <Space style={{ marginTop: 8 }}>
+                    <Button size="small" onClick={backStory}>
+                      上一步（重答末问）
+                    </Button>
+                    <Button size="small" type="primary" icon={<SolutionOutlined />} loading={turning} onClick={finishStory} data-testid="story-finish-btn">
+                      完成并抽取 CQ
+                    </Button>
+                  </Space>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+                    直接在下方输入框回复修改意见即可精修；完成后进入能力问题抽取（候选经确认卡写回，生成草稿回写 spec.CQ）。
+                  </Typography.Paragraph>
+                </Card>
+              )}
 
               {/* CQ 聚类结果卡（REQ-273：人工确认步——聚类仅供参考分组） */}
               {clusterDraft && !isDone && (
@@ -608,6 +702,23 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 />
               )}
 
+              {/* 引导卡 chips（REQ-275：访谈阶段 P3 模板点击填入；模板是辅助非必填） */}
+              {storyActive && storyTpl && !draftStory && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {storyTpl.map((t) => (
+                    <Button
+                      key={t.label}
+                      size="small"
+                      icon={<CommentOutlined />}
+                      onClick={() => setInput(t.text)}
+                      title={t.text.replace(/\*\*/g, '').replace(/\*/g, '')}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
               {/* 输入区 */}
               {!isDone && (
                 <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -630,6 +741,16 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                       }
                     }}
                   />
+                  {storyActive && !draftStory && (
+                    <>
+                      <Button disabled={turning || storyStep === 0} onClick={backStory}>
+                        上一步
+                      </Button>
+                      <Button disabled={turning} onClick={() => send('（跳过）')}>
+                        跳过
+                      </Button>
+                    </>
+                  )}
                   <Button icon={<SolutionOutlined />} disabled={turning} onClick={extractCQs}>
                     抽取 CQ
                   </Button>

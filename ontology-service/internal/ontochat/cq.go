@@ -82,6 +82,9 @@ func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...Ro
 // buildCQMaterial 抽取材料：领域描述 + 逐轮补充信息（story 制品 REQ-275 落地后并入）。
 func buildCQMaterial(sess *Session) string {
 	var b strings.Builder
+	if ds := strings.TrimSpace(sess.Context.DraftStory); ds != "" {
+		b.WriteString("用户故事（访谈制品）：\n" + ds + "\n\n")
+	}
 	b.WriteString(strings.TrimSpace(sess.Context.Description))
 	if len(sess.Context.Hints) > 0 {
 		b.WriteString("\n\n已补充信息：")

@@ -64,6 +64,8 @@ func WillGenerate(stage, userText string) bool {
 // ctx：平台代理调用取消（异步 job cancel / 请求断连）；onProgress：可选生成轮次进度回调。
 func (e *Engine) Turn(ctx context.Context, st *Store, sess *Session, userText string, onProgress ...RoundProgress) (*TurnResult, error) {
 	switch sess.Stage {
+	case "story":
+		return e.turnStory(ctx, st, sess, userText)
 	case "cq":
 		return e.turnCQ(st, sess, userText)
 	case "domain":
@@ -79,6 +81,82 @@ func (e *Engine) Turn(ctx context.Context, st *Store, sess *Session, userText st
 	default:
 		return nil, fmt.Errorf("会话已结束（stage=done），如需继续请新建会话")
 	}
+}
+
+// turnStory 访谈轮（REQ-275）：脚本化一问一轮（StoryQuestions，交互不变式照 63 号 §5.3——
+// 一问一轮/未确认不进下一题/可回退由 /story-back 承载/「跳过」显式留痕）；五问毕 one-shot
+// 汇总（LLM）生成用户故事；此后该阶段文本一律为精修意见（LLM 修订 DraftStory）。
+func (e *Engine) turnStory(ctx context.Context, st *Store, sess *Session, userText string) (*TurnResult, error) {
+	text := strings.TrimSpace(userText)
+	// 精修轮：已有用户故事 → 文本即修订意见
+	if sess.Context.DraftStory != "" {
+		if text == "" {
+			return nil, fmt.Errorf("请输入对用户故事的修改意见，或点击「完成并抽取 CQ」进入能力问题抽取")
+		}
+		revised, err := e.reviseStory(ctx, sess, text)
+		if err != nil {
+			return nil, err
+		}
+		sess.Context.DraftStory = revised
+		reply := "用户故事已按意见修订。可继续回复修改意见，或点击「完成并抽取 CQ」进入能力问题抽取。"
+		if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, nil, nil, &sess.Context); err != nil {
+			return nil, err
+		}
+		return &TurnResult{Reply: reply, NextStage: "story"}, nil
+	}
+	// 访谈轮：记录回答 → 下一问 / 汇总
+	if text == "" {
+		return nil, fmt.Errorf("请回答当前问题（或点「跳过」）")
+	}
+	step := sess.Context.StoryStep
+	if step < 0 || step >= len(StoryQuestions) {
+		step = len(StoryQuestions) - 1
+	}
+	for len(sess.Context.StoryAnswers) <= step {
+		sess.Context.StoryAnswers = append(sess.Context.StoryAnswers, "")
+	}
+	sess.Context.StoryAnswers[step] = text
+	sess.Context.StoryStep = step + 1
+	var reply string
+	if sess.Context.StoryStep < len(StoryQuestions) {
+		reply = StoryQuestions[sess.Context.StoryStep] + "\n\n（回答完自动进入下一问；点「上一步」回退，无相关信息可点「跳过」）"
+	} else {
+		story, suggest, err := e.summarizeStory(ctx, sess)
+		if err != nil {
+			// 汇总失败：退回本问重答（错误经 500 留痕，用户重发即重试汇总）
+			sess.Context.StoryStep = step
+			sess.Context.StoryAnswers = sess.Context.StoryAnswers[:step]
+			return nil, err
+		}
+		sess.Context.DraftStory = story
+		reply = "用户故事已生成（见右侧卡片）：\n\n" + truncate(story, 600) +
+			"\n\n后续建议：" + truncate(suggest, 160) +
+			"\n\n可直接回复修改意见精修；满意后点「完成并抽取 CQ」进入能力问题抽取（复用 REQ-272 确认卡）。"
+	}
+	stage := "story"
+	round := sess.Round + 1
+	if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, &stage, &round, &sess.Context); err != nil {
+		return nil, err
+	}
+	return &TurnResult{Reply: reply, NextStage: stage}, nil
+}
+
+// StoryBack 访气回退一步（REQ-275 交互不变式③：可回退）：清草稿、步数-1 并重发该问。
+func (e *Engine) StoryBack(st *Store, sess *Session) (*TurnResult, error) {
+	step := sess.Context.StoryStep
+	if sess.Context.DraftStory != "" {
+		sess.Context.DraftStory = ""
+		step = len(StoryQuestions) - 1 // 汇总后回退=回末问重答
+	} else if step > 0 {
+		step--
+	}
+	sess.Context.StoryStep = step
+	reply := StoryStepQuestion(step) + "\n\n（已回退，请重新回答）"
+	stage := "story"
+	if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, &stage, nil, &sess.Context); err != nil {
+		return nil, err
+	}
+	return &TurnResult{Reply: reply, NextStage: stage}, nil
 }
 
 // turnCQ 首轮：领域描述（必填）+ 能力问题（每行一个，可选）。

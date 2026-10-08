@@ -602,7 +602,7 @@ export interface AiDraftResult {
 // ---- OntoChat 多轮引导（REQ-103 模式 A）----
 
 /** 会话阶段：cq 列 CQ → domain 逐轮补全 → draft/refine 草稿与修正 → done 已入库 */
-export type OntoChatStage = 'cq' | 'domain' | 'draft' | 'refine' | 'done'
+export type OntoChatStage = 'story' | 'cq' | 'domain' | 'draft' | 'refine' | 'done'
 
 export interface OntoChatMessage {
   role: 'user' | 'assistant' | 'system'
@@ -615,6 +615,9 @@ export interface OntoChatContext {
   cqs?: string[]
   hints?: string[]
   draft_spec?: unknown
+  story_step?: number // REQ-275：访谈当前步（0 起）
+  story_answers?: string[]
+  draft_story?: string // REQ-275：用户故事（访谈制品）
 }
 
 export interface OntoChatSession {

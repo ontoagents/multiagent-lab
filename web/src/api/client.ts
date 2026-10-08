@@ -620,8 +620,15 @@ export const api = {
 
   // ---- OntoChat 多轮引导（REQ-103 模式 A；构建平面 /api/ontochat/*）----
   listOntoChatSessions: () => req<OntoChatSession[]>('/api/ontochat/sessions'),
-  createOntoChatSession: (title?: string) =>
-    req<OntoChatSession>('/api/ontochat/sessions', { method: 'POST', body: JSON.stringify({ title }) }),
+  createOntoChatSession: (title?: string, mode?: 'quick' | 'guided') =>
+    req<OntoChatSession>('/api/ontochat/sessions', { method: 'POST', body: JSON.stringify({ title, mode }) }),
+  /** REQ-275：访气回退一步 */
+  storyBack: (id: string) =>
+    req<{ session: OntoChatSession }>(`/api/ontochat/sessions/${id}/story-back`, { method: 'POST' }),
+  /** REQ-275：访谈完成——以用户故事为材料抽 CQ 候选（异步 job，阶段 story→cq） */
+  storyFinish: (id: string) => req<{ job_id: string }>(`/api/ontochat/sessions/${id}/story-finish`, { method: 'POST' }),
+  /** REQ-275：引导卡模板（P3 十条中文适配，只读） */
+  storyTemplates: () => req<{ label: string; text: string }[]>('/api/ontochat/story-templates'),
   getOntoChatSession: (id: string) => req<OntoChatSession>(`/api/ontochat/sessions/${id}`),
   deleteOntoChatSession: (id: string) => req<{ deleted: string }>(`/api/ontochat/sessions/${id}`, { method: 'DELETE' }),
   /** 一轮交互：text 用户输入；feedback 非空 = refine 修正轮（意见回喂重新生成）。

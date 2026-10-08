@@ -28,6 +28,9 @@ type Context struct {
 	CQs         []string         `json:"cqs,omitempty"`        // 能力问题列表
 	Hints       []string         `json:"hints,omitempty"`      // 逐轮补全的领域信息
 	DraftSpec   *json.RawMessage `json:"draft_spec,omitempty"` // 最近一次草稿（refine 阶段回喂）
+	StoryStep   int              `json:"story_step,omitempty"`    // REQ-275：访谈当前步（0 起）
+	StoryAnswers []string        `json:"story_answers,omitempty"` // REQ-275：访谈逐问回答
+	DraftStory  string           `json:"draft_story,omitempty"`   // REQ-275：汇总生成的用户故事（精修轮对象）
 }
 
 // Session 会话聚合。
