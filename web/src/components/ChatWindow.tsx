@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { AppstoreOutlined, BookOutlined, BulbOutlined, ClusterOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BookOutlined, BulbOutlined, ClusterOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -116,7 +116,7 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
     }
     // REQ-281：伴生沉淀过程事件族（抽取/候选/入图判定/拒绝——收尾后旁路产生，经轮询或回放进流）
     case 'companion.extract': {
-      if (d?.phase === 'started') return { text: `🧩 伴生沉淀 · 收尾触发（${d?.fresh ?? 0} 条新消息 · ${d?.windows ?? 0} 窗${d?.pending_windows ? ` · 积压 ${d.pending_windows} 窗待续` : ''}）` }
+      if (d?.phase === 'started') return { text: `🧩 伴生沉淀 · 收尾触发（${d?.fresh ?? 0} 条新消息 · ${d?.windows ?? 0} 窗${d?.pending_windows ? ` · 积压 ${d.pending_windows} 窗待续` : ''}${d?.window_budget ? ` · 每窗预算 ${d.window_budget}s` : ''}）` }
       if (d?.phase === 'done') return { text: `🧩 伴生沉淀完成 · 候选 ${d?.candidates ?? 0} 条${d?.auto_ingested ? ` · 自动入图 ${d.auto_ingested} 条` : ''}` }
       if (d?.phase === 'error') return { text: `🧩 伴生沉淀失败${d?.window ? `（第 ${d.window}/${d?.total ?? '?'} 窗）` : ''} · ${d?.message ?? '未知错误'}`, err: true }
       return { text: '🧩 伴生沉淀 · 抽取中…' }
@@ -126,6 +126,8 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       return { text: `🧩 伴生候选 · 第 ${d?.window ?? '?'}/${d?.total ?? '?'} 窗新增 ${d.count} 条` }
     }
     case 'companion.decision':
+      // REQ-282 A4：自动入图失败变体（decision 已发而候选留 pending 的状态可见可解释）
+      if (d?.action === 'auto_ingest_failed') return { text: `🧩 自动入图失败 · ${d?.name ?? ''} · ${d?.error ?? '未知原因'}（候选留待人工）`, warn: true }
       return { text: `🧩 自动入图判定 · ${d?.name ?? ''} · 置信 ${fmtNum(d?.confidence)} ≥ 阈值 ${fmtNum(d?.threshold)} 且分位 ${fmtNum(d?.batch_rank)} ≥ 0.5` }
     case 'companion.ingest': {
       const mode = d?.mode === 'auto' ? '自动入图' : '确认入图'
@@ -494,23 +496,29 @@ export default function ChatWindow({
   // REQ-281：伴生沉淀过程事件实时补齐——事件在 run 收尾后旁路产生（SSE 已关），
   // 收尾后短轮询 companion.* 事件追加进流；已见事件 id 集合防重复（历史回放与轮询共用）。
   const seenEventsRef = useRef<Set<string>>(new Set())
-  const companionPollRef = useRef<number | null>(null)
+  // REQ-282 B2：固定 2s×60（120s 硬顶）改指数退避 2s→5s→10s + 10 分钟硬顶——
+  // 思考模型抽取动辄数分钟，预算调大后终态卡不再被轮询上限饿死（历史回放仍兜底自愈）。
+  const companionPollRef = useRef<{ timer: number; cancel: () => void } | null>(null)
   const stopCompanionPoll = () => {
-    if (companionPollRef.current != null) {
-      window.clearInterval(companionPollRef.current)
+    if (companionPollRef.current) {
+      companionPollRef.current.cancel()
+      window.clearTimeout(companionPollRef.current.timer)
       companionPollRef.current = null
     }
   }
   const startCompanionPoll = (convId: string) => {
     stopCompanionPoll()
-    let ticks = 0
+    let waited = 0
     let emptyAfterDone = 0
     let sawDone = false
+    let cancelled = false
     const tick = async () => {
-      ticks++
+      if (cancelled) return
+      let freshCount = 0
       try {
         const evs = await api.listEvents(convId, { type_prefix: 'companion.', limit: 50 })
         const fresh = evs.filter((e) => !seenEventsRef.current.has(e.id))
+        freshCount = fresh.length
         for (const e of fresh) {
           seenEventsRef.current.add(e.id)
           let d: any = {}
@@ -519,11 +527,14 @@ export default function ChatWindow({
           const desc = describeEvent(e.type, d)
           setItems((prev) => [...prev, { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d, evKey: `ce-${e.id}` }])
         }
-        emptyAfterDone = sawDone && fresh.length === 0 ? emptyAfterDone + 1 : 0
+        emptyAfterDone = sawDone && freshCount === 0 ? emptyAfterDone + 1 : 0
       } catch { /* 网络抖动下一轮重试 */ }
-      if (ticks >= 60 || (sawDone && emptyAfterDone >= 2)) stopCompanionPoll()
+      if (waited >= 600000 || (sawDone && emptyAfterDone >= 2)) return
+      const delay = waited < 20000 ? 2000 : waited < 120000 ? 5000 : 10000
+      waited += delay
+      const timer = window.setTimeout(tick, delay)
+      companionPollRef.current = { timer, cancel: () => { cancelled = true } }
     }
-    companionPollRef.current = window.setInterval(tick, 2000)
     void tick()
   }
   // REQ-150②：用户主动停止标记——abort 断流后 run.finished 不会到达，收尾据此把流式消息置终态
@@ -983,9 +994,12 @@ export default function ChatWindow({
       const cands: Array<{ id?: string; kind?: string; name?: string; confidence?: number; batch_rank?: number; aligned?: boolean }> =
         Array.isArray(it.evData?.items) ? it.evData.items : []
       const kindLabel: Record<string, string> = { concept: '概念', relation: '关系', event: '事件' }
+      // REQ-282 B4：started 卡在其终态（done/error）未到达前渲染「抽取中」进行态
+      const extracting = it.evType === 'companion.extract' && it.evData?.phase === 'started' &&
+        !items.some((x, xi) => xi > i && x.evType === 'companion.extract' && (x.evData?.phase === 'done' || x.evData?.phase === 'error'))
       return (
         <div key={i} className="event-card src-onto" style={depthStyle(it.subDepth)}>
-          <span>{it.eventText}</span>
+          <span>{extracting && <LoadingOutlined spin style={{ marginRight: 6, color: 'var(--ant-color-primary, #4f46e5)' }} />}{it.eventText}</span>
           {it.evType === 'companion.candidates' && cands.length > 0 && (
             <Collapse
               ghost

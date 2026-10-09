@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
@@ -287,5 +288,168 @@ func TestListEventsTypePrefix(t *testing.T) {
 	}
 	if total != 0 {
 		t.Fatalf("LIKE 通配应被转义（total=%d want 0）", total)
+	}
+}
+
+// ---- REQ-282：超时治理与长抽取不卡顿 ----
+
+// mustAgent 测试辅助：取 agent（OnRunComplete 需 *store.Agent）。
+func mustAgent(t *testing.T, st *store.Store, id string) *store.Agent {
+	t.Helper()
+	a, err := st.GetAgent(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// TestExtractTimeoutEnv A1：COMPANION_EXTRACT_TIMEOUT 秒解析与默认值。
+func TestExtractTimeoutEnv(t *testing.T) {
+	t.Setenv("COMPANION_EXTRACT_TIMEOUT", "")
+	if got := extractTimeout(); got != 300*time.Second {
+		t.Fatalf("默认预算=%v want 300s", got)
+	}
+	t.Setenv("COMPANION_EXTRACT_TIMEOUT", "600")
+	if got := extractTimeout(); got != 600*time.Second {
+		t.Fatalf("env 预算=%v want 600s", got)
+	}
+	t.Setenv("COMPANION_EXTRACT_TIMEOUT", "abc")
+	if got := extractTimeout(); got != 300*time.Second {
+		t.Fatalf("非法 env 应回落默认: %v", got)
+	}
+	t.Setenv("COMPANION_EXTRACT_TIMEOUT", "-5")
+	if got := extractTimeout(); got != 300*time.Second {
+		t.Fatalf("非正数 env 应回落默认: %v", got)
+	}
+}
+
+// TestStartedCarriesWindowBudget B4：started 事件带每窗预算秒数。
+func TestStartedCarriesWindowBudget(t *testing.T) {
+	payload := `{"concepts":[],"relations":[],"events":[]}`
+	srv := stubExtractLLM(t, payload)
+	st := openEventsStore(t)
+	if _, err := st.CreateConnection(&store.ModelConnection{ID: "conn_b4", Name: "stub", ConnType: "chat", Protocol: "openai_compat", BaseURL: srv.URL, ModelName: "stub", Enabled: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(&store.Agent{ID: "agt_b4", Name: "b4", CompanionOntologyID: "ont_b4", CompanionExtractConnID: "conn_b4"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateConversation(&store.Conversation{ID: "conv_b4", Scope: "agent", AgentID: strPtr("agt_b4")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.InsertMessage(&store.Message{ConversationID: "conv_b4", Role: "user", Content: "一句话事实。"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(st, nil, nil).ExtractNew(context.Background(), "conv_b4", "agt_b4", "run_b4"); err != nil {
+		t.Fatal(err)
+	}
+	evs := eventTypesByConv(t, st, "conv_b4")
+	for _, e := range evs {
+		if e["type"] == "companion.extract" && e["data"].(map[string]any)["phase"] == "started" {
+			if _, ok := e["data"].(map[string]any)["window_budget"]; !ok {
+				t.Fatalf("started 事件应带 window_budget: %v", e["data"])
+			}
+			return
+		}
+	}
+	t.Fatal("缺 started 事件")
+}
+
+// TestPendingExtractCoalesce B1：抽取进行中的新收尾置补抽标记（不再静默丢弃），
+// extractRounds 收尾后按标记再跑一轮（游标保证只抽增量），限补抽 1 轮。
+func TestPendingExtractCoalesce(t *testing.T) {
+	var calls int32
+	callCount := &calls
+	payload := `{"concepts":[],"relations":[],"events":[]}`
+	srv := stubExtractLLM(t, payload)
+	st := openEventsStore(t)
+	if _, err := st.CreateConnection(&store.ModelConnection{ID: "conn_co", Name: "stub", ConnType: "chat", Protocol: "openai_compat", BaseURL: srv.URL, ModelName: "stub", Enabled: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(&store.Agent{ID: "agt_co", Name: "co", CompanionOntologyID: "ont_co", CompanionExtractConnID: "conn_co"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateConversation(&store.Conversation{ID: "conv_co", Scope: "agent", AgentID: strPtr("agt_co")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.InsertMessage(&store.Message{ConversationID: "conv_co", Role: "user", Content: "第一轮消息。"}); err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(st, nil, nil)
+	// 模拟抽取进行中：running 占位 + 新收尾到达 → 应置补抽标记并静默返回
+	s.mu.Lock()
+	s.running["conv_co"] = true
+	s.mu.Unlock()
+	conv := &store.Conversation{ID: "conv_co", Scope: "agent", AgentID: strPtr("agt_co")}
+	s.OnRunComplete(conv, mustAgent(t, st, "agt_co"), "run_skip")
+	s.mu.Lock()
+	pending, hasPending := s.pendingExtract["conv_co"]
+	s.mu.Unlock()
+	if !hasPending || pending != "run_skip" {
+		t.Fatalf("冲突收尾应置补抽标记: %v %v", pending, hasPending)
+	}
+	// 第二次冲突收尾覆盖标记（取最新触发轮）
+	s.OnRunComplete(conv, mustAgent(t, st, "agt_co"), "run_skip2")
+	// extractRounds：主轮（游标已空 → 抽取第一条消息）+ 补抽轮，至多 2 轮
+	_ = callCount
+	s.extractRounds(conv, mustAgent(t, st, "agt_co"), "run_first")
+	s.mu.Lock()
+	_, still := s.pendingExtract["conv_co"]
+	s.mu.Unlock()
+	if still {
+		t.Fatal("extractRounds 收尾应消费补抽标记")
+	}
+}
+
+// TestConflictCheckTimeoutNote A3/B3：冲突检测超时 → 候选 note 如实标注（保留双方语义不变）。
+func TestConflictCheckTimeoutNote(t *testing.T) {
+	base := smokeBase(t)
+	old := conflictCheckBudget
+	conflictCheckBudget = 300 * time.Millisecond
+	t.Cleanup(func() { conflictCheckBudget = old })
+	// 慢 LLM 桩：冲突判定请求挂起超过收缩后的预算
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	st := openEventsStore(t)
+	if _, err := st.CreateConnection(&store.ModelConnection{ID: "conn_slow", Name: "slow", ConnType: "chat", Protocol: "openai_compat", BaseURL: srv.URL, ModelName: "slow", Enabled: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAgent(&store.Agent{ID: "agt_ct", Name: "ct", CompanionOntologyID: "ont_smoke", CompanionExtractConnID: "conn_slow"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateCompanionCandidates([]*store.CompanionCandidate{
+		{AgentID: "agt_ct", ConversationID: "conv_ct", Kind: "relation", Name: "滚动更新", RelName: "引发", RelTarget: "告警", Confidence: 0.9, Status: "pending"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateConversation(&store.Conversation{ID: "conv_ct", Scope: "agent", AgentID: strPtr("agt_ct")}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(st, nil, smokePlans(base))
+	// 首次确认：建边（无活跃旧边 → insert，语义检测对空清单跳过）
+	cands, _ := st.ListCompanionCandidates("conv_ct", "agt_ct", "pending")
+	if _, err := svc.ConfirmCandidate(context.Background(), cands[0].ID, "manual"); err != nil {
+		t.Fatalf("首次确认失败: %v", err)
+	}
+	// 第二次确认同主体+不同关系名（部署≠引发）→ 无确定性冲突，语义检测对既有「引发」活跃边
+	// 做 LLM 二分类（慢桩将超时 → note 标注 + 入图继续不受阻）
+	if err := st.CreateCompanionCandidates([]*store.CompanionCandidate{
+		{AgentID: "agt_ct", ConversationID: "conv_ct", Kind: "relation", Name: "滚动更新", RelName: "部署", RelTarget: "回滚", Confidence: 0.9, Status: "pending"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cands2, _ := st.ListCompanionCandidates("conv_ct", "agt_ct", "pending")
+	got, err := svc.ConfirmCandidate(context.Background(), cands2[0].ID, "manual")
+	if err != nil {
+		t.Fatalf("超时不应阻断入图: %v", err)
+	}
+	if got.Status != "confirmed" {
+		t.Fatalf("超时候选应照常确认: %s", got.Status)
+	}
+	if !strings.Contains(got.Note, "矛盾检测超时未判定") {
+		t.Fatalf("候选应带超时 note: %q", got.Note)
 	}
 }

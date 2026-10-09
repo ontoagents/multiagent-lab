@@ -3,9 +3,12 @@ package companion
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -170,6 +173,9 @@ type Service struct {
 
 	mu      sync.Mutex // 串行化同会话抽取（收尾事件可能并发到达）
 	running map[string]bool
+	// REQ-282 B1：抽取进行中新收尾的补抽标记（convID → 触发轮 runID）——
+	// 长抽取（思考模型）期间后续轮次不再静默丢弃，收尾后自动再跑一轮（游标保证只抽增量）
+	pendingExtract map[string]string
 
 	// REQ-194②召回增强：进程内标签向量缓存（REQ-216 起键=ontologyID；伴生子图写入时失效）
 	vecMu    sync.Mutex
@@ -180,12 +186,28 @@ type Service struct {
 	inflatedBase map[string]string
 }
 
+// extractTimeout REQ-282 A1：单窗抽取预算（秒），COMPANION_EXTRACT_TIMEOUT 可配。
+// 默认 300s 对齐 llmcreate 先例（思考模型单窗动辄数分钟，原 90s 硬编码总预算必掐断）。
+func extractTimeout() time.Duration {
+	if v := os.Getenv("COMPANION_EXTRACT_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 300 * time.Second
+}
+
+// conflictCheckBudget REQ-282 A3/B3：语义矛盾检测独立子预算（实际生效=min〔父余量，此值〕）。
+// 自动入图路径父=窗 ctx；人工确认路径父=HTTP 请求 ctx（无 deadline）——按钮最长等此预算而非无限挂起。
+// var 便于单测收缩。
+var conflictCheckBudget = 60 * time.Second
+
 // NewService 构造（plans 为空则按 env 默认端口构造）。
 func NewService(st *store.Store, box *secrets.Box, plans *PlanEngines) *Service {
 	if plans == nil {
 		plans = NewPlanEngines("", "")
 	}
-	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, vecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}}
+	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}}
 }
 
 // EnsureHost 供 API 层复用：确保宿主方案 running + 重建检测回灌（绑定/状态读路径同口径）。
@@ -301,6 +323,9 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, ru
 	}
 	s.mu.Lock()
 	if s.running[conv.ID] {
+		// REQ-282 B1：抽取进行中——不再静默丢弃，记补抽标记；当前抽取收尾后自动再跑一轮
+		// （游标保证只抽增量；限补抽 1 轮防风暴，仍积压的由下次收尾自然承接）
+		s.pendingExtract[conv.ID] = runID
 		s.mu.Unlock()
 		return
 	}
@@ -315,9 +340,16 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, ru
 				log.Printf("[companion] 抽取 panic（会话 %s）: %v", conv.ID, r)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		defer cancel()
-		n, err := s.ExtractNew(ctx, conv.ID, agent.ID, runID)
+		s.extractRounds(conv, agent, runID)
+	}()
+}
+
+// extractRounds REQ-282 B1：主抽取 + 至多一轮补抽。超时预算在 ExtractNew 内按窗生效（A2），
+// 本层不再设总预算；补抽轮触发轮 runID 取置标记那次收尾（事件归属与实际触发源一致）。
+func (s *Service) extractRounds(conv *store.Conversation, agent *store.Agent, runID string) {
+	cur := runID
+	for round := 0; ; round++ {
+		n, err := s.ExtractNew(context.Background(), conv.ID, agent.ID, cur)
 		if err != nil {
 			log.Printf("[companion] 会话 %s 抽取失败（不影响对话）: %v", conv.ID, err)
 			return
@@ -325,7 +357,15 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, ru
 		if n > 0 {
 			log.Printf("[companion] 会话 %s 新增 %d 条候选待确认", conv.ID, n)
 		}
-	}()
+		s.mu.Lock()
+		next := s.pendingExtract[conv.ID]
+		delete(s.pendingExtract, conv.ID)
+		s.mu.Unlock()
+		if next == "" || round >= 1 {
+			return
+		}
+		cur = next
+	}
 }
 
 // extractConnID 抽取/判定模型连接（REQ-187：companion 覆盖优先，空=跟随 agent 模型连接）。
@@ -399,18 +439,24 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 	emit("companion.extract", map[string]any{
 		"phase": "started", "agent_id": agentID, "fresh": len(fresh),
 		"windows": len(windows), "pending_windows": pendingWindows,
+		"window_budget": int(extractTimeout().Seconds()), // REQ-282 B4：预算透出（预期等待=窗数×每窗）
 	})
 	autoIngested := 0
 	total := 0
 	for i, win := range windows {
-		res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID,
+		// REQ-282 A2：每窗独立预算（原 90s 总预算 3 窗共享——思考模型首窗即耗尽，后续窗必死于 deadline；
+		// 与游标「失败停上一窗末、下轮续抽」语义对齐）
+		wctx, wcancel := context.WithTimeout(ctx, extractTimeout())
+		res, err := chat.GenerateStructured(wctx, s.Store, s.Box, connID,
 			companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)), companionSchema)
 		if err != nil {
+			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": err.Error()})
 			return total, fmt.Errorf("LLM 抽取失败（第 %d/%d 窗，游标停在上一成功窗末可重试）: %w", i+1, len(windows), err)
 		}
 		var out extractOut
 		if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
+			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "抽取输出解析失败: " + err.Error()})
 			return total, fmt.Errorf("抽取输出解析失败（第 %d/%d 窗）: %w", i+1, len(windows), err)
 		}
@@ -419,6 +465,7 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		markAligned(cands, known) // REQ-194①：对齐标记落库
 		markBatchRank(cands)      // REQ-227②：批内分位（置信校准——治 LLM 自评虚高）
 		if err := s.Store.CreateCompanionCandidates(cands); err != nil {
+			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "候选落库失败: " + err.Error()})
 			return total, err
 		}
@@ -437,13 +484,19 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 						"action": "auto_ingest", "candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
 						"confidence": c.Confidence, "threshold": agent.CompanionAutoThreshold, "batch_rank": c.BatchRank,
 					})
-					if _, err := s.ConfirmCandidate(ctx, c.ID, "auto"); err != nil {
+					if _, err := s.ConfirmCandidate(wctx, c.ID, "auto"); err != nil {
 						log.Printf("[companion] 自动入图失败（候选 %s，不影响其余候选）: %v", c.ID, err)
+						// REQ-282 A4：失败变体留痕——decision 已发而候选留 pending 的状态不再不可解释
+						emit("companion.decision", map[string]any{
+							"action": "auto_ingest_failed", "candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
+							"confidence": c.Confidence, "threshold": agent.CompanionAutoThreshold, "batch_rank": c.BatchRank,
+							"error": err.Error(),
+						})
 						continue
 					}
 					autoIngested++
 					// bot:autoConfirmed 溯源标记（区分自动入图与人工确认）
-					_ = s.graphUpdate(ctx, ontID, MarkAutoConfirmed(ontID, c.ID))
+					_ = s.graphUpdate(wctx, ontID, MarkAutoConfirmed(ontID, c.ID))
 					log.Printf("[companion] 候选 %s 置信 %.2f ≥ 阈值 %.2f，已自动入图", c.Name, c.Confidence, agent.CompanionAutoThreshold)
 				}
 			}
@@ -453,8 +506,10 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		total += len(cands)
 		// 游标推进到本窗末（逐窗推进：失败停在上一成功窗末）
 		if err := s.Store.AdvanceCompanionCursor(convID, agentID, win.lastID); err != nil {
+			wcancel()
 			return total, err
 		}
+		wcancel()
 	}
 	emit("companion.extract", map[string]any{
 		"phase": "done", "candidates": total, "auto_ingested": autoIngested, "windows": len(windows),
@@ -752,8 +807,18 @@ func (s *Service) semanticConflictCheck(ctx context.Context, ontologyID string, 
 	if connID == "" {
 		return // 无模型连接无法判定，保留现状（确定性路径仍在）
 	}
-	res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID, conflictPrompt(c.Name, existing, c.RelName, c.RelTarget), conflictSchema)
+	// REQ-282 A3/B3：独立子预算（实际生效=min〔父余量，conflictCheckBudget〕）——
+	// 不再与抽取预算互相挤压；人工确认路径（请求 ctx 无 deadline）下按钮最长等此预算而非思考模型无限挂起
+	checkCtx, cancel := context.WithTimeout(ctx, conflictCheckBudget)
+	defer cancel()
+	res, err := chat.GenerateStructured(checkCtx, s.Store, s.Box, connID, conflictPrompt(c.Name, existing, c.RelName, c.RelTarget), conflictSchema)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// B3：超时如实标注（保留双方既有语义不变），候选页可见待人工
+			if nerr := s.Store.SetCompanionCandidateNote(c.ID, "矛盾检测超时未判定（保留双方，可人工复核）"); nerr != nil {
+				log.Printf("[companion] 矛盾检测超时注记回写失败（候选 %s）: %v", c.ID, nerr)
+			}
+		}
 		log.Printf("[companion] 语义矛盾判定失败（保留双方，候选 %s）: %v", c.ID, err)
 		return
 	}
