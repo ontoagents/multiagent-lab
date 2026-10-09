@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -451,5 +452,124 @@ func TestConflictCheckTimeoutNote(t *testing.T) {
 	}
 	if !strings.Contains(got.Note, "矛盾检测超时未判定") {
 		t.Fatalf("候选应带超时 note: %q", got.Note)
+	}
+}
+
+// ---- REQ-283：伴生抽取质量加固与持久化兜底 ----
+
+// TestPruneCompanionCandidates A：自指关系丢弃/批内去重保最高置信/悬空端点注记。
+func TestPruneCompanionCandidates(t *testing.T) {
+	cands := []*store.CompanionCandidate{
+		{Kind: "concept", Name: "Pod驱逐", Confidence: 0.9},
+		{Kind: "concept", Name: "调度器", Confidence: 0.8},
+		// 自指：source==target → 丢弃
+		{Kind: "relation", Name: "Pod驱逐", RelName: "终止且清除", RelTarget: "Pod驱逐", Confidence: 0.95},
+		// 批内重复：同名同关系同客体 → 保留更高置信（0.92），丢 0.80
+		{Kind: "relation", Name: "Pod驱逐", RelName: "依赖", RelTarget: "调度器", Confidence: 0.80},
+		{Kind: "relation", Name: "Pod驱逐", RelName: "依赖", RelTarget: "调度器", Confidence: 0.92},
+		// 悬空端点：ReplicaSet 既不在本批概念也不在 known → note 注记（不丢弃）
+		{Kind: "relation", Name: "调度器", RelName: "编排", RelTarget: "ReplicaSet", Confidence: 0.7},
+	}
+	kept, detail := pruneCompanionCandidates(cands, []string{"HPA"})
+	if len(kept) != 4 {
+		t.Fatalf("存活候选=%d want 4（自指 1+重复 1 被剪）", len(kept))
+	}
+	for _, c := range kept {
+		if c.Kind == "relation" && c.Name == c.RelTarget {
+			t.Fatal("自指关系应被剪除")
+		}
+	}
+	// 重复组保留 0.92 那条
+	foundHigh, foundLow := false, false
+	for _, c := range kept {
+		if c.Kind == "relation" && c.RelName == "依赖" {
+			if c.Confidence == 0.92 {
+				foundHigh = true
+			}
+			if c.Confidence == 0.80 {
+				foundLow = true
+			}
+		}
+	}
+	if !foundHigh || foundLow {
+		t.Fatalf("去重应保留最高置信: high=%v low=%v", foundHigh, foundLow)
+	}
+	// 悬空端点注记（HPA 在 known → 非悬空；ReplicaSet 悬空）
+	noted := 0
+	for _, c := range kept {
+		if c.RelTarget == "ReplicaSet" && strings.Contains(c.Note, "端点由关系薄建") {
+			noted++
+		}
+	}
+	if noted != 1 {
+		t.Fatalf("悬空端点应恰有一条注记: %d", noted)
+	}
+	// 剪除明细含两类原因
+	reasons := map[string]bool{}
+	for _, d := range detail {
+		reasons[d["reason"].(string)] = true
+	}
+	if !reasons["自指关系（source==target）"] {
+		t.Fatalf("明细应含自指原因: %v", detail)
+	}
+	hasDup := false
+	for r := range reasons {
+		if strings.HasPrefix(r, "批内重复") {
+			hasDup = true
+		}
+	}
+	if !hasDup {
+		t.Fatalf("明细应含批内重复原因: %v", detail)
+	}
+}
+
+// TestPromptFewShot B：范例与硬性标准恒在（hint 为空也不缺）。
+func TestPromptFewShot(t *testing.T) {
+	p := companionPrompt("语料", "", "")
+	if !strings.Contains(p, "抽取范例") || !strings.Contains(p, "自指关系") || !strings.Contains(p, "time_scope") {
+		t.Fatal("few-shot 范例与硬性标准应恒在")
+	}
+	// 既有 hint/alignment 行为不回归
+	p2 := companionPrompt("语料", "聚焦K8s", "已有实体清单约束节")
+	if !strings.Contains(p2, "聚焦K8s") || !strings.Contains(p2, "已有实体清单约束节") {
+		t.Fatal("hint/alignment 注入不回归")
+	}
+}
+
+// TestSnapshotBackfillOnMissing D：快照缺失而子图非空 → EnsureHost 读路径补拍快照。
+func TestSnapshotBackfillOnMissing(t *testing.T) {
+	base := smokeBase(t)
+	t.Setenv("COMPANION_SNAPSHOT_DIR", filepath.Join(t.TempDir(), "snaps"))
+	st := openEventsStore(t)
+	if _, err := st.CreateAgent(&store.Agent{ID: "snap-agt2", Name: "snap2", CompanionOntologyID: "ont_smoke"}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(st, nil, smokePlans(base))
+	// 确认入图（写路径快照已落）→ 删快照 + 清基址标记 → 模拟「数据只在引擎里」
+	cands := []*store.CompanionCandidate{
+		{AgentID: "snap-agt2", ConversationID: "c1", Kind: "concept", Name: "滚动更新", Definition: "逐批替换", Confidence: 0.9, Status: "pending"},
+	}
+	if err := st.CreateCompanionCandidates(cands); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConfirmCandidate(context.Background(), cands[0].ID, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	snap := snapshotPath("ont_smoke")
+	if _, err := os.Stat(snap); err != nil {
+		t.Fatal("确认后应有快照")
+	}
+	if err := os.Remove(snap); err != nil {
+		t.Fatal(err)
+	}
+	svc.infMu.Lock()
+	svc.inflatedBase = map[string]string{}
+	svc.infMu.Unlock()
+	// 读路径 EnsureHost → 快照缺失而子图非空 → 补拍
+	if _, err := svc.EnsureHost(context.Background(), "ont_smoke"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(snap); err != nil {
+		t.Fatal("读路径应已补拍快照（D 兜底）")
 	}
 }

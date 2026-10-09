@@ -74,13 +74,11 @@ func snapshotDelete(ontologyID string) {
 	_ = os.Remove(snapshotPath(ontologyID))
 }
 
-// ensureInflated 方案重建检测与回灌。触发条件：快照存在 && 该本体未在当前引擎基址上
-// 完成过校验（进程重启或 Ensure 解析到新基址/新方案后首访一次）；子图为空且快照非空
-// → 回灌。非空 = 数据在位（含首次 Ensure 刚建好的空宿主——快照为空时 stat 已拦截）。
+// ensureInflated 方案重建检测与回灌。触发条件：该本体未在当前引擎基址上完成过校验（进程重启或
+// Ensure 解析到新基址/新方案后首访一次）；①快照存在 && 子图为空 → 回灌；②REQ-283 D：快照缺失
+// && 子图非空 → 补拍快照（治「数据只在引擎里」的历史损失窗口——确认先于快照机制发生/快照被删
+// 而引擎仍持有数据的场景，:9202 空图事故直系防线）。非空+有快照 = 数据在位，仅标记基址已校验。
 func (s *Service) ensureInflated(ctx context.Context, ontologyID, base string) {
-	if _, err := os.Stat(snapshotPath(ontologyID)); err != nil {
-		return // 无快照（该本体从未确认过入图，或已被本体级清空）——零开销返回
-	}
 	s.infMu.Lock()
 	if s.inflatedBase[ontologyID] == base {
 		s.infMu.Unlock()
@@ -88,27 +86,36 @@ func (s *Service) ensureInflated(ctx context.Context, ontologyID, base string) {
 	}
 	s.infMu.Unlock()
 
-	n := s.countGraphTriples(ctx, ontologyID, base)
-	if n == 0 {
-		raw, err := os.ReadFile(snapshotPath(ontologyID))
-		if err == nil {
-			triples, perr := parseSnapshotFile(raw)
-			if perr != nil {
-				// REQ-227④：快照损坏告警不静默（此前 parseTriples 失败静默跳过=图空无感知）
-				log.Printf("[companion] 快照解析失败（本体 %s，疑似损坏不回灌）: %v", ontologyID, perr)
-			} else if len(triples) > 0 {
-				for i := 0; i < len(triples); i += legacyCopyBatch {
-					end := i + legacyCopyBatch
-					if end > len(triples) {
-						end = len(triples)
+	_, snapErr := os.Stat(snapshotPath(ontologyID))
+	if snapErr == nil {
+		n := s.countGraphTriples(ctx, ontologyID, base)
+		if n == 0 {
+			raw, err := os.ReadFile(snapshotPath(ontologyID))
+			if err == nil {
+				triples, perr := parseSnapshotFile(raw)
+				if perr != nil {
+					// REQ-227④：快照损坏告警不静默（此前 parseTriples 失败静默跳过=图空无感知）
+					log.Printf("[companion] 快照解析失败（本体 %s，疑似损坏不回灌）: %v", ontologyID, perr)
+				} else if len(triples) > 0 {
+					for i := 0; i < len(triples); i += legacyCopyBatch {
+						end := i + legacyCopyBatch
+						if end > len(triples) {
+							end = len(triples)
+						}
+						if err := s.Plans.Update(ctx, base, insertTriplesData(GraphURI(ontologyID), triples[i:end])); err != nil {
+							log.Printf("[companion] 快照回灌失败（本体 %s，下次重检测）: %v", ontologyID, err)
+							return // 不标记——下次访问重试
+						}
 					}
-					if err := s.Plans.Update(ctx, base, insertTriplesData(GraphURI(ontologyID), triples[i:end])); err != nil {
-						log.Printf("[companion] 快照回灌失败（本体 %s，下次重检测）: %v", ontologyID, err)
-						return // 不标记——下次访问重试
-					}
+					log.Printf("[companion] 伴生子图自快照回灌 %d 三元组（宿主方案重建检测，本体 %s）", len(triples), ontologyID)
 				}
-				log.Printf("[companion] 伴生子图自快照回灌 %d 三元组（宿主方案重建检测，本体 %s）", len(triples), ontologyID)
 			}
+		}
+	} else {
+		// REQ-283 D：快照缺失而子图非空 → 补拍（每引擎基址至多一次，零热路径开销）
+		if n := s.countGraphTriples(ctx, ontologyID, base); n > 0 {
+			s.snapshotRefresh(ctx, ontologyID, base)
+			log.Printf("[companion] 快照缺失而子图非空（%d 三元组），已补拍快照（本体 %s）", n, ontologyID)
 		}
 	}
 	s.infMu.Lock()

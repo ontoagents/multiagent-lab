@@ -1320,8 +1320,9 @@ export default function ChatWindow({
     bumpData()
     onConversationUpdated()
     // REQ-281：伴生抽取在收尾后旁路异步执行（LLM 一轮 60~90s），SSE 已关——
-    // 绑定伴生本体的 agent 收尾后短轮询补齐沉淀过程事件；未绑定零轮询。
-    if (convAgent?.companion_ontology) startCompanionPoll(conversation.id)
+    // 收尾后短轮询补齐沉淀过程事件；REQ-283 C：门控扩 project 作用域（REQ-281 边界闭合——
+    // 伴生事件按会话归属，项目会话中绑定伴生的成员智能体产出的沉淀同样实时可见）；未绑定零轮询。
+    if (isProjectScope || convAgent?.companion_ontology) startCompanionPoll(conversation.id)
   }
 
   const send = async () => {

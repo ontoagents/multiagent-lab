@@ -73,6 +73,7 @@ type extractOut struct {
 
 // companionPrompt 抽取提示词（教学口径：只抽确证的领域事实，宁缺毋滥）。
 // alignment REQ-194①：已有实体清单约束节（空串=无清单走原行为）。
+// REQ-283 B：注入紧凑 few-shot 范例——治真机实证的污染源（自指关系/端点悬空）于 prompt 侧。
 func companionPrompt(corpus, hint, alignment string) string {
 	var b strings.Builder
 	b.WriteString("你是本体候选抽取助手。阅读以下对话片段，抽取其中值得沉淀为知识的领域概念、概念间关系与事件。\n")
@@ -88,6 +89,10 @@ func companionPrompt(corpus, hint, alignment string) string {
 	if alignment != "" {
 		b.WriteString(alignment)
 	}
+	b.WriteString("抽取范例（仅参考格式与抽取标准，不要照抄内容）：\n")
+	b.WriteString(`{"concepts":[{"name":"滚动更新","definition":"逐批替换实例的发布策略","confidence":0.9,"source":"滚动更新"},{"name":"副本重建","definition":"被驱逐的实例在其他节点重新创建","confidence":0.85,"source":"副本重建"}],"relations":[{"rel_name":"触发","source":"滚动更新","target":"副本重建","definition":"滚动更新触发实例重建","confidence":0.8,"evidence":"滚动更新会触发副本重建"}],"events":[{"name":"完成灰度切换","definition":"灰度流量全部切至新版本","time_scope":"2026-09","confidence":0.9,"source":"完成灰度切换"}]}
+`)
+	b.WriteString("硬性标准：relations 的 source/target 必须引用 concepts 中已有的 name（或既有实体），禁止输出 source 与 target 相同的自指关系；概念 name 用独立术语而非一句话。\n")
 	b.WriteString("只输出 JSON，不要输出其他内容。对话片段：\n")
 	b.WriteString(corpus)
 	return b.String()
@@ -464,15 +469,18 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		cands := toCandidates(convID, agentID, win.msgs, &out)
 		markAligned(cands, known) // REQ-194①：对齐标记落库
 		markBatchRank(cands)      // REQ-227②：批内分位（置信校准——治 LLM 自评虚高）
+		// REQ-283 A：抽取自检规则臂（自指丢弃/批内去重/悬空端点注记）——污染在落库前拦截
+		cands, pruned := pruneCompanionCandidates(cands, known)
 		if err := s.Store.CreateCompanionCandidates(cands); err != nil {
 			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "候选落库失败: " + err.Error()})
 			return total, err
 		}
-		// REQ-281：逐窗候选批事件（空窗 count=0 如实呈现——「本窗无可抽内容」不再不可见）
+		// REQ-281：逐窗候选批事件（空窗 count=0 如实呈现——「本窗无可抽内容」不再不可见）；
+		// REQ-283 A：剪除明细随事件透出（pruned 计数+前 10 条原因）
 		emit("companion.candidates", map[string]any{
 			"window": i + 1, "total": len(windows), "count": len(cands),
-			"items": candidateSummaries(cands, 30),
+			"items": candidateSummaries(cands, 30), "pruned": len(pruned), "pruned_detail": pruned,
 		})
 		// REQ-187：置信度阈值自动入图（0=全人工审；≥阈值自动 confirmCandidate——含矛盾旧边失效化
 		// 与 REQ-194⑤语义矛盾检测；自动入图走与人工确认完全相同的链路，区别仅在来源标记 bot:autoConfirmed）
@@ -530,6 +538,85 @@ func candidateSummaries(cands []*store.CompanionCandidate, limit int) []map[stri
 		})
 	}
 	return out
+}
+
+// pruneCompanionCandidates REQ-283 A：抽取自检规则臂（零 LLM 确定性）——图污染在落库前拦截。
+// 规则：①自指关系（source==target）丢弃〔真机实证污染源〕；②批内去重（同 kind+同名〔relation
+// 加关系名+客体〕保留最高置信）；③悬空端点注记（relation 端点不在本批概念亦不在既有实体清单
+// → note 如实标注——薄建系 REQ-216 设计行为，不阻断不入黑名单）。
+// 返回存活候选与被剪除明细（随 candidates 事件透出，明细上限 10 条）。
+func pruneCompanionCandidates(cands []*store.CompanionCandidate, known []string) ([]*store.CompanionCandidate, []map[string]any) {
+	dropped := map[int]string{} // 原始下标 → 剪除原因
+	keep := map[int]bool{}
+	for i := range cands {
+		keep[i] = true
+	}
+	best := map[string]int{} // 去重键 → 存活者原始下标
+	for i, c := range cands {
+		if c.Kind == "relation" && c.Name == c.RelTarget {
+			keep[i] = false
+			dropped[i] = "自指关系（source==target）"
+			continue
+		}
+		key := c.Kind + "|" + c.Name
+		if c.Kind == "relation" {
+			key += "|" + c.RelName + "|" + c.RelTarget
+		}
+		if j, ok := best[key]; ok {
+			loser, winner := i, j
+			if cands[i].Confidence > cands[j].Confidence {
+				loser, winner = j, i
+			}
+			keep[loser] = false
+			dropped[loser] = "批内重复（保留更高置信 " + strconv.FormatFloat(cands[winner].Confidence, 'f', 2, 64) + "）"
+			best[key] = winner
+		} else {
+			best[key] = i
+		}
+	}
+	kept := make([]*store.CompanionCandidate, 0, len(cands))
+	for i, c := range cands {
+		if keep[i] {
+			kept = append(kept, c)
+		}
+	}
+	// ③：悬空端点注记（存活者；端点集合=本批概念名∪既有实体清单）
+	knownSet := make(map[string]bool, len(known))
+	for _, k := range known {
+		knownSet[k] = true
+	}
+	concepts := map[string]bool{}
+	for _, c := range kept {
+		if c.Kind == "concept" {
+			concepts[c.Name] = true
+		}
+	}
+	for _, c := range kept {
+		if c.Kind != "relation" || c.Note != "" {
+			continue
+		}
+		var missing []string
+		for _, ep := range []string{c.Name, c.RelTarget} {
+			if !concepts[ep] && !knownSet[ep] {
+				missing = append(missing, ep)
+			}
+		}
+		if len(missing) > 0 {
+			c.Note = "端点由关系薄建（未单独抽取）：" + strings.Join(missing, "、")
+		}
+	}
+	// 剪除明细（随 candidates 事件透出，上限 10 条）
+	detail := make([]map[string]any, 0, len(dropped))
+	for i, reason := range dropped {
+		detail = append(detail, map[string]any{"name": companionCandTitle(cands[i]), "reason": reason})
+	}
+	sort.Slice(detail, func(a, b int) bool {
+		return detail[a]["name"].(string) < detail[b]["name"].(string)
+	})
+	if len(detail) > 10 {
+		detail = detail[:10]
+	}
+	return kept, detail
 }
 
 // toCandidates LLM 输出 → 候选记录（evidence/name 回链最近包含该文本的消息 id）。
