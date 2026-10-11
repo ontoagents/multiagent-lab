@@ -115,6 +115,19 @@ func WithModelOverride(ag *store.Agent, modelConnID string) *store.Agent {
 	return paneAgent(ag, PaneConfig{ModelConnID: modelConnID})
 }
 
+// ApplyConversationModelOverride 会话级模型覆盖（REQ-291：conversation.model_conn_id，''=跟随智能体默认）：
+// 复制 Agent 并改写模型连接（与 REQ-135② 审批覆盖同构的「空=跟随」范式）。
+// 合并序＝请求级（RunInput.model_conn_id，handler 层在其后应用故优先）> 会话级 > 智能体默认 > 全局默认；
+// 对比窗格未选模型时（''=继承）经基座 Agent 继承会话级，窗格显式选择仍最高。
+// 项目会话作用于运行目标（协调者/首成员），与 REQ-174 既有单路覆盖语义一致；
+// docker/外部 CLI 推理后端由 agentd/适配器按库内 Agent 行自取模型——本覆盖不生效（沿 REQ-174 注记）。
+func ApplyConversationModelOverride(conv *store.Conversation, ag *store.Agent) *store.Agent {
+	if conv == nil || ag == nil || conv.ModelConnID == nil || *conv.ModelConnID == "" {
+		return ag
+	}
+	return paneAgent(ag, PaneConfig{ModelConnID: *conv.ModelConnID})
+}
+
 // PaneConfig 对比窗格单项覆盖（REQ-19f/143/144）：智能体 / 模型连接 / 知识库 / 本体运行方案 /
 // 推理参数（温度）/ 系统提示词临时改写 / 技能开关；空 = 继承对话当前配置。
 // NoHistory = 窗格级「不携带历史」开关（干净对照，默认共享完整对话历史）。
@@ -273,6 +286,14 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	}
 	if apMode, apSrc := effectiveApprovalPolicy(agent, conv); apMode != "" || apSrc != "agent" {
 		startData["tool_approval"] = map[string]any{"mode": apMode, "source": apSrc}
+	}
+	// REQ-291：运行配置审计——当轮生效的推理参数恒落（未设置不臆造数值，缺省=跟随后端协议默认，
+	// anthropic 通道温度钳 [0,1] 与 max_tokens 兜底见 modelbuild；协议级整形不在本键还原范围）
+	if agent.Temperature != nil {
+		startData["temperature"] = *agent.Temperature
+	}
+	if agent.MaxTokens != nil {
+		startData["max_tokens"] = *agent.MaxTokens
 	}
 	if len(rt.Warnings) > 0 {
 		startData["warnings"] = rt.Warnings
@@ -994,6 +1015,13 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	}
 	if apMode, apSrc := effectiveApprovalPolicy(agent, conv); apMode != "" || apSrc != "agent" {
 		startData["tool_approval"] = map[string]any{"mode": apMode, "source": apSrc}
+	}
+	// REQ-291：恢复路径同构落运行配置审计两键（口径与 runOnce 一致）
+	if agent.Temperature != nil {
+		startData["temperature"] = *agent.Temperature
+	}
+	if agent.MaxTokens != nil {
+		startData["max_tokens"] = *agent.MaxTokens
 	}
 	if debug >= 1 && rt.Snapshot != nil {
 		startData["assembly"] = rt.Snapshot

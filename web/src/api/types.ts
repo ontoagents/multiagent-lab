@@ -206,6 +206,8 @@ export interface Conversation {
   interrupt_state?: string | null
   /** REQ-135②：对话级工具审批覆盖（空=跟随智能体级 | on | off） */
   tool_approval?: string | null
+  /** REQ-291：会话级模型连接覆盖（空=跟随智能体默认；合并序 请求级 > 会话级 > 智能体默认） */
+  model_conn_id?: string | null
   top_k: number
   min_score: number
   created_at: string

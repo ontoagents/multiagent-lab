@@ -506,6 +506,22 @@ function RunBlock({
       </Tooltip>
     )
   })()
+  // REQ-291：运行配置审计——当轮模型与推理参数（run.started 恒落；缺省键=跟随后端协议默认，不臆造）
+  const modelCfgChip = (() => {
+    const started = run.events.find((e) => e.type === 'run.started')
+    const d = started ? safeParse(started.data) : undefined
+    if (!d) return null
+    const temp = d.temperature ?? null
+    const toks = d.max_tokens ?? null
+    if (!d.model && temp == null && toks == null) return null
+    return (
+      <Tooltip title={`当轮模型 ${d.model ?? '—'}；temperature ${temp ?? '后端默认'} / max_tokens ${toks ?? '后端默认'}（未设置=跟随后端协议默认）`}>
+        <Tag style={{ margin: 0, fontSize: 10 }}>
+          {d.model ? `${d.model}` : '模型 —'}{temp != null ? ` · t=${temp}` : ''}{toks != null ? ` · ${toks}tok` : ''}
+        </Tag>
+      </Tooltip>
+    )
+  })()
   // REQ-284①：流式输出归并段（列表主视图——delta 不再逐条渲染）
   const segs = useMemo(() => buildSegments(run.events), [run.events])
   return (
@@ -513,6 +529,7 @@ function RunBlock({
       <div style={{ background: 'var(--c-bg-soft, #f6f7fb)', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Typography.Text strong style={{ fontSize: 12 }}>运行 {index + 1}</Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(run.startedAt)}</Typography.Text>
+        {modelCfgChip}
         {approvalChip}
         {fin && (
           <Tag color={fin.type === 'run.error' ? 'red' : (finState?.reason === 'verify_failed' ? 'orange' : 'green')} style={{ margin: 0, fontSize: 10 }}>

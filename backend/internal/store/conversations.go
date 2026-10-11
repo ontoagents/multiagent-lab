@@ -9,14 +9,19 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	var c Conversation
 	var agentID, projectID, kbID, profileID sql.NullString
 	var enableKB, ontoEnabled, enableSkills int
-	var toolApproval sql.NullString
-	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON)
+	var toolApproval, modelConnID sql.NullString
+	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID)
 	if err != nil {
 		return nil, err
 	}
 	if toolApproval.Valid {
 		ta := toolApproval.String
 		c.ToolApproval = &ta
+	}
+	// REQ-291：会话级模型覆盖（NOT NULL DEFAULT ''，恒非空；''=跟随智能体默认）
+	if modelConnID.Valid {
+		mc := modelConnID.String
+		c.ModelConnID = &mc
 	}
 	if agentID.Valid {
 		c.AgentID = &agentID.String
@@ -37,7 +42,7 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	return &c, nil
 }
 
-const convCols = `id,scope,agent_id,project_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json`
+const convCols = `id,scope,agent_id,project_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id`
 
 // ConversationFilter 会话列表过滤。
 type ConversationFilter struct {
@@ -120,17 +125,22 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 		empty := ""
 		c.ToolApproval = &empty
 	}
-	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Scope, c.AgentID, c.ProjectID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON)
+	// model_conn_id：nil → ""（REQ-291，同 tool_approval 口径；''=跟随智能体默认）
+	if c.ModelConnID == nil {
+		empty := ""
+		c.ModelConnID = &empty
+	}
+	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Scope, c.AgentID, c.ProjectID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID)
 	if err != nil {
 		return nil, err
 	}
 	return s.GetConversation(c.ID)
 }
 
-// UpdateConversation 更新标题与对话级配置（kb / 本体运行方案 / 技能开关 / 工具审批覆盖）。
+// UpdateConversation 更新标题与对话级配置（kb / 本体运行方案 / 技能开关 / 工具审批覆盖 / 模型覆盖）。
 func (s *Store) UpdateConversation(c *Conversation) (*Conversation, error) {
-	// enable_skills / tool_approval 为 nil 时保留原值（COALESCE），非 nil 时覆盖
+	// enable_skills / tool_approval / model_conn_id 为 nil 时保留原值（COALESCE），非 nil 时覆盖
 	var enableArg any
 	if c.EnableSkills != nil {
 		enableArg = boolInt(*c.EnableSkills)
@@ -139,8 +149,12 @@ func (s *Store) UpdateConversation(c *Conversation) (*Conversation, error) {
 	if c.ToolApproval != nil {
 		approvalArg = *c.ToolApproval
 	}
-	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),updated_at=? WHERE id=?`,
-		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, now(), c.ID)
+	var modelArg any
+	if c.ModelConnID != nil {
+		modelArg = *c.ModelConnID
+	}
+	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),model_conn_id=COALESCE(?,model_conn_id),updated_at=? WHERE id=?`,
+		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, modelArg, now(), c.ID)
 	if err != nil {
 		return nil, err
 	}

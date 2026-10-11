@@ -615,17 +615,11 @@ export default function ChatWindow({
   useEffect(loadCfgOptions, [])
   const [conns, setConns] = useState<ModelConnection[]>([])
 
-  // ---- REQ-174 对话输入区模型快捷切换：会话级记忆（localStorage）+ 逐次下发 model_conn_id ----
-  const modelKey = `eino.chat.model.${conversation?.id}`
-  const [modelOverride, setModelOverrideState] = useState<string | null>(() => {
-    try { return localStorage.getItem(`eino.chat.model.${conversation?.id}`) || null } catch { return null }
-  })
+  // ---- REQ-174/REQ-291 对话输入区模型快捷切换：会话级覆盖落库（conversation.model_conn_id，''=跟随）----
+  // REQ-291 影子层转正：偏好随会话行持久（换浏览器/设备不丢，后端装配与审计可见）；请求级逐次下发退役。
+  const modelOverride = conversation?.model_conn_id || null
   const setModelOverride = (id: string | null) => {
-    setModelOverrideState(id)
-    try {
-      if (id) localStorage.setItem(modelKey, id)
-      else localStorage.removeItem(modelKey)
-    } catch { /* 忽略配额 */ }
+    patchConv({ model_conn_id: id || '' }, { silent: true })
   }
   const convAgent = agents.find((a) => a.id === conversation?.agent_id) ?? null
   const agentDefaultConn = convAgent?.model_conn_id ? conns.find((c) => c.id === convAgent.model_conn_id) : undefined
@@ -635,6 +629,19 @@ export default function ChatWindow({
     : agentDefaultConn
       ? connDisplayName(agentDefaultConn)
       : '默认模型'
+  // REQ-291 迁移：REQ-174 时代的 localStorage 模型偏好（eino.chat.model.{id}）一次性写入会话行后清除
+  const migratedModelRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!conversation?.id || conversation.model_conn_id || migratedModelRef.current === conversation.id) return
+    let legacy: string | null = null
+    try { legacy = localStorage.getItem(`eino.chat.model.${conversation.id}`) } catch { return }
+    migratedModelRef.current = conversation.id
+    if (!legacy) return
+    localStorage.removeItem(`eino.chat.model.${conversation.id}`)
+    api.updateConversation(conversation.id, { ...conversation, model_conn_id: legacy })
+      .then(() => onConversationUpdated())
+      .catch(() => { /* 迁移失败静默——chip 仍显示跟随默认 */ })
+  }, [conversation?.id, conversation?.model_conn_id])
 
   // ---- REQ-19e/19f 对话对比模式：开关 + 2~4 窗格 + 每窗格单项覆盖（''= 继承对话当前配置）----
   const cmpKey = `eino.compare.${conversation?.id}`
@@ -710,7 +717,7 @@ export default function ChatWindow({
     })
     showToast(`已应用剖面到窗格 ${i + 1}（覆盖合并序：剖面 > 窗格单项 > 智能体 > 全局）`)
   }
-  // REQ-144 可选增强：采纳窗格配置转正（agent 直聊：写回 agent_id/知识库/方案/技能开关继续对话；
+  // REQ-144 可选增强：采纳窗格配置转正（agent 直聊：写回 agent_id/模型/知识库/方案/技能开关继续对话；
   // 项目会话不提供——主智能体/协调者变更属项目配置职责）
   const adoptPane = (sel: PaneSel) => {
     if (isProjectScope) return
@@ -721,6 +728,7 @@ export default function ChatWindow({
       enable_kb: sel.kb ? true : conversation.enable_kb,
       ontology_enabled: sel.profile ? true : conversation.ontology_enabled,
     }
+    if (sel.model) patch.model_conn_id = sel.model // REQ-291：窗格模型选择随采纳写回会话行
     if (kb) patch.kb_id = kb
     if (rp) patch.runtime_profile_id = rp
     if (sel.skills) patch.enable_skills = sel.skills === 'on'
@@ -766,10 +774,10 @@ export default function ChatWindow({
   }, [agents, isProjectScope, project])
 
   // 对话级配置落库（M8）：后端 PUT 为 full-replace，必须合并当前会话字段，避免重置 title/kb_id/top_k 等
-  const patchConv = async (patch: Partial<Conversation>) => {
+  const patchConv = async (patch: Partial<Conversation>, opts?: { silent?: boolean }) => {
     try {
       await api.updateConversation(conversation.id, { ...conversation, ...patch })
-      showToast('对话配置已更新')
+      if (!opts?.silent) showToast('对话配置已更新')
       onConversationUpdated()
     } catch (e: any) {
       showToast(e.message, 'err')
@@ -876,7 +884,7 @@ export default function ChatWindow({
       placement="topLeft"
       arrow={false}
       content={pickerList(
-        '切换模型（对本会话后续发送生效）',
+        '切换模型（随会话保存，对之后的消息生效）',
         [
           { id: '', name: '跟随智能体默认', meta: agentDefaultConn ? connDisplayName(agentDefaultConn) : (convAgent ? '未指定连接' : undefined) },
           ...conns.filter((c) => c.id !== convAgent?.model_conn_id).map((c) => ({ id: c.id, name: connDisplayName(c), meta: c.model_name })),
@@ -897,7 +905,7 @@ export default function ChatWindow({
       )}
     >
       <span>
-        <ChatChip on={!!modelOverride} disabled={false} icon={<RobotOutlined />} label={effectiveModelName} title="切换模型（REQ-174）" onClick={() => setPicker(picker === 'model' ? null : 'model')} />
+        <ChatChip on={!!modelOverride} disabled={false} icon={<RobotOutlined />} label={effectiveModelName} title="切换模型（随会话保存）" onClick={() => setPicker(picker === 'model' ? null : 'model')} />
       </span>
     </Popover>
   )
@@ -1342,7 +1350,8 @@ export default function ChatWindow({
     }
     runKeyRef.current = `run-${Date.now()}`
     setItems((prev) => [...prev, { kind: 'msg', role: 'user', content: text }])
-    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist, modelOverride || undefined))
+    // REQ-291：模型偏好已落会话行（后端装配读 conversation.model_conn_id），不再逐请求下发
+    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist))
   }
 
   // REQ-19e/19f 对比发送：共用输入框一次提问 → N 路并行；meta 建窗格 run_id 映射，事件按 run_id 路由
@@ -1574,9 +1583,11 @@ export default function ChatWindow({
               {cmp.panes.map((sel, i) => {
                 const inh = paneAgentOf(sel)
                 // REQ-150：继承/覆盖显性化——徽标 Tooltip 显示继承的实际来源值
+                // REQ-291：模型继承面纳入会话级覆盖（合并序 窗格 > 会话 > 智能体 > 全局）
+                const inhModelConn = conversation.model_conn_id || inh?.model_conn_id
                 const paneInherit = {
-                  model: inh?.model_conn_id
-                    ? (conns.find((c) => c.id === inh.model_conn_id) ? connDisplayName(conns.find((c) => c.id === inh.model_conn_id)!) : '智能体默认连接')
+                  model: inhModelConn
+                    ? (conns.find((c) => c.id === inhModelConn) ? connDisplayName(conns.find((c) => c.id === inhModelConn)!) : '会话级覆盖连接')
                     : '全局默认连接',
                   kb: conversation.kb_id
                     ? (kbs.find((k) => k.id === conversation.kb_id)?.name ?? '已绑定')
@@ -1601,7 +1612,7 @@ export default function ChatWindow({
                     </span>
                     {/* REQ-144 可选增强：采纳该窗格配置写回对话（仅 agent 直聊；运行中禁用） */}
                     {!isProjectScope && conversation.agent_id && !running && (
-                      <Tooltip title="采纳：把该窗格的智能体/知识库/方案/技能开关写回对话配置，之后单流对话沿用">
+                      <Tooltip title="采纳：把该窗格的智能体/模型/知识库/方案/技能开关写回对话配置，之后单流对话沿用">
                         <Button
                           type="link" size="small" style={{ padding: '0 4px', fontSize: 11 }}
                           onClick={() => adoptPane(sel)}

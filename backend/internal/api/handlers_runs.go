@@ -60,6 +60,9 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// REQ-291：会话级模型覆盖（conversation.model_conn_id，''=跟随）先落基座；REQ-174 请求级单路
+	// 覆盖在其后应用故仍最高。对比模式窗格 ''（继承）经基座继承会话级，窗格显式选择不变最高。
+	agent = chat.ApplyConversationModelOverride(conv, agent)
 	// REQ-174：单路模型覆盖（对话输入区模型快捷切换逐次下发；对比模式走窗格级覆盖，此处不介入）
 	if in.ModelConnID != "" && len(in.Panes) < 2 {
 		agent = chat.WithModelOverride(agent, in.ModelConnID)
@@ -147,6 +150,8 @@ func (s *Server) resumeConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// REQ-291：恢复路径同样吃会话级模型覆盖（请求级覆盖恢复语义维持不带，沿 REQ-174 现状）
+	agent = chat.ApplyConversationModelOverride(conv, agent)
 	sw, err := sse.NewWriter(w)
 	if err != nil {
 		writeErr(w, err)
