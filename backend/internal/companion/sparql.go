@@ -156,6 +156,29 @@ func InsertRelationTriples(graphID, candID, relName, sourceLabel, targetLabel, d
 // EdgeURI 关系边节点 URI。
 func EdgeURI(candID string) string { return EntityNS + "edge-" + candID }
 
+// MergeNodeData REQ-298：已存在实体的印证式合写——仅当缺失 definition 时补齐
+//（不重复写 confidence/generatedAtTime/wasGeneratedBy 多值，治内容清单组合行爆炸的根源）。
+func MergeNodeData(graphID, candID, kind, label, definition string, confidence float64, msgID string, at time.Time) string {
+	g := GraphURI(graphID)
+	e := EntityURI(label)
+	if definition != "" {
+		return fmt.Sprintf(`PREFIX bot: <%s>
+INSERT DATA {
+  GRAPH <%s> {
+    <%s> bot:definition %q .
+  }
+}`, BotNS, g, e, turtleEscape(definition))
+	}
+	return fmt.Sprintf(`PREFIX bot: <%s>
+INSERT DATA { GRAPH <%s> { } }`, BotNS, g)
+}
+
+// NodeExists 实体存在性检查（Ask——入图侧收敛判定）。
+func NodeExists(graphID, label string) string {
+	return fmt.Sprintf(`PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+ASK { GRAPH <%s> { <%s> rdfs:label [] } }`, GraphURI(graphID), EntityURI(label))
+}
+
 // FindActiveEdge 查同主体+同关系名且未失效的旧边（矛盾检测前置）。
 func FindActiveEdge(graphID, sourceLabel, relName string) string {
 	return fmt.Sprintf(`PREFIX bot: <%s>
@@ -249,16 +272,16 @@ func SelectNodes(graphID string) string {
 	return fmt.Sprintf(`PREFIX bot: <%s>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX prov: <http://www.w3.org/ns/prov#>
-SELECT ?kind ?label ?def ?conf ?tscope ?at WHERE {
+SELECT ?kind ?label (SAMPLE(?d) AS ?def) (MAX(?c) AS ?conf) (SAMPLE(?t) AS ?tscope) (MIN(?at) AS ?at) WHERE {
   GRAPH <%s> {
     ?s a ?kind ; rdfs:label ?label .
     FILTER(?kind IN (bot:Concept, bot:Event))
-    OPTIONAL { ?s bot:definition ?def }
-    OPTIONAL { ?s bot:confidence ?conf }
-    OPTIONAL { ?s bot:timeScope ?tscope }
+    OPTIONAL { ?s bot:definition ?d }
+    OPTIONAL { ?s bot:confidence ?c }
+    OPTIONAL { ?s bot:timeScope ?t }
     OPTIONAL { ?s prov:generatedAtTime ?at }
   }
-} ORDER BY ?at LIMIT 300`, BotNS, GraphURI(graphID))
+} GROUP BY ?s ?kind ?label ORDER BY ?at LIMIT 300`, BotNS, GraphURI(graphID))
 }
 
 // SelectEdges 会话图活跃关系边（两端标签 + 关系名 + 入图时间；失效边不返回）。
@@ -376,15 +399,15 @@ func SelectRelationEdges(graphID string) string {
 	return fmt.Sprintf(`PREFIX bot: <%s>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX prov: <http://www.w3.org/ns/prov#>
-SELECT ?edge ?src ?rel ?dst ?at ?count WHERE {
+SELECT ?edge ?src ?rel ?dst (MIN(?at) AS ?at) (SUM(?cc) AS ?count) WHERE {
   GRAPH <%s> {
     ?edge a bot:Relation ; bot:relName ?rel ; bot:subject ?s ; bot:object ?o ; prov:generatedAtTime ?at .
     ?s rdfs:label ?src .
     ?o rdfs:label ?dst .
-    OPTIONAL { ?e bot:confirmCount ?count }
-    FILTER NOT EXISTS { ?e bot:invalidAt ?any }
+    OPTIONAL { ?edge bot:confirmCount ?cc }
+    FILTER NOT EXISTS { ?edge bot:invalidAt ?any }
   }
-} ORDER BY ?at LIMIT 300`, BotNS, GraphURI(graphID))
+} GROUP BY ?edge ?src ?rel ?dst ORDER BY ?at LIMIT 300`, BotNS, GraphURI(graphID))
 }
 
 // DropGraph 伴生图整体摘除（低侵入三原则③；REQ-211 起作用域=智能体）。

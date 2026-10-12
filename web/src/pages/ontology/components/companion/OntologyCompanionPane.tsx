@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Popconfirm, Segmented, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd'
+import { Button, Card, Empty, Popconfirm, Segmented, Space, Spin, Table, Tag, Tooltip, Typography , Input} from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { CheckOutlined, CloseOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
@@ -48,6 +48,7 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const [graphTick, setGraphTick] = useState(0) // confirm/reject/reset 后刷新页首成长图
+  const [candQuery, setCandQuery] = useState('') // REQ-298：候选搜索（前端过滤）
   // REQ-216 增量③：时间倒序 / 按实体双视图（本体视角批量审阅——REQ-216⑥「+批量」范围补齐）
   const [view, setView] = useState<'time' | 'entity'>('time')
   const [groups, setGroups] = useState<CandidateGroup[] | null>(null)
@@ -171,8 +172,14 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
       (cands ?? [])
         .filter((c) => c.status === bucket)
         .slice()
-        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0)),
-    [cands, bucket],
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+        .filter((c) => {
+          // REQ-298：候选搜索（前端过滤名称/关系/客体/定义）
+          const q = candQuery.trim().toLowerCase()
+          if (!q) return true
+          return [c.name, c.rel_name, c.rel_target, c.definition].some((f) => (f ?? '').toLowerCase().includes(q))
+        }),
+    [cands, bucket, candQuery],
   )
   const pendingTotal = useMemo(() => (cands ?? []).filter((c) => c.status === 'pending').length, [cands])
 
@@ -289,6 +296,15 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
           <div className="onto-sec">
             <span className="onto-sec-title">候选（跨智能体 · 人工确认 = 入图门控，REQ-82 草稿必审）</span>
             <span className="hit-spacer" />
+            {/* REQ-298：候选搜索（前端过滤名称/关系/客体/定义） */}
+            <Input
+              allowClear
+              size="small"
+              placeholder="搜索候选…"
+              value={candQuery}
+              onChange={(e) => setCandQuery(e.target.value)}
+              style={{ width: 200 }}
+            />
             <Segmented
               size="small"
               value={bucket}

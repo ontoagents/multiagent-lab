@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { App, Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Empty, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { MergeOutlined, PlusOutlined, RestOutlined, EditOutlined } from '@ant-design/icons'
 import { companionApi } from '../../../../api/companion'
 import type { CompanionGraph } from '../../../../api/companion'
@@ -22,6 +22,9 @@ export default function CompanionContentPane({ graph, ontologyId, onChanged }: {
   const [addRelForm] = Form.useForm<{ source: string; rel_name: string; target: string; definition?: string }>()
   const [mergeFrom, setMergeFrom] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // REQ-298：内容清单搜索（实体/关系前端过滤——治「无搜索功能」）
+  const [query, setQuery] = useState('')
+  const [table, setTable] = useState<'entity' | 'relation'>('entity')
   const run = async (fn: () => Promise<unknown>, okMsg: string) => {
     setBusy(true)
     try {
@@ -40,14 +43,26 @@ export default function CompanionContentPane({ graph, ontologyId, onChanged }: {
   }
   const concepts = graph.nodes.filter((n) => n.kind === 'Concept')
   const events = graph.nodes.filter((n) => n.kind === 'Event')
+  const q = query.trim().toLowerCase()
+  const hit = (...fields: (string | undefined)[]) => !q || fields.some((f) => (f ?? '').toLowerCase().includes(q))
   const labels = graph.nodes.map((n) => n.label) // 实体（概念/事件）名清单（补关系端点候选）
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Input
+        allowClear
+        placeholder="搜索实体名称 / 定义 / 关系（前端实时过滤）…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{ maxWidth: 420 }}
+      />
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            实体（概念 {concepts.length} · 事件 {events.length}）
-          </Typography.Title>
+          <Space size={8} align="center">
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              实体（概念 {concepts.length} · 事件 {events.length}）
+            </Typography.Title>
+            <Segmented size="small" value={table} onChange={(v) => setTable(v as 'entity' | 'relation')} options={[{ value: 'entity', label: '实体' }, { value: 'relation', label: '关系' }]} />
+          </Space>
           <Button
             size="small"
             icon={<PlusOutlined />}
@@ -60,9 +75,12 @@ export default function CompanionContentPane({ graph, ontologyId, onChanged }: {
             补关系
           </Button>
         </div>
+        <div style={{ display: table === 'entity' ? 'block' : 'none' }}>
         <Table
           size="small"
-          dataSource={graph.nodes.map((n, i) => ({ key: i, ...n }))}
+          dataSource={graph.nodes
+            .filter((n) => hit(n.label, n.definition))
+            .map((n, i) => ({ key: i, ...n }))}
           pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
           columns={[
             {
@@ -136,14 +154,17 @@ export default function CompanionContentPane({ graph, ontologyId, onChanged }: {
           </Typography.Text>
         )}
       </div>
-      <div>
+      </div>
+      <div style={{ display: table === 'relation' ? 'block' : 'none' }}>
         <Typography.Title level={5} style={{ marginTop: 0 }}>关系（{graph.edges.length}）</Typography.Title>
-        {graph.edges.length === 0 ? (
+        {table === 'relation' && graph.edges.length === 0 ? (
           <Empty description="暂无关系边——可在「伴生候选」页挖掘关系" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
+        ) : table === 'relation' && (
           <Table
             size="small"
-            dataSource={graph.edges.map((e, i) => ({ key: i, ...e }))}
+            dataSource={graph.edges
+              .filter((e) => hit(e.source, e.rel, e.target))
+              .map((e, i) => ({ key: i, ...e }))}
             pagination={{ pageSize: 20, hideOnSinglePage: true, showSizeChanger: false }}
             columns={[
               { title: '主体', dataIndex: 'source', width: 150, render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> },

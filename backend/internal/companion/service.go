@@ -803,7 +803,19 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID, mode string) (*s
 	} else {
 		// REQ-229① 同名异义提醒：图内已有同名实体且定义相似度低 → 候选注记待人工（不阻断）
 		s.disambiguationCheck(ctx, ontID, c)
-		if err := s.graphUpdate(ctx, ontID, InsertNodeTriples(ontID, c.ID, c.Kind, cnSrc.Canonical, c.Definition, c.TimeScope, c.Confidence, c.SourceMessageID, now)); err != nil {
+		// REQ-298：入图收敛——实体已存在（归并或同名）只补缺失 definition（印证式合写），
+		// 不重复写 confidence/generatedAtTime/wasGeneratedBy 多值（治内容清单组合行爆炸根源）；
+		// 新实体才全量 InsertNodeTriples。
+		existsRaw, err := s.graphQuery(ctx, ontID, NodeExists(ontID, cnSrc.Canonical))
+		if err != nil {
+			return nil, fmt.Errorf("实体存在性检查失败: %w", err)
+		}
+		if strings.Contains(string(existsRaw), "true") {
+			if err := s.graphUpdate(ctx, ontID, MergeNodeData(ontID, c.ID, c.Kind, cnSrc.Canonical, c.Definition, c.Confidence, c.SourceMessageID, now)); err != nil {
+				return nil, fmt.Errorf("实体印证合写失败: %w", err)
+			}
+			log.Printf("[companion] REQ-298 印证合写：候选 %s 并入已有实体「%s」（仅补缺失定义）", c.ID, cnSrc.Canonical)
+		} else if err := s.graphUpdate(ctx, ontID, InsertNodeTriples(ontID, c.ID, c.Kind, cnSrc.Canonical, c.Definition, c.TimeScope, c.Confidence, c.SourceMessageID, now)); err != nil {
 			return nil, fmt.Errorf("入图失败: %w", err)
 		}
 		emitIngest("insert", 0)

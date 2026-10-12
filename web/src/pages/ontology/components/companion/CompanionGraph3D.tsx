@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Slider, Space, Tag, Typography } from 'antd'
+import { Alert, AutoComplete, Button, Card, Empty, Slider, Tag, Typography } from 'antd'
 import * as THREE from 'three'
 import type { CompanionGraph, CompanionGraphEdge, CompanionGraphNode } from '../../../../api/companion'
 
@@ -191,12 +191,20 @@ export default function CompanionGraph3D({ data }: { data: CompanionGraph }) {
     g.linkOpacity((l: any) => (l.source.id === n.id || l.target.id === n.id ? 0.85 : 0.04))
   }
 
-  const locate = () => {
+
+  // REQ-298：搜索多匹配——下拉列出全部匹配实体（治「只返回一个」），选择即聚焦
+  const matchOptions = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q || !graphRef.current) return
-    const target = (graphRef.current.graphData().nodes as any[]).find(
-      (x) => x.id.toLowerCase() === q || x.id.toLowerCase().includes(q),
-    )
+    if (!q) return []
+    return nodes
+      .filter((n) => n.label.toLowerCase().includes(q))
+      .slice(0, 12)
+      .map((n) => ({ value: n.label }))
+  }, [query, nodes])
+
+  const focusNode = (label: string) => {
+    setQuery(label)
+    const target = (graphRef.current?.graphData().nodes as any[]).find((x) => x.id === label)
     if (target) {
       graphRef.current.cameraPosition({ x: target.x + 90, y: target.y + 45, z: target.z + 90 }, target, 900)
       setSelected({ label: target.label, kind: target.kind, definition: target.definition, confidence: target.confidence, created_at: target.createdAt })
@@ -219,10 +227,17 @@ export default function CompanionGraph3D({ data }: { data: CompanionGraph }) {
     <div style={{ display: 'flex', gap: 12 }}>
       <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
         <div style={{ position: 'absolute', zIndex: 5, top: 8, left: 8, right: 8, display: 'flex', gap: 6 }}>
-          <Space.Compact style={{ flex: 1, maxWidth: 320 }}>
-            <Input size="small" placeholder="搜索实体定位并聚焦…" value={query} onChange={(e) => setQuery(e.target.value)} onPressEnter={locate} allowClear />
-            <Button size="small" onClick={locate}>定位</Button>
-          </Space.Compact>
+          <AutoComplete
+            size="small"
+            style={{ flex: 1, maxWidth: 320 }}
+            placeholder="搜索实体（下拉列出全部匹配）…"
+            value={query}
+            onChange={(v) => setQuery(v)}
+            onSelect={(v) => focusNode(String(v))}
+            options={matchOptions.map((o) => ({ value: o.value, label: o.value }))}
+            filterOption={false}
+            popupMatchSelectWidth={false}
+          />
           <Button
             size="small"
             onClick={() => {
