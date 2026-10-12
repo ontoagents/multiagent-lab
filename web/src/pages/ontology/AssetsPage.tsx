@@ -19,6 +19,7 @@ import OntologyCompanionPane from './components/companion/OntologyCompanionPane'
 import OntologyCompanionGraph from './components/companion/OntologyCompanionGraph'
 import CompanionContentPane from './components/companion/CompanionContentPane'
 import MineRelationsButton from './components/companion/MineRelationsButton'
+import CompanionCheckupButton from './components/companion/CompanionCheckupButton'
 import CompanionExportPane from './components/companion/CompanionExportPane'
 import type { CompanionGraph } from '../../api/companion'
 import EvolutionPane from './components/assets/EvolutionPane'
@@ -729,8 +730,9 @@ export default function AssetsPage() {
                   // REQ-297 §十九：图级操作入口归位——「挖掘关系」按钮+内联进度在此（完成自动刷新）
                   ? (
                     <div>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
                         <MineRelationsButton ontologyId={active.id} onDone={() => reloadCompGraphRef.current()} />
+                        <CompanionCheckupButton ontologyId={active.id} onDone={() => reloadCompGraphRef.current()} />
                       </div>
                       <OntologyCompanionGraph key={active.id} ontologyId={active.id} />
                     </div>

@@ -131,6 +131,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/companion/ontologies/{id}/entities/merge", s.mergeCompanionEntity)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/relations/add", s.addCompanionRelation)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/relations/delete", s.deleteCompanionRelation)
+	// REQ-299/M103：伴生图检查清理（诊断只读+有限自动清理）
+	m.HandleFunc("POST /api/companion/ontologies/{id}/diagnose", s.diagnoseCompanionGraph)
+	m.HandleFunc("POST /api/companion/ontologies/{id}/cleanup", s.cleanupCompanionGraph)
 
 	// Projects
 	m.HandleFunc("GET /api/projects", s.listProjects)

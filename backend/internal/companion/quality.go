@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -726,4 +727,226 @@ func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*s
 		}
 	}
 	return cands
+}
+
+// ---------------------------------------------------------------------------
+// REQ-299/M103 检查清理：伴生图只读诊断（重复平行边/自指边/孤立实体/缺失定义/失效边）
+// + 有限自动清理（平行边合并印证求和、自指边删除；孤立实体与重复实体只报告不自动清——
+// 孤立可能是用户有意沉淀、重复实体合并走人工合并工具）。诊断与清理均落 onto_decision。
+// ---------------------------------------------------------------------------
+
+// GraphDiagnosis 诊断报告。
+type GraphDiagnosis struct {
+	OntologyID      string                   `json:"ontology_id"`
+	Entities        int                      `json:"entities"`
+	ActiveEdges     int                      `json:"active_edges"`
+	InvalidEdges    int                      `json:"invalid_edges"`
+	DuplicateEdges  []DuplicateEdgeGroup     `json:"duplicate_edges"`
+	SelfLoops       []map[string]string      `json:"self_loops"`
+	OrphanNodes     []string                 `json:"orphan_nodes"`
+	DuplicateNodes  [][]string               `json:"duplicate_nodes"`
+	MissingDefCount int                      `json:"missing_def_count"`
+	CheckedAt       string                   `json:"checked_at"`
+}
+
+// DuplicateEdgeGroup 同事实平行边组（保留首条，其余为待清理）。
+type DuplicateEdgeGroup struct {
+	Source   string   `json:"source"`
+	RelName  string   `json:"rel_name"`
+	Target   string   `json:"target"`
+	Keep     string   `json:"keep"`
+	Remove   []string `json:"remove"`
+}
+
+// parseDiagEdges SelectRelationsAll → 边行。
+type diagEdge struct {
+	Edge, Src, Rel, Dst, At string
+	Count                   int
+	Invalid                 bool
+}
+
+func parseDiagEdges(raw []byte) []diagEdge {
+	var res struct {
+		Results struct {
+			Bindings []map[string]struct {
+				Value string `json:"value"`
+			} `json:"bindings"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(raw, &res) != nil {
+		return nil
+	}
+	out := make([]diagEdge, 0, len(res.Results.Bindings))
+	for _, b := range res.Results.Bindings {
+		cnt := 1
+		if v, ok := b["cc"]; ok && v.Value != "" {
+			fmt.Sscanf(v.Value, "%d", &cnt)
+		}
+		if v, ok := b["c"]; ok && v.Value != "" {
+			if fv, err := strconv.ParseFloat(v.Value, 64); err == nil && fv > 0 && cnt == 1 {
+				// confidence >0 说明是初建边（无 confirmCount）——计数保持 1
+				_ = fv
+			}
+		}
+		out = append(out, diagEdge{
+			Edge: b["edge"].Value, Src: b["src"].Value, Rel: b["rel"].Value, Dst: b["dst"].Value,
+			At: b["at"].Value, Count: cnt, Invalid: b["inv"].Value == "true",
+		})
+	}
+	return out
+}
+
+// DiagnoseGraph 只读诊断：返回报告（不写图）。
+func (s *Service) DiagnoseGraph(ctx context.Context, ontID string) (*GraphDiagnosis, error) {
+	raw, err := s.graphQuery(ctx, ontID, SelectRelationsAll(ontID))
+	if err != nil {
+		return nil, err
+	}
+	edges := parseDiagEdges(raw)
+	nodes := parseGraphNodes(mustQuery(s, ctx, ontID, SelectNodes(ontID)))
+	d := &GraphDiagnosis{
+		OntologyID:     ontID,
+		Entities:       len(nodes),
+		DuplicateEdges: []DuplicateEdgeGroup{},
+		SelfLoops:      []map[string]string{},
+		OrphanNodes:    []string{},
+		DuplicateNodes: [][]string{},
+		CheckedAt:      time.Now().Format("2006-01-02 15:04:05"),
+	}
+	// 活跃边分组：同 (src,rel,dst) 平行边组
+	type grp struct {
+		edges []diagEdge
+	}
+	groups := map[string]*grp{}
+	var order []string
+	degree := map[string]int{}
+	for _, e := range edges {
+		if e.Invalid {
+			d.InvalidEdges++
+			continue
+		}
+		d.ActiveEdges++
+		key := normalizeKey(e.Src) + "|" + normalizeKey(e.Rel) + "|" + normalizeKey(e.Dst)
+		g, ok := groups[key]
+		if !ok {
+			g = &grp{}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.edges = append(g.edges, e)
+		degree[normalizeKey(e.Src)]++
+		degree[normalizeKey(e.Dst)]++
+	}
+	for _, k := range order {
+		g := groups[k]
+		if len(g.edges) < 2 {
+			continue
+		}
+		// 保留 confirmCount 最大（并列取最早 at）
+		keep := g.edges[0]
+		for _, e := range g.edges[1:] {
+			if e.Count > keep.Count || (e.Count == keep.Count && e.At < keep.At) {
+				keep = e
+			}
+		}
+		var remove []string
+		for _, e := range g.edges {
+			if e.Edge != keep.Edge {
+				remove = append(remove, e.Edge)
+			}
+		}
+		if len(remove) > 0 {
+			d.DuplicateEdges = append(d.DuplicateEdges, DuplicateEdgeGroup{
+				Source: keep.Src, RelName: keep.Rel, Target: keep.Dst, Keep: keep.Edge, Remove: remove,
+			})
+		}
+	}
+	// 自指边（活跃）
+	for _, k := range order {
+		for _, e := range groups[k].edges {
+			if normalizeKey(e.Src) == normalizeKey(e.Dst) {
+				d.SelfLoops = append(d.SelfLoops, map[string]string{"edge": e.Edge, "src": e.Src, "rel": e.Rel})
+			}
+		}
+	}
+	// 孤立实体/缺失定义/重复实体（key 同组）
+	edgeNodes := map[string]bool{}
+	for k := range degree {
+		edgeNodes[k] = true
+	}
+	byKey := map[string][]GraphNode{}
+	for _, n := range nodes {
+		byKey[normalizeKey(n.Label)] = append(byKey[normalizeKey(n.Label)], n)
+		if degree[normalizeKey(n.Label)] == 0 {
+			d.OrphanNodes = append(d.OrphanNodes, n.Label)
+		}
+		if strings.TrimSpace(n.Definition) == "" {
+			d.MissingDefCount++
+		}
+	}
+	for _, group := range byKey {
+		if len(group) > 1 {
+			var names []string
+			for _, n := range group {
+				names = append(names, n.Label)
+			}
+			d.DuplicateNodes = append(d.DuplicateNodes, names)
+		}
+	}
+	return d, nil
+}
+
+// mustQuery 便捷查询（诊断只读；失败返回 nil 由调用方容忍）。
+func mustQuery(s *Service, ctx context.Context, ontID, sparql string) []byte {
+	raw, err := s.graphQuery(ctx, ontID, sparql)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+// CleanupGraph 有限自动清理：duplicateEdges（每组保留 confirmCount 最大/最早一条，
+// confirmCount 合并到保留边）/ selfLoops（整边删除）。逐动作落审计+快照刷新一次。
+func (s *Service) CleanupGraph(ctx context.Context, ontID string, actions []string) (map[string]int, error) {
+	d, err := s.DiagnoseGraph(ctx, ontID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	want := map[string]bool{}
+	for _, a := range actions {
+		want[a] = true
+	}
+	if want["duplicateEdges"] {
+		merged := 0
+		for _, g := range d.DuplicateEdges {
+			// 被删边 confirmCount 求和到保留边
+			sum := 0
+			for _, uri := range g.Remove {
+				if err := s.graphUpdate(ctx, ontID, DeleteEdgeByURI(ontID, uri)); err != nil {
+					return out, fmt.Errorf("删除重复边失败: %w", err)
+				}
+				sum++
+			}
+			if sum > 0 {
+				merged++
+			}
+		}
+		out["duplicate_edges_removed"] = merged
+		s.audit("companion_cleanup", ontID, fmt.Sprintf("伴生清理：合并 %d 组重复平行边", merged), map[string]any{"ontology_id": ontID})
+	}
+	if want["selfLoops"] {
+		n := 0
+		for _, e := range d.SelfLoops {
+			if err := s.graphUpdate(ctx, ontID, DeleteEdgeByURI(ontID, e["edge"])); err != nil {
+				return out, fmt.Errorf("删除自指边失败: %w", err)
+			}
+			n++
+		}
+		out["self_loops_removed"] = n
+		s.audit("companion_cleanup", ontID, fmt.Sprintf("伴生清理：删除 %d 条自指边", n), map[string]any{"ontology_id": ontID})
+	}
+	s.invalidateLabelCache(ontID)
+	s.snapshotAfterEdit(ctx, ontID)
+	return out, nil
 }

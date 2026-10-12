@@ -70,6 +70,19 @@ export interface CompanionGraphNode {
   time_scope?: string
   created_at?: string
 }
+export interface CompanionDiagnosis {
+  ontology_id: string
+  entities: number
+  active_edges: number
+  invalid_edges: number
+  duplicate_edges: { source: string; rel_name: string; target: string; keep: string; remove: string[] }[]
+  self_loops: { edge: string; src: string; rel: string }[]
+  orphan_nodes: string[]
+  duplicate_nodes: string[][]
+  missing_def_count: number
+  checked_at: string
+}
+
 export interface CompanionGraphEdge {
   /** REQ-286 C1：关系表行操作定位（删除） */
   edge_uri?: string
@@ -164,6 +177,11 @@ export const companionApi = {
   // REQ-286 A2/REQ-297 异步化：触发关系挖掘（202+job_id；分批在后台执行，前端轮询进度）
   mineRelations: (ontologyId: string) =>
     req<{ job_id: string }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/mine-relations`, { method: 'POST', body: '{}' }),
+  // REQ-299：伴生图检查清理（只读诊断报告 + 有限自动清理）
+  diagnose: (ontologyId: string) =>
+    req<CompanionDiagnosis>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/diagnose`, { method: 'POST', body: '{}' }),
+  cleanup: (ontologyId: string, actions: string[]) =>
+    req<Record<string, number>>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/cleanup`, { method: 'POST', body: JSON.stringify({ actions }) }),
   getMineJob: (jobId: string) =>
     req<{ id: string; phase: 'running' | 'done' | 'error'; stage: string; batch_done: number; batch_total: number; candidates: number; error?: string }>(
       `/api/companion/mine-jobs/${encodeURIComponent(jobId)}`),

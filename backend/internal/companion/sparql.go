@@ -303,6 +303,7 @@ SELECT ?src ?rel ?dst ?at ?count WHERE {
 // SelectLabels 伴生图概念实体标签清单（状态回显 + KG 检索源匹配 + REQ-194① 对齐清单；
 // 限定 bot:Concept——bot:Relation 边节点同样带 rdfs:label（关系名），不属实体）。
 // REQ-286 B3：别名平铺——bot:alias 一并返回（召回/对齐面含别名，「K8s」等变体可匹配）。
+// REQ-287④ LIMIT·缓存治理：300→500（词法/FTS 回填/对齐面共用此清单；上限即治理口径的显式化）。
 func SelectLabels(graphID string) string {
 	return fmt.Sprintf(`PREFIX bot: <%s>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -312,7 +313,20 @@ SELECT ?label WHERE {
     UNION
     { ?s a bot:Concept ; bot:alias ?label }
   }
-} ORDER BY ?label LIMIT 300`, BotNS, GraphURI(graphID))
+} ORDER BY ?label LIMIT 500`, BotNS, GraphURI(graphID))
+}
+
+// SelectEntityDefs REQ-287②④：实体 label→definition 全量投影（定义文本向量与 FTS 回填语料；
+// 定义是区分同义实体的关键信号——隐式召回失败的对症语料）。LIMIT 500 与 SelectLabels 同口径。
+func SelectEntityDefs(graphID string) string {
+	return fmt.Sprintf(`PREFIX bot: <%s>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?label (SAMPLE(?d) AS ?def) WHERE {
+  GRAPH <%s> {
+    ?s a bot:Concept ; rdfs:label ?label .
+    OPTIONAL { ?s bot:definition ?d }
+  }
+} GROUP BY ?s ?label ORDER BY ?label LIMIT 500`, BotNS, GraphURI(graphID))
 }
 
 // AddAlias REQ-286 B3：实体别名挂接（bot:alias 三元组——变体不删不丢，同实体多叫法）。
@@ -408,6 +422,24 @@ SELECT ?edge ?src ?rel ?dst (MIN(?at) AS ?at) (SUM(?cc) AS ?count) WHERE {
     FILTER NOT EXISTS { ?edge bot:invalidAt ?any }
   }
 } GROUP BY ?edge ?src ?rel ?dst ORDER BY ?at LIMIT 300`, BotNS, GraphURI(graphID))
+}
+
+// SelectRelationsAll REQ-299：全量关系边含失效边（诊断数据面——invalidAt 标记可选返回）。
+func SelectRelationsAll(graphID string) string {
+	return fmt.Sprintf(`PREFIX bot: <%s>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+SELECT ?edge ?src ?rel ?dst ?at ?cc ?c ?inv WHERE {
+  GRAPH <%s> {
+    ?edge a bot:Relation ; bot:relName ?rel ; bot:subject ?s ; bot:object ?o ; prov:generatedAtTime ?at .
+    ?s rdfs:label ?src .
+    ?o rdfs:label ?dst .
+    OPTIONAL { ?edge bot:confirmCount ?cc }
+    OPTIONAL { ?edge bot:confidence ?c }
+    OPTIONAL { ?edge bot:invalidAt ?iv }
+    BIND(BOUND(?iv) AS ?inv)
+  }
+} ORDER BY ?at LIMIT 500`, BotNS, GraphURI(graphID))
 }
 
 // DropGraph 伴生图整体摘除（低侵入三原则③；REQ-211 起作用域=智能体）。

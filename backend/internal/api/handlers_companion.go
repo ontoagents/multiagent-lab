@@ -440,3 +440,31 @@ func (s *Server) deleteCompanionRelation(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+// diagnoseCompanionGraph POST …/diagnose（REQ-299：伴生图只读诊断——重复平行边/自指边/
+// 孤立实体/重复实体/缺失定义/失效边计数）。
+func (s *Server) diagnoseCompanionGraph(w http.ResponseWriter, r *http.Request) {
+	d, err := s.Companion.DiagnoseGraph(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
+}
+
+// cleanupCompanionGraph POST …/cleanup（REQ-299：有限自动清理——actions 可选 duplicateEdges/selfLoops）。
+func (s *Server) cleanupCompanionGraph(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Actions []string `json:"actions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Actions) == 0 {
+		writeErr(w, errBadRequest("actions 必填（duplicateEdges/selfLoops）"))
+		return
+	}
+	out, err := s.Companion.CleanupGraph(r.Context(), r.PathValue("id"), body.Actions)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
