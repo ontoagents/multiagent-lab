@@ -5,6 +5,8 @@
 package spec
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode"
@@ -19,12 +21,31 @@ type Concept struct {
 }
 
 // Relation 对象属性/关系（概念层，From/To 为概念名）。
+// Evidence 证据分级（REQ-295①，67 号 A2）：declared（显式声明，如导入 OWL 声明/人工配置列）
+// > name（命名推断，如结构化构建列名共现）> values（值/语料证据，如 KG 抽取、LLM 语料抽取）——
+// 溯源不是有无而是强度；空=未标注（存量零迁移）。仅 spec 层，不入 TTL 导出（沿 CQ 先例）。
 type Relation struct {
 	Name       string `json:"name"`
 	Label      string `json:"label,omitempty"`
 	Definition string `json:"definition,omitempty"`
 	From       string `json:"from"` // 定义域概念名
 	To         string `json:"to"`   // 值域概念名
+	Evidence   string `json:"evidence,omitempty"`
+}
+
+// 证据分级枚举与排序权重（declared > name > values；权重仅用于构建报告排序，不入存储）。
+var EvidenceLevels = []string{"declared", "name", "values"}
+
+func ValidEvidence(v string) bool {
+	if v == "" {
+		return true
+	}
+	for _, lv := range EvidenceLevels {
+		if v == lv {
+			return true
+		}
+	}
+	return false
 }
 
 // InstanceRel 实例关系断言。
@@ -64,17 +85,17 @@ type Axiom struct {
 
 // Spec 本体归一化形态（spec_json）。
 type Spec struct {
-	ID          string     `json:"id,omitempty"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 	// CQ 能力问题（REQ-90/REQ-248）：「本体要回答什么问题」的建模锚点——仅 spec 层
 	// （不入 TTL 导出/vowljson/不参与结构校验），三 LLM 构建路径回写、手工路径可录。
-	CQ             []string        `json:"cq,omitempty"`
-	Concepts       []Concept       `json:"concepts"`
-	Relations      []Relation      `json:"relations"`
-	DataProperties []DataProperty  `json:"data_properties,omitempty"` // REQ-268/M77：可选声明层，存量资产零迁移
-	Axioms         []Axiom         `json:"axioms,omitempty"`          // REQ-269/M78：可选公理保留层，存量资产零迁移
-	Instances      []Instance      `json:"instances"`
+	CQ             []string       `json:"cq,omitempty"`
+	Concepts       []Concept      `json:"concepts"`
+	Relations      []Relation     `json:"relations"`
+	DataProperties []DataProperty `json:"data_properties,omitempty"` // REQ-268/M77：可选声明层，存量资产零迁移
+	Axioms         []Axiom        `json:"axioms,omitempty"`          // REQ-269/M78：可选公理保留层，存量资产零迁移
+	Instances      []Instance     `json:"instances"`
 }
 
 // ValidationError 单条校验错误（结构化，供 LLM 修正循环回喂）。
@@ -115,13 +136,16 @@ func (s *Spec) Validate() []ValidationError {
 		}
 	}
 
-	// ---- relations：name 必填唯一；from/to 必须是已定义概念 ----
+	// ---- relations：name 必填唯一；from/to 必须是已定义概念；evidence 三档枚举（REQ-295①）----
 	rn := map[string]int{}
 	for i, r := range s.Relations {
 		p := fmt.Sprintf("relations[%d]", i)
 		if strings.TrimSpace(r.Name) == "" {
 			add(p+".name", "关系名不能为空")
 			continue
+		}
+		if !ValidEvidence(r.Evidence) {
+			add(p+".evidence", "证据分级只能是 declared/name/values 或留空: "+r.Evidence)
 		}
 		if _, dup := rn[r.Name]; dup {
 			add(p+".name", "关系名重复: "+r.Name)
@@ -278,4 +302,40 @@ func Sanitize(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// TypeID 确定性类型身份（REQ-292②，67 号 B5）：sha256(typeName) 前 20 位 hex。
+// 与 62 号 K3 canonicalId 命名脊同族——身份由内容派生、跨重算稳定。
+func TypeID(typeName string) string {
+	sum := sha256.Sum256([]byte(typeName))
+	return hex.EncodeToString(sum[:])[:20]
+}
+
+// LogicalID 确定性对象身份（REQ-292②）：sha256(typeID + ":" + key) 前 32 位 hex。
+// 对象级 overlay 以此定位（overlay 按 logicalId 存取，身份键不稳则三层无从落地）；
+// 实例的 typeName=所属概念名、key=实例名（同名跨概念已被 Validate 禁止，全域唯一）。
+// 导出 TTL 实例 IRI（urn:o:{oid}:instance:{name}）以名为键：重算同键→同 IRI 不漂移，
+// 与 LogicalID 同一稳定性口径。
+func LogicalID(typeName, key string) string {
+	sum := sha256.Sum256([]byte(TypeID(typeName) + ":" + key))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
+// 对象四类（overlay 的 kind 值域）；instance 的 typeName 取所属概念名。
+const (
+	ObjKindConcept      = "concept"
+	ObjKindRelation     = "relation"
+	ObjKindDataProperty = "data_property"
+	ObjKindInstance     = "instance"
+)
+
+// ObjectLogicalID 按对象 kind+name（instance 另取所属概念）计算确定性身份。
+func ObjectLogicalID(kind, conceptName, name string) string {
+	switch kind {
+	case ObjKindInstance:
+		return LogicalID(conceptName, name)
+	case ObjKindConcept, ObjKindRelation, ObjKindDataProperty:
+		return LogicalID(kind, name)
+	}
+	return ""
 }

@@ -87,7 +87,7 @@ export default function ImportMergeWizard({
     setBusy(true)
     setErr(null)
     api
-      .mergeApply(ontologyId, { filename, content, strategy, prefix })
+      .mergeApply(ontologyId, { filename, content, strategy, prefix, base_version: preview?.base_version })
       .then((r) => {
         setAppliedVersion(r.version)
         setStep(2)

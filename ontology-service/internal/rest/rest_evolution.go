@@ -15,9 +15,9 @@ import (
 	"net/http"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
+	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 )
 
 // evoStore 惰性初始化进化候选存储。
@@ -66,11 +66,11 @@ func (s *Server) proposeEvolutionCandidate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var in struct {
-		Layer    string `json:"layer"`
-		Summary  string `json:"summary"`
-		Evidence string `json:"evidence"`
+		Layer    string          `json:"layer"`
+		Summary  string          `json:"summary"`
+		Evidence string          `json:"evidence"`
 		Patch    json.RawMessage `json:"patch"`
-		Round    int    `json:"round"`
+		Round    int             `json:"round"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -230,6 +230,24 @@ func (s *Server) acceptEvolutionCandidate(w http.ResponseWriter, r *http.Request
 	if err := s.Store.PutArtifact(c.OntologyID, "spec_json", string(newJSON), true); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// REQ-292：进化采纳=机器写入（补丁式，人工编辑天然保留）——仅刷新 overlay base（revert 目标跟随最近机器产出）
+	var newSpec pkgspec.Spec
+	if json.Unmarshal(newJSON, &newSpec) == nil {
+		machine := map[string]string{}
+		for _, c := range newSpec.Concepts {
+			machine["concept:"+c.Name] = jsonOf(c)
+		}
+		for _, r := range newSpec.Relations {
+			machine["relation:"+r.Name] = jsonOf(r)
+		}
+		for _, it := range newSpec.Instances {
+			machine["instance:"+it.Name] = jsonOf(it)
+		}
+		for _, dp := range newSpec.DataProperties {
+			machine["data_property:"+dp.Name] = jsonOf(dp)
+		}
+		_, _ = s.Store.RefreshOverlayBase(c.OntologyID, machine)
 	}
 	_ = s.Store.SaveVersion(c.OntologyID, newVersion, string(newJSON), "", "")
 	if _, err := s.Store.BumpVersion(c.OntologyID); err != nil {

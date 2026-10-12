@@ -205,20 +205,67 @@ var installHTTP = &http.Client{Timeout: 10 * time.Minute}
 
 // FetchTTL 从构建平面拉取本体 TTL 形态（original turtle 直接回原文；自建经 spec→sidecar 导出）。
 func (m *Manager) FetchTTL(ontologyID string) (string, error) {
+	ttl, _, err := m.FetchTTLWithCount(ontologyID)
+	return ttl, err
+}
+
+// FetchTTLWithCount 同 FetchTTL，另回响应头 X-Onto-Triples（REQ-293①：构建平面 sidecar 精确计数；
+// 头缺失（original turtle / 旧构建平面）返回 -1=未知，调用方跳过计数硬闸并如实标注 gate=skipped）。
+func (m *Manager) FetchTTLWithCount(ontologyID string) (string, int, error) {
 	resp, err := m.HTTP.Get(fmt.Sprintf("%s/api/ontologies/%s/export?format=turtle", m.BuildURL, ontologyID))
 	if err != nil {
-		return "", fmt.Errorf("构建平面不可达: %w", err)
+		return "", -1, fmt.Errorf("构建平面不可达: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return "", fmt.Errorf("拉取本体 %s 失败: %s %s", ontologyID, resp.Status, string(b))
+		return "", -1, fmt.Errorf("拉取本体 %s 失败: %s %s", ontologyID, resp.Status, string(b))
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
-	return string(b), nil
+	n := -1
+	if h := resp.Header.Get("X-Onto-Triples"); h != "" {
+		if v, perr := strconv.Atoi(h); perr == nil {
+			n = v
+		}
+	}
+	return string(b), n, nil
+}
+
+// countTriples 引擎全图三元组计数（REQ-293① 计数硬闸：装载后 SELECT COUNT 对账）。
+// 两引擎（oxigraph /query、fuseki /ds/）均接受 POST SPARQL 到 proc.Endpoint。
+func countTriples(ctx context.Context, endpoint string) (int, error) {
+	tr := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader("SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }"))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/sparql-query")
+	req.Header.Set("Accept", "application/sparql-results+json")
+	resp, err := tr.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("计数查询失败: %s", resp.Status)
+	}
+	var out struct {
+		Results struct {
+			Bindings []map[string]struct {
+				Value string `json:"value"`
+			} `json:"bindings"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return 0, err
+	}
+	if len(out.Results.Bindings) == 0 {
+		return 0, fmt.Errorf("计数查询无结果")
+	}
+	return strconv.Atoi(out.Results.Bindings[0]["c"].Value)
 }
 
 // FetchVersion 拉取本体当前版本号（构建平面 meta；REQ-155 阶段二 drift 检测用）。
@@ -315,17 +362,19 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	ttls := map[string]string{}
 	loadedVersions := map[string]int{}
-	loadedStatus := map[string]map[string]string{} // REQ-239/M65：{oid:{status,version_name}}
+	loadedStatus := map[string]map[string]any{} // REQ-239/M65 → REQ-293③ v2：{oid:{status,version_name,generation,triple_count,source_triple_count,gate,loaded_at}}
+	sourceTriples := map[string]int{}           // REQ-293①：构建平面精确计数（-1=未知，跳过硬闸）
 	for _, oid := range p.OntologyIDs {
-		ttl, err := m.FetchTTL(oid)
+		ttl, srcCount, err := m.FetchTTLWithCount(oid)
 		if err != nil {
 			_ = m.Store.SetStatus(id, "error", err.Error(), "")
 			return err
 		}
 		ttls[oid] = ttl
+		sourceTriples[oid] = srcCount
 		if v, st, vn, merr := m.FetchMeta(oid); merr == nil {
 			loadedVersions[oid] = v // 尽力而为：版本快照失败不阻断启动
-			loadedStatus[oid] = map[string]string{"status": st, "version_name": vn}
+			loadedStatus[oid] = map[string]any{"status": st, "version_name": vn}
 		}
 	}
 	port := p.Port
@@ -356,12 +405,58 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		}
 		lastErr = eng.HealthCheck(ctx, proc.Endpoint)
 		if lastErr == nil {
-		if b, jerr := json.Marshal(loadedVersions); jerr == nil {
-			_ = m.Store.SetLoadedVersions(id, string(b)) // REQ-155 阶段二：加载版本快照（drift 检测）
-		}
-		if b, jerr := json.Marshal(loadedStatus); jerr == nil {
-			_ = m.Store.SetLoadedStatus(id, string(b)) // REQ-239/M65：装载发布状态快照（draft 装载警示数据源）
-		}
+			// REQ-293① 计数硬闸：源三元组数（构建平面 X-Onto-Triples）≠ 引擎 COUNT → 中止启动，
+			// 旧 loaded 快照保持不动（此前成功装载的 generation 语义上仍「活跃」，Foundry 原子发布口径）
+			for _, oid := range p.OntologyIDs {
+				src := sourceTriples[oid]
+				if src < 0 {
+					if _, ok := loadedStatus[oid]; !ok {
+						loadedStatus[oid] = map[string]any{}
+					}
+					loadedStatus[oid]["gate"] = "skipped" // 计数未知（original turtle/旧平面）——诚实标注跳过
+					continue
+				}
+				got, cerr := countTriples(ctx, proc.Endpoint)
+				if cerr != nil {
+					// 引擎不支持计数（罕见）——不阻断，标注 skipped
+					if _, ok := loadedStatus[oid]; !ok {
+						loadedStatus[oid] = map[string]any{}
+					}
+					loadedStatus[oid]["gate"] = "skipped"
+					break
+				}
+				if got != src {
+					proc.Stop()
+					m.mu.Lock()
+					delete(m.procs, id)
+					m.mu.Unlock()
+					msg := fmt.Sprintf("装载对账失败（REQ-293① 计数硬闸）：本体 %s 源 %d 三元组 ≠ 引擎 %d——启动中止，旧装载快照保持", oid, src, got)
+					_ = m.Store.SetStatus(id, "error", msg, "")
+					return fmt.Errorf("%s", msg)
+				}
+				if _, ok := loadedStatus[oid]; !ok {
+					loadedStatus[oid] = map[string]any{}
+				}
+				loadedStatus[oid]["gate"] = "pass"
+			}
+			// REQ-293③ 装载态升级 v2：行数一致性 + 装载 generation 号 + 装载时间
+			for _, oid := range p.OntologyIDs {
+				if _, ok := loadedStatus[oid]; !ok {
+					loadedStatus[oid] = map[string]any{}
+				}
+				loadedStatus[oid]["generation"] = fmt.Sprintf("g%d-%d", loadedVersions[oid], time.Now().Unix())
+				loadedStatus[oid]["loaded_at"] = time.Now().UTC().Format(time.RFC3339)
+				if src, ok := sourceTriples[oid]; ok && src >= 0 {
+					loadedStatus[oid]["source_triple_count"] = src
+					loadedStatus[oid]["triple_count"] = src
+				}
+			}
+			if b, jerr := json.Marshal(loadedVersions); jerr == nil {
+				_ = m.Store.SetLoadedVersions(id, string(b)) // REQ-155 阶段二：加载版本快照（drift 检测）
+			}
+			if b, jerr := json.Marshal(loadedStatus); jerr == nil {
+				_ = m.Store.SetLoadedStatus(id, string(b)) // REQ-239/M65：装载发布状态快照（draft 装载警示数据源）
+			}
 			// REQ-234①/M61：装载质量快照（低分警示不阻断——异步快评，失败静默跳过）
 			go func(ids []string, pid string) {
 				q := map[string]any{}

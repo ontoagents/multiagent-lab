@@ -153,11 +153,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/docs/read", s.docRead)
 	m.HandleFunc("GET /api/assistant/config", s.assistantConfigGet) // M27/REQ-166
 	m.HandleFunc("PUT /api/assistant/config", s.assistantConfigPut)
-	m.HandleFunc("GET /api/assistant/proposal", s.assistantProposalGet)   // M-O14 阶段三：L1 提案两段式（查看）
-	m.HandleFunc("POST /api/assistant/proposal/{id}/apply", s.assistantProposalApply)   // 确认应用
+	m.HandleFunc("GET /api/assistant/proposal", s.assistantProposalGet)                   // M-O14 阶段三：L1 提案两段式（查看）
+	m.HandleFunc("POST /api/assistant/proposal/{id}/apply", s.assistantProposalApply)     // 确认应用
 	m.HandleFunc("POST /api/assistant/proposal/{id}/discard", s.assistantProposalDiscard) // 忽略
-	m.HandleFunc("POST /api/assistant/optimize", s.assistantOptimize)              // M27/REQ-167                                  // REQ-140：内部方案文档只读查看
-	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation) // REQ-136：对话自动命名
+	m.HandleFunc("POST /api/assistant/optimize", s.assistantOptimize)                     // M27/REQ-167                                  // REQ-140：内部方案文档只读查看
+	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation)        // REQ-136：对话自动命名
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
 
@@ -244,7 +244,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/kg/{kbID}/merge", s.kgMerge)
 	m.HandleFunc("GET /api/kg/{kbID}/quality", s.kgQuality)
 	m.HandleFunc("GET /api/kg/{kbID}/merge-suggestions", s.kgMergeSuggestions)
-	m.HandleFunc("PUT /api/kg/{kbID}/entity-alias", s.kgEntityAlias) // M36/KB-7②：别名人工标注
+	m.HandleFunc("PUT /api/kg/{kbID}/entity-alias", s.kgEntityAlias)                // M36/KB-7②：别名人工标注
 	m.HandleFunc("POST /api/kg/{kbID}/communities/rebuild", s.kgCommunitiesRebuild) // M16/REQ-130：社区重建
 	m.HandleFunc("GET /api/kg/{kbID}/communities", s.kgCommunities)
 	m.HandleFunc("POST /api/kb/{id}/global-search", s.kgGlobalSearch) // REQ-130：全局问答
@@ -276,6 +276,9 @@ func (s *Server) routes() {
 		m.HandleFunc("POST /api/ontologies/{id}/merge/apply", s.auditOntologyProxy)
 		m.HandleFunc("POST /api/ontologies/{id}/fork", s.auditOntologyProxy)
 		m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.auditOntologyProxy)
+		// REQ-292/M96 对象级 overlay（编辑三层）：人工编辑/撤回经审计代理落 onto_decision（overlay.edit/revert）
+		m.HandleFunc("PUT /api/ontologies/{id}/objects/{kind}/{name}/overlay", s.auditOntologyProxy)
+		m.HandleFunc("DELETE /api/ontologies/{id}/objects/{kind}/{name}/overlay", s.auditOntologyProxy)
 		// REQ-103 模式 A：OntoChat 会话/turn/save 全在构建平面 /api/ontochat/*（bugfix：此前漏注册反代，
 		// 同源请求命中主后端 404 文本，前端 JSON.parse 报 "Unexpected non-whitespace character after JSON"）
 		m.Handle("/api/ontochat", s.Ontology.BuildProxy())

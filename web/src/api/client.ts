@@ -58,6 +58,7 @@ import type {
   ValidationError,
   VersionsResponse,
   Connector,
+  OverlayRow,
 } from './types'
 
 /** 携带 HTTP 状态与校验错误的接口错误（供 UI 区分 404 / 400 validation_errors / 502 不可达） */
@@ -409,9 +410,28 @@ export const api = {
   ontologyReferences: (id: string) => req<OntologyReferences>(`/api/ontologies/${id}/references`),
   /** 原始 Spec JSON；从未保存过 → 404（UI 视为空 Spec） */
   getSpec: (id: string) => req<Spec>(`/api/ontologies/${id}/spec`),
-  /** 全量保存 Spec（校验门控、递增 version）；400 时错误带 validation_errors */
-  saveSpec: (id: string, spec: Spec) =>
-    req<{ saved: boolean; version: number }>(`/api/ontologies/${id}/spec`, { method: 'PUT', body: JSON.stringify(spec) }),
+  /** 全量保存 Spec（校验门控、递增 version）；400 时错误带 validation_errors；baseVersion 走 If-Match 防陈旧（REQ-293②，不符 409） */
+  saveSpec: (id: string, spec: Spec, baseVersion?: number) =>
+    req<{ saved: boolean; version: number; overlays_recorded?: number }>(`/api/ontologies/${id}/spec`, {
+      method: 'PUT',
+      body: JSON.stringify(spec),
+      headers: baseVersion
+        ? { 'Content-Type': 'application/json', 'If-Match': `v${baseVersion}` }
+        : { 'Content-Type': 'application/json' },
+    }),
+  /** REQ-292/M96 对象级 overlay（编辑三层）：清单 / 对象编辑（revision 乐观锁+幂等键）/ 撤回到 base */
+  listOverlays: (id: string) =>
+    req<{ ontology_id: string; count: number; overlays: OverlayRow[] }>(`/api/ontologies/${id}/overlays`),
+  putObjectOverlay: (id: string, kind: string, name: string, body: { values: unknown; expected_revision?: number; idempotency_key?: string; actor?: string }) =>
+    req<{ saved: boolean; version?: number; logical_id: string; revision: number; idempotent?: boolean }>(
+      `/api/ontologies/${id}/objects/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/overlay`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  revertOverlay: (id: string, kind: string, name: string) =>
+    req<{ reverted: boolean; version: number; note: string }>(
+      `/api/ontologies/${id}/objects/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/overlay`,
+      { method: 'DELETE' },
+    ),
   /** 校验：始终 200，返回 ok + 错误列表 */
   validateOntology: (id: string) =>
     req<{ ok: boolean; validation_errors: ValidationError[] }>(`/api/ontologies/${id}/validate`, { method: 'POST' }),
@@ -464,9 +484,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ description, extraHint, capability_questions: capabilityQuestions }),
     }),
-  /** 轮询异步草案任务：running | done（result 与同步端点同形）| failed */
+  /** 轮询异步草案任务：running | done（result 与同步端点同形）；progress=服务端实测轮次进度（REQ-295③） */
   aiDraftJob: (jobId: string) =>
-    req<{ id: string; status: 'running' | 'done' | 'failed'; result?: AiDraftResult; error?: string }>(
+    req<{ id: string; status: 'running' | 'done' | 'failed'; progress?: string; result?: AiDraftResult; error?: string }>(
       `/api/ai-draft-jobs/${encodeURIComponent(jobId)}`,
     ),
   /** 导出下载地址（text/turtle attachment） */
@@ -587,9 +607,9 @@ export const api = {
   /** 按版本读取 spec_json 快照原文（REQ-145/M22 A3 文本 diff 数据面；404 版本不存在） */
   getVersionSpec: (id: string, version: number) => reqText(`/api/ontologies/${id}/versions/${version}/spec`),
   /** CSV 灌装预览：multipart（csv + concept/key_column/relation_columns/attribute_columns/skip_rows/mode=preview） */
-  ingestCsvPreview: (id: string, form: FormData) => reqMultipart<CsvIngestPreview>(`/api/ontologies/${id}/ingest-csv`, form),
-  /** CSV 灌装确认入库：同 multipart，mode=apply；400 校验失败带 validation_errors */
-  ingestCsvApply: (id: string, form: FormData) => reqMultipart<CsvIngestApplyResult>(`/api/ontologies/${id}/ingest-csv`, form),
+  ingestCsvPreview: (id: string, form: FormData) => reqMultipart<CsvIngestPreview>(`/api/ontologies/${id}/ingest-csv?mode=preview`, form),
+  /** CSV 灌装确认入库：同 multipart + ?mode=apply（REQ-295 批次顺修：此前漏传 mode 落 preview 的假成功） */
+  ingestCsvApply: (id: string, form: FormData) => reqMultipart<CsvIngestApplyResult>(`/api/ontologies/${id}/ingest-csv?mode=apply`, form),
   /** 映射配置读取（REQ-96 P2b）：GET /api/ontologies/{id}/ingest-mapping；未保存过 → 404 */
   getIngestMapping: (id: string) => req<IngestMapping>(`/api/ontologies/${id}/ingest-mapping`),
   /** 映射配置保存（P2b）：PUT 同路径；结构即灌装配置（concept/key_column/列绑定/类型规则/分隔符/跳行） */
@@ -856,6 +876,8 @@ export interface MergeIngest {
   spec?: unknown
   strategy?: string
   prefix?: string
+  /** REQ-293② 防陈旧：预览时点目标版本，apply 回传（不符 409 要求重新预览） */
+  base_version?: number
 }
 export interface MergePreview {
   strategy: string
@@ -868,6 +890,9 @@ export interface MergePreview {
   merged_spec: unknown
   /** REQ-235/H5/M62：原文件解析报告（lossy 清单+warnings；spec 直传时缺省） */
   import_report?: { format: string; lossy: boolean; warnings?: string[]; lossy_note?: string } | null
+  /** REQ-293②：预览时点目标版本（apply 回传）；REQ-295②：人话 notes */
+  base_version?: number
+  notes?: { kind: string; text: string }[] | null
 }
 
 export interface LifecycleAction {

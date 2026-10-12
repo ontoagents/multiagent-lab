@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Select, Space, Spin, Steps, Tag, Typography } from 'antd'
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
@@ -44,6 +44,7 @@ export default function OntoExtendFlow() {
   const [lovPicked, setLovPicked] = useState<Record<string, { label: string; uri: string; desc?: string }>>({})
 
   const [preview, setPreview] = useState<MergePreviewData | null>(null)
+  const previewBaseVersionRef = useRef<number>(0) // REQ-293②：预览时点版本（apply 回传防陈旧）
   const [previewLoading, setPreviewLoading] = useState(false)
   const [applyErr, setApplyErr] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
@@ -113,6 +114,7 @@ export default function OntoExtendFlow() {
     setAppliedVersion(null)
     try {
       const pv = await api.mergePreview(targetId, { filename: `ontoextend-${odp.id}.json`, spec, strategy: 'merge' })
+      previewBaseVersionRef.current = pv.base_version ?? 0 // REQ-293②：apply 回传防陈旧（0=跳过校验）
       setPreview(pv as unknown as MergePreviewData)
       setStep(2)
     } catch (e: any) {
@@ -129,7 +131,7 @@ export default function OntoExtendFlow() {
     setApplying(true)
     setApplyErr(null)
     try {
-      const res = await api.mergeApply(targetId, { filename: `ontoextend-${odp.id}.json`, spec, strategy: 'merge' })
+      const res = await api.mergeApply(targetId, { filename: `ontoextend-${odp.id}.json`, spec, strategy: 'merge', base_version: previewBaseVersionRef.current })
       setAppliedVersion(res.version ?? null)
       setPreview(null)
     } catch (e: any) {

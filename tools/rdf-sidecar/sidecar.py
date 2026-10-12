@@ -184,7 +184,7 @@ def parse(format: str) -> int:
             warnings.append(f"重复关系名 {name} 已跳过")
             continue
         seen_r[uri] = name
-        rel = {"name": name}
+        rel = {"name": name, "evidence": "declared"}  # REQ-295①：显式 OWL 声明=declared 档（67 号 A2 分级）
         comment = g.value(pr, RDFS.comment)
         if comment:
             rel["definition"] = str(comment)
@@ -422,6 +422,8 @@ def export(argv) -> int:
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"导出 TTL 校验失败: {e}\n")
         return 1
+    # REQ-293①：三元组精确计数标记（stderr，不污染 stdout 的 TTL 内容）——运行平面装载计数硬闸对账数据源
+    sys.stderr.write(f"TRIPLES {len(g)}\n")
     sys.stdout.write(ttl)
     return 0
 

@@ -192,6 +192,7 @@ type buildRelation struct {
 	Definition string `json:"definition,omitempty"`
 	From       string `json:"from"`
 	To         string `json:"to"`
+	Evidence   string `json:"evidence,omitempty"` // REQ-295①：证据分级 declared>name>values（67 号 A2；KG/结构化推断=values）
 }
 
 type buildInstance struct {
@@ -451,13 +452,13 @@ func MapKGToSpec(kg *kb.KGData, kbName string) *buildSpec {
 			key := "具有|" + from + "|" + to
 			if !relSeen[key] {
 				relSeen[key] = true
-				spec.Relations = append(spec.Relations, buildRelation{Name: "具有", From: from, To: to, Definition: "KG「的」关系直转（HAS）"})
+				spec.Relations = append(spec.Relations, buildRelation{Name: "具有", From: from, To: to, Definition: "KG「的」关系直转（HAS）", Evidence: "values"})
 			}
 		default:
 			key := typ + "|" + from + "|" + to
 			if !relSeen[key] {
 				relSeen[key] = true
-				spec.Relations = append(spec.Relations, buildRelation{Name: typ, From: from, To: to})
+				spec.Relations = append(spec.Relations, buildRelation{Name: typ, From: from, To: to, Evidence: "values"})
 			}
 		}
 	}

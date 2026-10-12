@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GraphPaneShell from './GraphPaneShell'
 import { Alert, Button, Empty, Form, Space, Splitter, Switch, Tag } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
@@ -37,10 +37,13 @@ export default function GraphEditor({
   ontologyId,
   spec,
   onSpecSaved,
+  baseVersion,
 }: {
   ontologyId: string
   spec: Spec | null
   onSpecSaved: (version: number) => void
+  /** REQ-293②：If-Match 防陈旧基线（AssetsPage 传入本体当前版本；保存成功后随响应推进） */
+  baseVersion?: number
 }) {
   // REQ-240 前端优化②：右侧编辑面板可收起（收起后画布全宽；浮钮展开）
   const [panelCollapsed, setPanelCollapsed] = useState(false)
@@ -61,12 +64,14 @@ export default function GraphEditor({
   const [connForm] = Form.useForm<{ relName: string; relLabel?: string; kind?: 'relation' | 'parent' }>()
 
   // 外部 Spec 变化（切换本体 / 保存后刷新）→ 丢弃本地草稿
+  const versionRef = useRef<number | undefined>(undefined) // REQ-293②：If-Match 基线（保存成功后推进）
   useEffect(() => {
     setDraft(spec)
     setDirty(false)
     setSaveErrors(null)
     setSelection(null)
-  }, [spec, ontologyId])
+    versionRef.current = baseVersion
+  }, [spec, ontologyId, baseVersion])
 
   const initialNodes = useMemo(() => (draft ? deriveNodes(draft, [], showInstances) : []), [draft, showInstances])
   const initialEdges = useMemo(
@@ -156,12 +161,14 @@ export default function GraphEditor({
     setSaving(true)
     setSaveErrors(null)
     try {
-      const r = await api.saveSpec(ontologyId, draft)
+      // REQ-293②：If-Match 防陈旧（基线=外部传入版本；保存成功后推进为本响应版本）
+      const r = await api.saveSpec(ontologyId, draft, versionRef.current)
+      versionRef.current = r.version
       showToast(`图形编辑已保存（version ${r.version}）`)
       setDirty(false)
       onSpecSaved(r.version)
     } catch (e) {
-      const err = e as Error & { validationErrors?: { path: string; message: string }[] }
+      const err = e as Error & { validationErrors?: { path: string; message: string }[]; status?: number }
       if (err.validationErrors?.length) setSaveErrors(err.validationErrors)
       showToast(err.message || '保存失败', 'err')
     } finally {

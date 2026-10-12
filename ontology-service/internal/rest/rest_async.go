@@ -19,7 +19,8 @@ import (
 
 type draftJob struct {
 	ID        string       `json:"id"`
-	Status    string       `json:"status"` // running | done | failed
+	Status    string       `json:"status"`             // running | done | failed
+	Progress  string       `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
 	Result    *draftResult `json:"result,omitempty"`
 	Error     string       `json:"error,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
@@ -56,7 +57,12 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
 	go func() {
-		res, err := s.LLM.DraftWithCQ(context.Background(), req.Description, req.ExtraHint, req.CapabilityQuestions) // REQ-248/242：CQ 回写+质量透出
+		res, err := s.LLM.DraftWithCQ(context.Background(), req.Description, req.ExtraHint, req.CapabilityQuestions,
+			func(round int, msg string) { // REQ-295③：实测轮次进度透出（「第 N/M 轮…」，永不虚构百分比）
+				draftJobsMu.Lock()
+				job.Progress = msg
+				draftJobsMu.Unlock()
+			}) // REQ-248/242：CQ 回写+质量透出
 		draftJobsMu.Lock()
 		defer draftJobsMu.Unlock()
 		if err != nil {

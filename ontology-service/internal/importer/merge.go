@@ -46,9 +46,19 @@ type MergePreview struct {
 	Stats      MergeStats      `json:"stats"`
 	TargetName string          `json:"target_name"`
 	MergedSpec *pkgspec.Spec   `json:"merged_spec"` // 应用后的完整结果（diff 预览用）
+	// BaseVersion 预览时点目标版本（REQ-293② 防陈旧：apply 回传，服务端不符 409 要求重新预览）
+	BaseVersion int `json:"base_version,omitempty"`
 	// ImportReport 原文件解析报告（REQ-235/H5：lossy 清单+warnings 透出前端，支撑「补录→重跑对账」动线）；
 	// spec 直传（无文件解析）时为 nil。
 	ImportReport *Report `json:"import_report,omitempty"`
+	// Notes 人话 notes（REQ-295②，67 号 A3：merged/unmatched/case/unlinked 四类带具体数字）
+	Notes []MergeNote `json:"notes,omitempty"`
+}
+
+// MergeNote 构建产出的人话证据条目（每条带具体数字与对象名，人类可核对）。
+type MergeNote struct {
+	Kind string `json:"kind"` // merged | unmatched | case | unlinked
+	Text string `json:"text"`
 }
 
 // MergeStats 合并统计。
@@ -257,6 +267,26 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 			pv.Stats.InstancesAdded++
 		}
 	}
+	// REQ-295②：人话 notes（证据故事带数字，非扣分表）
+	if pv.Stats.TotalConflicts > 0 {
+		pv.Notes = append(pv.Notes, MergeNote{Kind: "merged", Text: fmt.Sprintf("同名冲突 %d 处已按策略 %s 处置", pv.Stats.TotalConflicts, strategy)})
+	}
+	if len(pv.Renamed) > 0 {
+		pv.Notes = append(pv.Notes, MergeNote{Kind: "merged", Text: fmt.Sprintf("导入侧 %d 个对象重命名并入（前缀 %s）", len(pv.Renamed), prefix)})
+	}
+	conceptSet := map[string]bool{}
+	for _, c := range pv.MergedSpec.Concepts {
+		conceptSet[c.Name] = true
+	}
+	dangling := 0
+	for _, r := range pv.MergedSpec.Relations {
+		if !conceptSet[r.From] || !conceptSet[r.To] {
+			dangling++
+		}
+	}
+	if dangling > 0 {
+		pv.Notes = append(pv.Notes, MergeNote{Kind: "unmatched", Text: fmt.Sprintf("%d 条关系端点引用未定义概念（结构校验将拦截，请先补概念）", dangling)})
+	}
 	return pv, nil
 }
 
@@ -347,6 +377,9 @@ func relationFieldMerge(cur, in pkgspec.Relation) pkgspec.Relation {
 	}
 	if strings.TrimSpace(in.To) != "" {
 		out.To = in.To
+	}
+	if strings.TrimSpace(in.Evidence) != "" {
+		out.Evidence = in.Evidence // REQ-295①：证据分级随字段合并透传
 	}
 	return out
 }

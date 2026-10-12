@@ -480,3 +480,163 @@ func (s *Store) GetVersionSpec(ontologyID string, version int) (string, error) {
 	}
 	return *specJSON, nil
 }
+
+// ---- REQ-292/M96 对象级 overlay（编辑三层：base 机器产出 / overlay 人工编辑 / audit 审计）----
+
+var ErrConflict = errors.New("conflict")
+
+// ObjectOverlay 单对象人工编辑层。OverlayJSON=人工值（edit/add 为对象完整 JSON，delete 为 '{}' 墓碑）；
+// BaseJSON=最近一次机器产出值（revert 目标；add 行恒 '{}'=revert 即删除）。
+type ObjectOverlay struct {
+	OntologyID  string `json:"ontology_id"`
+	LogicalID   string `json:"logical_id"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Action      string `json:"action"` // edit | add | delete
+	BaseJSON    string `json:"base_json"`
+	OverlayJSON string `json:"overlay_json"`
+	Revision    int    `json:"revision"`
+	IdemKey     string `json:"idem_key,omitempty"`
+	IdemHash    string `json:"idem_hash,omitempty"`
+	UpdatedAt   string `json:"updated_at"`
+	Actor       string `json:"actor,omitempty"`
+}
+
+func scanOverlay(row interface{ Scan(...any) error }) (*ObjectOverlay, error) {
+	o := &ObjectOverlay{}
+	if err := row.Scan(&o.OntologyID, &o.LogicalID, &o.Kind, &o.Name, &o.Action, &o.BaseJSON,
+		&o.OverlayJSON, &o.Revision, &o.IdemKey, &o.IdemHash, &o.UpdatedAt, &o.Actor); err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+const overlayCols = `ontology_id,logical_id,kind,name,action,base_json,overlay_json,revision,idem_key,idem_hash,updated_at,actor`
+
+// ListOverlays 某本体的全部 overlay 行（updated_at 倒序）。
+func (s *Store) ListOverlays(ontologyID string) ([]*ObjectOverlay, error) {
+	rows, err := s.db.Query(`SELECT `+overlayCols+` FROM ontology_object_overlay WHERE ontology_id=? ORDER BY updated_at DESC, id DESC`, ontologyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*ObjectOverlay{}
+	for rows.Next() {
+		o, err := scanOverlay(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// GetOverlay 按 logical_id 取单行。
+func (s *Store) GetOverlay(ontologyID, logicalID string) (*ObjectOverlay, error) {
+	o, err := scanOverlay(s.db.QueryRow(`SELECT `+overlayCols+` FROM ontology_object_overlay
+		WHERE ontology_id=? AND logical_id=?`, ontologyID, logicalID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return o, err
+}
+
+// UpsertOverlay 写入/更新 overlay 行。expectedRevision>0 时做乐观锁（不符返回 ErrConflict，
+// REQ-292 验收：并发编辑 revision 冲突 409 不静默覆盖）；新行 revision=1，更新行 revision+1。
+// idemKey 非空时做幂等：同 key 同 hash 返回既有行且不变更（幂等重放），同 key 异 hash 返回 ErrConflict。
+func (s *Store) UpsertOverlay(o *ObjectOverlay, expectedRevision int) (*ObjectOverlay, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	cur, err := scanOverlay(tx.QueryRow(`SELECT `+overlayCols+` FROM ontology_object_overlay
+		WHERE ontology_id=? AND logical_id=?`, o.OntologyID, o.LogicalID))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if expectedRevision > 0 && expectedRevision != 0 {
+			return nil, ErrConflict
+		}
+		if o.IdemKey != "" {
+			// 幂等键被其他行占用且请求体不同 → 409（Foundry 口径：key 复用于不同动作即拒绝）
+			dup, derr := scanOverlay(tx.QueryRow(`SELECT `+overlayCols+` FROM ontology_object_overlay
+				WHERE ontology_id=? AND idem_key=?`, o.OntologyID, o.IdemKey))
+			if derr == nil && dup.IdemHash != o.IdemHash {
+				return nil, ErrConflict
+			}
+		}
+		o.Revision = 1
+		if _, ierr := tx.Exec(`INSERT INTO ontology_object_overlay
+			(ontology_id,logical_id,kind,name,action,base_json,overlay_json,revision,idem_key,idem_hash,updated_at,actor)
+			VALUES(?,?,?,?,?,?,?,?,?,?,datetime('now'),?)`,
+			o.OntologyID, o.LogicalID, o.Kind, o.Name, o.Action, o.BaseJSON, o.OverlayJSON,
+			o.Revision, o.IdemKey, o.IdemHash, o.Actor); ierr != nil {
+			return nil, ierr
+		}
+	case err != nil:
+		return nil, err
+	default:
+		if o.IdemKey != "" && cur.IdemKey == o.IdemKey {
+			if cur.IdemHash == o.IdemHash {
+				return cur, nil // 幂等重放：返回既有行，零变更
+			}
+			return nil, ErrConflict
+		}
+		if expectedRevision > 0 && cur.Revision != expectedRevision {
+			return nil, ErrConflict
+		}
+		cur.Action, cur.BaseJSON, cur.OverlayJSON = o.Action, o.BaseJSON, o.OverlayJSON
+		cur.IdemKey, cur.IdemHash, cur.Actor = o.IdemKey, o.IdemHash, o.Actor
+		cur.Revision++
+		if _, uerr := tx.Exec(`UPDATE ontology_object_overlay SET action=?,base_json=?,overlay_json=?,
+			revision=?,idem_key=?,idem_hash=?,actor=?,updated_at=datetime('now')
+			WHERE ontology_id=? AND logical_id=?`,
+			cur.Action, cur.BaseJSON, cur.OverlayJSON, cur.Revision, cur.IdemKey, cur.IdemHash,
+			cur.Actor, o.OntologyID, o.LogicalID); uerr != nil {
+			return nil, uerr
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+// DeleteOverlay 移除单行（revert 成功后调用）。
+func (s *Store) DeleteOverlay(ontologyID, logicalID string) error {
+	_, err := s.db.Exec(`DELETE FROM ontology_object_overlay WHERE ontology_id=? AND logical_id=?`, ontologyID, logicalID)
+	return err
+}
+
+// ClearOverlays 清空某本体全部 overlay（版本恢复=人工钉定历史态，REQ-292 v1 语义）。
+func (s *Store) ClearOverlays(ontologyID string) (int, error) {
+	res, err := s.db.Exec(`DELETE FROM ontology_object_overlay WHERE ontology_id=?`, ontologyID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// RefreshOverlayBase 机器写入后刷新 base_json（revert 目标跟随最近一次机器产出）；
+// 对象已被机器删除的 delete/edit 行保留原 base（revert 仍可回到该机器值）。
+// machineJSON: kind:name → 机器产出对象 JSON。返回刷新行数。
+func (s *Store) RefreshOverlayBase(ontologyID string, machineJSON map[string]string) (int, error) {
+	rows, err := s.ListOverlays(ontologyID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, o := range rows {
+		mj, ok := machineJSON[o.Kind+":"+o.Name]
+		if !ok || mj == "" {
+			continue
+		}
+		if _, err := s.db.Exec(`UPDATE ontology_object_overlay SET base_json=? WHERE ontology_id=? AND logical_id=?`,
+			mj, ontologyID, o.LogicalID); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}

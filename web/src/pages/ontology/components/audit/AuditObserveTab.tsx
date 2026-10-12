@@ -22,12 +22,12 @@ import { useUI } from '../../../../store/ui'
 const TTL_SEARCH = (kw: string, limit: number) =>
   `SELECT DISTINCT ?s ?label WHERE { ?s ?p ?label . FILTER(isLiteral(?label) && CONTAINS(LCASE(STR(?label)), LCASE("${kw.replace(/"/g, '')}"))) } LIMIT ${limit}`
 
-/** 装载发布状态快照解析（loaded_status JSON {oid:{status,version_name}}；解析失败静默） */
-export function parseLoadedStatus(p: RuntimeProfile): { oid: string; status?: string; version_name?: string }[] {
+/** 装载发布状态快照解析（loaded_status JSON；REQ-293③ v2 扩展 generation/triple_count/loaded_at/gate，解析失败静默） */
+export function parseLoadedStatus(p: RuntimeProfile): { oid: string; status?: string; version_name?: string; generation?: string; triple_count?: number; loaded_at?: string; gate?: string }[] {
   if (!p.loaded_status) return []
   try {
-    return Object.entries(JSON.parse(p.loaded_status) as Record<string, { status?: string; version_name?: string }>).map(
-      ([oid, v]) => ({ oid, status: v.status, version_name: v.version_name }),
+    return Object.entries(JSON.parse(p.loaded_status) as Record<string, { status?: string; version_name?: string; generation?: string; triple_count?: number; loaded_at?: string; gate?: string }>).map(
+      ([oid, v]) => ({ oid, status: v.status, version_name: v.version_name, generation: v.generation, triple_count: v.triple_count, loaded_at: v.loaded_at, gate: v.gate }),
     )
   } catch {
     return []
@@ -150,8 +150,17 @@ export default function AuditObserveTab({
         const ls = parseLoadedStatus(r)
         if (ls.length === 0) return <Typography.Text type="secondary">—</Typography.Text>
         return (
-          <Tooltip title={ls.map((x) => `${x.oid}${x.version_name ? ` · ${x.version_name}` : ''}（${x.status ?? '?'}）`).join('\n')}>
-            <span>{ls.map((x) => `${x.oid.slice(0, 8)}${x.version_name ? ` · ${x.version_name}` : ''}`).join('；')}</span>
+          <Tooltip
+            title={ls
+              .map(
+                (x) =>
+                  `${x.oid}${x.version_name ? ` · ${x.version_name}` : ''}（${x.status ?? '?'}）${x.generation ? `\n装载代次 ${x.generation}${x.triple_count != null ? ` · ${x.triple_count} 三元组` : ''}${x.loaded_at ? ` · ${x.loaded_at.replace('T', ' ').slice(0, 16)}` : ''}${x.gate ? ` · 对账 ${x.gate}` : ''}` : ''}`,
+              )
+              .join('\n---\n')}
+          >
+            <span data-testid="loaded-generation-cell">
+              {ls.map((x) => `${x.oid.slice(0, 8)}${x.version_name ? ` · ${x.version_name}` : ''}${x.generation ? ` · ${x.generation}` : ''}`).join('；')}
+            </span>
           </Tooltip>
         )
       },

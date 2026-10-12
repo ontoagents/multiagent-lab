@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
-import type { Ontology, Spec, ValidationError } from '../../../../api/types'
+import type { Ontology, OverlayRow, Spec, ValidationError } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
 import { ERR_COLUMNS, ReloadHintAlert } from '../../shared'
 import JsonEditor from '../JsonEditor'
@@ -156,12 +156,15 @@ export default function SpecEditorPane({
     setSavingSpec(true)
     setValidationErrors([])
     try {
-      const r = await api.saveSpec(ontology.id, parsed)
-      showToast(`Spec 已保存（version ${r.version}）`)
+      // REQ-293②：If-Match 防陈旧（基于最近已知版本；并发修改 409 不静默覆盖）
+      const r = await api.saveSpec(ontology.id, parsed, lastVersion ?? ontology.version)
+      showToast(`Spec 已保存（version ${r.version}${r.overlays_recorded ? `，人工编辑保护 ${r.overlays_recorded} 项` : ''}）`)
       setLastVersion(r.version)
       onSpecSaved(r.version)
     } catch (e: any) {
-      if (e instanceof ApiError && e.validationErrors?.length) {
+      if (e instanceof ApiError && e.status === 409) {
+        showToast(e.message, 'err') // 服务端消息含 当前版本 vs 编辑基线——请刷新后重试
+      } else if (e instanceof ApiError && e.validationErrors?.length) {
         setValidationErrors(e.validationErrors)
         showToast('校验未通过，请修正后重试', 'err')
       } else {
@@ -242,6 +245,9 @@ export default function SpecEditorPane({
           ]}
         />
       )}
+      {/* REQ-292/M96 编辑三层（base+overlay+audit）：人工编辑保护清单——机器重算（合并/灌装）后人工值重放不丢；
+          恢复=撤回人工编辑回到机器产出 base。backend auditOntologyProxy 对编辑/恢复落 onto_decision 审计。 */}
+      {spec && <OverlayProtectPanel ontologyId={ontology.id} onChanged={() => onReloadSpec()} />}
       {specErr ? (
         <Alert
           type="error"
@@ -378,5 +384,107 @@ function CqEditor({ value, onChange }: { value: string[]; onChange: (next: strin
         </Button>
       )}
     </div>
+  )
+}
+
+/** REQ-292/M96 编辑保护面板：overlay 清单（人工编辑/新增/删除墓碑）+ 一键恢复机器 base */
+function OverlayProtectPanel({ ontologyId, onChanged }: { ontologyId: string; onChanged: () => void }) {
+  const { showToast } = useUI()
+  const [rows, setRows] = useState<OverlayRow[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const load = async () => {
+    try {
+      const r = await api.listOverlays(ontologyId)
+      setRows(r.overlays ?? [])
+      setLoaded(true)
+    } catch {
+      setLoaded(true)
+    }
+  }
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ontologyId])
+
+  const revert = async (row: OverlayRow) => {
+    setBusy(true)
+    try {
+      const r = await api.revertOverlay(ontologyId, row.kind, row.name)
+      showToast(`已恢复（v${r.version}）：${r.note}`)
+      await load()
+      onChanged()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Collapse
+      size="small"
+      style={{ marginTop: 10 }}
+      items={[
+        {
+          key: 'overlay',
+          label: (
+            <span data-testid="overlay-panel-label">
+              编辑保护（overlay）{rows.length > 0 ? ` · ${rows.length} 项人工编辑` : ' · 无'}
+            </span>
+          ),
+          children:
+            rows.length === 0 ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {loaded ? '当前无人工编辑记录。你对概念/关系/实例的修改会被记录；后续「导入合并 / CSV 灌装」等机器重算会自动保留这些人工值（重算不覆盖）。' : '加载中…'}
+              </Typography.Text>
+            ) : (
+              <div>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 6 }}>
+                  以下对象携带人工编辑：机器重算（导入合并 / CSV 灌装 / 进化采纳）后自动重放保留；「恢复」= 撤回人工编辑回到机器产出值。
+                </Typography.Paragraph>
+                <Table<OverlayRow>
+                  rowKey={(r) => r.logical_id}
+                  size="small"
+                  pagination={false}
+                  dataSource={rows}
+                  columns={[
+                    { title: '类型', dataIndex: 'kind_label', width: 80 },
+                    { title: '对象', dataIndex: 'name', width: 160, ellipsis: true },
+                    {
+                      title: '动作',
+                      dataIndex: 'action',
+                      width: 90,
+                      render: (v: string) => (
+                        <Tag style={{ margin: 0 }} color={{ edit: 'blue', add: 'green', delete: 'red' }[v] ?? 'default'}>
+                          {v === 'edit' ? '修改' : v === 'add' ? '新增' : '删除'}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: '状态',
+ dataIndex: 'effective',
+                      width: 110,
+                      render: (_: unknown, r: OverlayRow) =>
+                        r.missing ? <Tag style={{ margin: 0 }} color="orange">待重算恢复</Tag> : r.effective ? <Tag style={{ margin: 0 }} color="green">生效中</Tag> : <Tag style={{ margin: 0 }}>未生效</Tag>,
+                    },
+                    { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (v: string) => (v ?? '').replace('T', ' ').slice(0, 16) },
+                    {
+                      title: '',
+                      width: 80,
+                      render: (_: unknown, r: OverlayRow) => (
+                        <Button size="small" loading={busy} onClick={() => revert(r)}>
+                          恢复
+                        </Button>
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            ),
+        },
+      ]}
+    />
   )
 }

@@ -734,7 +734,7 @@ export default function AssetsPage() {
                 {secKey === 'references' && <ReferencesPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'graph-edit' && (
                   <Maximizeable label="最大化编辑">
-                    <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} />
+                    <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
                   </Maximizeable>
                 )}
                 {secKey === 'reltypes' && <RelationTypesPane spec={spec} />}

@@ -114,6 +114,10 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.ingestCSV)
 	m.HandleFunc("GET /api/ontologies/{id}/ingest-mapping", s.getIngestMapping)
 	m.HandleFunc("PUT /api/ontologies/{id}/ingest-mapping", s.putIngestMapping)
+	// REQ-292/M96 对象级 overlay（编辑三层 base+overlay+audit）：清单 / 对象编辑（revision 乐观锁+幂等）/ 撤回到 base
+	m.HandleFunc("GET /api/ontologies/{id}/overlays", s.listOverlays)
+	m.HandleFunc("PUT /api/ontologies/{id}/objects/{kind}/{name}/overlay", s.putObjectOverlay)
+	m.HandleFunc("DELETE /api/ontologies/{id}/objects/{kind}/{name}/overlay", s.revertOverlay)
 
 	// 工具链配置（REQ-75/76，04 §4.6）
 	m.HandleFunc("GET /api/pipelines/catalog", s.listToolCatalog)
@@ -242,6 +246,10 @@ func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// REQ-293②（67 号 B7）：If-Match 文档级防陈旧——不符 409 不静默覆盖（缺省头兼容旧客户端）
+	if !s.guardIfMatch(w, r, id) {
+		return
+	}
 	var sp pkgspec.Spec
 	if err := decodeJSON(r, &sp); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "JSON 解析失败: " + err.Error()})
@@ -258,6 +266,11 @@ func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// REQ-292① 编辑三层：人工整份保存=人工编辑通道——按对象 diff 提取 overlay（机器重算后重放，根治覆盖人工编辑）
+	var oldSp *pkgspec.Spec
+	if prev, gerr := s.loadSpecOrDefault(id); gerr == nil {
+		oldSp = prev
+	}
 	bts, err := json.Marshal(sp)
 	if err != nil {
 		writeErr(w, err)
@@ -267,9 +280,15 @@ func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	overlaysRecorded := 0
+	if oldSp != nil {
+		apply, removeKeys := s.extractOverlaysFromSave(id, oldSp, &sp)
+		s.persistOverlayDeltas(id, apply, removeKeys)
+		overlaysRecorded = len(apply)
+	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v})
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "overlays_recorded": overlaysRecorded})
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {
@@ -537,9 +556,12 @@ func (s *Server) lifecycleApply(w http.ResponseWriter, r *http.Request) {
 
 // mergeIncoming 解析合并请求体：multipart 文件（filename+content 走 importer.Import）或 JSON {filename,content} / {spec}；
 // strategy/prefix 取表单值或 JSON 字段（REQ-157 审查向导走 JSON）。
-func (s *Server) mergeIncoming(r *http.Request) (filename, content string, spec *pkgspec.Spec, strategy, prefix string, imp *importer.Report, err error) {
+func (s *Server) mergeIncoming(r *http.Request) (filename, content string, spec *pkgspec.Spec, strategy, prefix string, imp *importer.Report, baseVersion int, err error) {
 	strategy = r.FormValue("strategy")
 	prefix = r.FormValue("prefix")
+	if bv := strings.TrimSpace(r.FormValue("base_version")); bv != "" {
+		baseVersion, _ = strconv.Atoi(bv)
+	}
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		f, h, ferr := r.FormFile("file")
@@ -552,11 +574,12 @@ func (s *Server) mergeIncoming(r *http.Request) (filename, content string, spec 
 		filename, content = h.Filename, string(b)
 	} else {
 		var body struct {
-			Filename string        `json:"filename"`
-			Content  string        `json:"content"`
-			Spec     *pkgspec.Spec `json:"spec"`
-			Strategy string        `json:"strategy"`
-			Prefix   string        `json:"prefix"`
+			Filename    string        `json:"filename"`
+			Content     string        `json:"content"`
+			Spec        *pkgspec.Spec `json:"spec"`
+			Strategy    string        `json:"strategy"`
+			Prefix      string        `json:"prefix"`
+			BaseVersion int           `json:"base_version"`
 		}
 		if derr := decodeJSON(r, &body); derr != nil {
 			err = derr
@@ -571,6 +594,9 @@ func (s *Server) mergeIncoming(r *http.Request) (filename, content string, spec 
 		}
 		if prefix == "" {
 			prefix = body.Prefix
+		}
+		if body.BaseVersion > 0 {
+			baseVersion = body.BaseVersion
 		}
 	}
 	if spec == nil {
@@ -592,7 +618,7 @@ func (s *Server) mergeIncoming(r *http.Request) (filename, content string, spec 
 // mergePreview REQ-157：导入合并冲突预览（字段级冲突/新增/重命名/合并结果 spec）。
 func (s *Server) mergePreview(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_, _, spec, strategy, prefix, imp, err := s.mergeIncoming(r)
+	_, _, spec, strategy, prefix, imp, _, err := s.mergeIncoming(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -618,19 +644,27 @@ func (s *Server) mergePreview(w http.ResponseWriter, r *http.Request) {
 	// M-O14 P2③ + REQ-235/H5：有损导入报告内嵌 preview（lossy 清单+warnings 呈现给审查方，
 	// 支撑「补录→重跑对账」动线；此前 wrapper 形态与前端裸 MergePreview 消费错位，一并归一）
 	pv.ImportReport = imp
+	// REQ-293②：回预览时点版本号——apply 回传做三重防陈旧（任一不符 409 要求重新验证）
+	if o, gerr := s.Store.GetOntology(id); gerr == nil {
+		pv.BaseVersion = o.Version
+	}
 	writeJSON(w, http.StatusOK, pv)
 }
 
 // mergeApply REQ-157：按策略应用合并（结构校验 + strict 门禁 + 版本快照）。
 func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_, _, spec, strategy, prefix, imp, err := s.mergeIncoming(r)
+	_, _, spec, strategy, prefix, imp, baseVersion, err := s.mergeIncoming(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if strategy == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "strategy 必填（replace | merge-overwrite | merge）"})
+		return
+	}
+	// REQ-293②（67 号 B7）防陈旧：预览时点版本不符 → 409 要求重新预览（不静默应用过期合并）
+	if !s.guardBaseVersion(w, id, baseVersion) {
 		return
 	}
 	raw, _, gerr := s.Store.GetArtifact(id, "spec_json")
@@ -648,6 +682,16 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	pv.BaseVersion = baseVersion
+	// REQ-292① 编辑三层：机器合并后重放 overlay（人工编辑不随重算蒸发；Foundry manualObjects 跨代保留口径）
+	overlays, gerr := s.Store.ListOverlays(id)
+	applied, skipped := 0, 0
+	var notes []string
+	machineJSON := map[string]string{}
+	if gerr == nil && len(overlays) > 0 {
+		machineJSON = specMachineJSON(pv.MergedSpec) // 重放前快照机器值——revert 目标（base）不能被人造值污染
+		applied, skipped, notes = reapplyOverlays(pv.MergedSpec, overlays)
+	}
 	if errs := pv.MergedSpec.Validate(); len(errs) > 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "合并结果结构校验未通过", "validation_errors": errs})
 		return
@@ -664,10 +708,15 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// overlay base 刷新：revert 目标=重放前的机器产出值
+	if len(machineJSON) > 0 {
+		_, _ = s.Store.RefreshOverlayBase(id, machineJSON)
+	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
 	pv.ImportReport = imp // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
-	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv})
+	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv,
+		"overlays_applied": applied, "overlays_skipped": skipped, "notes": notes})
 }
 
 // ---- REQ-255/M62 批次（60 号 H2+H3）：推理级检查档 + CQ→SPARQL 验收闭环 ----
@@ -924,13 +973,17 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		ttl, err := importer.ExportTTL(s.Sidecar, id, &sp)
+		ttl, triples, err := importer.ExportTTLCount(s.Sidecar, id, &sp)
 		if err != nil {
 			writeErr(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, o.Version))
+		// REQ-293①：三元组精确计数响应头（sidecar rdflib len(g)）——运行平面装载计数硬闸对账数据源
+		if triples >= 0 {
+			w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
+		}
 		_, _ = w.Write([]byte(ttl))
 	case "vowljson":
 		// WebVOWL 对照视图数据源（2026-09-27 转换链重构）：spec → VOWL JSON 本服务直出，
@@ -1201,8 +1254,10 @@ func (s *Server) restoreVersion(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// REQ-292 v1 语义：版本恢复=人工钉定历史态——overlay 全清（此后重算按恢复态为 base，预期行为）
+	cleared, _ := s.Store.ClearOverlays(id)
 	o, _ := s.Store.GetOntology(id)
-	writeJSON(w, http.StatusOK, map[string]any{"restored_from": v, "new_version": newV, "ontology": o})
+	writeJSON(w, http.StatusOK, map[string]any{"restored_from": v, "new_version": newV, "overlays_cleared": cleared, "ontology": o})
 }
 
 // ---- REQ-95 版本 diff ----
@@ -1598,7 +1653,12 @@ type ingestConfig struct {
 	SkipRows         int               `json:"skip_rows"`
 	TypeRules        map[string]string `json:"type_rules,omitempty"`
 	MultiValueSep    string            `json:"multi_value_sep,omitempty"`
+	// SkipInstances REQ-294①（67 号 B2）：疑似活动流时不物化实例（仅出报告）——灌装取舍的自动建议承接
+	SkipInstances bool `json:"skip_instances,omitempty"`
 }
+
+// ingestNote REQ-295②（67 号 A3）：人话 notes 四类——merged/unmatched/case/unlinked，每条带具体数字。
+type ingestNote = importer.MergeNote
 
 // convertCell P2b 类型转换：合法返回转换值，非法返回 error（由调用方记 warning 并降级为原字符串）。
 func convertCell(col, v string, rules map[string]string) (any, error) {
@@ -1634,10 +1694,14 @@ func convertCell(col, v string, rules map[string]string) (any, error) {
 	return v, nil // string / 未配置：原样
 }
 
+// ingestStats 灌装报告（REQ-295② 扩展：大小写归一命中数 + 活动流判据提示）。
 type ingestStats struct {
-	RowsRead           int `json:"rows_read"`
-	InstancesGenerated int `json:"instances_generated"`
-	SkippedEmptyKey    int `json:"skipped_empty_key"`
+	RowsRead              int  `json:"rows_read"`
+	InstancesGenerated    int  `json:"instances_generated"`
+	SkippedEmptyKey       int  `json:"skipped_empty_key"`
+	CaseInsensitive       int  `json:"case_insensitive_matches"` // REQ-292③（B6）：仅在忽略大小写时命中的去重数
+	ActivityHint          bool `json:"activity_hint"`            // REQ-294①（B2）：疑似活动流
+	InstancesMaterialized int  `json:"instances_materialized"`   // 实际物化数（skip_instances 时为 0）
 }
 
 // ingestDraft 预览条目：attributes/relations 恒为非空容器，保证响应形状稳定。
@@ -1649,9 +1713,15 @@ type ingestDraft struct {
 }
 
 // ingestCSV POST /api/ontologies/{id}/ingest-csv?mode=preview|apply：CSV → 实例草稿/入库（REQ-96 P2a）。
+// REQ-292/293/294/295 批次：mode 兼容 form 字段（顺修前端漏传 ?mode=apply 落 preview 的真 bug）；
+// base_version 防陈旧 409；B6 归一化键去重+case note；B9 属性列大小写冲突 _2 后缀；
+// B2 活动流五条件判据+skip_instances；notes 四类人话报告；悬空关系目标降级 note 不阻断（A5）。
 func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
+	if mode == "" {
+		mode = strings.TrimSpace(r.FormValue("mode")) // 兼容 form 字段（REQ-295 批次顺修：apply 不再静默落 preview）
+	}
 	if mode == "" {
 		mode = "preview"
 	}
@@ -1662,6 +1732,12 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.Store.GetOntology(id); err != nil {
 		writeErr(w, err)
 		return
+	}
+	// REQ-293②（67 号 B7）防陈旧：预览时点版本不符 → 409（form 字段 base_version，缺省跳过）
+	if bv := strings.TrimSpace(r.FormValue("base_version")); bv != "" {
+		if n, perr := strconv.Atoi(bv); perr == nil && !s.guardBaseVersion(w, id, n) {
+			return
+		}
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "需要 multipart/form-data（csv 文件 + 配置字段）"})
@@ -1816,6 +1892,7 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 	stats := ingestStats{}
 	draft := []pkgspec.Instance{}
 	seenKey := map[string]bool{}
+	seenKeyNorm := map[string]string{} // REQ-292③（B6）：归一化键 lower(trim) → 首个原键（大小写仅在归一后命中也视为同一实例，显式记数）
 	for ri, row := range data {
 		rowNo := cfg.SkipRows + 2 + ri // 1-based（跳过行 + 表头）
 		stats.RowsRead++
@@ -1831,14 +1908,29 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 			warnings = append(warnings, fmt.Sprintf("第 %d 行主键为空，已跳过", rowNo))
 			continue
 		}
+		norm := strings.ToLower(name)
 		if seenKey[name] {
 			warnings = append(warnings, fmt.Sprintf("主键重复 %s（第 %d 行），已跳过", name, rowNo))
 			continue
 		}
+		if first, hit := seenKeyNorm[norm]; hit {
+			stats.CaseInsensitive++
+			warnings = append(warnings, fmt.Sprintf("主键 %s（第 %d 行）与 %s 仅大小写不同，视为同一实例已跳过（REQ-292③ 归一化口径）", name, rowNo, first))
+			continue
+		}
 		seenKey[name] = true
+		seenKeyNorm[norm] = name
 		inst := pkgspec.Instance{Name: name, Concept: cfg.Concept}
+		attrKeyUsed := map[string]string{} // REQ-292④（B9）：属性键大小写不敏感去重——先到先得，冲突者 _2 后缀
 		for _, c := range attrCols {
 			if v := cell(colIdx[c]); v != "" {
+				attrKey := c
+				// REQ-292④（B9）：属性键大小写不敏感去重——先到先得，冲突列 _2 后缀（确定性消解）
+				if first, clash := attrKeyUsed[strings.ToLower(c)]; clash && first != c {
+					attrKey = fmt.Sprintf("%s_2", c)
+					warnings = append(warnings, fmt.Sprintf("属性列 %s 与 %s 仅大小写不同，后者落为 %s（B9 先到先得）", c, first, attrKey))
+				}
+				attrKeyUsed[strings.ToLower(attrKey)] = attrKey
 				cv, err := convertCell(c, v, cfg.TypeRules)
 				if err != nil {
 					cv = v // 降级：非法值按原字符串保留
@@ -1847,7 +1939,7 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 				if inst.Attributes == nil {
 					inst.Attributes = map[string]any{}
 				}
-				inst.Attributes[c] = cv
+				inst.Attributes[attrKey] = cv
 			}
 		}
 		for _, c := range relCols {
@@ -1878,6 +1970,37 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 		stats.InstancesGenerated++
 	}
 
+	// REQ-294①（67 号 B2）活动流五条件判据（单文件=单成员天然成立）：
+	// 行数>2000 + 有时间列 + 概念名词命中事件词表 + 无关系列（只出不入）→ hint，可 skip_instances 不物化
+	hasTimeCol := false
+	for _, h := range header {
+		hl := strings.ToLower(strings.TrimSpace(h))
+		if hl == "" {
+			continue
+		}
+		if strings.Contains(hl, "date") || strings.Contains(hl, "time") || strings.Contains(hl, "timestamp") ||
+			strings.Contains(hl, "created") || strings.Contains(hl, "updated") || cfg.TypeRules[h] == "date" {
+			hasTimeCol = true
+			break
+		}
+	}
+	eventNoun := false
+	for _, w := range strings.FieldsFunc(strings.ToLower(cfg.Concept), func(r rune) bool { return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') }) {
+		switch w {
+		case "event", "activity", "log", "track", "tracking", "click", "pageview", "visit", "session", "audit":
+			eventNoun = true
+		}
+	}
+	if stats.RowsRead > 2000 && hasTimeCol && eventNoun && len(relCols) == 0 {
+		stats.ActivityHint = true
+		warnings = append(warnings, fmt.Sprintf("疑似活动流：%d 行、有时间列、概念名含事件类词且无关系引用——大事件流建议不物化实例（勾选「跳过实例物化」或 config skip_instances，REQ-294①）", stats.RowsRead))
+	}
+
+	notes := []ingestNote{}
+	if stats.SkippedEmptyKey > 0 {
+		notes = append(notes, ingestNote{Kind: "unmatched", Text: fmt.Sprintf("%d 行主键为空未生成实例（unplaced 口径：退化但不停工，REQ-295④）", stats.SkippedEmptyKey)})
+	}
+
 	if mode == "preview" {
 		limit := len(draft)
 		if limit > 20 {
@@ -1895,22 +2018,106 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 			}
 			preview = append(preview, ingestDraft{Name: it.Name, Concept: it.Concept, Attributes: attrs, Relations: rels})
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"stats": stats, "warnings": warnings, "draft": preview})
+		if o, gerr := s.Store.GetOntology(id); gerr == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"stats": stats, "warnings": warnings, "draft": preview, "notes": notes, "base_version": o.Version})
+		} else {
+			writeJSON(w, http.StatusOK, map[string]any{"stats": stats, "warnings": warnings, "draft": preview, "notes": notes})
+		}
 		return
 	}
 
 	// apply：合并进当前 spec → 校验 → 存为新版本。
 	existing := map[string]bool{}
+	existingBefore := map[string]bool{} // skip_instances 撤回时的「本批之前已有」基线
+	existingNorm := map[string]string{} // B6：与既有实例的大小写归一对账
 	for _, it := range sp.Instances {
 		existing[it.Name] = true
+		existingBefore[it.Name] = true
+		existingNorm[strings.ToLower(it.Name)] = it.Name
 	}
+	materialized := 0
 	for _, inst := range draft {
 		if existing[inst.Name] {
 			warnings = append(warnings, fmt.Sprintf("实例 %s 已存在，已跳过", inst.Name))
 			continue
 		}
+		if first, hit := existingNorm[strings.ToLower(inst.Name)]; hit {
+			stats.CaseInsensitive++
+			warnings = append(warnings, fmt.Sprintf("实例 %s 与既有实例 %s 仅大小写不同，视为同一实例已跳过（REQ-292③）", inst.Name, first))
+			continue
+		}
 		sp.Instances = append(sp.Instances, inst)
 		existing[inst.Name] = true
+		existingNorm[strings.ToLower(inst.Name)] = inst.Name
+		materialized++
+	}
+	// REQ-295④（A5 退化不停工）：悬空关系目标（目标实例既不在库内也不在本批）降级为丢弃+显式注记，
+	// 不再让整条灌装线卡死在结构校验（此前 400 硬失败）
+	dangling := 0
+	for i := range sp.Instances {
+		kept := sp.Instances[i].Relations[:0]
+		for _, ir := range sp.Instances[i].Relations {
+			if _, ok := existing[ir.Target]; ok {
+				kept = append(kept, ir)
+			} else {
+				dangling++
+			}
+		}
+		sp.Instances[i].Relations = kept
+		if len(kept) == 0 {
+			sp.Instances[i].Relations = nil
+		}
+	}
+	if dangling > 0 {
+		notes = append(notes, ingestNote{Kind: "unmatched", Text: fmt.Sprintf("%d 条关系断言目标实例不存在，已丢弃（可先灌目标实例再重灌本文件补齐）", dangling)})
+		warnings = append(warnings, fmt.Sprintf("%d 条关系断言因目标实例不存在被丢弃（REQ-295④ 降级注记）", dangling))
+	}
+	unlinked := 0
+	for _, it := range sp.Instances {
+		if len(it.Relations) == 0 {
+			unlinked++
+		}
+	}
+	if unlinked > 0 {
+		notes = append(notes, ingestNote{Kind: "unlinked", Text: fmt.Sprintf("库内 %d 个实例无任何关系断言（孤立实例清单可在资产详情查看）", unlinked)})
+	}
+	if materialized > 0 {
+		notes = append(notes, ingestNote{Kind: "merged", Text: fmt.Sprintf("本批物化实例 %d 个（读入 %d 行，空键跳过 %d）", materialized, stats.RowsRead, stats.SkippedEmptyKey)})
+	}
+	// B6 case note 在去重后汇算（批内碰撞与既有库碰撞两路都计入后再出 note）
+	if stats.CaseInsensitive > 0 {
+		notes = append(notes, ingestNote{Kind: "case", Text: fmt.Sprintf("%d 条主键仅在忽略大小写时视为同一实例（已按归一化口径去重并注记，REQ-292③）", stats.CaseInsensitive)})
+	}
+	if cfg.SkipInstances {
+		if stats.ActivityHint {
+			notes = append(notes, ingestNote{Kind: "unlinked", Text: fmt.Sprintf("活动流判定成立：%d 行未物化为实例（仅本报告承载计数，REQ-294①）", stats.RowsRead)})
+		}
+		materialized = 0
+		drop := map[string]bool{}
+		for _, inst := range draft {
+			drop[inst.Name] = true
+		}
+		kept := make([]pkgspec.Instance, 0, len(sp.Instances))
+		for _, it := range sp.Instances {
+			if !drop[it.Name] || existingBefore[it.Name] {
+				kept = append(kept, it)
+			}
+		}
+		sp.Instances = kept
+	}
+	stats.InstancesMaterialized = materialized
+
+	// REQ-292① 编辑三层：机器灌装后重放 overlay（人工编辑的实例属性/概念描述不随灌装蒸发）
+	overlays, gerr := s.Store.ListOverlays(id)
+	applied, skippedOv := 0, 0
+	var overlayNotes []string
+	machineJSON := map[string]string{}
+	if gerr == nil && len(overlays) > 0 {
+		machineJSON = specMachineJSON(&sp) // 重放前快照机器值——revert 目标不能被人造值污染
+		applied, skippedOv, overlayNotes = reapplyOverlays(&sp, overlays)
+		for _, n := range overlayNotes {
+			notes = append(notes, ingestNote{Kind: "merged", Text: n})
+		}
 	}
 	if errs := sp.Validate(); len(errs) > 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "校验未通过，不允许保存坏本体", "validation_errors": errs})
@@ -1925,9 +2132,13 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	if len(machineJSON) > 0 {
+		_, _ = s.Store.RefreshOverlayBase(id, machineJSON)
+	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts2), "", "")
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "stats": stats, "warnings": warnings})
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "stats": stats, "warnings": warnings,
+		"notes": notes, "overlays_applied": applied, "overlays_skipped": skippedOv})
 }
 
 // ---- REQ-96 P2b 映射配置存取 ----

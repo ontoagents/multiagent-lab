@@ -240,6 +240,7 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
   const [aiHint, setAiHint] = useState('')
   const [aiCq, setAiCq] = useState('')
   const [aiBusy, setAiBusy] = useState(false)
+  const [aiProgress, setAiProgress] = useState<string>('') // REQ-295③：服务端实测轮次进度（永不虚构百分比）
   const [aiResult, setAiResult] = useState<AiDraftResult | null>(null)
   const [aiName, setAiName] = useState('')
 
@@ -303,6 +304,7 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
       for (let i = 0; i < 160; i++) {
         await new Promise((res) => setTimeout(res, 1500))
         const j = await api.aiDraftJob(job_id)
+        if (j.progress) setAiProgress(j.progress) // REQ-295③：实测轮次进度透出
         if (j.status === 'done') {
           r = j.result
           break
@@ -322,6 +324,7 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
       else showToast(e.message, 'err')
     } finally {
       setAiBusy(false)
+      setAiProgress('')
     }
   }
 
@@ -537,6 +540,12 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
               >
                 生成草案
               </Button>
+              {/* REQ-295③（67 号 A4）：诚实进度——只显示服务端实测轮次计数，永不虚构百分比与 ETA */}
+              {aiBusy && aiProgress && (
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }} data-testid="ai-draft-progress">
+                  {aiProgress}
+                </Typography.Paragraph>
+              )}
               {aiResult && (
                 <div className="onto-ai-preview">
                   <Space size={6} wrap>

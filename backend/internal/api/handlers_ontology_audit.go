@@ -34,6 +34,11 @@ func ontologyAuditFor(method, path string) (ontologyAuditAction, bool) {
 		return ontologyAuditAction{kind: "fork", title: "Fork 派生新本体"}, true
 	case method == http.MethodPost && strings.HasSuffix(path, "/ingest-csv"):
 		return ontologyAuditAction{kind: "ingest.csv", title: "CSV 数据灌装入库"}, true
+	// REQ-292/M96：对象级 overlay（编辑三层）——人工编辑与撤回进审计（audit 层承载）
+	case method == http.MethodPut && strings.HasSuffix(path, "/overlay"):
+		return ontologyAuditAction{kind: "overlay.edit", title: "对象级人工编辑（overlay）"}, true
+	case method == http.MethodDelete && strings.HasSuffix(path, "/overlay"):
+		return ontologyAuditAction{kind: "overlay.revert", title: "撤回人工编辑（revert to base）"}, true
 	default:
 		return ontologyAuditAction{}, false
 	}

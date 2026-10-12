@@ -523,13 +523,14 @@ export interface SpecConcept {
   parents?: string[]
 }
 
-/** Spec 关系（有向 from → to） */
+/** Spec 关系（有向 from → to）；evidence 证据分级（REQ-295①，declared>name>values，67 号 A2） */
 export interface SpecRelation {
   name: string
   label?: string
   definition?: string
   from: string
   to: string
+  evidence?: string
 }
 
 /** Spec 实例关系 */
@@ -888,25 +889,40 @@ export interface DiffResult {
   impact: DiffImpact[]
 }
 
-/** CSV 灌装统计（preview / apply 同口径） */
+/** CSV 灌装统计（REQ-292/294/295 扩展：B6 归一命中数/B2 活动流判据/实际物化数） */
 export interface CsvIngestStats {
   rows_read: number
   instances_generated: number
   skipped_empty_key: number
+  case_insensitive_matches?: number
+  activity_hint?: boolean
+  instances_materialized?: number
 }
 
-/** CSV 灌装预览（POST /api/ontologies/{id}/ingest-csv，mode=preview） */
+/** 构建产出人话 note（REQ-295②，67 号 A3 四类：merged/unmatched/case/unlinked，带具体数字） */
+export interface BuildNote {
+  kind: string
+  text: string
+}
+
+/** CSV 灌装预览（mode=preview）；base_version 供 apply 回传防陈旧（REQ-293②） */
 export interface CsvIngestPreview {
   stats: CsvIngestStats
   warnings: string[] | null
   draft: SpecInstance[] | null
+  notes?: BuildNote[] | null
+  base_version?: number
 }
 
-/** CSV 灌装确认入库（mode=apply；400 校验失败带 validation_errors） */
+/** CSV 灌装确认入库（mode=apply）；overlays_* = 重放后的人工编辑保留计数（REQ-292①） */
 export interface CsvIngestApplyResult {
   saved: boolean
   version: number
   stats: CsvIngestStats
+  warnings?: string[] | null
+  notes?: BuildNote[] | null
+  overlays_applied?: number
+  overlays_skipped?: number
 }
 
 /** CSV 灌装映射配置（REQ-96 P2b；GET/PUT /api/ontologies/{id}/ingest-mapping） */
@@ -994,4 +1010,25 @@ export interface AgentConfigVersion {
   config_json: string
   note: string
   created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// REQ-292/M96 对象级 overlay（编辑三层 base+overlay+audit；67 号 B4/B5）
+// ---------------------------------------------------------------------------
+
+/** overlay 行（GET /api/ontologies/{id}/overlays；effective/missing 为服务端实时计算） */
+export interface OverlayRow {
+  ontology_id: string
+  logical_id: string
+  kind: 'concept' | 'relation' | 'data_property' | 'instance'
+  name: string
+  action: 'edit' | 'add' | 'delete'
+  base_json: string
+  overlay_json: string
+  revision: number
+  updated_at: string
+  actor?: string
+  effective?: boolean
+  missing?: boolean
+  kind_label?: string
 }

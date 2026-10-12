@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
+  Checkbox,
   Descriptions,
   Form,
   Input,
@@ -18,6 +19,7 @@ import {
 import { InboxOutlined, SaveOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, ApiError } from '../../../api/client'
+import type { BuildNote } from '../../../api/types'
 import type { CsvIngestPreview, Spec, SpecInstance } from '../../../api/types'
 import { useUI } from '../../../store/ui'
 import { ERR_COLUMNS } from '../shared'
@@ -86,6 +88,9 @@ export default function CsvIngestPane({
   const [header, setHeader] = useState<string[]>([])
   const [preview, setPreview] = useState<CsvIngestPreview | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
+  const [notes, setNotes] = useState<BuildNote[]>([]) // REQ-295② 人话 notes
+  const [baseVersion, setBaseVersion] = useState<number>(0) // REQ-293② 防陈旧基线
+  const [skipInstances, setSkipInstances] = useState<boolean>(false) // REQ-294① 活动流不物化
   const [validationErrors, setValidationErrors] = useState<{ path: string; message: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [appliedVersion, setAppliedVersion] = useState<number | null>(null)
@@ -162,8 +167,10 @@ export default function CsvIngestPane({
       skip_rows: form.getFieldValue('skip_rows') ?? 0,
       type_rules: Object.fromEntries(Object.entries(typeRules).filter(([, v]) => v && v !== 'string')),
       multi_value_sep: form.getFieldValue('multi_value_sep') ?? '',
+      skip_instances: skipInstances, // REQ-294①：活动流不物化实例
     }
     fd.append('config', JSON.stringify(cfg))
+    if (baseVersion > 0) fd.append('base_version', String(baseVersion)) // REQ-293② 防陈旧
     return fd
   }
 
@@ -184,6 +191,8 @@ export default function CsvIngestPane({
       const r = await api.ingestCsvPreview(ontologyId, buildForm())
       setPreview(r)
       setWarnings(r.warnings ?? [])
+      setNotes(r.notes ?? [])
+      setBaseVersion(r.base_version ?? 0) // REQ-293②：预览时点版本，apply 回传
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {
@@ -393,8 +402,52 @@ export default function CsvIngestPane({
               <Statistic title="读取行" value={preview.stats.rows_read} groupSeparator="" />
               <Statistic title="生成实例" value={preview.stats.instances_generated} groupSeparator="" />
               <Statistic title="空主键跳过" value={preview.stats.skipped_empty_key} groupSeparator="" />
+              {(preview.stats.case_insensitive_matches ?? 0) > 0 && (
+                <Statistic title="大小写归一命中" value={preview.stats.case_insensitive_matches ?? 0} groupSeparator="" />
+              )}
             </Space>
           </div>
+          {/* REQ-294①（67 号 B2）：活动流五条件判据命中 → 提示可跳过实例物化 */}
+          {preview.stats.activity_hint && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              title="疑似活动流（REQ-294①）"
+              description="行数较多、含时间列、概念名含事件类词且无关系引用——大事件流通常不适合物化为实例。可勾选「跳过实例物化」后入库（仅保留报告计数）。"
+            />
+          )}
+          {preview.stats.activity_hint && (
+            <Checkbox
+              checked={skipInstances}
+              onChange={(e) => setSkipInstances(e.target.checked)}
+              style={{ marginBottom: 12 }}
+              data-testid="skip-instances-checkbox"
+            >
+              跳过实例物化（活动流：仅生成报告，不落实例）
+            </Checkbox>
+          )}
+          {/* REQ-295②（67 号 A3）：人话 notes——可核对的证据故事（四类：merged/unmatched/case/unlinked） */}
+          {notes.length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              title={`灌装说明（notes ${notes.length} 条）`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 160, overflow: 'auto' }} data-testid="ingest-notes">
+                  {notes.map((n, i) => (
+                    <li key={i} style={{ fontSize: 12 }}>
+                      <Tag style={{ margin: '0 6px 0 0' }} color={{ merged: 'blue', unmatched: 'orange', case: 'purple', unlinked: 'default' }[n.kind] ?? 'default'}>
+                        {n.kind}
+                      </Tag>
+                      {n.text}
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+          )}
           {warnings.length > 0 && (
             <Alert
               type="warning"
