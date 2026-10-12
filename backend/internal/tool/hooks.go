@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -142,7 +143,7 @@ var cmdGuardPatterns = []string{
 	"dd if=", "> /dev/sd", "chmod -r 000 /", "mv /* ", "> /dev/null <", ": > /dev/sda",
 }
 
-// CommandGuard 危险命令守卫（pre-hook 形态；本期 run_command 未启用，机制与规则表先行）。
+// CommandGuard 危险命令守卫（REQ-225②：随 run_command 接线消费——pre-hook 与工具内双保险）。
 func CommandGuard(cmd string) (bool, string) {
 	lc := strings.ToLower(cmd)
 	for _, p := range cmdGuardPatterns {
@@ -151,6 +152,85 @@ func CommandGuard(cmd string) (bool, string) {
 		}
 	}
 	return true, ""
+}
+
+// NewCommandGuardPre cmdGuard pre-hook（REQ-232③：run_command 接线即生效；仅作用于 run_command）。
+func NewCommandGuardPre() PreHook {
+	return PreHook{Guard: "cmdGuard", Fn: func(toolName, argsJSON string) error {
+		if toolName != "run_command" {
+			return nil
+		}
+		var in struct {
+			Command string `json:"command"`
+		}
+		_ = json.Unmarshal([]byte(argsJSON), &in)
+		if ok, why := CommandGuard(in.Command); !ok {
+			return fmt.Errorf("%s", why)
+		}
+		return nil
+	}}
+}
+
+// AgentHookDenyRule 自定义 deny 规则（REQ-232②；与 store.AgentHooks.DenyRules 字段同形，
+// 装配层转换——tool 不反向依赖 store 之外避免类型环）。
+type AgentHookDenyRule struct {
+	Name        string `json:"name"`
+	ToolPattern string `json:"tool_pattern"`
+	ArgsPattern string `json:"args_pattern,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// CustomDenyPre 自定义 deny 规则 pre-hook（REQ-232②）：工具名 glob（path.Match 语义）+
+// 参数子串（大小写不敏感），命中即拒绝；guard=custom:<规则名>（hook.denied 审计可归因）。
+func CustomDenyPre(rule AgentHookDenyRule) PreHook {
+	guard := "custom:" + rule.Name
+	return PreHook{Guard: guard, Fn: func(toolName, argsJSON string) error {
+		if rule.ToolPattern == "" {
+			return nil
+		}
+		if ok, _ := path.Match(rule.ToolPattern, toolName); !ok {
+			// 规则名可含通配前缀（如 mcp__* 对 mcp__foo__bar 整段 glob）——直配不中再按前缀通配重试
+			if !strings.HasSuffix(rule.ToolPattern, "*") ||
+				!strings.HasPrefix(toolName, strings.TrimSuffix(rule.ToolPattern, "*")) {
+				return nil
+			}
+		}
+		p := strings.TrimSpace(rule.ArgsPattern)
+		if p != "" && !strings.Contains(strings.ToLower(argsJSON), strings.ToLower(p)) {
+			return nil
+		}
+		reason := rule.Reason
+		if reason == "" {
+			reason = "命中自定义 deny 规则 " + rule.Name
+		}
+		return fmt.Errorf("%s", reason)
+	}}
+}
+
+// BuildHookChain agent 级 hook 链装配（REQ-232①②③；assembler 调用）：
+// fetchGuard（agent 级开关可停）+ cmdGuard（run_command 接线即生效）+ 自定义 deny 规则按声明序。
+// ag 为 nil 时返回默认链（fetchGuard+cmdGuard）——内置行/无配置 agent 行为不回退。
+func BuildHookChain(ag *AgentHookConfig) *HookChain {
+	c := &HookChain{}
+	fetchOff := ag != nil && ag.FetchGuardDisabled
+	if !fetchOff {
+		c.Pre = append(c.Pre, NewFetchGuardPre())
+	}
+	c.Pre = append(c.Pre, NewCommandGuardPre())
+	if ag != nil {
+		for _, r := range ag.DenyRules {
+			if r.ToolPattern != "" {
+				c.Pre = append(c.Pre, CustomDenyPre(r))
+			}
+		}
+	}
+	return c
+}
+
+// AgentHookConfig BuildHookChain 的入参形态（与 store.AgentHooks 字段同形——避免 tool→store 包依赖）。
+type AgentHookConfig struct {
+	FetchGuardDisabled bool
+	DenyRules          []AgentHookDenyRule
 }
 
 // argsDigest 审计载荷用参数摘要（≤200 字节 rune 安全截断——审计留痕不复制全文）。
@@ -175,12 +255,12 @@ type HookInfo struct {
 	Description string `json:"description"`
 }
 
-// DescribeHooks 当前 hook 注册真相（Active 自 DefaultHookChain 链长推导——fetchGuard 为
-// 首个且当前唯一 pre-hook；cmdGuard 规则表先行、随 run_command 接线生效 REQ-225②）。
+// DescribeHooks 当前 hook 注册真相（REQ-231⑥ 数据源；cmdGuard 随 REQ-225② run_command 接线
+// 转激活；agent 级启停/自定义规则经 BuildHookChain 生效，此处为默认链真相）。
 func DescribeHooks() []HookInfo {
 	active := len(DefaultHookChain().Pre) > 0
 	return []HookInfo{
 		{Name: "fetchGuard", Active: active, Description: "http_fetch 执行前内网/环回地址预检（SSRF 粗防），拒绝时结构化回执回喂模型、调用不执行"},
-		{Name: "cmdGuard", Active: false, Description: "危险命令模式表（随 run_command 工具接线生效，REQ-202 B1 三前置 / REQ-225②）"},
+		{Name: "cmdGuard", Active: true, Description: "run_command 执行前危险命令模式表预检（REQ-225② 接线生效；pre-hook 与工具内双保险）"},
 	}
 }

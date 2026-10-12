@@ -143,7 +143,14 @@ func (d *DockerBackend) Start(ctx context.Context, spec StartSpec) (Endpoint, er
 		"-e", "AGENT_ID=" + agentID,
 		"-e", "PLATFORM_URL=" + d.PlatformURL,
 		"-e", "MANIFEST_TOKEN=" + token,
+		"-e", "SANDBOX_EXEC_WORLD=1", // REQ-225②：沙箱执行世界标记（run_command 三前置之一——容器内装配才成立）
 		"-P", // 随机映射容器 8080
+	}
+	// REQ-225①：work_dir 同路径 volume 绑定（绝对路径才绑定；同路径挂载使平台文件视图与
+	// 容器内文件原语/run_command 的绝对路径语义一致，fsutil.SafeJoin 安全根两侧同口径）。
+	// k8s 后端同参数暂不绑定（hostPath 需节点亲和约束，单机学习场景 docker 为主——REQ-225 行边界注）。
+	if spec.WorkDir != "" && filepath.IsAbs(spec.WorkDir) {
+		runArgs = append(runArgs, "-v", spec.WorkDir+":"+spec.WorkDir)
 	}
 	// 本体平面地址透传（容器内 facade 不可达时 agentd 自动降级，M8 语义）
 	for _, k := range []string{"ONTOLOGY_MCP_URL", "ONTOLOGY_RUNTIME_MGR_URL", "ONTOLOGY_BUILD_SVC_URL", "ONTOLOGY_DIAL_TIMEOUT"} {

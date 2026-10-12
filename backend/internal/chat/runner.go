@@ -1292,7 +1292,7 @@ func (s *Service) runDocker(ctx context.Context, conv *store.Conversation, agent
 	// 2) 确保沙箱实例就绪（10c：作用域 run 时每次 Run 独立容器，收尾即清；REQ-191：
 	// 作用域可由运行环境 DB 配置覆盖 env——后端实现 Scoper 时用其配置值）
 	runScoped := runtime.ScopeEffective(s.Runtime) == "run"
-	spec := runtime.StartSpec{AgentID: agent.ID, Memory: agent.SandboxMemory, CPUs: agent.SandboxCPUs}
+	spec := runtime.StartSpec{AgentID: agent.ID, Memory: agent.SandboxMemory, CPUs: agent.SandboxCPUs, WorkDir: agent.WorkDir}
 	if runScoped {
 		spec.RunID = runID
 	}

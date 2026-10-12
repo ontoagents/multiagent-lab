@@ -15,6 +15,8 @@ import {
   ToolOutlined,
   ControlOutlined,
   InfoCircleOutlined,
+  DeleteOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
@@ -710,6 +712,16 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
     companion_extract_hint: agent.companion_extract_hint ?? '',
     companion_extract_conn_id: agent.companion_extract_conn_id ?? '',
     companion_auto_threshold: agent.companion_auto_threshold ?? 0,
+    // REQ-232/M59：agent 级 hooks 配置（fetchGuard 启停 + 自定义 deny 规则）
+    hooks: {
+      fetch_guard_disabled: v.hooks_fetch_guard_disabled ?? agent.hooks?.fetch_guard_disabled ?? false,
+      deny_rules: (v.hooks_deny_rules ?? agent.hooks?.deny_rules ?? []).map((r: any) => ({
+        name: (r.name ?? '').trim() || '规则',
+        tool_pattern: (r.tool_pattern ?? '').trim(),
+        args_pattern: (r.args_pattern ?? '').trim(),
+        reason: (r.reason ?? '').trim(),
+      })).filter((r: any) => r.tool_pattern),
+    },
   }
 }
 
@@ -756,6 +768,8 @@ function AgentConfigForm({
       ...agent,
       approval_exempt: agent.approval_exempt ?? [], // REQ-231②③：审批面新字段初始化
       approval_timeout_hours: agent.approval_timeout_hours ?? 0,
+      hooks_fetch_guard_disabled: agent.hooks?.fetch_guard_disabled ?? false, // REQ-232①
+      hooks_deny_rules: agent.hooks?.deny_rules ?? [], // REQ-232②
       // REQ-131：对外服务开关/工具名平铺为表单字段（token 不进表单，走专用端点管理）
       mcp_serve_enabled: agent.mcp_serve?.enabled ?? false,
       mcp_serve_tool_name: agent.mcp_serve?.tool_name ?? '',
@@ -766,7 +780,7 @@ function AgentConfigForm({
       setPreviewTools(r.tools ?? [])
       setPreviewNotes(r.notes ?? [])
     }).catch(() => {})
-    api.listHooks().then((r) => setHooksInfo(r.hooks ?? [])).catch(() => {})
+    api.listHooks(agent.id).then((r) => setHooksInfo(r.hooks ?? [])).catch(() => {})
     // M5：工具注册表（失败降级为空 + 提示，不阻塞保存）
     api
       .listTools()
@@ -1110,17 +1124,55 @@ function AgentConfigForm({
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
                   </Form.Item>
                   <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} />
-                  {sec('防护 hooks（只读，进程内确定性层）')}
+                  {sec('防护 hooks（进程内确定性层，REQ-232 可配置）')}
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     {isExternalBackend
                       ? '外部推理后端不走平台装配链，防护 hooks 不生效（由外部 harness 自治）。'
                       : hooksInfo.length > 0
-                        ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '预置未启用'}）`).join(' · ')
+                        ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '停用'}）`).join(' · ')
                         : 'hook 清单加载中…'}
-                    <Tooltip title="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策">
+                    <Tooltip title="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策；拒绝走 hook.denied 结构化事件">
                       <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--c-ink-3)' }} />
                     </Tooltip>
                   </Typography.Text>
+                  {!isExternalBackend && (
+                    <>
+                      {/* REQ-232①：agent 级 fetchGuard 开关 */}
+                      <Form.Item name="hooks_fetch_guard_disabled" label="fetchGuard 内网预检" className="item-inline" valuePropName="checked" tooltip="开启=http_fetch 执行前做内网/环回地址预检（SSRF 粗防，默认）；关闭=跳过该预检（自担风险）">
+                        <Switch checkedChildren="启用" unCheckedChildren="停用" disabled={isBuiltin} />
+                      </Form.Item>
+                      {/* REQ-232②：自定义 deny 规则（工具名 glob + 参数子串） */}
+                      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                        自定义 deny 规则（工具名 glob 如 mcp__* · web_*；参数子串大小写不敏感；命中即拒绝并回喂原因）
+                      </Typography.Text>
+                      <Form.List name="hooks_deny_rules">
+                        {(fields, { add, remove }) => (
+                          <>
+                            {fields.map((field) => (
+                              <Space.Compact key={field.key} style={{ display: 'flex', marginBottom: 4, gap: 4 }}>
+                                <Form.Item name={[field.name, 'name']} noStyle>
+                                  <Input placeholder="规则名" style={{ width: 90 }} disabled={isBuiltin} />
+                                </Form.Item>
+                                <Form.Item name={[field.name, 'tool_pattern']} noStyle rules={[{ required: true, message: '工具名模式必填' }]}>
+                                  <Input placeholder="工具名 glob，如 mcp__*" style={{ width: 150 }} disabled={isBuiltin} />
+                                </Form.Item>
+                                <Form.Item name={[field.name, 'args_pattern']} noStyle>
+                                  <Input placeholder="参数子串（可选）" style={{ width: 130 }} disabled={isBuiltin} />
+                                </Form.Item>
+                                <Form.Item name={[field.name, 'reason']} noStyle>
+                                  <Input placeholder="拒绝原因（可选）" style={{ flex: 1 }} disabled={isBuiltin} />
+                                </Form.Item>
+                                <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} disabled={isBuiltin} />
+                              </Space.Compact>
+                            ))}
+                            <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ name: `规则${fields.length + 1}` })} disabled={isBuiltin}>
+                              添加 deny 规则
+                            </Button>
+                          </>
+                        )}
+                      </Form.List>
+                    </>
+                  )}
                 </>
               ),
             },

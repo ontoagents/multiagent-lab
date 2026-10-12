@@ -656,9 +656,43 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 		}
 	}
 
+	// 5.55) run_command（REQ-225②/M53 沙箱执行纵深；REQ-202 B1 三前置全满足才装配）：
+	// ①沙箱执行世界（SANDBOX_EXEC_WORLD=1——agentd 容器内装配，docker.go Start 注入；
+	// 平台主进程宿主机世界禁入）②绑定目录（work_dir 已配置且随容器 volume 绑定）③审批
+	// 生效（danger/all——run_command 恒属危险清单，审批外层拦截）。任一不满足不装配；
+	// 沙箱世界内不满足时如实 warning（world 外静默——默认关语义，不噪声化）。
+	if tool.SandboxExecWorld() {
+		execRoot := a.resolveWorkRoot(sc, ag)
+		execApproval := ag.ToolApproval
+		if sc.ToolApprovalOverride == "on" {
+			execApproval = "all"
+		} else if sc.ToolApprovalOverride == "off" {
+			execApproval = ""
+		}
+		switch {
+		case execRoot == "":
+			tb.Warnings = append(tb.Warnings, "run_command 未装配：work_dir 未配置（三前置之绑定目录缺失）")
+		case execApproval != "danger" && execApproval != "all":
+			tb.Warnings = append(tb.Warnings, "run_command 未装配：审批档未启用（danger/all；三前置之审批缺失）")
+		default:
+			if bt, rerr := tool.NewRunCommandTool(tool.RunCommandDeps{WorkDir: execRoot}); rerr == nil {
+				if _, dup := tb.SourceOf["run_command"]; !dup {
+					tb.Tools = append(tb.Tools, bt)
+					tb.SourceOf["run_command"] = "builtin"
+				}
+			} else {
+				tb.Warnings = append(tb.Warnings, "run_command 工具实例化失败: "+rerr.Error())
+			}
+		}
+	}
+
 	// 5.6) 工具 hooks 包装（REQ-202 ②：pre 守卫/post 观测，审批之外的确定性检查层；
-	// 包装在内层——审批在外层先生效，批准后才进 hook 守卫）
-	hooks := tool.DefaultHookChain()
+	// 包装在内层——审批在外层先生效，批准后才进 hook 守卫。REQ-232：链按 agent 级配置
+	// 构建（fetchGuard 启停+自定义 deny 规则；cmdGuard 随 run_command 接线生效））
+	hooks := tool.BuildHookChain(&tool.AgentHookConfig{
+		FetchGuardDisabled: ag.Hooks.FetchGuardDisabled,
+		DenyRules:          convertDenyRules(ag.Hooks.DenyRules),
+	})
 	if !hooks.Empty() {
 		for i, bt := range tb.Tools {
 			tb.Tools[i] = hooks.Wrap(bt)
@@ -982,6 +1016,19 @@ func BuildHistoryMessages(msgs []*store.Message) []*schema.Message {
 		case "system":
 			out = append(out, schema.SystemMessage(m.Content))
 		}
+	}
+	return out
+}
+
+// convertDenyRules store.AgentHooks.DenyRules → tool.AgentHookDenyRule（字段同形转换；
+// REQ-232②——tool 不反向依赖 store，避免类型环）。
+func convertDenyRules(rs []store.AgentHookDenyRule) []tool.AgentHookDenyRule {
+	if len(rs) == 0 {
+		return nil
+	}
+	out := make([]tool.AgentHookDenyRule, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, tool.AgentHookDenyRule{Name: r.Name, ToolPattern: r.ToolPattern, ArgsPattern: r.ArgsPattern, Reason: r.Reason})
 	}
 	return out
 }

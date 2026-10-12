@@ -15,6 +15,8 @@ export interface Agent {
   approval_exempt?: string[]
   /** REQ-231③：审批挂起超时（小时；0=不限） */
   approval_timeout_hours?: number
+  /** REQ-232/M59：agent 级 hooks 配置（fetchGuard 启停 + 自定义 deny 规则；缺省=全默认） */
+  hooks?: { fetch_guard_disabled?: boolean; deny_rules?: { name: string; tool_pattern: string; args_pattern?: string; reason?: string }[] }
   tools: string[]
   skills: string[]
   mcp_servers: { name: string; url: string }[]

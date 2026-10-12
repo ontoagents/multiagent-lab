@@ -21,12 +21,17 @@ type BackendStatus struct {
 	Detail string `json:"detail,omitempty"` // 补充信息（容器 ID、错误原因等）
 }
 
-// StartSpec 启动规格（M10/10b：资源限制参数化；10c：RunID 支撑 per-run 作用域）。
+// StartSpec 启动规格（M10/10b：资源限制参数化；10c：RunID 支撑 per-run 作用域；
+// REQ-225/M53：WorkDir 支撑执行世界与文件视图联动）。
 type StartSpec struct {
 	AgentID string
 	RunID   string  // 10c：run 域实例标识（Scope()=run 时生效；空 = agent 域常驻实例）
 	Memory  string  // 容器内存上限（如 512m）；空 = 默认 512m
 	CPUs    float64 // CPU 核数上限；0 = 默认 1
+	// WorkDir agent 工作目录（REQ-225①：绝对路径时以同路径 volume 绑定进沙箱容器——
+	// 「文件可见→文件可执行」闭环：平台文件视图（REQ-218）与容器内文件原语/run_command
+	// 看到同一份文件；空或相对路径不绑定）
+	WorkDir string
 }
 
 // StopSpec 停止规格（10c：与 StartSpec 对应，run 域需按 (AgentID, RunID) 定位实例）。

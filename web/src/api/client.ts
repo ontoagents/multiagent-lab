@@ -234,7 +234,7 @@ export const api = {
   // REQ-231⑤⑥：运行时工具预览（四源合并确定性结果）与 hook 注册真相（Harness 页签数据源）
   agentToolPreview: (id: string) =>
     req<{ tools: { name: string; source: string }[]; masked?: { name: string; source: string }[]; notes?: string[] }>(`/api/agents/${id}/tool-preview`),
-  listHooks: () => req<{ hooks: { name: string; active: boolean; description: string }[] }>('/api/hooks'),
+  listHooks: (agentId?: string) => req<{ hooks: { name: string; active: boolean; description: string }[] }>(`/api/hooks${agentId ? `?agent_id=${agentId}` : ''}`),
   // REQ-226/M54：配置治理（版本列表/一键回滚）
   listConfigVersions: (id: string) => req<AgentConfigVersion[]>(`/api/agents/${id}/config-versions`),
   rollbackConfig: (id: string, version: number) =>

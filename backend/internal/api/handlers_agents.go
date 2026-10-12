@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -60,6 +61,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.normalizeInferenceBackend(&a); err != nil {
 		writeErr(w, err)
+		return
+	}
+	if verr := validateAgentHooks(a.Hooks); verr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": verr.Error()})
 		return
 	}
 	if a.McpServe.Enabled && a.McpServe.Token == "" {
@@ -150,6 +155,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.normalizeInferenceBackend(&a); err != nil {
 		writeErr(w, err)
+		return
+	}
+	if verr := validateAgentHooks(a.Hooks); verr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": verr.Error()})
 		return
 	}
 	var prevSnapshot *store.Agent
@@ -458,4 +467,27 @@ func (s *Server) rollbackAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mcpSync()
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// validateAgentHooks REQ-232②：自定义 deny 规则校验（工具名模式必填；规则数上限 20）。
+// 非法返回错误文案（400）。空 hooks 配置（零值）合法=全默认。
+func validateAgentHooks(h store.AgentHooks) error {
+	if len(h.DenyRules) > 20 {
+		return errors.New("自定义 deny 规则数上限 20")
+	}
+	seen := map[string]bool{}
+	for _, r := range h.DenyRules {
+		if strings.TrimSpace(r.ToolPattern) == "" {
+			return errors.New("deny 规则 " + r.Name + " 缺少工具名模式（tool_pattern）")
+		}
+		if strings.ContainsAny(r.ToolPattern, "\n\r") {
+			return errors.New("deny 规则工具名模式含非法字符")
+		}
+		key := r.ToolPattern + "|" + r.ArgsPattern
+		if seen[key] {
+			return errors.New("deny 规则重复: " + r.Name)
+		}
+		seen[key] = true
+	}
+	return nil
 }

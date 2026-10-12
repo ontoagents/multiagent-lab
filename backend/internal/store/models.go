@@ -48,8 +48,25 @@ type Agent struct {
 	WorkDir string `json:"work_dir"`
 	// REQ-202/M38：结束前验证命令（verify_on_stop 背压；空=不验证；失败不标记 completed）
 	VerifyCommand string `json:"verify_command"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	// REQ-232/M59：agent 级 hooks 配置（fetchGuard 启停 + 自定义 deny 规则；零值=全默认）
+	Hooks AgentHooks `json:"hooks"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
+// AgentHookDenyRule 自定义 deny 规则（REQ-232②）：工具名 glob 模式 + 参数子串（大小写不敏感），
+// 命中即拒绝（hook.denied 结构化事件，guard=custom:<name>）。
+type AgentHookDenyRule struct {
+	Name        string `json:"name"`                  // 规则名（审计展示用）
+	ToolPattern string `json:"tool_pattern"`          // 工具名 glob（path.Match 语义，如 http_fetch / mcp__* / web_*）
+	ArgsPattern string `json:"args_pattern,omitempty"` // 参数 JSON 子串匹配（大小写不敏感；空=仅按工具名）
+	Reason      string `json:"reason,omitempty"`       // 拒绝原因（回喂模型）
+}
+
+// AgentHooks agent 级 hooks 配置（REQ-232①②；零值=fetchGuard 启用+无自定义规则=存量行为）。
+type AgentHooks struct {
+	FetchGuardDisabled bool                `json:"fetch_guard_disabled"`
+	DenyRules          []AgentHookDenyRule `json:"deny_rules"`
 }
 
 // McpServe Agent 对外服务配置（REQ-131/M18）：开启后经平台 /mcp 端点以 agent_{id} 工具暴露。

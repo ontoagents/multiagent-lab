@@ -133,6 +133,35 @@ func readOnlyOf(c *store.Connector) bool {
 }
 
 // listHooks GET /api/hooks —— hook 注册真相（REQ-231⑥：Harness 页签 hooks 卡改后端读取）。
+// REQ-232：带 ?agent_id= 时返回该 agent 的生效链（fetchGuard 启停 + 自定义 deny 规则入列；
+// 无参 = 默认链真相）。
 func (s *Server) listHooks(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"hooks": tool.DescribeHooks()})
+	agentID := r.URL.Query().Get("agent_id")
+	if agentID == "" || s.Store == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"hooks": tool.DescribeHooks()})
+		return
+	}
+	ag, err := s.Store.GetAgent(agentID)
+	if err != nil || ag == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"hooks": tool.DescribeHooks()})
+		return
+	}
+	hooks := []tool.HookInfo{
+		{Name: "fetchGuard", Active: !ag.Hooks.FetchGuardDisabled, Description: "http_fetch 执行前内网/环回地址预检（SSRF 粗防）；agent 级可停（REQ-232①）"},
+		{Name: "cmdGuard", Active: true, Description: "run_command 执行前危险命令模式表预检（REQ-225② 接线生效）"},
+	}
+	for _, r := range ag.Hooks.DenyRules {
+		if r.ToolPattern == "" {
+			continue
+		}
+		desc := "工具名 glob " + r.ToolPattern
+		if r.ArgsPattern != "" {
+			desc += " · 参数含 " + r.ArgsPattern
+		}
+		if r.Reason != "" {
+			desc += " · " + r.Reason
+		}
+		hooks = append(hooks, tool.HookInfo{Name: "custom:" + r.Name, Active: true, Description: desc})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hooks": hooks})
 }
