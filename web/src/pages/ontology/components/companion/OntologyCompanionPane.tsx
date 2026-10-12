@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Popconfirm, Segmented, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckOutlined, CloseOutlined, DeleteOutlined, ReloadOutlined , ApartmentOutlined} from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import { companionApi } from '../../../../api/companion'
 import type { CandidateGroup, CompanionCandidate } from '../../../../api/companion'
@@ -48,7 +48,6 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const [graphTick, setGraphTick] = useState(0) // confirm/reject/reset 后刷新页首成长图
-  const [mining, setMining] = useState(false) // REQ-286 A2：关系挖掘进行态
   // REQ-216 增量③：时间倒序 / 按实体双视图（本体视角批量审阅——REQ-216⑥「+批量」范围补齐）
   const [view, setView] = useState<'time' | 'entity'>('time')
   const [groups, setGroups] = useState<CandidateGroup[] | null>(null)
@@ -290,30 +289,6 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
           <div className="onto-sec">
             <span className="onto-sec-title">候选（跨智能体 · 人工确认 = 入图门控，REQ-82 草稿必审）</span>
             <span className="hit-spacer" />
-            {/* REQ-286 A2：关系挖掘补抽——对图内已有实体 LLM 关系补全，产出进待确认流 */}
-            <Tooltip title="对图内已有实体做 LLM 关系补全（抽取时漏掉的关系事后可补），产出进待确认流">
-              <Button
-                size="small"
-                icon={<ApartmentOutlined />}
-                loading={mining}
-                disabled={agents.length === 0}
-                onClick={async () => {
-                  setMining(true)
-                  try {
-                    const r = await companionApi.mineRelations(ontologyId)
-                    showToast(r.candidates > 0 ? `关系挖掘完成：产出 ${r.candidates} 条候选待确认` : '关系挖掘完成：未发现新的候选关系（宁缺毋滥）')
-                    setGraphTick((t) => t + 1)
-                    loadCands()
-                  } catch (e: any) {
-                    showToast(e?.message ?? '关系挖掘失败', 'err')
-                  } finally {
-                    setMining(false)
-                  }
-                }}
-              >
-                挖掘关系
-              </Button>
-            </Tooltip>
             <Segmented
               size="small"
               value={bucket}

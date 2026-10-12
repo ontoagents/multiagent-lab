@@ -125,6 +125,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/companion/graph-owner", s.companionGraphOwner)
 	// REQ-286/M91：伴生图质量三维度（关系挖掘/实体编辑/合并/关系增删）
 	m.HandleFunc("POST /api/companion/ontologies/{id}/mine-relations", s.mineCompanionRelations)
+	m.HandleFunc("GET /api/companion/mine-jobs/{id}", s.getMineJob)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/entities/edit", s.editCompanionEntity)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/entities/delete", s.deleteCompanionEntity)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/entities/merge", s.mergeCompanionEntity)

@@ -18,6 +18,7 @@ import { RenameModal, VizTabs } from './components/assets/AssetExtras'
 import OntologyCompanionPane from './components/companion/OntologyCompanionPane'
 import OntologyCompanionGraph from './components/companion/OntologyCompanionGraph'
 import CompanionContentPane from './components/companion/CompanionContentPane'
+import MineRelationsButton from './components/companion/MineRelationsButton'
 import CompanionExportPane from './components/companion/CompanionExportPane'
 import type { CompanionGraph } from '../../api/companion'
 import EvolutionPane from './components/assets/EvolutionPane'
@@ -725,7 +726,15 @@ export default function AssetsPage() {
                 {secKey === 'artifacts' && <ArtifactsPane ontologyId={active.id} />}
                 {secKey === 'graph' && (isCompActive
                   // REQ-285①：伴生型「沉淀总览」直挂伴生成长图（spec 2D/3D/WebVOWL 对空 spec 无意义）
-                  ? <OntologyCompanionGraph key={active.id} ontologyId={active.id} />
+                  // REQ-297 §十九：图级操作入口归位——「挖掘关系」按钮+内联进度在此（完成自动刷新）
+                  ? (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                        <MineRelationsButton ontologyId={active.id} onDone={() => reloadCompGraphRef.current()} />
+                      </div>
+                      <OntologyCompanionGraph key={active.id} ontologyId={active.id} />
+                    </div>
+                  )
                   : <VizTabs spec={spec} ontologyId={active.id} />)}
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}

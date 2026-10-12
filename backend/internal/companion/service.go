@@ -189,6 +189,12 @@ type Service struct {
 	vecMu    sync.Mutex
 	vecCache map[string]map[string][]float32
 
+	// REQ-297：关系挖掘异步 job 注册表（内存态——与抽取 worker 同等持久性；进程重启丢 job，
+	// 前端轮询 404 提示重新触发；本体级单飞由 runningMine 承接）
+	mineMu      sync.Mutex
+	mineJobs    map[string]*MineJob
+	runningMine map[string]bool
+
 	// REQ-216 增量①：快照回灌状态（本体 → 已完成校验的引擎基址；进程重启或基址变更后重检一次）
 	infMu        sync.Mutex
 	inflatedBase map[string]string
@@ -215,7 +221,7 @@ func NewService(st *store.Store, box *secrets.Box, plans *PlanEngines) *Service 
 	if plans == nil {
 		plans = NewPlanEngines("", "")
 	}
-	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}}
+	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}, mineJobs: map[string]*MineJob{}, runningMine: map[string]bool{}}
 }
 
 // EnsureHost 供 API 层复用：确保宿主方案 running + 重建检测回灌（绑定/状态读路径同口径）。

@@ -15,10 +15,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// REQ-286/M91 伴生图质量三维度：关系密度（A1 prompt/A2 挖掘补抽/A3 属类规则/A4 前端提示）、
+// REQ-286/M91 伴生图质量三维度 + REQ-297/M101 挖掘异步化：
+// 关系密度（A1 prompt/A2 挖掘补抽〔REQ-297 起异步 job+分批+进度〕/A3 属类规则/A4 前端提示）、
 // 一致性质量（B1 label 规范化/B3 bot:alias 别名/B2 入图向量归并/B4 人工合并）、
-// 可治理性（C1 内容清单行级编辑）。本文件承载归并解析/规范化/挖掘/编辑的服务面；
-// SPARQL 原语在 sparql.go（AddAlias/SelectAliasOwner/RenameEntity/DeleteEntity 等）。
+// 可治理性（C1 内容清单行级编辑）。SPARQL 原语在 sparql.go。
 // ---------------------------------------------------------------------------
 
 // genusPattern A3 属类模式（零 LLM）：定义含「是（一）种/属于」类属陈述 → 低置信上下位关系建议。
@@ -29,7 +29,7 @@ var genusPattern = regexp.MustCompile(`^(?:[^，。；]{0,60}?)是(?:一[种个�
 // 不做 ASCII 大小写改写（「K8s」等混排名保留原样）；大小写折叠只在 normalizeKey 比对层。
 func NormalizeLabel(label string) (string, []string) {
 	s := strings.TrimSpace(label)
-	s = strings.ReplaceAll(s, "\u3000", " ")
+	s = strings.ReplaceAll(s, "　", " ")
 	s = strings.Join(strings.Fields(s), " ")
 	var aliases []string
 	main := s
@@ -40,7 +40,6 @@ func NormalizeLabel(label string) (string, []string) {
 		for i := len(runes) - 1; i >= 0; i-- {
 			if runes[i] == ')' || runes[i] == '）' {
 				closeIdx = i
-				// 找与之配对的开括号（就近）
 				for j := i - 1; j >= 0; j-- {
 					if runes[j] == '(' || runes[j] == '（' {
 						openIdx = j
@@ -82,8 +81,7 @@ func normalizeKey(s string) string {
 }
 
 // resolvedNode 归并解析结果：canonical=入图规范名（已有实体标签或规范化新名），
-// aliases=需挂接的别名（候选原始名/括号备注等 ≠ canonical 的变体），mergedFrom=非空时表示
-// 并入已有实体（B1 key 命中 / B2 向量相似）。
+// aliases=需挂接的别名，mergedFrom=非空时表示并入已有实体（B1 key 命中 / B2 向量相似）。
 type resolvedNode struct {
 	Canonical  string
 	Aliases    []string
@@ -91,8 +89,8 @@ type resolvedNode struct {
 }
 
 // ResolveNode B1+B2：候选标签 → 入图规范名解析。
-// ① normalizeKey 与图内已有实体标签比对（确定性）；② 未命中走向量归并（≥0.8 保守阈值，
-// embedding 未配置/失败静默降级）；③ 均未命中 = 规范化新名 + 括号备注转别名。
+// ① normalizeKey 与图内已有实体标签比对（确定性，含候选别名命中）；② 未命中走向量归并
+//（≥0.8 保守阈值，embedding 未配置/失败静默降级）；③ 均未命中 = 规范化新名 + 括号备注转别名。
 func (s *Service) ResolveNode(ctx context.Context, ontID, label string) (resolvedNode, error) {
 	main, aliases := NormalizeLabel(label)
 	res := resolvedNode{Canonical: main, Aliases: aliases}
@@ -107,18 +105,16 @@ func (s *Service) ResolveNode(ctx context.Context, ontID, label string) (resolve
 		}
 		byKey[normalizeKey(l)] = l
 	}
-	// ① 确定性 key 命中（含候选别名命中——「Pod（容器组）」备注恰为已有实体名）
 	for _, cand := range append([]string{main}, res.Aliases...) {
 		if owner, ok := byKey[normalizeKey(cand)]; ok {
 			res.Canonical = owner
 			res.MergedFrom = label
-			if !strings.EqualFold(owner, cand) && cand != owner {
+			if cand != owner {
 				res.Aliases = append(res.Aliases, cand)
 			}
 			return res, nil
 		}
 	}
-	// ② 向量归并（B2；余弦阈值 0.8 保守——宁可少并不可错并）
 	if s.Box != nil {
 		emb := &kb.Embedder{Store: s.Store, Box: s.Box}
 		if inVec, err := emb.EmbedOne(ctx, main); err == nil && len(inVec) > 0 {
@@ -162,7 +158,6 @@ func (s *Service) attachAliases(ctx context.Context, ontID, canonical string, al
 
 // ScanGenusCandidates A3 属类模式规则（零 LLM）：概念定义含「…是（一）种…」类属陈述
 // → 追加低置信「属于」关系候选（target=类属对象文本，薄建端点既有机制承接）。
-// 产出固定 note 标注「模式规则建议」，confidence 0.35（宁缺毋滥口径下仅作提醒）。
 func ScanGenusCandidates(cands []*store.CompanionCandidate) []*store.CompanionCandidate {
 	var out []*store.CompanionCandidate
 	seen := map[string]bool{}
@@ -195,9 +190,41 @@ func ScanGenusCandidates(cands []*store.CompanionCandidate) []*store.CompanionCa
 }
 
 // ---------------------------------------------------------------------------
-// A2 关系挖掘补抽轮：对图内已有实体做 LLM 关系补全——抽取时漏掉的关系事后可补。
-// 同步单次 LLM 调用（实体 ≤40，本体级单飞锁互斥）；产出 relation 候选进待确认流。
+// REQ-297/M101 A2 异步化：关系挖掘异步 job（内存注册表——与抽取 worker 同等持久性，
+// 进程重启丢 job 前端轮询 404 提示重新触发）+ 分批（≤40 实体/批独立 LLM 调用）+ 进度透出。
+// 治 REQ-286 交付轮同步接口两病：①HTTP ctx 绑定 LLM（前端断开→白烧）②实体清单无上限。
 // ---------------------------------------------------------------------------
+
+// MineJob 关系挖掘异步 job 状态。
+type MineJob struct {
+	ID         string    `json:"id"`
+	OntologyID string    `json:"ontology_id"`
+	Phase      string    `json:"phase"` // running | done | error
+	Stage      string    `json:"stage"`
+	BatchDone  int       `json:"batch_done"`
+	BatchTotal int       `json:"batch_total"`
+	Candidates int       `json:"candidates"`
+	Error      string    `json:"error,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// mineBatchSize 分批挖掘批尺寸。
+const mineBatchSize = 40
+
+func (s *Service) mineJobUpdate(jobID string, fn func(j *MineJob)) {
+	s.mineMu.Lock()
+	defer s.mineMu.Unlock()
+	if j, ok := s.mineJobs[jobID]; ok {
+		fn(j)
+	}
+}
+
+// GetMineJob job 状态查询（无记录返回 nil——前端按「任务已失效」提示重新触发）。
+func (s *Service) GetMineJob(jobID string) *MineJob {
+	s.mineMu.Lock()
+	defer s.mineMu.Unlock()
+	return s.mineJobs[jobID]
+}
 
 // mineSchema 关系挖掘输出契约（与抽取 relations 同形）。
 const mineSchema = `{
@@ -223,7 +250,7 @@ type mineOut struct {
 }
 
 // mineRelationsPrompt A2：关系挖掘提示词——实体清单（label：definition）+ 关系类型清单
-//（A1 同源）+ 硬性标准（端点必须引用清单中的名称/禁自指）。无实体返回空串（调用方拦截）。
+//（A1 同源）+ 硬性标准（端点必须引用清单中的名称/禁自指）。
 func mineRelationsPrompt(entities []GraphNode) string {
 	var b strings.Builder
 	b.WriteString("你是本体关系挖掘助手。以下是伴生本体图中已沉淀的实体清单（label：定义），")
@@ -247,38 +274,67 @@ func mineRelationsPrompt(entities []GraphNode) string {
 	return b.String()
 }
 
-// MineRelations A2：关系挖掘补抽（本体视角——产出 relation 候选归属该本体首个绑定 agent；
-// 无绑定 agent 时报错提示先绑定）。同步执行（单次 LLM 调用），调用方负责本体级互斥。
-// 返回新增候选数。
-func (s *Service) MineRelations(ctx context.Context, ontID string) (int, error) {
+// MineRelationsAsync A2（REQ-297 异步化）：注册 job 并后台分批挖掘，立即返回 jobID。
+// 本体级单飞（runningMine）。
+func (s *Service) MineRelationsAsync(ctx context.Context, ontID string) (string, error) {
 	agents, err := s.Store.ListAgentsByCompanionOntology(ontID)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	if len(agents) == 0 {
-		return 0, &store.HTTPError{Status: 400, Msg: "该本体暂无绑定智能体——请先在智能体侧板绑定伴生本体"}
+		return "", &store.HTTPError{Status: 400, Msg: "该本体暂无绑定智能体——请先在智能体侧板绑定伴生本体"}
 	}
-	agent := agents[0]
+	s.mineMu.Lock()
+	if s.runningMine[ontID] {
+		s.mineMu.Unlock()
+		return "", &store.HTTPError{Status: 409, Msg: "该本体已有关系挖掘任务进行中——请稍候"}
+	}
+	job := &MineJob{ID: store.NewID(), OntologyID: ontID, Phase: "running", Stage: "排队中", CreatedAt: time.Now()}
+	s.mineJobs[job.ID] = job
+	s.runningMine[ontID] = true
+	s.mineMu.Unlock()
+	go func() {
+		defer func() {
+			s.mineMu.Lock()
+			delete(s.runningMine, ontID)
+			s.mineMu.Unlock()
+			if r := recover(); r != nil {
+				log.Printf("[companion] 关系挖掘 panic（%s）: %v", ontID, r)
+				s.mineJobUpdate(job.ID, func(jj *MineJob) { jj.Phase, jj.Error = "error", fmt.Sprintf("内部错误: %v", r) })
+			}
+		}()
+		// 独立超时：与 HTTP 请求脱钩（前端断开不中止——治白烧）
+		mctx, cancel := context.WithTimeout(context.Background(), extractTimeout())
+		defer cancel()
+		n, err := s.runMineBatches(mctx, ontID, agents[0], job.ID)
+		s.mineJobUpdate(job.ID, func(jj *MineJob) {
+			if err != nil {
+				jj.Phase = "error"
+				jj.Error = fmt.Sprintf("%s（已完成批次产出 %d 条候选已保留）", err.Error(), jj.Candidates)
+			} else {
+				jj.Phase = "done"
+				jj.Stage = fmt.Sprintf("完成：共产出 %d 条候选待确认", n)
+			}
+		})
+	}()
+	return job.ID, nil
+}
+
+// runMineBatches 分批挖掘执行体（读实体→并入 pending 候选→分批 LLM→逐批落库+进度更新；
+// 中途失败已完成批次的候选保留）。
+func (s *Service) runMineBatches(ctx context.Context, ontID string, agent *store.Agent, jobID string) (int, error) {
+	s.mineJobUpdate(jobID, func(jj *MineJob) { jj.Stage = "读取图内实体…" })
 	connID := extractConnID(agent)
-	// 图内实体清单（label+definition；SelectNodes 已含别名但主 label 唯一）
 	raw, err := s.graphQuery(ctx, ontID, SelectNodes(ontID))
 	if err != nil {
 		return 0, err
 	}
-	nodes := parseGraphNodes(raw)
-	_ = nodes
 	entities := collectEntityList(raw)
-	for _, n := range nodes {
-		if n.Kind == "Relation" {
-			continue
-		}
-		entities = append(entities, n)
-	}
-	// REQ-296 E3：pending 候选纳入挖掘清单——产出自然包含「新候选×已有实体」关系候选
-	//（当轮候选与既有对象关联的直接实现）；同名（key）已有实体优先，候选去重。
+	// REQ-296 E3：pending 候选纳入挖掘清单（同名 key 已有实体优先）
 	pending, _ := s.Store.ListCompanionCandidatesByOntology(ontID, "pending")
 	pendSeen := map[string]bool{}
-	for _, l := range s.knownEntityLabels(ctx, ontID) {
+	known := s.knownEntityLabels(ctx, ontID)
+	for _, l := range known {
 		pendSeen[normalizeKey(l)] = true
 	}
 	for _, c := range pending {
@@ -295,32 +351,59 @@ func (s *Service) MineRelations(ctx context.Context, ontID string) (int, error) 
 	if len(entities) < 2 {
 		return 0, &store.HTTPError{Status: 400, Msg: "图内实体不足 2 个——先通过对话沉淀更多概念"}
 	}
-	prompt := mineRelationsPrompt(entities)
-	res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID, prompt, mineSchema)
-	if err != nil {
-		return 0, fmt.Errorf("关系挖掘 LLM 调用失败: %w", err)
-	}
-	var out mineOut
-	if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
-		return 0, fmt.Errorf("关系挖掘输出解析失败: %w", err)
-	}
-	known := s.knownEntityLabels(ctx, ontID)
-	// REQ-296 E3：pending 候选名并入端点对齐面（产出关系端点引用候选名时保持候选形态——入图后自然归并）
-	pendingNow, _ := s.Store.ListCompanionCandidatesByOntology(ontID, "pending")
-	for _, c := range pendingNow {
+	batches := (len(entities) + mineBatchSize - 1) / mineBatchSize
+	s.mineJobUpdate(jobID, func(jj *MineJob) { jj.BatchTotal, jj.Stage = batches, fmt.Sprintf("挖掘关系批次 0/%d…", batches) })
+	knownAligned := append([]string{}, known...)
+	pendingNames := make([]string, 0, len(pending))
+	for _, c := range pending {
 		if c.Kind != "relation" {
-			known = append(known, c.Name)
+			pendingNames = append(pendingNames, c.Name)
 		}
 	}
-	cands := pruneRelationsOnly(mineToCandidates(ontID, agent.ID, &out, known))
-	if err := s.Store.CreateCompanionCandidates(cands); err != nil {
-		return 0, err
+	total := 0
+	for bi := 0; bi < batches; bi++ {
+		lo, hi := bi*mineBatchSize, (bi+1)*mineBatchSize
+		if hi > len(entities) {
+			hi = len(entities)
+		}
+		batch := entities[lo:hi]
+		res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID, mineRelationsPrompt(batch), mineSchema)
+		if err != nil {
+			if total > 0 {
+				return total, fmt.Errorf("关系挖掘第 %d/%d 批失败", bi+1, batches)
+			}
+			return 0, fmt.Errorf("关系挖掘 LLM 调用失败: %w", err)
+		}
+		var out mineOut
+		if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
+			return total, fmt.Errorf("关系挖掘输出解析失败（第 %d/%d 批）", bi+1, batches)
+		}
+		// 端点对齐面：已有实体+pending 候选名+跨批实体（REQ-296 E3）
+		align := append(knownAligned, pendingNames...)
+		cands := pruneRelationsOnly(mineToCandidates(ontID, agent.ID, &out, align))
+		if len(cands) > 0 {
+			if err := s.Store.CreateCompanionCandidates(cands); err != nil {
+				return total, err
+			}
+			total += len(cands)
+		}
+		done := bi + 1
+		s.mineJobUpdate(jobID, func(jj *MineJob) {
+			jj.BatchDone, jj.Candidates = done, total
+			jj.Stage = fmt.Sprintf("挖掘关系批次 %d/%d（已产出 %d 条）", done, batches, total)
+		})
+		for _, n := range batch {
+			knownAligned = append(knownAligned, n.Label)
+		}
 	}
-	s.audit("companion_mine_relations", ontID, fmt.Sprintf("伴生关系挖掘：产出 %d 条候选", len(cands)), map[string]any{"ontology_id": ontID, "entities": len(entities)})
-	return len(cands), nil
+	s.audit("companion_mine_relations", ontID, fmt.Sprintf("伴生关系挖掘：分 %d 批产出 %d 条候选", batches, total), map[string]any{"ontology_id": ontID, "entities": len(entities)})
+	if base, berr := s.Plans.EnsureHostPlan(ctx, ontID); berr == nil {
+		s.snapshotRefresh(ctx, ontID, base)
+	}
+	return total, nil
 }
 
-// mineToCandidates 挖掘输出 → relation 候选（端点 key 对齐已有实体规范名，未知名薄建既有机制承接）。
+// mineToCandidates 挖掘输出 → relation 候选（端点 key 对齐已有实体/候选名，未知名薄建既有机制承接）。
 func mineToCandidates(ontID, agentID string, out *mineOut, known []string) []*store.CompanionCandidate {
 	byKey := map[string]string{}
 	for _, l := range known {
@@ -351,7 +434,7 @@ func mineToCandidates(ontID, agentID string, out *mineOut, known []string) []*st
 	return cands
 }
 
-// pruneRelationsOnly 挖掘批自检：批内去重（同主体+关系名+客体）与端点相同剔除（A2 复用 REQ-283 精神）。
+// pruneRelationsOnly 挖掘批自检：批内去重（同主体+关系名+客体）与端点相同剔除。
 func pruneRelationsOnly(cands []*store.CompanionCandidate) []*store.CompanionCandidate {
 	var out []*store.CompanionCandidate
 	seen := map[string]bool{}
@@ -362,6 +445,41 @@ func pruneRelationsOnly(cands []*store.CompanionCandidate) []*store.CompanionCan
 		}
 		seen[key] = true
 		out = append(out, c)
+	}
+	return out
+}
+
+// parseGraphNodes SelectNodes SPARQL JSON → GraphNode 切片（挖掘/编辑共用）。
+func parseGraphNodes(raw []byte) []GraphNode {
+	var res struct {
+		Results struct {
+			Bindings []map[string]struct {
+				Value string `json:"value"`
+			} `json:"bindings"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(raw, &res) != nil {
+		return nil
+	}
+	out := make([]GraphNode, 0, len(res.Results.Bindings))
+	for _, b := range res.Results.Bindings {
+		kind := strings.TrimPrefix(b["kind"].Value, BotNS)
+		conf := 0.0
+		fmt.Sscanf(b["conf"].Value, "%f", &conf)
+		out = append(out, GraphNode{Kind: kind, Label: b["label"].Value, Definition: b["def"].Value, Confidence: conf, TimeScope: b["tscope"].Value, CreatedAt: b["at"].Value})
+	}
+	return out
+}
+
+// collectEntityList 从 SelectNodes 原始响应提取实体（概念/事件）label+definition 清单。
+func collectEntityList(raw []byte) []GraphNode {
+	nodes := parseGraphNodes(raw)
+	out := make([]GraphNode, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Kind == "Relation" {
+			continue
+		}
+		out = append(out, n)
 	}
 	return out
 }
@@ -431,7 +549,6 @@ func (s *Service) AddRelationManual(ctx context.Context, ontID, source, relName,
 	if normalizeKey(source) == normalizeKey(target) {
 		return &store.HTTPError{Status: 400, Msg: "禁止自指关系"}
 	}
-	// 端点校验：须为图内已有实体（含别名解析）
 	known := s.knownEntityLabels(ctx, ontID)
 	match := func(name string) (string, bool) {
 		for _, l := range known {
@@ -480,8 +597,6 @@ func (s *Service) DeleteRelationManual(ctx context.Context, ontID, edgeURI strin
 }
 
 // MergeEntity B4：人工合并——from 并入 to（from 变体挂 alias+出入边重定向+from 主体清理）。
-// 复用 RenameEntity 迁移语义（重命名即「并入新主名」）：from 的边全部指到 to，from 消失，
-// to 获得 from 名作为别名。to 为图内已有实体（必须存在——校验 by known labels）。
 func (s *Service) MergeEntity(ctx context.Context, ontID, fromLabel, toLabel string) error {
 	fromLabel, toLabel = strings.TrimSpace(fromLabel), strings.TrimSpace(toLabel)
 	if fromLabel == "" || toLabel == "" {
@@ -518,41 +633,6 @@ func (s *Service) MergeEntity(ctx context.Context, ontID, fromLabel, toLabel str
 	return nil
 }
 
-// parseGraphNodes SelectNodes SPARQL JSON → GraphNode 切片（挖掘/编辑共用）。
-func parseGraphNodes(raw []byte) []GraphNode {
-	var res struct {
-		Results struct {
-			Bindings []map[string]struct {
-				Value string `json:"value"`
-			} `json:"bindings"`
-		} `json:"results"`
-	}
-	if json.Unmarshal(raw, &res) != nil {
-		return nil
-	}
-	out := make([]GraphNode, 0, len(res.Results.Bindings))
-	for _, b := range res.Results.Bindings {
-		kind := strings.TrimPrefix(b["kind"].Value, BotNS)
-		conf := 0.0
-		fmt.Sscanf(b["conf"].Value, "%f", &conf)
-		out = append(out, GraphNode{Kind: kind, Label: b["label"].Value, Definition: b["def"].Value, Confidence: conf, TimeScope: b["tscope"].Value, CreatedAt: b["at"].Value})
-	}
-	return out
-}
-
-// collectEntityList 从 SelectNodes 原始响应提取实体（概念/事件）label+definition 清单。
-func collectEntityList(raw []byte) []GraphNode {
-	nodes := parseGraphNodes(raw)
-	out := make([]GraphNode, 0, len(nodes))
-	for _, n := range nodes {
-		if n.Kind == "Relation" {
-			continue
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
 // runGraphSteps REQ-286：顺序执行多步图更新（每步独立 Update——oxigraph `;` 串联多操作
 // 执行不完整的实证规避）；任一步失败即返回（后续步骤幂等可重试）。
 func (s *Service) runGraphSteps(ctx context.Context, ontID string, steps []string) error {
@@ -564,18 +644,10 @@ func (s *Service) runGraphSteps(ctx context.Context, ontID string, steps []strin
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// REQ-296/M97 E2：候选落库时关联标记（零 LLM）——pending 候选 label 与绑定本体伴生子图
-// 已有实体比对：normalizeKey 命中（或向量 ≥0.8）→ note「入图时将并入「X」」（confirm 链
-// ResolveNode 必然归并）；向量 0.6~0.8 灰色带 → note「与「X」疑似同一实体待人工」（不自动
-// 归并，确认流可见可决策）。relation 候选不标（端点归并在入图时由 ResolveNode 承接）。
-// ---------------------------------------------------------------------------
-
 // assocGrayBand 关联灰色带下限（0.6~0.8 提示不自动归并）。
 const assocGrayBand = 0.6
 
-// MarkAssociations E2：批内 concept/event 候选的关联标记（落库前调用；零 LLM——向量批量各一次）。
-// 返回带 note 的候选切片（原切片就地修改）。
+// MarkAssociations REQ-296 E2：批内 concept/event 候选的关联标记（落库前调用；零 LLM——向量批量各一次）。
 func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*store.CompanionCandidate) []*store.CompanionCandidate {
 	nodes := []struct {
 		Label string
@@ -602,7 +674,6 @@ func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*s
 	for _, l := range known {
 		byKey[normalizeKey(l)] = l
 	}
-	// 向量批量：候选名一次 + 已有实体标签一次（labelVectors 带缓存）
 	var emb *kb.Embedder
 	inVecs := map[string][]float32{}
 	if s.Box != nil {
@@ -630,12 +701,10 @@ func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*s
 			continue
 		}
 		main, _ := NormalizeLabel(c.Name)
-		// ① key 命中：确定归并（ResolveNode 同规则）
 		if owner, ok := byKey[normalizeKey(main)]; ok {
 			c.Note = fmt.Sprintf("入图时将并入「%s」（同名/别名命中）", owner)
 			continue
 		}
-		// ② 向量相似：≥0.8 归并提示；0.6~0.8 灰色带提示
 		inV, ok := inVecs[main]
 		if !ok || len(inV) == 0 {
 			continue

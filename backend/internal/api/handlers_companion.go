@@ -333,14 +333,26 @@ func (s *Server) exportCompanionTTL(w http.ResponseWriter, r *http.Request) {
 //   POST /api/companion/ontologies/{id}/relations/delete   删关系（C1：按边 URI）
 // ---------------------------------------------------------------------------
 
-// mineCompanionRelations POST …/mine-relations（REQ-286 A2）。
+// mineCompanionRelations POST …/mine-relations（REQ-286 A2；REQ-297 异步化——202+job_id，
+// 挖掘转后台分批执行，前端轮询 mine-jobs/{id}）。
 func (s *Server) mineCompanionRelations(w http.ResponseWriter, r *http.Request) {
-	n, err := s.Companion.MineRelations(r.Context(), r.PathValue("id"))
+	jobID, err := s.Companion.MineRelationsAsync(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": n})
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
+}
+
+// getMineJob GET /api/companion/mine-jobs/{id}（REQ-297：挖掘 job 状态轮询；
+// 404=任务已失效〔进程重启丢内存态〕——前端提示重新触发）。
+func (s *Server) getMineJob(w http.ResponseWriter, r *http.Request) {
+	j := s.Companion.GetMineJob(r.PathValue("id"))
+	if j == nil {
+		writeErr(w, &store.HTTPError{Status: 404, Msg: "任务已失效（服务重启）——请重新触发挖掘"})
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
 }
 
 // editCompanionEntity POST …/entities/edit（REQ-286 C1）。

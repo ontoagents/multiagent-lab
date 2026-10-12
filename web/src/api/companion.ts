@@ -161,9 +161,12 @@ export const companionApi = {
     req<{ reset: boolean }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/reset`, { method: 'POST', body: '{}' }),
   // REQ-216⑦：伴生绑定本体 id 清单（资产列表「对话生长」徽标数据源）
   boundOntologies: () => req<{ ontology_ids: string[] }>(`/api/companion/bound-ontologies`),
-  // REQ-286 A2：关系挖掘补抽（对图内实体 LLM 关系补全→relation 候选进确认流；同步单次 LLM）
+  // REQ-286 A2/REQ-297 异步化：触发关系挖掘（202+job_id；分批在后台执行，前端轮询进度）
   mineRelations: (ontologyId: string) =>
-    req<{ candidates: number }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/mine-relations`, { method: 'POST', body: '{}' }),
+    req<{ job_id: string }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/mine-relations`, { method: 'POST', body: '{}' }),
+  getMineJob: (jobId: string) =>
+    req<{ id: string; phase: 'running' | 'done' | 'error'; stage: string; batch_done: number; batch_total: number; candidates: number; error?: string }>(
+      `/api/companion/mine-jobs/${encodeURIComponent(jobId)}`),
   // REQ-286 C1：内容清单行级编辑（实体改 label/定义；label 变更=迁移式重命名，旧名转别名）
   editEntity: (ontologyId: string, payload: { label: string; new_label?: string; new_definition?: string }) =>
     req<{ ok: boolean }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/entities/edit`, { method: 'POST', body: JSON.stringify(payload) }),
