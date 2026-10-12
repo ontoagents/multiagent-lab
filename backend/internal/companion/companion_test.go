@@ -521,3 +521,27 @@ func TestMineToCandidates(t *testing.T) {
 		t.Fatalf("端点应对齐已有实体规范名: %+v", c)
 	}
 }
+
+// TestMarkAssociations REQ-296 E2：候选落库关联标记——引擎不在位诚实降级路径（knownEntityLabels
+// 空→无标记）；key 命中/灰色带分支依赖引擎 SPARQL，由真机冒烟覆盖。
+func TestMarkAssociations(t *testing.T) {
+	st, err := store.Open(t.TempDir() + "/assoc.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	agt := &store.Agent{ID: "a-assoc", Name: "关联冒烟"}
+	if err := st.SetAgentCompanionBinding("a-assoc", "ont-assoc"); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	_ = agt
+	svc := NewService(st, nil, nil)
+	cands := []*store.CompanionCandidate{
+		{Kind: "concept", Name: "Kubernetes", Status: "pending"},
+		{Kind: "relation", Name: "A", RelName: "属于", RelTarget: "B", Status: "pending"},
+	}
+	out := svc.MarkAssociations(context.Background(), "ont-assoc", cands)
+	if out[0].Note != "" {
+		t.Fatalf("引擎不在位应无标记: %q", out[0].Note)
+	}
+}

@@ -476,6 +476,8 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		cands, pruned := pruneCompanionCandidates(cands, known)
 		// REQ-286 A3：属类模式规则建议（零 LLM，低置信进确认流）
 		cands = append(cands, ScanGenusCandidates(cands)...)
+		// REQ-296 E2：候选落库关联标记（与已有实体 key/向量比对→note，确认流可见）
+		cands = s.MarkAssociations(ctx, ontID, cands)
 		if err := s.Store.CreateCompanionCandidates(cands); err != nil {
 			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "候选落库失败: " + err.Error()})

@@ -17,6 +17,16 @@ import OntologyCompanionGraph from './OntologyCompanionGraph'
 // confirm/reject 后联动刷新）与本体级「清空伴生图」（DROP 子图+清全部绑定 agent 候选游标）。
 // ---------------------------------------------------------------------------
 
+function NoteBadge({ note }: { note?: string }) {
+  if (!note) return null
+  const label = note.includes('疑似矛盾') ? '疑似矛盾待人工' : note.includes('入图时将并入') ? '将并入已有实体' : note.includes('疑似同一实体') ? '疑似同一实体' : '注记'
+  return (
+    <Tooltip title={note}>
+      <Tag color={note.includes('疑似同一实体') ? 'gold' : 'orange'} style={{ margin: 0 }}>{label}</Tag>
+    </Tooltip>
+  )
+}
+
 const KIND_META: Record<CompanionCandidate['kind'], { color: string; text: string }> = {
   concept: { color: 'blue', text: '概念' },
   relation: { color: 'purple', text: '关系' },
@@ -179,7 +189,12 @@ export default function OntologyCompanionPane({ ontologyId }: { ontologyId: stri
       title: '类型',
       dataIndex: 'kind',
       width: 72,
-      render: (k: CompanionCandidate['kind']) => <Tag color={KIND_META[k]?.color ?? 'default'} style={{ margin: 0 }}>{KIND_META[k]?.text ?? k}</Tag>,
+      render: (k: CompanionCandidate['kind'], r) => (
+        <Space size={4}>
+          <Tag color={KIND_META[k]?.color ?? 'default'} style={{ margin: 0 }}>{KIND_META[k]?.text ?? k}</Tag>
+          <NoteBadge note={r.note} />
+        </Space>
+      ),
     },
     {
       title: '内容',

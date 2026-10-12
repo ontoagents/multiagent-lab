@@ -274,6 +274,24 @@ func (s *Service) MineRelations(ctx context.Context, ontID string) (int, error) 
 		}
 		entities = append(entities, n)
 	}
+	// REQ-296 E3：pending 候选纳入挖掘清单——产出自然包含「新候选×已有实体」关系候选
+	//（当轮候选与既有对象关联的直接实现）；同名（key）已有实体优先，候选去重。
+	pending, _ := s.Store.ListCompanionCandidatesByOntology(ontID, "pending")
+	pendSeen := map[string]bool{}
+	for _, l := range s.knownEntityLabels(ctx, ontID) {
+		pendSeen[normalizeKey(l)] = true
+	}
+	for _, c := range pending {
+		if c.Kind == "relation" {
+			continue
+		}
+		main, _ := NormalizeLabel(c.Name)
+		if main == "" || pendSeen[normalizeKey(main)] {
+			continue
+		}
+		pendSeen[normalizeKey(main)] = true
+		entities = append(entities, GraphNode{Label: main, Kind: "Concept", Definition: c.Definition})
+	}
 	if len(entities) < 2 {
 		return 0, &store.HTTPError{Status: 400, Msg: "图内实体不足 2 个——先通过对话沉淀更多概念"}
 	}
@@ -287,6 +305,13 @@ func (s *Service) MineRelations(ctx context.Context, ontID string) (int, error) 
 		return 0, fmt.Errorf("关系挖掘输出解析失败: %w", err)
 	}
 	known := s.knownEntityLabels(ctx, ontID)
+	// REQ-296 E3：pending 候选名并入端点对齐面（产出关系端点引用候选名时保持候选形态——入图后自然归并）
+	pendingNow, _ := s.Store.ListCompanionCandidatesByOntology(ontID, "pending")
+	for _, c := range pendingNow {
+		if c.Kind != "relation" {
+			known = append(known, c.Name)
+		}
+	}
 	cands := pruneRelationsOnly(mineToCandidates(ontID, agent.ID, &out, known))
 	if err := s.Store.CreateCompanionCandidates(cands); err != nil {
 		return 0, err
@@ -537,4 +562,99 @@ func (s *Service) runGraphSteps(ctx context.Context, ontID string, steps []strin
 		}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// REQ-296/M97 E2：候选落库时关联标记（零 LLM）——pending 候选 label 与绑定本体伴生子图
+// 已有实体比对：normalizeKey 命中（或向量 ≥0.8）→ note「入图时将并入「X」」（confirm 链
+// ResolveNode 必然归并）；向量 0.6~0.8 灰色带 → note「与「X」疑似同一实体待人工」（不自动
+// 归并，确认流可见可决策）。relation 候选不标（端点归并在入图时由 ResolveNode 承接）。
+// ---------------------------------------------------------------------------
+
+// assocGrayBand 关联灰色带下限（0.6~0.8 提示不自动归并）。
+const assocGrayBand = 0.6
+
+// MarkAssociations E2：批内 concept/event 候选的关联标记（落库前调用；零 LLM——向量批量各一次）。
+// 返回带 note 的候选切片（原切片就地修改）。
+func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*store.CompanionCandidate) []*store.CompanionCandidate {
+	nodes := []struct {
+		Label string
+		Def   string
+	}{}
+	for _, c := range cands {
+		if c.Kind == "relation" || c.Note != "" {
+			continue // relation 不标；已有 note（矛盾/规则建议）不覆盖
+		}
+		main, _ := NormalizeLabel(c.Name)
+		nodes = append(nodes, struct {
+			Label string
+			Def   string
+		}{main, c.Definition})
+	}
+	if len(nodes) == 0 {
+		return cands
+	}
+	known := s.knownEntityLabels(ctx, ontID)
+	if len(known) == 0 {
+		return cands
+	}
+	byKey := map[string]string{}
+	for _, l := range known {
+		byKey[normalizeKey(l)] = l
+	}
+	// 向量批量：候选名一次 + 已有实体标签一次（labelVectors 带缓存）
+	var emb *kb.Embedder
+	inVecs := map[string][]float32{}
+	if s.Box != nil {
+		emb = &kb.Embedder{Store: s.Store, Box: s.Box}
+		texts := make([]string, 0, len(nodes))
+		for _, n := range nodes {
+			texts = append(texts, n.Label)
+		}
+		if vecs, err := emb.EmbedTexts(ctx, texts); err == nil {
+			for i, v := range vecs {
+				if i < len(nodes) {
+					inVecs[nodes[i].Label] = v
+				}
+			}
+		}
+	}
+	knownVecs := map[string][]float32{}
+	if emb != nil && len(inVecs) > 0 {
+		if kv, err := s.labelVectors(ctx, ontID, known, emb); err == nil {
+			knownVecs = kv
+		}
+	}
+	for _, c := range cands {
+		if c.Kind == "relation" || c.Note != "" {
+			continue
+		}
+		main, _ := NormalizeLabel(c.Name)
+		// ① key 命中：确定归并（ResolveNode 同规则）
+		if owner, ok := byKey[normalizeKey(main)]; ok {
+			c.Note = fmt.Sprintf("入图时将并入「%s」（同名/别名命中）", owner)
+			continue
+		}
+		// ② 向量相似：≥0.8 归并提示；0.6~0.8 灰色带提示
+		inV, ok := inVecs[main]
+		if !ok || len(inV) == 0 {
+			continue
+		}
+		best, bestSim := "", 0.0
+		for l, v := range knownVecs {
+			if sim := cosineSim(inV, v); sim > bestSim {
+				best, bestSim = l, sim
+			}
+		}
+		if best == "" {
+			continue
+		}
+		switch {
+		case bestSim >= 0.8:
+			c.Note = fmt.Sprintf("入图时将并入「%s」（向量相似 %.2f）", best, bestSim)
+		case bestSim >= assocGrayBand:
+			c.Note = fmt.Sprintf("与「%s」疑似同一实体（相似度 %.2f）待人工", best, bestSim)
+		}
+	}
+	return cands
 }
