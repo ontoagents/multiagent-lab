@@ -576,12 +576,11 @@ export default function AssetsPage() {
                 <Button icon={<BranchesOutlined />}>Fork 本体</Button>
               </Popconfirm>
               )}
-              {/* REQ-285②：重命名/导入合并对伴生容器无意义（spec 恒空壳）——普通型专属 */}
-              {!isCompActive && (
+              {/* REQ-301 口径修订：重命名对伴生型恢复（name 为表级展示属性，改名不影响绑定/伴生子图；
+                  宿主方案名保持创建时快照）——导入合并维持伴生隐藏（spec 恒空壳） */}
               <Button icon={<EditOutlined />} onClick={() => setRenameOpen(true)}>
                 重命名
               </Button>
-              )}
               {!isCompActive && (
               <Button icon={<ImportOutlined />} onClick={() => setMergeOpen(true)}>
                 导入合并
