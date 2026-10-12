@@ -125,6 +125,16 @@ func extractJSON(content string) json.RawMessage {
 			}
 		}
 	}
+	// REQ-300：首个 [ 到最后一个 ]（数组根——部分模型把抽取结果输出为数组；
+	// 数组是合法 JSON，返回原文由调用方按契约解析/容错）
+	if i := strings.Index(c, "["); i >= 0 {
+		if j := strings.LastIndex(c, "]"); j > i {
+			cand := c[i : j+1]
+			if json.Valid([]byte(cand)) {
+				return json.RawMessage(cand)
+			}
+		}
+	}
 	return nil
 }
 

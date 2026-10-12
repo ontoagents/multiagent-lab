@@ -545,3 +545,36 @@ func TestMarkAssociations(t *testing.T) {
 		t.Fatalf("引擎不在位应无标记: %q", out[0].Note)
 	}
 }
+
+// TestParseExtractOutFlexible REQ-300：抽取输出解析容错——对象直解/数组根合并/垃圾拒绝。
+func TestParseExtractOutFlexible(t *testing.T) {
+	// ① 对象直解（既有主路径）
+	out, err := parseExtractOut(json.RawMessage(`{"concepts":[{"name":"Pod","definition":"最小调度单元","confidence":0.9}],"relations":[],"events":[]}`))
+	if err != nil || len(out.Concepts) != 1 || out.Concepts[0].Name != "Pod" {
+		t.Fatalf("对象解析不符: %v %+v", err, out)
+	}
+	// ② 数组根：两个抽取块合并
+	out, err = parseExtractOut(json.RawMessage(`[
+		{"concepts":[{"name":"A","confidence":0.8}],"relations":[],"events":[]},
+		{"concepts":[{"name":"B","confidence":0.7}],"relations":[{"rel_name":"依赖","source":"A","target":"B","confidence":0.6}],"events":[]}
+	]`))
+	if err != nil {
+		t.Fatalf("数组根解析失败: %v", err)
+	}
+	if len(out.Concepts) != 2 || len(out.Relations) != 1 {
+		t.Fatalf("数组块应合并: concepts=%d relations=%d", len(out.Concepts), len(out.Relations))
+	}
+	// ③ 数组元素非契约形状 → 跳过，剩余合并
+	out, err = parseExtractOut(json.RawMessage(`[{"foo":1},{"concepts":[{"name":"C","confidence":0.5}],"relations":[],"events":[]}]`))
+	if err != nil || len(out.Concepts) != 1 || out.Concepts[0].Name != "C" {
+		t.Fatalf("非契约元素应跳过: %v %+v", err, out)
+	}
+	// ④ 纯垃圾 → 报错（调用方回喂重试）
+	if _, err := parseExtractOut(json.RawMessage(`[{"foo":1}]`)); err == nil {
+		t.Fatal("无可解析块应报错")
+	}
+	if _, err := parseExtractOut(json.RawMessage(`not json`)); err == nil {
+		t.Fatal("非 JSON 应报错")
+	}
+}
+

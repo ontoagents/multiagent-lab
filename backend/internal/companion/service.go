@@ -481,11 +481,21 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": err.Error()})
 			return total, fmt.Errorf("LLM 抽取失败（第 %d/%d 窗，游标停在上一成功窗末可重试）: %w", i+1, len(windows), err)
 		}
-		var out extractOut
-		if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
+		// REQ-300：解析容错（数组根合并）+ 失败回喂重试一次（带错误提示让模型自纠）
+		out, perr := parseExtractOut(res.DraftJSON)
+		if perr != nil {
+			retryPrompt := companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)) +
+				"\n\n注意：你上一次的输出无法按契约解析（" + truncate(perr.Error(), 120) + "）。请重新只输出一个 JSON 对象（不要数组、不要围栏）。"
+			if res2, err2 := chat.GenerateStructured(wctx, s.Store, s.Box, connID, retryPrompt, companionSchema); err2 == nil {
+				out, perr = parseExtractOut(res2.DraftJSON)
+			} else {
+				perr = err2
+			}
+		}
+		if perr != nil {
 			wcancel()
-			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "抽取输出解析失败: " + err.Error()})
-			return total, fmt.Errorf("抽取输出解析失败（第 %d/%d 窗）: %w", i+1, len(windows), err)
+			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": "抽取输出解析失败（含一次回喂重试）: " + perr.Error()})
+			return total, fmt.Errorf("抽取输出解析失败（第 %d/%d 窗，含一次回喂重试）: %w", i+1, len(windows), perr)
 		}
 
 		cands := toCandidates(convID, agentID, win.msgs, &out)
@@ -643,6 +653,33 @@ func pruneCompanionCandidates(cands []*store.CompanionCandidate, known []string)
 		detail = detail[:10]
 	}
 	return kept, detail
+}
+
+// parseExtractOut REQ-300：抽取输出解析容错——对象直解；数组根视为多个抽取块逐元素
+// 解析后合并（部分模型把抽取结果输出为数组）；均失败返回错误（调用方回喂重试）。
+func parseExtractOut(raw json.RawMessage) (extractOut, error) {
+	var out extractOut
+	if err := json.Unmarshal(raw, &out); err == nil {
+		return out, nil
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return out, fmt.Errorf("输出既非对象也非数组: %w", err)
+	}
+	var merged extractOut
+	for _, el := range arr {
+		var part extractOut
+		if err := json.Unmarshal(el, &part); err != nil {
+			continue // 非契约形状的元素跳过
+		}
+		merged.Concepts = append(merged.Concepts, part.Concepts...)
+		merged.Relations = append(merged.Relations, part.Relations...)
+		merged.Events = append(merged.Events, part.Events...)
+	}
+	if len(merged.Concepts)+len(merged.Relations)+len(merged.Events) == 0 {
+		return out, fmt.Errorf("数组元素均不含可解析的抽取块")
+	}
+	return merged, nil
 }
 
 // toCandidates LLM 输出 → 候选记录（evidence/name 回链最近包含该文本的消息 id）。

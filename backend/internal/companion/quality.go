@@ -377,9 +377,19 @@ func (s *Service) runMineBatches(ctx context.Context, ontID string, agent *store
 			}
 			return 0, fmt.Errorf("关系挖掘 LLM 调用失败: %w", err)
 		}
+		// REQ-300：解析容错——数组根（多块）合并
 		var out mineOut
 		if err := json.Unmarshal(res.DraftJSON, &out); err != nil {
-			return total, fmt.Errorf("关系挖掘输出解析失败（第 %d/%d 批）", bi+1, batches)
+			var arr []json.RawMessage
+			if err2 := json.Unmarshal(res.DraftJSON, &arr); err2 != nil {
+				return total, fmt.Errorf("关系挖掘输出解析失败（第 %d/%d 批）: %w", bi+1, batches, err)
+			}
+			for _, el := range arr {
+				var part mineOut
+				if json.Unmarshal(el, &part) == nil {
+					out.Relations = append(out.Relations, part.Relations...)
+				}
+			}
 		}
 		// 端点对齐面：已有实体+pending 候选名+跨批实体（REQ-296 E3）
 		align := append(knownAligned, pendingNames...)
