@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Empty, Popconfirm, Select, Skeleton, Tabs, Tag, Typography } from 'antd'
 import { CopyOutlined, DownloadOutlined, UndoOutlined } from '@ant-design/icons'
 import CodeMirror from '@uiw/react-codemirror'
@@ -6,6 +6,7 @@ import { EditorView } from '@codemirror/view'
 import { api } from '../../../api/client'
 import type { Spec, VersionMeta } from '../../../api/types'
 import { useUI } from '../../../store/ui'
+import { LARGE_SPEC_CHARS } from '../shared'
 import VersionDiff from './VersionDiff'
 
 // ---------------------------------------------------------------------------
@@ -133,7 +134,9 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
       .catch(() => showToast('复制失败', 'err'))
   }
 
-  const specText = spec ? JSON.stringify(spec, null, 2) : ''
+  // REQ-304：memo 化——此前函数体裸算，任意状态渲染（版本列表 loading 等）都全文 stringify
+  const specText = useMemo(() => (spec ? JSON.stringify(spec, null, 2) : ''), [spec])
+  const specTooLarge = specText.length > LARGE_SPEC_CHARS
   const dlUrl = api.versionOriginalUrl(ontologyId, version ?? currentVersion ?? 1)
 
   return (
@@ -245,7 +248,21 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
         {
           key: 'spec',
           label: 'Spec JSON',
-          children: spec ? (
+          children: !spec ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未保存 Spec（保存后可在此查看格式化 JSON）" />
+          ) : specTooLarge ? (
+            // REQ-304：大 Spec 不挂 CodeMirror（同详情页口径），摘要 + 下载
+            <Alert
+              type="info"
+              showIcon
+              title={`Spec JSON 体积较大（${(specText.length / 1024).toFixed(0)} KB），已切换为下载查看`}
+              description={
+                <Button size="small" icon={<DownloadOutlined />} href={api.ontologyExportUrl(ontologyId, 'spec_json')} download>
+                  下载 spec_json
+                </Button>
+              }
+            />
+          ) : (
             <div className="onto-cm-wrap">
               <CodeMirror
                 value={specText}
@@ -256,8 +273,6 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
                 extensions={[EditorView.lineWrapping]}
               />
             </div>
-          ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未保存 Spec（保存后可在此查看格式化 JSON）" />
           ),
         },
         {

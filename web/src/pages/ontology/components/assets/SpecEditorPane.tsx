@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
 import type { Ontology, OverlayRow, Spec, ValidationError } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
-import { ERR_COLUMNS, ReloadHintAlert } from '../../shared'
+import { ERR_COLUMNS, LARGE_SPEC_CHARS, ReloadHintAlert } from '../../shared'
 import JsonEditor from '../JsonEditor'
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,8 @@ export default function SpecEditorPane({
   // REQ-253②（59 号 P2）：缩进大纲→概念层级批量导入（教学场景：讲义大纲直接建层级）
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [outlineText, setOutlineText] = useState('')
+  // REQ-304：大 Spec 默认不挂编辑器（摘要卡），用户显式打开才挂只读全文
+  const [forceEditor, setForceEditor] = useState(false)
 
   useEffect(() => {
     metaForm.setFieldsValue({ name: ontology.name, description: ontology.description ?? '' })
@@ -52,9 +54,10 @@ export default function SpecEditorPane({
   useEffect(() => {
     setSpecText(spec ? JSON.stringify(spec, null, 2) : '')
     setValidationErrors([])
+    setForceEditor(false)
   }, [spec])
 
-  const large = specText.length > 200_000
+  const large = specText.length > LARGE_SPEC_CHARS
 
   /** REQ-253②：缩进大纲解析——每行 strip 后为概念名，缩进深度（tab=2 空格）=层级；返回 {name,depth} */
   const parseOutline = (text: string): { name: string; depth: number }[] => {
@@ -263,13 +266,23 @@ export default function SpecEditorPane({
         />
       ) : (
         <>
-          {large && (
+          {/* REQ-304：大 Spec 默认摘要卡（不挂 CodeMirror——linter 全文 parse + 建树在 MB 级阻塞主线程），
+              显式打开才挂只读全文（无 lint，合法性由保存路径兜底）；小 Spec 行为不变（可编辑+lint） */}
+          {large && !forceEditor && (
+            <LargeSpecSummary
+              ontologyId={ontology.id}
+              specText={specText}
+              spec={spec}
+              onOpen={() => setForceEditor(true)}
+            />
+          )}
+          {large && forceEditor && (
             <Alert
               type="warning"
               showIcon
               style={{ margin: '10px 0' }}
               title="Spec 体积较大，已切换为只读"
-              description="请在本地编辑后经导入 / 导出接口处理，避免浏览器卡顿。"
+              description="全文仅供查看（大文档解析可能需要数秒）；对象级编辑请走「图形编辑」，整份修改请在本地编辑后经导入 / 导出接口处理。"
             />
           )}
           {spec && (spec.concepts?.length ?? 0) === 0 && (spec.relations?.length ?? 0) === 0 && (
@@ -281,15 +294,18 @@ export default function SpecEditorPane({
               description="在下方 JSON 的 concepts 数组添加概念（name 必填，label/definition/parents 可选）；或展开「能力问题」先列 3~5 条 CQ 再动手（建模方法论第一步）。也可以到构建栏参考素材面板看种子建模说明。"
             />
           )}
-          <div style={{ marginTop: 10 }}>
-            <JsonEditor
-              value={specText}
-              onChange={setSpecText}
-              readOnly={large}
-              height="480px"
-              placeholder='{ "name": "…", "concepts": [], "relations": [], "instances": [] }'
-            />
-          </div>
+          {(!large || forceEditor) && (
+            <div style={{ marginTop: 10 }}>
+              <JsonEditor
+                value={specText}
+                onChange={setSpecText}
+                readOnly={large}
+                lint={!large}
+                height="480px"
+                placeholder='{ "name": "…", "concepts": [], "relations": [], "instances": [] }'
+              />
+            </div>
+          )}
           {validationErrors.length > 0 && (
             <>
               <Alert type="error" showIcon style={{ marginTop: 12 }} title={`校验未通过（${validationErrors.length} 项）`} />
@@ -344,6 +360,51 @@ export default function SpecEditorPane({
         )}
       </Modal>
     </>
+  )
+}
+
+/** REQ-304：大 Spec 摘要卡——不挂 CodeMirror 的轻量查看（体积/计数/头部预览 + 显式打开只读 + 下载）。 */
+function LargeSpecSummary({
+  ontologyId,
+  specText,
+  spec,
+  onOpen,
+}: {
+  ontologyId: string
+  specText: string
+  spec: Spec | null
+  onOpen: () => void
+}) {
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      style={{ marginTop: 10 }}
+      title={`Spec 体积较大（${(specText.length / 1024).toFixed(0)} KB），已切换为摘要查看`}
+      description={
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Typography.Text style={{ fontSize: 12 }}>
+            概念 {spec?.concepts?.length ?? 0} · 关系 {spec?.relations?.length ?? 0} · 实例 {spec?.instances?.length ?? 0}
+            。全文渲染超大 JSON 易阻塞页面（REQ-304）：对象级编辑请走「图形编辑」，整份备份请下载导出。
+          </Typography.Text>
+          <pre
+            className="large-spec-preview"
+            style={{ maxHeight: 180, overflow: 'auto', fontSize: 12, margin: 0, padding: 8, background: 'var(--c-bg-soft)', borderRadius: 6 }}
+          >
+            {specText.slice(0, 2000)}
+            {specText.length > 2000 ? '\n…' : ''}
+          </pre>
+          <Space>
+            <Button size="small" onClick={onOpen} data-testid="large-spec-open-editor">
+              仍要打开全文查看（只读，大文档解析需数秒）
+            </Button>
+            <Button size="small" icon={<DownloadOutlined />} href={api.ontologyExportUrl(ontologyId, 'spec_json')} download>
+              下载 spec_json
+            </Button>
+          </Space>
+        </Space>
+      }
+    />
   )
 }
 

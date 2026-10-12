@@ -63,6 +63,11 @@ export const ERR_COLUMNS: ColumnsType<ValidationError> = [
   { title: '问题', dataIndex: 'message' },
 ]
 
+/** REQ-304：Spec 全文懒挂载门槛（JSON 字符数）。超过则详情页/源码视图不自动挂 CodeMirror——
+    jsonParseLinter 全文 JSON.parse + Lezer 建树在 MB 级文档上阻塞主线程（打开即卡死），
+    改摘要卡 + 显式打开只读。与 SpecEditorPane 既有 large 只读阈值统一为同一常量。 */
+export const LARGE_SPEC_CHARS = 200_000
+
 /** 资产来源徽标（fork 来源记录 forked_from） */
 export function sourceTag(o: Ontology): { color: string; text: string } {
   if (o.forked_from) return { color: 'orange', text: 'Fork' }

@@ -19,6 +19,7 @@ export default function JsonEditor({
   readOnly = false,
   height = '440px',
   placeholder,
+  lint = true,
 }: {
   /** Form.Item 受控注入时可省略（CodeMirror 需非 undefined） */
   value?: string
@@ -26,6 +27,9 @@ export default function JsonEditor({
   readOnly?: boolean
   height?: string
   placeholder?: string
+  /** 大文档应关 lint（REQ-304）：jsonParseLinter 每次 doc 变更全文 JSON.parse，MB 级阻塞主线程；
+      关闭后合法性由调用方保存路径 try/catch + 后端校验兜底（本组件头部注解口径不变） */
+  lint?: boolean
 }) {
   const viewRef = useRef<EditorView | null>(null)
   const lastExternalRef = useRef(value)
@@ -42,7 +46,9 @@ export default function JsonEditor({
     }
   }, [value])
 
-  const extensions = [json(), linter(jsonParseLinter()), EditorView.lineWrapping]
+  const extensions = lint
+    ? [json(), linter(jsonParseLinter()), EditorView.lineWrapping]
+    : [json(), EditorView.lineWrapping]
   return (
     <div className="onto-cm-wrap">
       <CodeMirror
