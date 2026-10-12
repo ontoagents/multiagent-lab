@@ -864,11 +864,58 @@ func (s *Server) qualityConfigPut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "strict": o.QualityStrict, "reasoning_check": o.ReasoningCheck})
 }
 
+// importLimits 导入防线阈值（REQ-305）：拒绝语义取代历史 64MB LimitReader 的静默截断。
+// IMPORT_MAX_BODY_MB：请求体上限 MB（默认 64，与历史硬顶一致——只改「超了怎么办」不改「多大能进」；<=0 不限制）；
+// IMPORT_MAX_SPEC_OBJECTS：归一化 spec 五层元素总数上限（默认 50000，真实资产误伤极小；<=0 不限制）。
+func importLimits() (bodyLimit int64, maxObjects int) {
+	mb := 64
+	if v := os.Getenv("IMPORT_MAX_BODY_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			mb = n
+		}
+	}
+	objs := 50_000
+	if v := os.Getenv("IMPORT_MAX_SPEC_OBJECTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			objs = n
+		}
+	}
+	var limit int64 = -1
+	if mb > 0 {
+		limit = int64(mb) << 20
+	}
+	return limit, objs
+}
+
+func importTooLarge(w http.ResponseWriter, bodyLimit int64) {
+	writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+		"error": fmt.Sprintf("导入内容超过体积上限（%d MB）：请拆分或清洗后重试", bodyLimit>>20),
+	})
+}
+
+func specObjectCount(sp *pkgspec.Spec) int {
+	return len(sp.Concepts) + len(sp.Relations) + len(sp.Instances) + len(sp.DataProperties) + len(sp.Axioms)
+}
+
 func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
+	bodyLimit, maxObjects := importLimits()
+	if bodyLimit > 0 {
+		// Content-Length 预检：超限快速拒绝（省一次无效读体；chunked 无长度由 MaxBytesReader 兜底）
+		if r.ContentLength > bodyLimit {
+			importTooLarge(w, bodyLimit)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
+	}
 	var filename, content, name string
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			var mbErr *http.MaxBytesError
+			if errors.As(err, &mbErr) && bodyLimit > 0 {
+				importTooLarge(w, bodyLimit)
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "multipart 解析失败: " + err.Error()})
 			return
 		}
@@ -878,8 +925,13 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer f.Close()
-		bts, err := io.ReadAll(io.LimitReader(f, 64<<20))
+		bts, err := io.ReadAll(f)
 		if err != nil {
+			var mbErr *http.MaxBytesError
+			if errors.As(err, &mbErr) && bodyLimit > 0 {
+				importTooLarge(w, bodyLimit)
+				return
+			}
 			writeErr(w, err)
 			return
 		}
@@ -887,7 +939,17 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 		name = strings.TrimSuffix(r.FormValue("name"), "")
 	} else {
 		var req struct{ Filename, Content, Name string }
-		if err := decodeJSON(r, &req); err != nil || req.Content == "" {
+		// 体积上限由开头 MaxBytesReader 统一承载（REQ-305 拒绝语义；历史 decodeJSON 是 64MB 静默截断）
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			var mbErr *http.MaxBytesError
+			if errors.As(err, &mbErr) && bodyLimit > 0 {
+				importTooLarge(w, bodyLimit)
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "需要 multipart file 或 JSON {filename, content}"})
+			return
+		}
+		if req.Content == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "需要 multipart file 或 JSON {filename, content}"})
 			return
 		}
@@ -899,6 +961,13 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 	sp, rep, err := importer.Import(s.Sidecar, filename, content)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	// 规模校验（REQ-305）：归一化 spec 五层元素总数上限——在 CreateOntology 之前拒绝，无脏数据
+	if maxObjects > 0 && specObjectCount(sp) > maxObjects {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("导入规模超过上限（%d 个对象 > %d）：请拆分成本体或先行清洗合并后导入", specObjectCount(sp), maxObjects),
+		})
 		return
 	}
 	// 本体记录

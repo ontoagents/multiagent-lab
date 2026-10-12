@@ -250,7 +250,14 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
   const [blankDesc, setBlankDesc] = useState('')
   const [blankBusy, setBlankBusy] = useState(false)
 
+  // REQ-305 导入体积预检：与后端 IMPORT_MAX_BODY_MB 默认值一致（后端为权威，env 调小时仍兜底拒绝）
+  const IMPORT_MAX_BYTES = 64 * 1024 * 1024
+
   const doImportFile = async (file: File) => {
+    if (file.size > IMPORT_MAX_BYTES) {
+      showToast(`导入文件超过上限（${(file.size / 1024 / 1024).toFixed(0)} MB > 64 MB）：请拆分或清洗后重试`, 'err')
+      return
+    }
     setImportBusy(true)
     setReport(null)
     try {
@@ -268,6 +275,10 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
   const doImportPaste = async () => {
     if (!pasteContent.trim()) {
       showToast('请粘贴文件内容', 'err')
+      return
+    }
+    if (pasteContent.length > IMPORT_MAX_BYTES) {
+      showToast('粘贴内容超过上限（64 MB）：请拆分或清洗后重试', 'err')
       return
     }
     setImportBusy(true)
