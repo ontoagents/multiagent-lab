@@ -111,6 +111,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/publish", s.publishOntology)
 	m.HandleFunc("POST /api/ontologies/{id}/unpublish", s.unpublishOntology)
 	m.HandleFunc("GET /api/ontologies/{id}/diff", s.diffVersions)
+	m.HandleFunc("GET /api/ontologies/{id}/impact", s.impactVersions) // REQ-278/M104：变更影响分析（闭包波及面+风险分级+B1 蕴含边）
 	m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.ingestCSV)
 	m.HandleFunc("GET /api/ontologies/{id}/ingest-mapping", s.getIngestMapping)
 	m.HandleFunc("PUT /api/ontologies/{id}/ingest-mapping", s.putIngestMapping)

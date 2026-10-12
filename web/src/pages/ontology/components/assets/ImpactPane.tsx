@@ -103,7 +103,8 @@ export default function ImpactPane({ ontology }: { ontology: Ontology }) {
       {loading && !report && <Spin style={{ display: 'block', margin: '40px auto' }} />}
       {report && (
         <>
-          <Space size={8} wrap style={{ marginBottom: 12 }} data-testid="impact-summary">
+          <div data-testid="impact-summary">
+          <Space size={8} wrap style={{ marginBottom: 12 }}>
             {meta && (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 v{meta.from} → v{meta.to}
@@ -122,6 +123,7 @@ export default function ImpactPane({ ontology }: { ontology: Ontology }) {
               </Tag>
             ))}
           </Space>
+          </div>
           {report.blast.length > 0 && (
             <Card size="small" title={`波及面（${report.blast.length} 条）`} style={{ marginBottom: 12 }}>
               <Table

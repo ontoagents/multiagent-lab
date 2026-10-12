@@ -150,45 +150,54 @@ func AnalyzeImpact(from, to *Spec) *ImpactReport {
 		for _, n := range rep.Changes["concept"].Removed {
 			removedOnly[n] = true
 		}
-		// 反向引用索引：concept → 引用者清单（带引用形态判词）
-		refBy := map[string][]string{}
-		for _, r := range to.Relations {
-			// 悬空引用（指向已删概念）恰是最需上报的波及源——不做 alive 过滤
-			refBy[r.From] = append(refBy[r.From], fmt.Sprintf("关系「%s」定义域", r.Name))
-			refBy[r.To] = append(refBy[r.To], fmt.Sprintf("关系「%s」值域", r.Name))
-		}
-		for _, it := range to.Instances {
-			refBy[it.Concept] = append(refBy[it.Concept], fmt.Sprintf("实例「%s」", it.Name))
-		}
-		for _, c := range to.Concepts {
-			for _, p := range c.Parents {
-				refBy[p] = append(refBy[p], fmt.Sprintf("子概念「%s」", c.Name))
+		// 反向引用索引双份：FROM=旧版引用者（波及面基准——合法保存流中引用会同步清理，
+		// 但操作者仍需看到本次删除/修改波及过哪些引用）；TO=新版仍引用（悬空告警）。
+		refByFrom := map[string][]string{}
+		collectRefs := func(sp *Spec, into map[string][]string) {
+			for _, r := range sp.Relations {
+				into[r.From] = append(into[r.From], fmt.Sprintf("关系「%s」定义域", r.Name))
+				into[r.To] = append(into[r.To], fmt.Sprintf("关系「%s」值域", r.Name))
+			}
+			for _, it := range sp.Instances {
+				into[it.Concept] = append(into[it.Concept], fmt.Sprintf("实例「%s」", it.Name))
+			}
+			for _, c := range sp.Concepts {
+				for _, p := range c.Parents {
+					into[p] = append(into[p], fmt.Sprintf("子概念「%s」", c.Name))
+				}
+			}
+			for _, dp := range sp.DataProperties {
+				if dp.Domain != "" {
+					into[dp.Domain] = append(into[dp.Domain], fmt.Sprintf("数据属性「%s」", dp.Name))
+				}
+			}
+			for _, ax := range sp.Axioms {
+				into[ax.Subject] = append(into[ax.Subject], fmt.Sprintf("公理（%s）", ax.Type))
 			}
 		}
-		for _, dp := range to.DataProperties {
-			if dp.Domain != "" {
-				refBy[dp.Domain] = append(refBy[dp.Domain], fmt.Sprintf("数据属性「%s」", dp.Name))
-			}
-		}
-		for _, ax := range to.Axioms {
-			refBy[ax.Subject] = append(refBy[ax.Subject], fmt.Sprintf("公理（%s）", ax.Type))
-		}
+		collectRefs(from, refByFrom)
+		refByTo := map[string][]string{}
+		collectRefs(to, refByTo)
 		seen := map[string]bool{}
 		for n := range affected {
-			for _, desc := range refBy[n] {
-				risk := RiskMedium // changed+被引用=结构未悬空，但依赖面需人工核对
+			dangling := len(refByTo[n])
+			for _, desc := range refByFrom[n] {
+				risk := RiskMedium
 				action := ActionChanged
 				reason := desc + "——定义/层级变更，依赖方需人工核对"
 				if removedOnly[n] {
 					risk = RiskHigh
 					action = ActionRemoved
-					reason = desc + "——删除后将产生悬空引用"
+					if dangling > 0 {
+						reason = desc + "——已删除且新版仍存在引用（悬空，请立即处理）"
+					} else {
+						reason = desc + "——本次删除波及的引用（新版已同步处理则为迁移完成）"
+					}
 				}
 				rep.Blast = append(rep.Blast, ImpactItem{Kind: "concept", Name: n, Action: action, Risk: risk, Reasons: []string{reason}})
 			}
-			if len(refBy[n]) == 0 {
+			if len(refByFrom[n]) == 0 && dangling == 0 {
 				if _, wasRemoved := rep.Changes["concept"]; wasRemoved {
-					// 无引用的删除=low；被改但无引用=low（只影响自身定义）
 					rep.Blast = append(rep.Blast, ImpactItem{Kind: "concept", Name: n, Risk: RiskLow, Reasons: []string{"无其他对象引用（波及面仅自身定义）"}})
 				}
 			}

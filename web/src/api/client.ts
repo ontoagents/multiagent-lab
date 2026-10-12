@@ -636,7 +636,7 @@ export const api = {
     const q = new URLSearchParams()
     if (from) q.set('from', String(from))
     if (to) q.set('to', String(to))
-    return req<ImpactReport>(`/api/ontologies/${id}/impact?${q}`)
+    return req<{ report: ImpactReport }>(`/api/ontologies/${id}/impact?${q}`).then((r) => r.report)
   },
   restoreOntologyVersion: (id: string, version: number) =>
     req<{ restored_from: number; new_version: number; ontology: Ontology }>(`/api/ontologies/${id}/versions/${version}/restore`, { method: 'POST' }),
