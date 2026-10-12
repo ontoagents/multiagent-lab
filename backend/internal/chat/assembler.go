@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -366,10 +367,12 @@ func (a *Assembler) buildOne(ctx context.Context, ag *store.Agent, sc assembleSc
 	}, nil
 }
 
-// isSelfMCPEndpoint 判断 URL 是否指向本平台 /mcp 端点（环回主机 + 路径恰为 /mcp）。
-// 防止 agent 配置本平台对外端点造成 agent→server→agent 链式递归（§6.13 安全边界）。
+// isSelfMCPEndpoint 判断 URL 是否指向本平台 /mcp 端点（环回主机 + 端口为本平台监听端口 +
+// 路径恰为 /mcp）。防止 agent 配置本平台对外端点造成 agent→server→agent 链式递归（§6.13 安全边界）。
 // REQ-214：路径须精确等于 /mcp——/connectors/{id}/mcp 等插件服务子路径不算自引用
 //（指向插件服务的直通绕过由装配层 PluginEndpoint 前缀防线单独拦截）。
+// REQ-206/M41 S2 真机修正：原「环回主机即自引用」过宽——本机任意端口的 /mcp 服务
+// （如本机开发 MCP 桩）被误杀；收紧为端口须等于本平台监听端口（ADDR，默认 8080）。
 func isSelfMCPEndpoint(raw string) bool {
 	u := strings.TrimSpace(raw)
 	rest := u
@@ -391,10 +394,27 @@ func isSelfMCPEndpoint(raw string) bool {
 		host = host[:q]
 	}
 	h := strings.ToLower(host)
+	port := ""
 	if i := strings.LastIndex(h, ":"); i >= 0 {
+		port = h[i+1:]
 		h = h[:i]
 	}
-	return h == "localhost" || h == "127.0.0.1" || h == "0.0.0.0" || h == "::1" || h == "[::1]"
+	if h != "localhost" && h != "127.0.0.1" && h != "0.0.0.0" && h != "::1" && h != "[::1]" {
+		return false
+	}
+	return port == ownPlatformPort()
+}
+
+// ownPlatformPort 本平台监听端口（ADDR env，默认 8080；与 cmd/backend 启动口径一致）。
+func ownPlatformPort() string {
+	addr := strings.TrimSpace(os.Getenv("ADDR"))
+	if addr == "" {
+		return "8080"
+	}
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[i+1:]
+	}
+	return addr
 }
 
 // toolBundle 单 Agent 的工具装配产物。

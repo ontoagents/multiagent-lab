@@ -819,6 +819,12 @@ function AgentConfigForm({
   // 当前选中连接（含已停用的历史绑定，便于如实展示身份）
   const modelConnId = Form.useWatch('model_conn_id', form)
   const runtimeBackend = (Form.useWatch('runtime_backend', form) as string | undefined) ?? agent.runtime_backend
+  // 51 号 W5 定案④（REQ-206/M41）：外部推理后端的 harness 治理面诚实降维——
+  // 运行后端/沙箱/验证命令由外部 harness 自治（UI 禁用+后端保存校验双防线）；
+  // tool_approval 仅 deepseek-harness-acp 生效（request_permission 转平台审批面）。
+  const inferenceBackend = (Form.useWatch('inference_backend', form) as string | undefined) ?? agent.inference_backend ?? 'eino-adk'
+  const isExternalBackend = inferenceBackend !== '' && inferenceBackend !== 'eino-adk'
+  const isACPBackend = inferenceBackend === 'deepseek-harness-acp'
   const selectedConn = modelConnId ? allConns.find((c) => c.id === modelConnId) ?? null : null
 
   const save = async () => {
@@ -1010,10 +1016,19 @@ function AgentConfigForm({
               children: (
                 <>
                   {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
+                  {isExternalBackend && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 8 }}
+                      message={`外部推理后端（${inferenceBackend}）：harness 治理由外部自治`}
+                      description="运行后端/沙箱资源/验证命令不生效（已禁用）；工作目录仍为平台文件视图根；工具审批仅 DeepSeek Harness·ACP 生效（权限请求转平台审批）。"
+                    />
+                  )}
                   {sec('运行后端（在哪儿跑）')}
-                  <Form.Item name="runtime_backend" label="运行后端" className="item-inline" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
+                  <Form.Item name="runtime_backend" label="运行后端" className="item-inline" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : isExternalBackend ? '由外部 harness 自治，平台侧配置不生效' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
                     <Select
-                      disabled={isBuiltin}
+                      disabled={isBuiltin || isExternalBackend}
                       options={[
                         { value: 'inprocess', label: 'inprocess（进程内）' },
                         { value: 'docker', label: 'docker（沙箱容器）' },
@@ -1026,13 +1041,14 @@ function AgentConfigForm({
                     <>
                       <Form.Item name="sandbox_memory" label="沙箱内存上限" className="item-inline" tooltip="留空默认 512m">
                         <Select
+                          disabled={isExternalBackend}
                           allowClear
                           placeholder="512m（默认）"
                           options={[{ value: '256m', label: '256m' }, { value: '512m', label: '512m' }, { value: '1g', label: '1g' }, { value: '2g', label: '2g' }]}
                         />
                       </Form.Item>
                       <Form.Item name="sandbox_cpus" label="沙箱 CPU 核数" className="item-inline" tooltip="留空默认 1 CPU">
-                        <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} placeholder="1（默认）" />
+                        <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} placeholder="1（默认）" disabled={isExternalBackend} />
                       </Form.Item>
                       <SandboxPanel agent={agent} form={form} />
                     </>
@@ -1050,9 +1066,9 @@ function AgentConfigForm({
                     name="verify_command"
                     label="验证命令"
                     className="item-inline"
-                    tooltip={isBuiltin ? '内置助手不开放 verify_on_stop 配置' : '运行标记完成前在安全根执行（sh -c，10s 超时）：退出码非 0 即背压——本次运行标记为 verify_failed 并在过程时间线透出输出。示例：go build ./...。'}
+                    tooltip={isBuiltin ? '内置助手不开放 verify_on_stop 配置' : isExternalBackend ? '由外部 harness 自治，平台侧 verify 背压不生效' : '运行标记完成前在安全根执行（sh -c，10s 超时）：退出码非 0 即背压——本次运行标记为 verify_failed 并在过程时间线透出输出。示例：go build ./...。'}
                   >
-                    <Input allowClear disabled={isBuiltin} placeholder="如 go build ./...（空=不验证）" />
+                    <Input allowClear disabled={isBuiltin || isExternalBackend} placeholder="如 go build ./...（空=不验证）" />
                   </Form.Item>
                   {sec('工具调用人工审批（REQ-231/M58 三档精细化）')}
                   <Form.Item
@@ -1060,10 +1076,10 @@ function AgentConfigForm({
                     label="审批策略"
                     className="item-inline"
                     initialValue=""
-                    tooltip={isBuiltin ? '内置助手不开放审批策略配置' : 'danger=仅危险工具（写类内置/http_fetch/连接器写；read-only 免审）；all=全部工具。开启后对外 MCP server 模式调用默认拒绝；对话级开关可覆盖'}
+                    tooltip={isBuiltin ? '内置助手不开放审批策略配置' : isExternalBackend && !isACPBackend ? '当前外部后端不承接平台审批（由外部 harness 自治）' : isACPBackend ? 'deepseek-harness-acp：权限请求（session/request_permission）转平台审批挂起，danger/all 档逐请求询问、关闭档自动放行' : 'danger=仅危险工具（写类内置/http_fetch/连接器写；read-only 免审）；all=全部工具。开启后对外 MCP server 模式调用默认拒绝；对话级开关可覆盖'}
                   >
                     <Select
-                      disabled={isBuiltin}
+                      disabled={isBuiltin || (isExternalBackend && !isACPBackend)}
                       options={[
                         { value: '', label: '关闭（直接执行）' },
                         { value: 'danger', label: '危险工具审批（写类/出网/连接器写）' },
@@ -1096,9 +1112,11 @@ function AgentConfigForm({
                   <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} />
                   {sec('防护 hooks（只读，进程内确定性层）')}
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-                    {hooksInfo.length > 0
-                      ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '预置未启用'}）`).join(' · ')
-                      : 'hook 清单加载中…'}
+                    {isExternalBackend
+                      ? '外部推理后端不走平台装配链，防护 hooks 不生效（由外部 harness 自治）。'
+                      : hooksInfo.length > 0
+                        ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '预置未启用'}）`).join(' · ')
+                        : 'hook 清单加载中…'}
                     <Tooltip title="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策">
                       <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--c-ink-3)' }} />
                     </Tooltip>

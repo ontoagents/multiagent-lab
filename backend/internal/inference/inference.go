@@ -45,6 +45,46 @@ type RunRequest struct {
 	Cwd       string            // 子进程工作目录（空 = 继承）
 	Env       map[string]string // 额外环境变量
 	Debug     int               // M17 阶段二：≥2 时原始 stdout 行透出 debug.cli 事件（仅透传不入库）
+
+	// ---- REQ-206/M41 S2 真机面（ACP 通道专用；其他后端忽略）----
+
+	// MCPServers 会话级 MCP 挂载引用（HTTP 条目，dsh 侧直连；仅 MCPMode=tools 的后端消费）。
+	MCPServers []MCPServerRef
+	// AttemptResume 跨 Run 会话延续：true 时先试 session/resume（持久化会话缺失则回退 session/new）。
+	AttemptResume bool
+	// BuildPrompt 会话延续下的提示装配回调：resumed=true 表示 dsh 会话内已有前轮（历史去重，
+	// 只装配增量段）；nil 时恒用静态 Prompt。在会话建立（new/resume 定案）之后调用。
+	BuildPrompt func(resumed bool) string
+	// Permission 权限请求回调（session/request_permission 转译）：nil = 默认 deny（S2 前行为）。
+	Permission func(req PermissionRequest) PermissionDecision
+}
+
+// MCPServerRef ACP 会话级 MCP 挂载引用（HTTP 条目：ACP 客户端作为受信控制器授权绝对 URL 与 header）。
+type MCPServerRef struct {
+	Name    string            `json:"name"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// PermissionOption session/request_permission 选项透传（ACP PermissionOption）。
+type PermissionOption struct {
+	OptionID string `json:"optionId"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"` // allow_once | allow_always | reject_once | reject_always
+}
+
+// PermissionRequest 权限请求载荷（toolCall 仅取审批展示所需字段）。
+type PermissionRequest struct {
+	ToolCallID string
+	Title      string
+	Kind       string // 工具类别（read/edit/delete/execute/other…，展示用）
+	Options    []PermissionOption
+}
+
+// PermissionDecision 权限裁决：Outcome=selected 时 OptionID 必填；cancelled 即拒绝本轮工具调用。
+type PermissionDecision struct {
+	Outcome  string // selected | cancelled
+	OptionID string
 }
 
 // Event 后端事件（与 chat.Event 同形；chat 层转译 SSE）。

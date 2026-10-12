@@ -154,6 +154,29 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var prevSnapshot *store.Agent
 	if prev, perr := s.Store.GetAgent(a.ID); perr == nil && prev != nil {
+		// 51 号 W5 定案④（REQ-206/M41 真机联调轮）：外部推理后端的 harness 治理面降维——
+		// verify_command/runtime_backend/沙箱资源由外部 harness 自治，平台侧配置不生效；
+		// UI 标注 + 保存校验都做：变更这些字段且后端为外部时 400（work_dir 仍平台侧文件
+		// 视图根、tool_approval 由 deepseek-harness-acp 权限流承接，不拦截）。
+		if s.Chat != nil && s.Chat.Inference != nil && s.Chat.Inference.IsExternal(a.InferenceBackend) {
+			var conflicts []string
+			if a.VerifyCommand != prev.VerifyCommand {
+				conflicts = append(conflicts, "verify_command")
+			}
+			if a.RuntimeBackend != prev.RuntimeBackend {
+				conflicts = append(conflicts, "runtime_backend")
+			}
+			if a.SandboxMemory != prev.SandboxMemory {
+				conflicts = append(conflicts, "sandbox_memory")
+			}
+			if a.SandboxCPUs != prev.SandboxCPUs {
+				conflicts = append(conflicts, "sandbox_cpus")
+			}
+			if len(conflicts) > 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("外部推理后端（%s）的 harness 治理由外部自治，平台侧字段不生效，已拒绝变更: %s", a.InferenceBackend, strings.Join(conflicts, "/"))})
+				return
+			}
+		}
 		prevSnapshot = prev
 		if s.normalizeMcpServe(&a, *prev) {
 			defer s.mcpSync()

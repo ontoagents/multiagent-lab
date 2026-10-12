@@ -41,6 +41,11 @@ type Service struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // conversationID -> cancel
+	// extApprovals REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批的挂起登记
+	// （conversationID -> 决议通道；approval.request 事件发出即登记，POST ext-approval 决议）。
+	// 与 in-process interruptState 挂起（跨 Run 持久化+checkpoint 恢复）不同：外部通道的权限
+	// 挂起活在当前 run 进程内（SSE 保持打开），仅内存登记——进程重启即失效（dsh turn 随之终止）。
+	extApprovals map[string]chan string
 	// cpAnchors REQ-214 顺修：恢复链 checkpoint 锚点（conversationID -> 恢复时所用 checkpointID）。
 	// ADK 在 Resume 后再次挂起时沿用恢复锚点 id 覆盖保存快照（adk/runner.go resumeInternal），
 	// 而平台侧此前按新 runID 派生新 id 记录挂起状态——多级审批第二次恢复必报 checkpoint not exist。
@@ -64,7 +69,24 @@ type CommunitySource interface {
 
 // NewService 构造。
 func NewService(st *store.Store, asm *Assembler, kbSvc *kb.Service) *Service {
-	return &Service{Store: st, Assembler: asm, KB: kbSvc, cancels: map[string]context.CancelFunc{}}
+	return &Service{Store: st, Assembler: asm, KB: kbSvc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}}
+}
+
+// ResolveExtApproval REQ-206/M41 S2：外部推理后端权限挂起的人工决议（approve|deny）。
+// 无待决权限请求返回 ErrNoPendingExtApproval（409，前端可懂）。
+func (s *Service) ResolveExtApproval(convID, decision string) error {
+	s.mu.Lock()
+	ch := s.extApprovals[convID]
+	s.mu.Unlock()
+	if ch == nil {
+		return ErrNoPendingExtApproval
+	}
+	select {
+	case ch <- decision:
+		return nil
+	default:
+		return ErrNoPendingExtApproval
+	}
 }
 
 // EmitFn 平台 SSE 事件输出函数（由 API 层注入）。

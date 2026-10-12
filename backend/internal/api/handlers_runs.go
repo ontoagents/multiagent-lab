@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 
@@ -136,6 +137,30 @@ func (s *Server) stopConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ok := s.Chat.Stop(id)
 	writeJSON(w, http.StatusOK, map[string]bool{"stopped": ok})
+}
+
+// extApproval REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批的人工决议。
+// body {decision: "approve"|"deny"}；approve 映射首个 allow 选项，deny/无待决 → cancelled/409。
+// 与 in-process resume（checkpoint 挂起恢复）不同：外部通道的权限挂起活在当前 run 内，
+// 决议即时生效（SSE 保持打开，turn 继续）。
+func (s *Server) extApproval(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in struct {
+		Decision string `json:"decision"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if in.Decision != "approve" && in.Decision != "deny" {
+		writeErr(w, errors.New("decision 仅支持 approve|deny"))
+		return
+	}
+	if err := s.Chat.ResolveExtApproval(id, in.Decision); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "decision": in.Decision})
 }
 
 // resumeConversation 恢复挂起的中断（M11 收尾 · 中断恢复）：以用户答复定向续跑，SSE 事件与运行同构。

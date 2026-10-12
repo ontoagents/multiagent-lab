@@ -739,6 +739,14 @@ export function runConversation(
 }
 
 /**
+ * 外部推理后端权限决议（REQ-206/M41 S2：deepseek-harness-acp 权限转审批）。
+ * approve 映射首个 allow 选项；无待决挂起时后端 409（ApiError 文案可懂）。
+ */
+export function extApproval(conversationId: string, decision: 'approve' | 'deny'): Promise<{ status: string }> {
+  return req(`/api/conversations/${conversationId}/ext-approval`, { method: 'POST', body: JSON.stringify({ decision }) })
+}
+
+/**
  * 恢复挂起的中断（M11 收尾 · ask_human 中断恢复）：以用户答复定向续跑，SSE 事件流与运行同构。
  */
 export function resumeConversation(

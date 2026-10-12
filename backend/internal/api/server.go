@@ -168,6 +168,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation)        // REQ-136：对话自动命名
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
+	// REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批人工决议
+	m.HandleFunc("POST /api/conversations/{id}/ext-approval", s.extApproval)
 
 	// Model connections
 	m.HandleFunc("GET /api/model-connections", s.listConnections)

@@ -5,7 +5,7 @@ import { AppstoreOutlined, BookOutlined, BulbOutlined, ClusterOutlined, LoadingO
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
-import { api, connDisplayName, resumeConversation, runConversation } from '../api/client'
+import { api, connDisplayName, extApproval, resumeConversation, runConversation } from '../api/client'
 import type { ComparePaneConfig } from '../api/client'
 import TraceDrawer from './TraceDrawer'
 import HighlightSpans from './HighlightSpans'
@@ -155,6 +155,9 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       return { text: `🧪 验证未通过 · ${d?.error ?? ''}`, warn: true }
     case 'connector.degraded':
       return { text: `🔌 连接器降级 · ${d?.connector ?? ''} · ${d?.reason ?? ''}`, warn: true }
+    // REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批
+    case 'approval.request':
+      return { text: `🔐 外部权限请求 · ${d?.tool_name ?? ''}${d?.kind ? ` · ${d.kind}` : ''}（等待你在下方卡片决议）`, warn: true }
     default:
       return { text: `· ${type}` }
   }
@@ -327,7 +330,7 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
         event === 'tool.call' || event === 'tool.result' || event === 'skill.loaded' ||
         event === 'subagent.enter' || event === 'subagent.exit' ||
         event === 'retrieval' || event === 'ontology.query' || event === 'ontology.unavailable' ||
-        event === 'run.warning' || event === 'model.step'
+        event === 'run.warning' || event === 'model.step' || event === 'approval.request'
       ) {
         const desc = describeEvent(event, payload)
         const next = [...prev]
@@ -1276,6 +1279,8 @@ export default function ChatWindow({
     arguments: string
   } | null>(null)
   const [answer, setAnswer] = useState('')
+  // REQ-206/M41 S2：外部推理后端权限转审批的挂起卡（approval.request → 决议 → 清卡）
+  const [extApprovalState, setExtApproval] = useState<{ toolName: string; kind: string } | null>(null)
     // REQ-217①/M48：调用轨迹面板（重放并入面板——头部「重放」按钮退役，EventReplayDrawer 作面板内动作）
   const [traceOpen, setTraceOpen] = useState(false)
   useEffect(() => {
@@ -1301,7 +1306,21 @@ export default function ChatWindow({
   const handleRunEvent = ({ event, data }: { event: string; data: any }) => {
     const payload = data?.data ?? {}
     if (event === 'run.interrupted') setInterrupt(toInterruptState(payload))
+    // REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批——approval.request 挂起
+    // 等待决议卡；run 终态（finished/error）时挂起随 run 进程结束自动失效，清卡。
+    if (event === 'approval.request') setExtApproval({ toolName: payload.tool_name ?? '', kind: payload.kind ?? '' })
+    if (event === 'run.finished' || event === 'run.error') setExtApproval(null)
     setItems((prev) => applyRunEvent(prev, event, payload, runKeyRef.current))
+  }
+
+  // 外部权限决议（POST ext-approval；后端把决议映射为 ACP optionId/cancelled 应答，turn 继续）
+  const resolveExt = async (decision: 'approve' | 'deny') => {
+    try {
+      await extApproval(conversation.id, decision)
+      setExtApproval(null)
+    } catch (e: any) {
+      showToast(e?.message ?? '决议失败', 'err')
+    }
   }
 
   // streamStart 运行/恢复公共段：追加流式助手消息 → 消费 SSE → 收尾刷新
@@ -1753,6 +1772,29 @@ export default function ChatWindow({
           </div>
         )}
       </div>
+
+      {/* REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批卡——
+          与中断审批卡不同：run 仍在进行（SSE 保持打开），决议即时送回 dsh 继续本轮 */}
+      {extApprovalState && (
+        <div className="composer chat-interrupt">
+          <Alert
+            type="warning"
+            showIcon
+            title={`外部权限请求（${agent?.inference_backend === 'deepseek-harness-acp' ? 'DeepSeek Harness · ACP' : '外部 Harness'}）：${extApprovalState.toolName}`}
+            description={
+              <div className="chat-interrupt-body">
+                <Space size={8}>
+                  <Button type="primary" onClick={() => resolveExt('approve')}>批准本次</Button>
+                  <Button danger onClick={() => resolveExt('deny')}>拒绝</Button>
+                </Space>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  由外部推理后端发起的工具权限请求，按当前审批档转由你决议；批准后工具在外部侧执行。停止运行等同拒绝。
+                </Typography.Text>
+              </div>
+            }
+          />
+        </div>
+      )}
 
       {/* 中断恢复（M11 收尾 + REQ-14 审批）：ask_human 答复卡 / 工具审批卡 */}
       {interrupt && !running && (

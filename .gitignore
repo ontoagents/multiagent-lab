@@ -19,3 +19,4 @@ exe/
 .workbuddy
 # REQ-223 agenteval 评测产物（agent 写入的样例文件，不入库）
 backend/internal/agenteval/data/
+backend/internal/inference/data/
