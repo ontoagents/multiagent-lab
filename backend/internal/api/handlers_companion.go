@@ -46,7 +46,7 @@ func (s *Server) companionGraph(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listCompanionCandidates(w http.ResponseWriter, r *http.Request) {
 	convID := r.URL.Query().Get("conversation_id")
-	agentID := r.URL.Query().Get("agent_id") // REQ-193/M33：agent 维度铺平过滤
+	agentID := r.URL.Query().Get("agent_id")  // REQ-193/M33：agent 维度铺平过滤
 	ontID := r.URL.Query().Get("ontology_id") // REQ-216⑥：本体维度跨 agent（资产详情页）
 	status := r.URL.Query().Get("status")
 	if ontID != "" {
@@ -467,4 +467,66 @@ func (s *Server) cleanupCompanionGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// REQ-288/M93 伴生社区摘要（对齐 Graphiti community summaries；管线复用 kg REQ-130 形态）：
+//   GET  /api/companion/communities?ontology_id=            社区清单（成员数降序）
+//   POST /api/companion/communities/rebuild                 重建（Louvain+摘要；eager ≤12）
+//   POST /api/companion/communities/summarize               pending 社区按需生成（KB-O4 口径）
+// ---------------------------------------------------------------------------
+
+// companionCommunities GET /api/companion/communities?ontology_id=。
+func (s *Server) companionCommunities(w http.ResponseWriter, r *http.Request) {
+	ontologyID := r.URL.Query().Get("ontology_id")
+	if ontologyID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ontology_id 必填"})
+		return
+	}
+	comms, err := s.Store.ListCompanionCommunities(ontologyID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": ontologyID, "count": len(comms), "communities": comms})
+}
+
+// companionCommunitiesRebuild POST /api/companion/communities/rebuild body {ontology_id}。
+func (s *Server) companionCommunitiesRebuild(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OntologyID string `json:"ontology_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.OntologyID) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ontology_id 必填"})
+		return
+	}
+	// EnsureHost 读侧兜底拉起（社区读图依赖宿主方案 running，沿伴生读路径同口径）
+	if _, err := s.Companion.EnsureHost(r.Context(), body.OntologyID); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "宿主方案不可用: " + err.Error()})
+		return
+	}
+	n, method, err := s.Companion.BuildCommunities(r.Context(), body.OntologyID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": body.OntologyID, "count": n, "detect_method": method,
+		"note": fmt.Sprintf("社区数 ≤12 时摘要即时生成；超出为 pending 按需生成（成本口径沿 KB-O4）")})
+}
+
+// companionCommunitySummarize POST /api/companion/communities/summarize body {ontology_id,label}。
+func (s *Server) companionCommunitySummarize(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OntologyID string `json:"ontology_id"`
+		Label      string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.OntologyID) == "" || strings.TrimSpace(body.Label) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ontology_id 与 label 必填"})
+		return
+	}
+	summary, method, err := s.Companion.EnsureCommunitySummary(r.Context(), body.OntologyID, body.Label)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": body.OntologyID, "label": body.Label, "summary": summary, "method": method})
 }

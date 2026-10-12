@@ -59,6 +59,7 @@ import type {
   VersionsResponse,
   Connector,
   OverlayRow,
+  ImpactReport,
 } from './types'
 
 /** 携带 HTTP 状态与校验错误的接口错误（供 UI 区分 404 / 400 validation_errors / 502 不可达） */
@@ -630,6 +631,13 @@ export const api = {
   /** 撤回发布回 draft（命名清空） */
   unpublishOntology: (id: string) => req<Ontology>(`/api/ontologies/${id}/unpublish`, { method: 'POST' }),
   /** 历史快照回滚：指定版本恢复为新版本（BumpVersion+写版本历史），当前态回 draft */
+  /** REQ-278/M103 变更影响分析（闭包波及面+风险分级+B1 疑似蕴含边；from/to 缺省=当前 vs 上一版） */
+  impactOntology: (id: string, from?: number, to?: number) => {
+    const q = new URLSearchParams()
+    if (from) q.set('from', String(from))
+    if (to) q.set('to', String(to))
+    return req<ImpactReport>(`/api/ontologies/${id}/impact?${q}`)
+  },
   restoreOntologyVersion: (id: string, version: number) =>
     req<{ restored_from: number; new_version: number; ontology: Ontology }>(`/api/ontologies/${id}/versions/${version}/restore`, { method: 'POST' }),
   /** REQ-240⑥/M66：图布局持久化 artifact（layout_json 派生数据，不写回 spec） */

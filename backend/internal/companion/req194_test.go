@@ -169,26 +169,37 @@ func TestAppendWindowEntities(t *testing.T) {
 	}
 }
 
-func TestMergeRecall(t *testing.T) {
-	// 向量优先占坑，词法补位，双中标 vector+lexical
-	merged, matchOf := mergeRecall(
+func TestFuseRecallRRF(t *testing.T) {
+	// REQ-287③：三臂 RRF 融合——双臂命中的实体应排在单臂之前，match 为命中臂并集
+	merged, matchOf := fuseRecallRRF(
+		[]string{"副本数"},
+		nil,
 		[]string{"水平伸缩", "副本数"},
-		[]string{"水平伸缩", "滚动更新", "HPA"},
 	)
-	if strings.Join(merged, "|") != "水平伸缩|副本数|滚动更新|HPA" {
-		t.Fatalf("合并序不符: %v", merged)
+	// 副本数（向量+词法两票）应排在仅词法的水平伸缩之前
+	if strings.Join(merged, "|") != "副本数|水平伸缩" {
+		t.Fatalf("RRF 融合序不符: %v", merged)
 	}
-	if matchOf["水平伸缩"] != "vector+lexical" || matchOf["副本数"] != "vector" || matchOf["滚动更新"] != "lexical" {
+	if matchOf["副本数"] != "vector+lexical" || matchOf["水平伸缩"] != "lexical" {
 		t.Fatalf("match 标记不符: %v", matchOf)
 	}
+	// bm25 臂参与：三臂全中=vector+lexical+bm25
+	_, matchOf2 := fuseRecallRRF([]string{"x"}, []string{"x"}, []string{"x"})
+	if matchOf2["x"] != "vector+lexical+bm25" {
+		t.Fatalf("三臂并集不符: %v", matchOf2["x"])
+	}
 	// 上限截断
-	merged2, _ := mergeRecall([]string{"a1", "a2", "a3"}, []string{"b1", "b2", "b3"})
+	merged2, _ := fuseRecallRRF([]string{"a1", "a2", "a3"}, nil, []string{"b1", "b2", "b3"})
 	if len(merged2) != maxRecallEntities {
 		t.Fatalf("应截断到 %d，got %d", maxRecallEntities, len(merged2))
 	}
-	// 双空
-	if m, _ := mergeRecall(nil, nil); len(m) != 0 {
-		t.Fatal("双路空应返回空")
+	// 全空
+	if m, _ := fuseRecallRRF(nil, nil, nil); len(m) != 0 {
+		t.Fatal("三路空应返回空")
+	}
+	// matchLabel 组合映射（REQ-287 bm25 段）
+	if matchLabel("lexical+bm25") != "词法+全文" || matchLabel("bm25") != "全文" {
+		t.Fatalf("matchLabel 组合映射不符: %v %v", matchLabel("lexical+bm25"), matchLabel("bm25"))
 	}
 }
 

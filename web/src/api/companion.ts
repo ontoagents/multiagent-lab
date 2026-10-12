@@ -197,4 +197,22 @@ export const companionApi = {
   deleteRelation: (ontologyId: string, edgeUri: string) =>
     req<{ ok: boolean }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/relations/delete`, { method: 'POST', body: JSON.stringify({ edge_uri: edgeUri }) }),
   graph: (agentId: string) => req<CompanionGraph>(`/api/companion/graph?agent_id=${encodeURIComponent(agentId)}`),
+  // REQ-288/M93：伴生社区摘要（重建 eager ≤12；pending 按需生成沿 KB-O4）
+  communities: (ontologyId: string) =>
+    req<{ ontology_id: string; count: number; communities: CompanionCommunity[] }>(`/api/companion/communities?ontology_id=${encodeURIComponent(ontologyId)}`),
+  rebuildCommunities: (ontologyId: string) =>
+    req<{ ontology_id: string; count: number; detect_method: string; note?: string }>(`/api/companion/communities/rebuild`, { method: 'POST', body: JSON.stringify({ ontology_id: ontologyId }) }),
+  summarizeCommunity: (ontologyId: string, label: string) =>
+    req<{ ontology_id: string; label: string; summary: string; method: string }>(`/api/companion/communities/summarize`, { method: 'POST', body: JSON.stringify({ ontology_id: ontologyId, label }) }),
+}
+
+/** REQ-288/M93 伴生社区摘要（Louvain+LLM；对齐 Graphiti community summaries） */
+export interface CompanionCommunity {
+  ontology_id: string
+  label: string
+  summary: string
+  method: 'llm' | 'skeleton' | 'skeleton+tail' | 'pending'
+  members: string[]
+  created_at?: string
+  updated_at?: string
 }

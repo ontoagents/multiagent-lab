@@ -1016,6 +1016,21 @@ export interface AgentConfigVersion {
 // REQ-292/M96 对象级 overlay（编辑三层 base+overlay+audit；67 号 B4/B5）
 // ---------------------------------------------------------------------------
 
+/** REQ-278/M103 影响分析报告（GET /api/ontologies/{id}/impact） */
+export interface ImpactItem {
+  kind: string
+  name: string
+  action: string
+  risk: 'high' | 'medium' | 'low'
+  reasons?: string[]
+}
+export interface ImpactReport {
+  changes: Record<string, { added?: string[]; removed?: string[]; changed?: string[] }>
+  blast: ImpactItem[]
+  implied: string[]
+  summary: { high: number; medium: number; low: number }
+}
+
 /** overlay 行（GET /api/ontologies/{id}/overlays；effective/missing 为服务端实时计算） */
 export interface OverlayRow {
   ontology_id: string

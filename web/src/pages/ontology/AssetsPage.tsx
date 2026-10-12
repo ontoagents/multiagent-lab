@@ -13,6 +13,8 @@ import CsvIngestPane from './components/CsvIngestPane'
 import GraphEditor from './components/GraphEditor'
 import SourceView from './components/SourceView'
 import SpecEditorPane from './components/assets/SpecEditorPane'
+import ImpactPane from './components/assets/ImpactPane'
+import CommunityPane from './components/companion/CommunityPane'
 import { ArtifactsPane, ExportPane, ValidatePane } from './components/assets/AssetPanes'
 import { RenameModal, VizTabs } from './components/assets/AssetExtras'
 import OntologyCompanionPane from './components/companion/OntologyCompanionPane'
@@ -60,6 +62,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
           { key: 'companion', label: '伴生候选' },
           { key: 'companion-content', label: '内容清单' },
           { key: 'companion-export', label: '导出 TTL' },
+        { key: 'community', label: '社区' },
         ],
       },
       { title: '引用', items: [{ key: 'references', label: '被引用' }] },
@@ -84,6 +87,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
         { key: 'quality', label: '质量卡' },
         { key: 'versions', label: '版本与源码' },
         { key: 'evolution', label: '进化' },
+        { key: 'impact', label: '影响分析' },
       ],
     },
     {
@@ -740,7 +744,11 @@ export default function AssetsPage() {
                   : <VizTabs spec={spec} ontologyId={active.id} />)}
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}
+                {secKey === 'community' && isCompActive && <CommunityPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'evolution' && <EvolutionPane key={active.id} ontologyId={active.id} />}
+                {secKey === 'impact' && !isCompActive && (
+                  <ImpactPane ontology={active} />
+                )}
                 {secKey === 'companion' && <OntologyCompanionPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'references' && <ReferencesPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'graph-edit' && (

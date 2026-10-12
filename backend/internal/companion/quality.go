@@ -91,7 +91,7 @@ type resolvedNode struct {
 
 // ResolveNode B1+B2：候选标签 → 入图规范名解析。
 // ① normalizeKey 与图内已有实体标签比对（确定性，含候选别名命中）；② 未命中走向量归并
-//（≥0.8 保守阈值，embedding 未配置/失败静默降级）；③ 均未命中 = 规范化新名 + 括号备注转别名。
+// （≥0.8 保守阈值，embedding 未配置/失败静默降级）；③ 均未命中 = 规范化新名 + 括号备注转别名。
 func (s *Service) ResolveNode(ctx context.Context, ontID, label string) (resolvedNode, error) {
 	main, aliases := NormalizeLabel(label)
 	res := resolvedNode{Canonical: main, Aliases: aliases}
@@ -119,7 +119,7 @@ func (s *Service) ResolveNode(ctx context.Context, ontID, label string) (resolve
 	if s.Box != nil {
 		emb := &kb.Embedder{Store: s.Store, Box: s.Box}
 		if inVec, err := emb.EmbedOne(ctx, main); err == nil && len(inVec) > 0 {
-			labelVecs, lerr := s.labelVectors(ctx, ontID, labels, emb)
+			labelVecs, lerr := s.labelOnlyVectors(ctx, ontID, labels, emb)
 			if lerr == nil {
 				best, bestSim := "", 0.0
 				for l, v := range labelVecs {
@@ -251,7 +251,7 @@ type mineOut struct {
 }
 
 // mineRelationsPrompt A2：关系挖掘提示词——实体清单（label：definition）+ 关系类型清单
-//（A1 同源）+ 硬性标准（端点必须引用清单中的名称/禁自指）。
+// （A1 同源）+ 硬性标准（端点必须引用清单中的名称/禁自指）。
 func mineRelationsPrompt(entities []GraphNode) string {
 	var b strings.Builder
 	b.WriteString("你是本体关系挖掘助手。以下是伴生本体图中已沉淀的实体清单（label：定义），")
@@ -353,7 +353,9 @@ func (s *Service) runMineBatches(ctx context.Context, ontID string, agent *store
 		return 0, &store.HTTPError{Status: 400, Msg: "图内实体不足 2 个——先通过对话沉淀更多概念"}
 	}
 	batches := (len(entities) + mineBatchSize - 1) / mineBatchSize
-	s.mineJobUpdate(jobID, func(jj *MineJob) { jj.BatchTotal, jj.Stage = batches, fmt.Sprintf("挖掘关系批次 0/%d…", batches) })
+	s.mineJobUpdate(jobID, func(jj *MineJob) {
+		jj.BatchTotal, jj.Stage = batches, fmt.Sprintf("挖掘关系批次 0/%d…", batches)
+	})
 	knownAligned := append([]string{}, known...)
 	pendingNames := make([]string, 0, len(pending))
 	for _, c := range pending {
@@ -693,7 +695,7 @@ func (s *Service) MarkAssociations(ctx context.Context, ontID string, cands []*s
 	}
 	knownVecs := map[string][]float32{}
 	if emb != nil && len(inVecs) > 0 {
-		if kv, err := s.labelVectors(ctx, ontID, known, emb); err == nil {
+		if kv, err := s.labelOnlyVectors(ctx, ontID, known, emb); err == nil {
 			knownVecs = kv
 		}
 	}

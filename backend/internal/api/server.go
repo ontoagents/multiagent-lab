@@ -123,6 +123,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/companion/ontologies/{id}/export-ttl", s.exportCompanionTTL) // REQ-285④：伴生子图 TTL 导出
 	m.HandleFunc("GET /api/companion/bound-ontologies", s.companionBoundOntologies)
 	m.HandleFunc("GET /api/companion/graph-owner", s.companionGraphOwner)
+	// REQ-288/M93：伴生社区摘要（Louvain+LLM 摘要复用 KG REQ-130 形态；检索零命中兜底注入臂）
+	m.HandleFunc("GET /api/companion/communities", s.companionCommunities)
+	m.HandleFunc("POST /api/companion/communities/rebuild", s.companionCommunitiesRebuild)
+	m.HandleFunc("POST /api/companion/communities/summarize", s.companionCommunitySummarize)
 	// REQ-286/M91：伴生图质量三维度（关系挖掘/实体编辑/合并/关系增删）
 	m.HandleFunc("POST /api/companion/ontologies/{id}/mine-relations", s.mineCompanionRelations)
 	m.HandleFunc("GET /api/companion/mine-jobs/{id}", s.getMineJob)

@@ -185,9 +185,17 @@ type Service struct {
 	// 长抽取（思考模型）期间后续轮次不再静默丢弃，收尾后自动再跑一轮（游标保证只抽增量）
 	pendingExtract map[string]string
 
-	// REQ-194②召回增强：进程内标签向量缓存（REQ-216 起键=ontologyID；伴生子图写入时失效）
+	// REQ-194②召回增强：进程内标签向量缓存（REQ-216 起键=ontologyID；伴生子图写入时失效）。
+	// REQ-287④ 缓存治理：桶结构化（embed 文本版本+TTL+容量上限），定义文本并入 embed 语料。
 	vecMu    sync.Mutex
-	vecCache map[string]map[string][]float32
+	vecCache map[string]*vecBucket
+
+	// REQ-287②：实体定义投影缓存（label→definition，SelectEntityDefs；失效同 vecCache）
+	defCache map[string]map[string]string
+
+	// REQ-286 对齐/关联比对专用：仅标签向量缓存（与检索的定义增广向量分空间，语义互不干扰）
+	labelVecMu    sync.Mutex
+	labelVecCache map[string]map[string][]float32
 
 	// REQ-297：关系挖掘异步 job 注册表（内存态——与抽取 worker 同等持久性；进程重启丢 job，
 	// 前端轮询 404 提示重新触发；本体级单飞由 runningMine 承接）
@@ -221,7 +229,7 @@ func NewService(st *store.Store, box *secrets.Box, plans *PlanEngines) *Service 
 	if plans == nil {
 		plans = NewPlanEngines("", "")
 	}
-	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}, mineJobs: map[string]*MineJob{}, runningMine: map[string]bool{}}
+	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]*vecBucket{}, defCache: map[string]map[string]string{}, labelVecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}, mineJobs: map[string]*MineJob{}, runningMine: map[string]bool{}}
 }
 
 // EnsureHost 供 API 层复用：确保宿主方案 running + 重建检测回灌（绑定/状态读路径同口径）。
@@ -241,7 +249,11 @@ func (s *Service) invalidateLabelCache(ontologyID string) {
 	}
 	s.vecMu.Lock()
 	delete(s.vecCache, ontologyID)
+	delete(s.defCache, ontologyID)
 	s.vecMu.Unlock()
+	s.labelVecMu.Lock()
+	delete(s.labelVecCache, ontologyID)
+	s.labelVecMu.Unlock()
 }
 
 // boundOntology agent 的伴生绑定本体 id（空 = 未开启伴生）。
@@ -299,6 +311,7 @@ func (s *Service) emitEvent(convID, runID, eventType string, data map[string]any
 //   - agent 会话：conv.AgentID == agent.ID；
 //   - project 会话：agent 为该项目的 coordinator 或成员之一（运行 agent 由 resolveRunTarget
 //     按主智能体优先解析传入）——「项目由开启伴生的 agent 管理」时项目处理信息同样产生候选。
+//
 // runID 触发轮运行 id（REQ-281：伴生过程事件回链 run_event.run_id，空串=无运行上下文）。
 func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, runID string) {
 	if s == nil || conv == nil || agent == nil {
@@ -1230,7 +1243,6 @@ func (s *Service) StatusByAgent(ctx context.Context, agentID string) (map[string
 func (s *Service) MigrateConvGraphsToAgent(ctx context.Context) error {
 	return s.migrateConvGraphs(ctx)
 }
-
 
 // RecordHits REQ-228① 召回价值闭环：run 结束后比对——本次 run 的 companion retrieval
 // 命中实体在 assistant 回答中词面出现（最小消费信号，非深度归因）→ 落 run_event
