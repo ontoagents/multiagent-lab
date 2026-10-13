@@ -35,7 +35,7 @@ const TYPE_GROUPS = [
   { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
   { value: 'artifact', label: '产物', types: ['artifact.saved'] },
   { value: 'cli', label: 'CLI 输出', types: ['debug.cli'] },
-  { value: 'run', label: '运行始末', types: ['run.started', 'run.finished', 'run.error'] },
+  { value: 'run', label: '运行始末', types: ['run.started', 'run.finished', 'run.error', 'context.stats'] },
 ]
 const typesOfGroups = (gs: string[]) => {
   const set = new Set<string>()
@@ -49,7 +49,7 @@ const TYPE_COLOR: Record<string, string> = {
   'companion.extract': 'cyan', 'companion.candidates': 'cyan', 'companion.decision': 'gold',
   'companion.ingest': 'green', 'companion.reject': 'red',
   'artifact.saved': 'magenta', 'debug.cli': 'default', 'run.started': 'default', 'run.finished': 'green',
-  'run.error': 'red', 'skill.loaded': 'default',
+  'run.error': 'red', 'skill.loaded': 'default', 'context.stats': 'default',
 }
 
 export default function TraceDrawer({
@@ -353,11 +353,23 @@ function buildSegments(events: RunEventDTO[]): Seg[] {
 
 const tsOf = (e?: RunEventDTO) => (e ? +new Date(e.created_at) : NaN)
 
-/** 时序段（waterfall 用）：泳道 0=思考 1=正文 2=工具 3=事件标记 */
-type TSegment = { lane: 0 | 1 | 2 | 3; s: number; e: number; color: string; tip: string }
+/** 时序段（waterfall 用）：泳道 0=思考 1=正文 2=工具 3=事件标记 4=智能体（REQ-311 A5） */
+type TSegment = { lane: 0 | 1 | 2 | 3 | 4; s: number; e: number; color: string; tip: string }
 type TMark = { lane: 3; at: number; color: string; tip: string }
 
-/** 从事件序列提取时序段：思考/正文块、工具调用对（tool_call_id 配对）、挂起段、关键事件标记 */
+/** REQ-311 A5：智能体泳道配色（按名字哈希取色，成员与主智能体稳定区分） */
+const AGENT_LANE_COLORS = ['#722ed1', '#08979c', '#fa8c16', '#2f54eb', '#eb2f96', '#389e0d']
+function agentColorOf(name: string): string {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0
+  return AGENT_LANE_COLORS[Math.abs(h) % AGENT_LANE_COLORS.length]
+}
+
+/**
+ * 从事件序列提取时序段：思考/正文块、工具调用对（tool_call_id 配对）、挂起段、关键事件标记，
+ * 以及 REQ-311 A5 智能体泳道——根智能体自 run.started 起段，subagent.enter/exit 切换栈：
+ * 进入成员时父段在切换点收段、成员开新段；成员退出后父段自该点重开（嵌套委派同样成立）。
+ */
 function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[]; t0: number; t1: number } {
   const t0 = tsOf(events[0])
   let t1 = tsOf(events[events.length - 1])
@@ -379,6 +391,15 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
   // 工具对：tool_call_id 配对（call→result；result 无配对则零长点）
   const callAt = new Map<string, { t: number; name: string }>()
   let pending: { t: number; name: string } | null = null
+  // 智能体泳道（REQ-311 A5）：栈式开段——enter 收父段开子段；exit 收子段重开父段
+  const agentStack: { name: string; s: number }[] = []
+  const openAgentSeg = (name: string, s: number, e: number) => {
+    if (e <= s) return
+    segs.push({ lane: 4, s, e, color: agentColorOf(name), tip: `${name} · ${fmtDur(e - s)}` })
+  }
+  const rootStarted = events.find((e) => e.type === 'run.started')
+  const rootName = safeParse(rootStarted?.data)?.agent_name
+  if (rootName) agentStack.push({ name: String(rootName), s: t0 })
   for (const e of events) {
     const d = safeParse(e.data)
     const t = tsOf(e)
@@ -402,6 +423,24 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
     } else if (e.type === 'run.started' && d?.resumed && suspendStart != null) {
       segs.push({ lane: 3, s: suspendStart, e: t, color: '#faad14', tip: `人工处理间隔 · ${fmtDur(t - suspendStart)}` })
       suspendStart = null
+    } else if (e.type === 'subagent.enter') {
+      const nm = subagentLaneName(d)
+      if (nm) {
+        const top = agentStack[agentStack.length - 1]
+        if (top) openAgentSeg(top.name, top.s, t)
+        agentStack.push({ name: nm, s: t })
+      }
+    } else if (e.type === 'subagent.exit') {
+      const nm = subagentLaneName(d)
+      const idx = nm ? agentStack.map((x) => x.name).lastIndexOf(nm) : agentStack.length - 1
+      if (idx > 0) {
+        const done = agentStack[idx]
+        openAgentSeg(done.name, done.s, t)
+        agentStack.splice(idx, 1)
+        // 父智能体自子智能体退出点重开（同色接续，视觉上仍是父段）
+        const parent = agentStack[agentStack.length - 1]
+        if (parent) parent.s = t
+      }
     } else if (['approval.granted', 'approval.denied'].includes(e.type)) {
       marks.push({ lane: 3, at: t, color: e.type === 'approval.granted' ? '#52c41a' : '#ff4d4f', tip: `${e.type === 'approval.granted' ? '批准' : '拒绝'}（${d?.decision_source ?? 'manual'}）` })
     } else if (e.type === 'run.warning') {
@@ -413,7 +452,14 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
     }
   }
   if (suspendStart != null) segs.push({ lane: 3, s: suspendStart, e: t1, color: '#faad14', tip: '挂起中（尚未恢复）' })
+  const top = agentStack[agentStack.length - 1]
+  if (top) openAgentSeg(top.name, top.s, t1)
   return { segs, marks, t0, t1 }
+}
+
+/** REQ-311 A5：subagent 事件载荷里的成员名（兼容字段名；空名退化为「子智能体」） */
+function subagentLaneName(d: any): string {
+  return String(d?.name ?? d?.agent_name ?? d?.sub_agent ?? d?.agent ?? '').trim() || '子智能体'
 }
 
 /** 时长人话（毫秒） */
@@ -424,9 +470,9 @@ function fmtDur(ms: number) {
   return `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`
 }
 
-const LANE_LABEL = ['思考', '正文', '工具', '事件']
+const LANE_LABEL = ['思考', '正文', '工具', '事件', '智能体']
 
-/** 四泳道时序条（REQ-284②）：段按时长比例定位，最小可见宽 0.5%；hover 显示时段与内容 */
+/** 五泳道时序条（REQ-284② 四泳道 + REQ-311 A5 智能体泳道）：段按时长比例定位，最小可见宽 0.5%；hover 显示时段与内容 */
 function TimelineStrip({ events }: { events: RunEventDTO[] }) {
   const { segs, marks, t0, t1 } = useMemo(() => buildTimeline(events), [events])
   const T = t1 - t0
@@ -435,12 +481,12 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
   return (
     <div style={{ margin: '4px 10px 8px', padding: '6px 8px 4px', border: '1px solid var(--c-border, #e3e6f0)', borderRadius: 6, background: 'var(--c-panel, #fff)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, marginLeft: 22 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 10 }}>时序 · 总 {fmtDur(T)}（思考/正文/工具/事件）</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 10 }}>时序 · 总 {fmtDur(T)}（思考/正文/工具/事件/智能体）</Typography.Text>
         <span style={{ flex: 1 }} />
         <Typography.Text type="secondary" style={{ fontSize: 10 }}>{fmtTime(events[0].created_at)} → {fmtTime(events[events.length - 1].created_at)}</Typography.Text>
       </div>
-      <div style={{ position: 'relative', height: 56, marginLeft: 22 }}>
-        {[0, 1, 2, 3].map((lane) => (
+      <div style={{ position: 'relative', height: 69, marginLeft: 22 }}>
+        {[0, 1, 2, 3, 4].map((lane) => (
           <div key={lane} style={{ position: 'absolute', left: 0, right: 0, top: lane * 13, height: 11 }}>
             <span style={{ position: 'absolute', left: -22, width: 20, top: -1, fontSize: 9, color: 'var(--c-ink-3, #9aa1bd)' }}>{LANE_LABEL[lane]}</span>
             <div style={{ position: 'absolute', left: 0, right: 0, top: 3, height: 5, background: 'var(--c-bg-soft, #f6f7fb)', borderRadius: 3 }} />
@@ -507,17 +553,19 @@ function RunBlock({
     )
   })()
   // REQ-291：运行配置审计——当轮模型与推理参数（run.started 恒落；缺省键=跟随后端协议默认，不臆造）
+  // REQ-311 A4：生效迭代上限（max_iteration_effective）入 chip
   const modelCfgChip = (() => {
     const started = run.events.find((e) => e.type === 'run.started')
     const d = started ? safeParse(started.data) : undefined
     if (!d) return null
     const temp = d.temperature ?? null
     const toks = d.max_tokens ?? null
-    if (!d.model && temp == null && toks == null) return null
+    const maxIt = typeof d.max_iteration_effective === 'number' ? d.max_iteration_effective : null
+    if (!d.model && temp == null && toks == null && maxIt == null) return null
     return (
-      <Tooltip title={`当轮模型 ${d.model ?? '—'}；temperature ${temp ?? '后端默认'} / max_tokens ${toks ?? '后端默认'}（未设置=跟随后端协议默认）`}>
+      <Tooltip title={`当轮模型 ${d.model ?? '—'}；temperature ${temp ?? '后端默认'} / max_tokens ${toks ?? '后端默认'}（未设置=跟随后端协议默认）；迭代上限 ${maxIt ?? '—'}（生效值）`}>
         <Tag style={{ margin: 0, fontSize: 10 }}>
-          {d.model ? `${d.model}` : '模型 —'}{temp != null ? ` · t=${temp}` : ''}{toks != null ? ` · ${toks}tok` : ''}
+          {d.model ? `${d.model}` : '模型 —'}{temp != null ? ` · t=${temp}` : ''}{toks != null ? ` · ${toks}tok` : ''}{maxIt != null ? ` · 迭代≤${maxIt}` : ''}
         </Tag>
       </Tooltip>
     )

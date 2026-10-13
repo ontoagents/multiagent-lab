@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ type BuildResult struct {
 	LoadedSkills    []*store.Skill    // 本次运行生效的技能（skill.loaded 事件，M9）
 	OntoUnavailable *ontology.Issue   // M8：本体挂载降级（ontology.unavailable 事件，§6.10-4）
 	Snapshot        map[string]any    // REQ-117/M17 装配快照（mode + agents[]：模型/工具/技能/MCP/最终指令），调试模式随 run.started 透出
+	MaxIteration    int               // REQ-311 A4：根 Agent 归一后的迭代上限（run.started max_iteration_effective——生效值可感知）
 }
 
 // Runtime 兼容别名（历史调用方）。
@@ -139,13 +141,14 @@ func (a *Assembler) assembleSingle(ctx context.Context, ag *store.Agent, sc asse
 	}
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: b.Inst, EnableStreaming: true, CheckPointStore: a.CheckPoints})
 	return &BuildResult{
-		Runner:          runner,
-		AgentName:       ag.Name,
-		ModelLabel:      b.Meta.ModelLabel,
-		ConnID:          b.Meta.ConnID,
-		SourceOf:        b.Meta.SourceOf,
-		Warnings:        b.Meta.Warnings,
-		LoadedSkills:    b.Meta.LoadedSkills,
+		Runner:       runner,
+		AgentName:    ag.Name,
+		ModelLabel:   b.Meta.ModelLabel,
+		ConnID:       b.Meta.ConnID,
+		SourceOf:     b.Meta.SourceOf,
+		Warnings:     b.Meta.Warnings,
+		LoadedSkills: b.Meta.LoadedSkills,
+		MaxIteration: normalizeMaxIter(ag.MaxIteration), // REQ-311 A4：生效值透出（≤0 归一 25 不再只发生在 ADK 内部）
 		OntoUnavailable: b.Meta.OntoUnavailable,
 		Snapshot: snapshotOf("single", []map[string]any{
 			agentSnapshotEntry("single", ag.Name, b.Meta.ModelLabel, b.Meta.SourceOf, b.Meta.LoadedSkills, a.mcpSnapshotOf(ag), b.Meta.Instruction),
@@ -272,7 +275,8 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		Runner: runner, AgentName: coord.Name,
 		ModelLabel: label, ConnID: connID,
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
-		Snapshot: snapshotOf("agent_as_tool", entries),
+		MaxIteration: normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
+		Snapshot:     snapshotOf("agent_as_tool", entries),
 	}, nil
 }
 
@@ -322,6 +326,7 @@ func (a *Assembler) assembleTransfer(ctx context.Context, coord *store.Agent, su
 		Runner: runner, AgentName: coord.Name,
 		ModelLabel: label, ConnID: connID,
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
+		MaxIteration:    normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
 		OntoUnavailable: tbc.OntoIssue,
 		Snapshot:        snapshotOf("transfer", entries),
 	}, nil
@@ -974,8 +979,54 @@ func agentSnapshotEntry(role, name, modelLabel string, src map[string]string, sk
 	return map[string]any{
 		"role": role, "name": name, "model": modelLabel,
 		"tools": tools, "skills": skillNames, "mcp": mcpUrls,
-		"instruction": instruction,
+		"instruction":          instruction,
+		"instruction_segments": instructionSegments(instruction), // REQ-311 A2：提示词装配透镜（分段来源标注）
 	}
+}
+
+// instructionSegments REQ-311 A2：把最终系统提示词按装配来源切分为有序分段（提示词装配透镜）。
+// 四个注入段头为平台自有的固定文案（skill.Composer / composeInstructionWithScope / buildOne
+// guide 注入），按前缀匹配切分；未命中任何段头时退化为单一 base 段。文本=原文切片不加工，
+// chars=rune 数——前端装配卡逐段渲染「来源 · 字数 + 可展开全文」，治「四段拼接哪段来自哪全黑盒」。
+func instructionSegments(inst string) []map[string]any {
+	type mark struct {
+		source string
+		idx    int
+	}
+	marks := make([]mark, 0, 4)
+	for _, h := range []struct{ source, head string }{
+		{"skills", "\n# 启用技能（正文按需加载）"},
+		{"project_dir", "\n# 项目本地目录"},
+		{"ontology_guide", "\n# 本体运行方案指引"},
+	} {
+		if i := strings.Index(inst, h.head); i >= 0 {
+			marks = append(marks, mark{h.source, i})
+		}
+	}
+	sort.Slice(marks, func(i, j int) bool { return marks[i].idx < marks[j].idx })
+	segs := make([]map[string]any, 0, len(marks)+1)
+	add := func(source, text string) {
+		t := strings.TrimSpace(text)
+		if t == "" {
+			return
+		}
+		segs = append(segs, map[string]any{"source": source, "chars": len([]rune(t)), "text": t})
+	}
+	if len(marks) == 0 {
+		add("base", inst)
+		return segs
+	}
+	if marks[0].idx > 0 {
+		add("base", inst[:marks[0].idx])
+	}
+	for i, m := range marks {
+		end := len(inst)
+		if i+1 < len(marks) {
+			end = marks[i+1].idx
+		}
+		add(m.source, inst[m.idx:end])
+	}
+	return segs
 }
 
 func snapshotOf(mode string, agents []map[string]any) map[string]any {

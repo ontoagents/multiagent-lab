@@ -277,6 +277,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	// REQ-201/M37：tool 轮次保全 + 压缩 + 预算裁剪统一入口（context.go；full 档仅增强不裁剪）
 	var histMsgs []*schema.Message
 	var ctxWarns []string
+	var cr contextResult
 	if opts.HistMsgs != nil {
 		histMsgs = append([]*schema.Message(nil), opts.HistMsgs...)
 		if b := ContextBudget(agent.ContextMode); b > 0 {
@@ -287,13 +288,17 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			}
 		}
 	} else {
-		cr, err := s.buildRunContext(ctx, conv, agent)
+		var err error
+		cr, err = s.buildRunContext(ctx, conv, agent)
 		if err != nil {
 			return nil, err
 		}
 		histMsgs = cr.Messages
 		ctxWarns = cr.Warnings
 	}
+	// REQ-311 A6：上下文账单——历史侧统计在注入前定格（注入侧在召回后并入）
+	histCount := len(histMsgs)
+	histChars := messagesChars(histMsgs)
 
 	runCtx := ctx
 
@@ -317,21 +322,30 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	if agent.MaxTokens != nil {
 		startData["max_tokens"] = *agent.MaxTokens
 	}
+	// REQ-311 A4：迭代上限生效值（≤0 归一 25 的规则此前只发生在 ADK 内部，「配了 0 实际跑 25」不可感知）
+	if rt.MaxIteration > 0 {
+		startData["max_iteration_effective"] = rt.MaxIteration
+	}
 	if len(rt.Warnings) > 0 {
 		startData["warnings"] = rt.Warnings
 	}
-	// REQ-117：装配快照（详细档=结构；调试档含最终指令全文）
+	// REQ-117 装配快照（REQ-311 A2 口径变更：debug≥1 恒含 instruction 全文与分段——instruction
+	// 为用户自配内容非第三方注入，剥离原本防的是召回文本泄漏，该顾虑由调试档 model.step 承载不变）
 	if debug >= 1 && rt.Snapshot != nil {
 		startData["assembly"] = rt.Snapshot
-		if debug < 2 {
-			startData["assembly"] = snapshotWithoutInstructions(rt.Snapshot)
-		}
 	}
 	s.emitAndRecord(runCtx, conv, runID, newEvent("run.started", runID, startData), emit)
 
-	// REQ-201/M37：上下文工程诚实标注（压缩/裁剪不静默）
-	for _, w := range ctxWarns {
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{"message": w}), emit)
+	// REQ-201/M37：上下文工程诚实标注（压缩/裁剪不静默）；REQ-311 A6：末条压缩/裁剪警告附结构化字段
+	for i, w := range ctxWarns {
+		data := map[string]any{"message": w}
+		if cr.Compression != nil && i == len(ctxWarns)-1 {
+			data["compression"] = map[string]any{
+				"kind": cr.Compression.Kind, "before_tokens": cr.Compression.BeforeTokens,
+				"after_tokens": cr.Compression.AfterTokens, "dropped": cr.Compression.Dropped,
+			}
+		}
+		s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, data), emit)
 	}
 
 	// skill.loaded（§6.12：本次运行实际生效的技能，M9 挂载生效）
@@ -354,9 +368,35 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 
 	// 知识库召回（M6，§11/§6.9：提问先检索 → retrieval 事件 → 上下文注入；失败降级不阻断）
 	// REQ-201 A4：上下文准入 Provider 链（recallChain，未来第三方来源注册于此）
-	for _, rp := range s.recallChain() {
+	// REQ-311 A6：逐源记录注入量（messages/chars），召回完成发 context.stats 上下文账单事件
+	//（发在 run.started 之后——召回依赖历史装配产物，事件随其物理时序；账单单一事件承载完整数据）
+	injections := make([]map[string]any, 0, 2)
+	recallNames := []string{"kb", "companion"}
+	for i, rp := range s.recallChain() {
+		before := len(histMsgs)
 		histMsgs = rp(runCtx, conv, agent, runID, input, histMsgs, emit)
+		if n := len(histMsgs) - before; n > 0 {
+			src := "recall"
+			if i < len(recallNames) {
+				src = recallNames[i]
+			}
+			injections = append(injections, map[string]any{
+				"source": src, "messages": n, "chars": messagesChars(histMsgs[len(histMsgs)-n:]),
+			})
+		}
 	}
+	budgetTokens := ContextBudget(agent.ContextMode)
+	stats := map[string]any{
+		"budget_mode":      contextModeLabel(agent.ContextMode),
+		"budget_tokens":    budgetTokens,
+		"history_messages": histCount,
+		"history_chars":    histChars,
+		"history_tokens":   estimateMessages(histMsgs[:min(histCount, len(histMsgs))]),
+		"pruned_count":     cr.PrunedCount,
+		"summarized":       cr.Summarized,
+		"injections":       injections,
+	}
+	s.emitAndRecord(runCtx, conv, runID, newEvent("context.stats", runID, stats), emit)
 
 	// 中断恢复（M11 收尾）：新消息运行会放弃既有挂起中断（checkpoint 清理 + 状态清除）
 	if conv.InterruptState != "" {
@@ -1045,11 +1085,12 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	if agent.MaxTokens != nil {
 		startData["max_tokens"] = *agent.MaxTokens
 	}
+	if agent.MaxIteration > 0 { // REQ-311 A4：恢复路径同构透出生效迭代上限
+		startData["max_iteration_effective"] = normalizeMaxIter(agent.MaxIteration)
+	}
+	// REQ-311 A2 口径：debug≥1 恒含 instruction 全文与分段（与 runOnce 一致）
 	if debug >= 1 && rt.Snapshot != nil {
 		startData["assembly"] = rt.Snapshot
-		if debug < 2 {
-			startData["assembly"] = snapshotWithoutInstructions(rt.Snapshot)
-		}
 	}
 	s.emitAndRecord(runCtx, conv, runID, newEvent("run.started", runID, startData), emit)
 	// 先清挂起状态：恢复过程中若再次中断，handleInterrupted 会写入新状态
@@ -1186,24 +1227,28 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 	s.emitAndRecord(ctx, conv, runID, newEvent("tool.call", runID, data), emit)
 }
 
-// snapshotWithoutInstructions 装配快照脱敏副本：详细档（<2）不含最终指令全文。
-func snapshotWithoutInstructions(snap map[string]any) map[string]any {
-	out := map[string]any{"mode": snap["mode"]}
-	if agents, ok := snap["agents"].([]map[string]any); ok {
-		outAgents := make([]map[string]any, 0, len(agents))
-		for _, a := range agents {
-			cp := map[string]any{}
-			for k, v := range a {
-				if k == "instruction" {
-					continue
-				}
-				cp[k] = v
-			}
-			outAgents = append(outAgents, cp)
+// messagesChars REQ-311 A6：消息序列内容字符量（Content + 工具调用名与参数），上下文账单口径。
+func messagesChars(msgs []*schema.Message) int {
+	n := 0
+	for _, m := range msgs {
+		n += len([]rune(m.Content))
+		for _, tc := range m.ToolCalls {
+			n += len([]rune(tc.Function.Name)) + len([]rune(tc.Function.Arguments))
 		}
-		out["agents"] = outAgents
 	}
-	return out
+	return n
+}
+
+// contextModeLabel REQ-311 A6：预算档位人话标签（空值归一标准档，与 ContextBudget 同口径）。
+func contextModeLabel(mode string) string {
+	switch mode {
+	case ContextModeCompact:
+		return "compact"
+	case ContextModeFull:
+		return "full"
+	default:
+		return "standard"
+	}
 }
 
 // Stop 停止对话正在进行的运行。

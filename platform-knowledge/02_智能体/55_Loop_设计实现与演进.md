@@ -4,7 +4,7 @@ topic: Loop 域事实源（设计总纲·实现现状·演进跟踪）
 desc: 循环层技术沉淀——ReAct 迭代上限/挂起恢复 checkpoint/定时续跑/进度产物/usage；代码地图、REQ/M39·M52 映射、C3 LongRun/C4 Evaluator 后置；姊妹档 53 号 Harness/54 号 Context/56 号 Graph
 req: [REQ-204, REQ-49, REQ-210]
 docs: ["02 §6 五层总纲", "38 号 C 阶段", "51 号体检"]
-synced: 2026-10-01
+synced: 2026-10-13
 ---
 
 # Loop：设计、实现与演进（2026-10-01 沉淀）
@@ -33,6 +33,7 @@ synced: 2026-10-01
 | C5 调度持久化（重启失效收口） | REQ-224 | M52 | ✅ | 迁移 038+DB 往返 |
 | 挂起超时自动 deny | REQ-231③ | M58 | ✅ | 真机 danger 链（超时判定=恢复重入时） |
 | Loop 页签（五层视角） | REQ-219 | M50 | ✅ | headless 16/16 |
+| 迭代进度与生效值透出（run.started/resume max_iteration_effective+头部迭代 k/N chip+TraceDrawer 迭代≤N） | REQ-311 A4 | M115 | ✅ | API 生效上限=7 断言+UI chip smoke/req311/ |
 | C3 LongRun 有界增量 | REQ-204 | 后置 | ⏳ 与模型能力共演化 | — |
 | C4 Evaluator 评估器 | REQ-204 | 后置 | ⏳ 与 REQ-223 评估基建衔接评估 | — |
 

@@ -237,8 +237,19 @@ type contextState struct {
 
 // contextResult 构建产物：最终消息序列 + 需要透出的诚实标注（run.warning 由调用方发送）。
 type contextResult struct {
-	Messages []*schema.Message
-	Warnings []string
+	Messages    []*schema.Message
+	Warnings    []string
+	PrunedCount int                 // REQ-311 A6：本次被裁/被压缩的消息条数（0=未发生）
+	Summarized  bool                // REQ-311 A6：是否走了 LLM 压缩摘要（false 且 PrunedCount>0=纯裁剪）
+	Compression *ContextCompression // REQ-311 A6：压缩/裁剪结构化明细（随末条 run.warning 透出）
+}
+
+// ContextCompression REQ-311 A6：压缩/裁剪结构化账（run.warning data.compression）。
+type ContextCompression struct {
+	Kind         string // summarized=LLM 压缩摘要 | trimmed=纯裁剪
+	BeforeTokens int
+	AfterTokens  int
+	Dropped      int
 }
 
 // buildRunContext REQ-201 主入口：tool 轮次保全（A1）→ 压缩状态应用/生成（A3）→ 预算裁剪（A2）。
@@ -339,6 +350,13 @@ func (s *Service) buildRunContext(ctx context.Context, conv *store.Conversation,
 		res.Warnings = append(res.Warnings, fmt.Sprintf(
 			"上下文裁剪：超出预算（约 %d tokens > %d），已丢弃最早 %d 条消息（约 %d tokens）以保持本次运行稳定；完整历史仍在对话记录中",
 			estimateMessages(hist), budget, len(dropped), droppedTokens))
+	}
+	// REQ-311 A6：压缩/裁剪结构化账（调用方并入末条 run.warning + context.stats 账单事件）
+	res.PrunedCount = len(dropped)
+	res.Summarized = summarized
+	res.Compression = &ContextCompression{
+		Kind: map[bool]string{true: "summarized", false: "trimmed"}[summarized],
+		BeforeTokens: estimateMessages(hist), AfterTokens: estimateMessages(res.Messages), Dropped: len(dropped),
 	}
 	return res, nil
 }

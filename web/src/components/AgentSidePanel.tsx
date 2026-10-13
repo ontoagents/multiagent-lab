@@ -835,6 +835,7 @@ function AgentConfigForm({
   // REQ-231⑤⑥：运行时工具预览 + hooks 注册真相（后端读取——前端静态文案退役）
   const [previewTools, setPreviewTools] = useState<{ name: string; source: string }[]>([])
   const [previewNotes, setPreviewNotes] = useState<string[]>([])
+  const [previewMasked, setPreviewMasked] = useState<{ name: string; source: string }[]>([]) // REQ-311 A3：被遮蔽工具（后端已返回，此前未渲染）
   const [hooksInfo, setHooksInfo] = useState<{ name: string; active: boolean; description: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -857,6 +858,7 @@ function AgentConfigForm({
     api.agentToolPreview(agent.id).then((r) => {
       setPreviewTools(r.tools ?? [])
       setPreviewNotes(r.notes ?? [])
+      setPreviewMasked(r.masked ?? []) // REQ-311 A3：遮蔽清单接线（重名先到先得被跳过的工具）
     }).catch(() => {})
     api.listHooks(agent.id).then((r) => setHooksInfo(r.hooks ?? [])).catch(() => {})
     // M5：工具注册表（失败降级为空 + 提示，不阻塞保存）
@@ -1098,6 +1100,10 @@ function AgentConfigForm({
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     压缩/召回/剪枝策略进程内固定（观察项）：超预算先 LLM 摘要再尾半裁剪；知识库与伴生召回按序注入；工具结果超 4k 截断。
                   </Typography.Text>
+                  {/* REQ-311 A6：生效口径显性化——档位即生效值（无运行时改写）；每轮实际账单见对话流「🧾 上下文账单」事件卡 */}
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                    生效口径：未设置=标准档（约 24k tokens）；紧凑=约 6k；完整=不限量。每轮运行的实际账单（历史量/裁剪/注入明细）见对话流「上下文账单」事件卡与调用轨迹「运行始末」。
+                  </Typography.Text>
                 </>
               ),
             },
@@ -1201,7 +1207,7 @@ function AgentConfigForm({
                   >
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
                   </Form.Item>
-                  <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} />
+                  <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} masked={previewMasked} />
                   {sec('防护 hooks（进程内确定性层，REQ-232 可配置）')}
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     {isExternalBackend
@@ -1798,7 +1804,7 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
 // 高亮 + 审批策略摘要（与 /api/hooks 卡同面板）。
 // REQ-251：不再自行拉取 agentToolPreview（表单 useEffect 已拉，透传防双请求）。
 // ---------------------------------------------------------------------------
-function ToolPreviewCard({ approval, tools, notes }: { approval: string; tools: { name: string; source: string }[]; notes?: string[] }) {
+function ToolPreviewCard({ approval, tools, notes, masked }: { approval: string; tools: { name: string; source: string }[]; notes?: string[]; masked?: { name: string; source: string }[] }) {
   // danger 清单由后端审批策略口径推导（同 IsDangerousTool）——前端按 source 近似标注：
   // builtin 写类 + 非 ontology/oo 连接器前缀
   const danger = useMemo(() => {
@@ -1824,6 +1830,21 @@ function ToolPreviewCard({ approval, tools, notes }: { approval: string; tools: 
         <Typography.Text type="secondary" style={{ fontSize: 10.5, display: 'block', marginTop: 6 }}>
           {notes!.join('；')}
         </Typography.Text>
+      )}
+      {/* REQ-311 A3：被遮蔽工具清单（function name 冲突先到先得被跳过的工具——生效链的另一半） */}
+      {(masked ?? []).length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <Typography.Text type="warning" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+            被遮蔽 {masked!.length} 项（与其他工具重名，本次运行不加载）：
+          </Typography.Text>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {masked!.map((t) => (
+              <Tooltip key={t.name} title={`来源：${t.source}`}>
+                <Tag color="orange" style={{ margin: 0, fontSize: 11, borderStyle: 'dashed' }}>{t.name}</Tag>
+              </Tooltip>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

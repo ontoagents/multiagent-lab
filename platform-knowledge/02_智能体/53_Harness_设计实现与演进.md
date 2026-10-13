@@ -5,7 +5,7 @@ desc: harness 技术沉淀单一事实点——层职责与代码地图、已交
 req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-10-01
+synced: 2026-10-13
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -55,7 +55,8 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 事件契约（审计事件/截断/独立 verify） | REQ-224 | M52 | ✅ | 单测+真机 |
 | 审批三档+豁免+挂起超时+生效透出+装配预览 | REQ-231 | M58 | ✅ | 真机 danger 全链（挂起→approve→granted 审计→文件写出；豁免免审）+headless 7/7 |
 | 沙箱纵深（work_dir volume/run_command/出网） | REQ-225 | M53 | 📋 触发驱动 | — |
-| hooks 可配置化（agent 级开关/自定义 deny 规则） | REQ-232 | M59 | 📋 触发驱动（cmdGuard 生效绑定 REQ-225②） | — |
+| hooks 可配置化（agent 级开关/自定义 deny 规则） | REQ-232 | M59 | ✅（2026-10-13 M59 领取交付：迁移 046 hooks_json+BuildHookChain agent 级装配+GET /api/hooks 生效链+hooks 卡可配化；run_command 消费绑定 REQ-225② 同轮兑现） | 单测+headless 7/7 smoke/req225/ |
+| 审计族 live 透出（审批决议/守卫拦截/验证背压/连接器降级/产物/CLI 运行中进聊天流） | REQ-311 A1 | M115 | ✅ | 真机 connector.degraded live 卡实锤（坏 MCP 即时拒）+UI 16/16 smoke/req311/ |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 

@@ -4,7 +4,7 @@ topic: Graph 域事实源（设计总纲·实现现状·演进跟踪）
 desc: 协作层技术沉淀——成员装配（agent_as_tool/transfer）/subagent 事件/项目侧编排配置；现状=能力在装配、编排未启动（REQ-205/M40 触发驱动）；姊妹档 53 号 Harness/54 号 Context/55 号 Loop
 req: [REQ-33, REQ-205, REQ-208]
 docs: ["02 §6 五层总纲", "02 §6.4 多 Agent 装配", "38 号 D 阶段", "39 号 E2", "44 号 Eino 分析"]
-synced: 2026-10-01
+synced: 2026-10-13
 ---
 
 # Graph：设计、实现与演进（2026-10-01 沉淀）
@@ -30,6 +30,7 @@ synced: 2026-10-01
 | 多成员装配（agent_as_tool+transfer 双轨） | REQ-33/124 | M5 起 | ✅（装配能力） | 多智能体项目会话 |
 | subagent 嵌套事件与轨迹呈现 | REQ-117/217 | M17/M48 | ✅ | headless |
 | Graph 页签占位指引（agent 级诚实空态） | REQ-219 | M50 | ✅（入口已随 REQ-251/M73 退役，编排说明并入项目协作视图） | headless 16/16 |
+| 委派感知最小面（时序条第五智能体泳道栈式切段+ToolLine 委派徽标+执行过程块按成员聚合统计；P2 拓扑图挂需求池 B1） | REQ-311 A5 | M115 | ✅ | UI 五泳道断言 smoke/req311/（委派聚合需项目会话真实委派场景） |
 | 工作流编排兑现（三值/图状态/HITL/回放） | REQ-205=REQ-33 兑现 | M40 | 📋 **触发驱动**（出现真实编排诉求才启动） | — |
 | transfer 治理 + continuation 子智能体 | REQ-208 | 39 号 E2 并入 | 📋 触发驱动 | — |
 

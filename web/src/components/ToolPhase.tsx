@@ -151,6 +151,8 @@ function ToolLine({ call, defaultOpen }: { call: ToolCallRow & { pending?: boole
     <div className={`tool-line src-${cls}${call.err ? ' err' : ''}`}>
       <div className="tool-line-head" onClick={() => setOpen((o) => !o)} title={open ? '收起详情' : '展开入参与结果'}>
         <span className={`tool-dot ${dotCls}`}>{dotTxt}</span>
+        {/* REQ-311 A5：委派徽标——source=agent:{id} 的调用即协调者对成员智能体的委派（function name=成员名） */}
+        {cls === 'subagent' && <span className="tool-delegate">委派</span>}
         <span className="tool-name">{call.name}</span>
         {call.argsSummary && <span className="tool-args">{call.argsSummary}</span>}
         {call.durationMs != null && <span className="tool-dur">{fmtMs(call.durationMs)}</span>}
@@ -166,6 +168,19 @@ function ToolLine({ call, defaultOpen }: { call: ToolCallRow & { pending?: boole
   )
 }
 
+/** REQ-311 A5：委派聚合统计——按成员归并 agent 来源调用的次数与耗时（「委派 成员A×2·3.4s」） */
+function delegateSummary(group: ToolPhaseGroup): string {
+  const byName = new Map<string, { n: number; ms: number }>()
+  for (const c of group.calls) {
+    if (srcClassOf(c.source, c.name) !== 'subagent') continue
+    const e = byName.get(c.name) ?? { n: 0, ms: 0 }
+    e.n++
+    e.ms += c.durationMs ?? 0
+    byName.set(c.name, e)
+  }
+  return [...byName.entries()].map(([name, v]) => `${name}×${v.n}${v.ms > 0 ? `·${fmtMs(v.ms)}` : ''}`).join('、')
+}
+
 function prettyJson(s: string): string {
   try {
     return JSON.stringify(JSON.parse(s), null, 2)
@@ -179,12 +194,16 @@ export function ToolPhaseBlock({ group }: { group: ToolPhaseGroup }) {
   const [open, setOpen] = useState(false)
   const okCount = group.calls.filter((c) => !c.err).length
   const running = group.calls.some((c) => c.running)
+  // REQ-311 A5：委派聚合统计（摘要行尾「· 委派 成员A×2·3.4s、成员B×1·12.0s」）
+  const delegates = delegateSummary(group)
+  const delegateTxt = delegates ? ` · 委派 ${delegates}` : ''
   if (group.live) {
     return (
       <div className={`tool-phase${running ? ' live' : ''}`} style={{ '--sub-depth': group.subDepth } as CSSProperties}>
         {group.calls.map((c, i) => (
           <ToolLine key={i} call={c} />
         ))}
+        {delegates && <div className="tool-phase-title tool-delegate-summary">委派统计：{delegates}</div>}
       </div>
     )
   }
@@ -195,7 +214,7 @@ export function ToolPhaseBlock({ group }: { group: ToolPhaseGroup }) {
           <span className="tool-caret" />
           <span className="tool-phase-title">
             执行过程 · {group.calls.length} 次工具调用{group.totalMs > 0 ? ` · ${fmtMs(group.totalMs)}` : ''}
-            {okCount < group.calls.length ? ` · ${group.calls.length - okCount} 失败` : ''}
+            {okCount < group.calls.length ? ` · ${group.calls.length - okCount} 失败` : ''}{delegateTxt}
           </span>
         </div>
       )}
@@ -203,7 +222,7 @@ export function ToolPhaseBlock({ group }: { group: ToolPhaseGroup }) {
         <>
           <div className="tool-phase-head open" onClick={() => setOpen(false)} title="收起">
             <span className="tool-caret open" />
-            <span className="tool-phase-title">执行过程 · {group.calls.length} 次工具调用{group.totalMs > 0 ? ` · ${fmtMs(group.totalMs)}` : ''}</span>
+            <span className="tool-phase-title">执行过程 · {group.calls.length} 次工具调用{group.totalMs > 0 ? ` · ${fmtMs(group.totalMs)}` : ''}{delegateTxt}</span>
           </div>
           {group.calls.map((c, i) => (
             <ToolLine key={i} call={c.running ? { ...c, running: false, pending: true } : c} />

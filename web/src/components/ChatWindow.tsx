@@ -66,6 +66,9 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
     case 'run.started':
       return { text: `▶ 运行开始 · ${d?.agent_name ?? ''} · ${d?.model ?? ''}`.replace(/ ·\s*$/, '') }
     case 'run.finished':
+      if (d?.reason === 'verify_failed') {
+        return { text: `⚠ 运行结束但验证未通过（verify_failed）${typeof d?.elapsed_ms === 'number' ? ` · ${(d.elapsed_ms / 1000).toFixed(1)}s` : ''}——未标记完成，可检查 verify 命令后重试`, warn: true }
+      }
       return d?.reason === 'stopped' ? { text: '⏹ 已停止' } : d?.reason === 'interrupted' ? { text: '⏸ 已挂起 · 等待答复' } : { text: finishSummary(d) }
     // M11 收尾 + REQ-14 审批：中断恢复（ask_human 答复 / 工具审批）
     case 'run.interrupted':
@@ -158,6 +161,20 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
     // REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批
     case 'approval.request':
       return { text: `🔐 外部权限请求 · ${d?.tool_name ?? ''}${d?.kind ? ` · ${d.kind}` : ''}（等待你在下方卡片决议）`, warn: true }
+    // REQ-311 A1：Harness 审计族/产物/CLI 补齐 live 呈现（文案与 TraceDrawer 同源）
+    case 'artifact.saved':
+      return { text: `💾 产物已保存 · ${d?.name ?? d?.path ?? ''}` }
+    case 'debug.cli': {
+      if (d?.stopReason) return { text: `🖥 CLI · stop=${d.stopReason}` }
+      const line = String(d?.line ?? d?.raw ?? '').replace(/\s+/g, ' ').trim()
+      return { text: `🖥 CLI${d?.stream ? `(${d.stream})` : ''} · ${line.slice(0, 80) || '输出'}` }
+    }
+    // REQ-311 A6：上下文账单（历史构成 + 注入明细一次透出，展开见 renderEventCard）
+    case 'context.stats': {
+      const inj = Array.isArray(d?.injections) ? d.injections : []
+      const injTxt = inj.map((x: any) => injectSourceLabel(x?.source)).join('、')
+      return { text: `🧾 上下文账单 · 历史 ${d?.history_messages ?? '—'} 条/约 ${d?.history_tokens ?? '—'} tok${inj.length ? ` · 注入 ${injTxt}` : ' · 无外部注入'}` }
+    }
     default:
       return { text: `· ${type}` }
   }
@@ -166,6 +183,17 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
 // REQ-281：数值紧凑展示（0.95→0.95；undefined→'—'），供伴生判定文案
 function fmtNum(v: any): string {
   return typeof v === 'number' ? String(Math.round(v * 100) / 100) : '—'
+}
+
+// REQ-311 A6：context.stats 注入源人话标签（账单卡与摘要文案共用）
+function injectSourceLabel(src?: string): string {
+  switch (src) {
+    case 'kb': return '知识库召回'
+    case 'companion': return '伴生本体召回'
+    case 'ontology_guide': return '本体方案指引'
+    case 'project_dir': return '项目本地目录'
+    default: return src || '其他来源'
+  }
 }
 
 // run.finished 摘要：耗时 / token 用量 / finish_reason
@@ -209,6 +237,10 @@ function eventSource(evType: string | undefined, evData: any): EventSource {
   if (name.startsWith('mcp_') || name.includes('__')) return 'mcp'
   return 'builtin'
 }
+
+// REQ-311 A2：提示词装配透镜——分段来源标签与配色（与后端 instructionSegments source 键对应）
+const SEG_LABELS: Record<string, string> = { base: '基座指令', skills: '技能目录', project_dir: '项目本地目录', ontology_guide: '本体方案指引' }
+const SEG_COLORS: Record<string, string> = { base: 'blue', skills: 'green', project_dir: 'gold', ontology_guide: 'purple' }
 
 /** REQ-149① 展示级别门控：简洁档（level 0）隐藏调试细节事件（model.step 等），详细/调试档展开 */
 export function levelGated(type: string, level: number): boolean {
@@ -326,11 +358,16 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
     }
     default:
       // 过程类事件（工具/技能/子智能体/知识召回/本体）：统一插到流式助手消息之前
+      // REQ-311 A1：Harness 审计族（审批决议/守卫拦截/验证背压/连接器降级）与产物/CLI/上下文账单
+      // 进 live 流——事件本已随 SSE 到达，此前被白名单静默丢弃、运行中黑盒只能事后翻轨迹
       if (
         event === 'tool.call' || event === 'tool.result' || event === 'skill.loaded' ||
         event === 'subagent.enter' || event === 'subagent.exit' ||
         event === 'retrieval' || event === 'ontology.query' || event === 'ontology.unavailable' ||
-        event === 'run.warning' || event === 'model.step' || event === 'approval.request'
+        event === 'run.warning' || event === 'model.step' || event === 'approval.request' ||
+        event === 'approval.granted' || event === 'approval.denied' || event === 'hook.denied' ||
+        event === 'verify.completed' || event === 'verify.failed' || event === 'connector.degraded' ||
+        event === 'artifact.saved' || event === 'debug.cli' || event === 'context.stats'
       ) {
         const desc = describeEvent(event, payload)
         const next = [...prev]
@@ -1126,6 +1163,12 @@ export default function ChatWindow({
                         <div className="retrieval-excerpt">
                           <HighlightSpans text={h.excerpt} spans={h.spans} />
                         </div>
+                        {/* REQ-311 A3：wiki 页溯源（REQ-241 后端已返回，此前未渲染） */}
+                        {(h.sources ?? []).length > 0 && (
+                          <div className="retrieval-meta" style={{ marginTop: 2 }}>
+                            <span className="retrieval-seq">来源页：{(h.sources ?? []).map((s) => `${s.doc || '页面'}#${s.seq}`).join('、')}</span>
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -1133,6 +1176,41 @@ export default function ChatWindow({
               }]}
             />
           )}
+          {showRaw && it.evData && <pre className="raw-json">{JSON.stringify(it.evData, null, 2)}</pre>}
+        </div>
+      )
+    }
+
+    // REQ-311 A6：上下文账单卡（预算/历史/裁剪压缩/注入明细——模型本轮上下文构成可解释）
+    if (it.evType === 'context.stats') {
+      const inj: Array<{ source?: string; messages?: number; chars?: number }> = Array.isArray(it.evData?.injections) ? it.evData.injections : []
+      const budget = it.evData?.budget_tokens ? `${it.evData.budget_tokens} tok` : '不限量'
+      const pruned = (it.evData?.pruned_count ?? 0) > 0
+        ? `${it.evData.pruned_count} 条${it.evData?.summarized ? '（LLM 压缩摘要持久化）' : '（直接裁剪，原文仍在对话记录）'}`
+        : '未发生'
+      return (
+        <div key={i} className="event-card src-builtin" style={depthStyle(it.subDepth)}>
+          <span>{it.eventText}</span>
+          <Collapse
+            ghost
+            size="small"
+            items={[{
+              key: 'bill',
+              label: <span className="event-link">上下文账单明细</span>,
+              children: (
+                <div style={{ fontSize: 11, color: 'var(--ant-color-text-secondary, #888)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span>预算档：{it.evData?.budget_mode ?? '—'}（{budget}）</span>
+                  <span>历史上下文：{it.evData?.history_messages ?? '—'} 条 · {it.evData?.history_chars ?? 0} 字 · 约 {it.evData?.history_tokens ?? '—'} tok</span>
+                  <span>裁剪/压缩：{pruned}</span>
+                  <span>
+                    注入：{inj.length > 0
+                      ? inj.map((x) => `${injectSourceLabel(x.source)} ${x.messages} 条消息/${x.chars} 字`).join('；')
+                      : '本次无外部注入（未挂知识库/伴生或零命中）'}
+                  </span>
+                </div>
+              ),
+            }]}
+          />
           {showRaw && it.evData && <pre className="raw-json">{JSON.stringify(it.evData, null, 2)}</pre>}
         </div>
       )
@@ -1150,11 +1228,34 @@ export default function ChatWindow({
               key: 'assembly',
               label: <span className="event-link">装配快照（{assembly.mode} · {(assembly.agents ?? []).length} 个智能体）</span>,
               children: (
-                <pre className="raw-json">{(assembly.agents ?? []).map((a: any, ai: number) => {
-                  const lines = [`[${ai + 1}] ${a.name}（${a.role}）· ${a.model}`, `   工具: ${(a.tools ?? []).map((x: any) => x.name).join(', ') || '无'}`, `   技能: ${(a.skills ?? []).join(', ') || '无'}`, `   MCP: ${(a.mcp ?? []).join(', ') || '无'}`]
-                  if (a.instruction) lines.push(`   指令: ${a.instruction}`)
-                  return lines.join('\n')
-                }).join('\n')}</pre>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(assembly.agents ?? []).map((a: any, ai: number) => (
+                    <div key={ai}>
+                      <div style={{ fontSize: 11, color: 'var(--ant-color-text-secondary, #888)', marginBottom: 2 }}>
+                        [{ai + 1}] {a.name}（{a.role}）· {a.model} ｜ 工具 {(a.tools ?? []).map((x: any) => x.name).join(', ') || '无'} ｜ 技能 {(a.skills ?? []).join(', ') || '无'} ｜ MCP {(a.mcp ?? []).join(', ') || '无'}
+                      </div>
+                      {/* REQ-311 A2：提示词装配透镜——最终系统指令按来源分段（基座/技能目录/项目目录/本体指引） */}
+                      {(Array.isArray(a.instruction_segments) && a.instruction_segments.length > 0) ? (
+                        <Collapse
+                          ghost
+                          size="small"
+                          items={a.instruction_segments.map((s: any, si: number) => ({
+                            key: `${ai}-${si}`,
+                            label: (
+                              <span style={{ fontSize: 11 }}>
+                                <Tag color={SEG_COLORS[s?.source] ?? 'default'} style={{ margin: '0 6px 0 0', fontSize: 10 }}>{SEG_LABELS[s?.source] ?? s?.source}</Tag>
+                                {s?.chars ?? 0} 字
+                              </span>
+                            ),
+                            children: <pre className="raw-json" style={{ maxHeight: 220, overflow: 'auto' }}>{s?.text}</pre>,
+                          }))}
+                        />
+                      ) : a.instruction ? (
+                        <pre className="raw-json" style={{ maxHeight: 200, overflow: 'auto' }}>{`指令: ${a.instruction}`}</pre>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
               ),
             }]}
           />
@@ -1193,7 +1294,8 @@ export default function ChatWindow({
           if (it.kind === 'msg' || !it.evType) return true
           if (granularity === 'off') return false
           if (granularity === 'key') {
-            return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved'
+            return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
+              ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats'].includes(it.evType)
           }
           return true
         }),
@@ -1303,6 +1405,8 @@ export default function ChatWindow({
   }, [conversation.id, conversation.interrupt_state])
 
   // 运行/恢复共用的事件翻译（send 与 resume 的 SSE 处理一致；归约见模块级 applyRunEvent）
+  // REQ-311 A4：迭代进度——k=模型调用步累计（model.step），N=协调者生效迭代上限（run.started 透出）
+  const [iterStat, setIterStat] = useState<{ k: number; n: number | null } | null>(null)
   const handleRunEvent = ({ event, data }: { event: string; data: any }) => {
     const payload = data?.data ?? {}
     if (event === 'run.interrupted') setInterrupt(toInterruptState(payload))
@@ -1310,6 +1414,9 @@ export default function ChatWindow({
     // 等待决议卡；run 终态（finished/error）时挂起随 run 进程结束自动失效，清卡。
     if (event === 'approval.request') setExtApproval({ toolName: payload.tool_name ?? '', kind: payload.kind ?? '' })
     if (event === 'run.finished' || event === 'run.error') setExtApproval(null)
+    if (event === 'run.started') setIterStat({ k: 0, n: typeof payload.max_iteration_effective === 'number' ? payload.max_iteration_effective : null })
+    if (event === 'model.step') setIterStat((p) => ({ k: (p?.k ?? 0) + 1, n: p?.n ?? null }))
+    if (event === 'run.finished' || event === 'run.error') setIterStat(null)
     setItems((prev) => applyRunEvent(prev, event, payload, runKeyRef.current))
   }
 
@@ -1336,6 +1443,7 @@ export default function ChatWindow({
       await aborter.done
     } catch { /* 用户中断 */ }
     // 运行结束：reasoning 卡收起（保留内容，可手动展开）；主动停止断流时终态事件收不到，兜底收尾流式消息
+    setIterStat(null) // REQ-311 A4：迭代进度随 run 终态清除
     setItems((prev) => prev.map((it) => {
       if (it.streamKey) return { ...it, streamKey: undefined }
       if (it.kind === 'msg' && it.streaming) {
@@ -1515,8 +1623,16 @@ export default function ChatWindow({
         {!isProjectScope && agent && (
           <>
             <Tag>{agent.runtime_backend}</Tag>
-            <Tag>最大迭代 {agent.max_iteration}</Tag>
+            <Tooltip title="配置值；后端 ≤0 归一默认 25——运行中的生效值随 run.started max_iteration_effective 透出">
+              <Tag>{agent.max_iteration && agent.max_iteration > 0 ? `最大迭代 ${agent.max_iteration}` : '最大迭代 默认 25'}</Tag>
+            </Tooltip>
           </>
+        )}
+        {/* REQ-311 A4：运行中迭代进度（k=模型调用步累计，N=生效迭代上限；项目会话同样可见） */}
+        {running && iterStat && (iterStat.k > 0 || iterStat.n != null) && (
+          <Tooltip title="k=本次运行模型调用步累计（model.step）；N=协调者/智能体生效迭代上限">
+            <Tag color="processing" style={{ margin: 0 }}>迭代 {iterStat.k}{iterStat.n ? `/${iterStat.n}` : ''}</Tag>
+          </Tooltip>
         )}
         <span className="spacer" />
         <Space size={4} className="chat-ops">
@@ -1536,6 +1652,31 @@ export default function ChatWindow({
             disabled={!conversation.id}
           >
             <Button size="small">导出</Button>
+          </Dropdown>
+          {/* REQ-311 A7：观测档位入口前置（原深藏调用轨迹·显示设置）——级别与调试入库，仅影响之后的运行 */}
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'lv0', label: `简洁（默认）${debugLevel === 0 ? ' ✓' : ''}` },
+                { key: 'lv1', label: `详细 · 装配快照/分步用量${debugLevel === 1 ? ' ✓' : ''}` },
+                { key: 'lv2', label: `调试 · 另附模型输入全文${debugLevel === 2 ? ' ✓' : ''}` },
+                { type: 'divider' as const },
+                { key: 'persist', label: `${debugPersist ? '✓ ' : ''}调试事件入库（轨迹/回放可回看）` },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'persist') patchConvCfg({ debugPersist: !debugPersist })
+                else changeDebugLevel(Number(key.slice(2)))
+              },
+            }}
+            disabled={running}
+          >
+          <Button
+            size="small"
+            title="观测级别与调试事件入库（仅影响之后的运行；详情见「调用轨迹·运行治理」）"
+          >
+            观测 · {['简洁', '详细', '调试'][debugLevel] ?? debugLevel}{debugPersist ? ' +入库' : ''}
+          </Button>
           </Dropdown>
           {/* REQ-217①②④/M48：调用轨迹入口（重放/过程展示/调试三档/原始 JSON 收编面板，头部精简） */}
           <Button size="small" onClick={() => setTraceOpen(true)}>调用轨迹</Button>

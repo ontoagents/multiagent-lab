@@ -108,3 +108,19 @@
   word-break: break-all;
   color: var(--ant-color-text-secondary, #6b7280);
 }
+
+/* REQ-311 A5：委派徽标与统计行（source=agent:{id} 的成员委派调用） */
+.tool-delegate {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  color: #9333ea;
+  border: 1px solid #d8b4fe;
+  background: rgba(147, 51, 234, 0.06);
+}
+.tool-phase-title.tool-delegate-summary {
+  color: #9333ea;
+  padding: 2px 0 2px 4px;
+}

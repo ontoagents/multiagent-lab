@@ -4,7 +4,7 @@ topic: Context 域事实源（设计总纲·实现现状·演进跟踪）
 desc: 上下文层技术沉淀——预算三档/压缩持久化/工具结果剪枝/tool 轮次保全/召回链；代码地图、REQ/M37 映射、开放问题；姊妹档 53 号 Harness/55 号 Loop/56 号 Graph
 req: [REQ-201, REQ-210]
 docs: ["02 §6 五层总纲", "51 号体检", "37 号范式"]
-synced: 2026-10-01
+synced: 2026-10-13
 ---
 
 # Context：设计、实现与演进（2026-10-01 沉淀）
@@ -31,6 +31,8 @@ synced: 2026-10-01
 | tool 轮次保全/预算三档/压缩/剪枝/召回链 | REQ-201 | M37 | ✅ | 真机回归 11/11（含 compact 触发压缩持久化、轨迹回忆原话可证） |
 | 悬空调用「结果未知」合成（运行时不变量） | REQ-210 | M37 同轮 | ✅ | model.step 逐条可见 |
 | Context 页签（五层视角） | REQ-219 | M50 | ✅ | headless 16/16 |
+| 提示词装配透镜（instructionSegments 四段切分+debug≥1 恒含 instruction+装配卡分段视图） | REQ-311 A2 | M115 | ✅ | API 真机分段 chars 断言+UI 16/16 smoke/req311/ |
+| 上下文账单（context.stats 事件：预算/历史/裁剪压缩结构化/注入明细+压缩 warning 带 compression 字段+侧板生效口径注） | REQ-311 A6 | M115 | ✅ | API 真机字段断言+账单卡明细 smoke/req311/ |
 
 ## 三、开放问题与诚实边界
 

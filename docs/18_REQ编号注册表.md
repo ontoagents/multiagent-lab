@@ -1,6 +1,6 @@
 # 18_REQ编号注册表与文档治理
 
-> 状态：v2.94 ｜ 2026-10-13 ｜ 维护人：董奎 + 协作 Agent
+> 状态：v2.95 ｜ 2026-10-13 ｜ 维护人：董奎 + 协作 Agent
 > 文档性质：**全局事实源**。REQ 编号的唯一分配权威（裁决 01/03/11/17 各档"REQ-90+ 区段双占用"问题，2026-09-23 开发者授权执行）；同时登记 docs/ 目录编号治理约定。**新需求立项前必须先查本表分配编号**；各需求文档头部编号段说明以本表为准。
 > 裁决依据：交叉引用计数 + 代码引用核对——REQ-90~96 的**全部 57 处代码引用均为本体侧学习增强语义**（`web/src/pages/ontology/*`、`internal/ontobuild` 等），智能体侧技能/沙箱引用仅存在于 01 文档（约 18 处），故迁移智能体侧、保留本体侧（交付资产与代码零迁移）。
 
@@ -410,6 +410,7 @@
 | v2.89 | 2026-10-13 | REQ-232 分配+REQ-225 转正（✅ M59+M53 同轮交付补记——hooks 可配置化〔迁移 046 agent.hooks_json，REQ-302 预注编号被占顺延〕+沙箱执行纵深 a1591d8） | 董奎 × 协作 Agent |
 | v2.88 | 2026-10-13 | REQ-206 转正（✅ M41 尾项收口补记——dsh S2 真机面交付 faa1e1d） | 董奎 × 协作 Agent |
 | v2.83 | 2026-10-12 | **REQ-287/288/278 交付转正（✅ M92/M93/M105——开发者指令「开发已立项未开发的内容」Helix 线 agent 领取；M104 已被并行 REQ-300 占用顺延）**：287 伴生检索纵深（FTS5 兜底臂迁移 044+定义文本向量+三臂 RRF k=60+LIMIT 500 与 vecCache 桶治理〔TTL/容量/版本〕+别名回溯修复+labelOnlyVectors 分空间；真机隐式召回 match=vector+lexical+bm25）；288 伴生社区摘要（迁移 045+kg Louvain 复用+LLM 摘要骨架回退+eager ≤12 沿 KB-O4+三端点+检索零命中兜底注入+「社区」分区）；278 变更影响分析（spec 纯函数 AnalyzeImpact+GET /impact+「影响分析」分区+B1 疑似蕴含边检测+FROM 基准波及面口径）；单测 5 组+API 冒烟 15/15+UI 4/4 smoke/req287/；01 v1.38/02 v0.199/03 v1.16/20 v2.30/31 号 v2.27/AGENTS 置顶 | 董奎 × Helix 线 Agent |
+| v2.95 | 2026-10-13 | REQ-311 分配+转正（✅ 立项即交付 M115 同日；；**撞号注：REQ-309/M113 已被并行伴生宿主引擎池化立项轮占用（文档线立项待领取，本轮为实现交付，沿 REQ-176/290 先例实现轮顺延改号 REQ-311/M115）**：**智能体五层可感知可配置优化 P1 接线批**——开发者对 71 号《智能体五层可感知可配置优化分析》拍板「按照建议立项」：A1 Harness 审计族进 live 流〔approval.granted/denied、hook.denied、verify.*、connector.degraded、artifact.saved、debug.cli、context.stats 白名单+describeEvent 补文案+verify_failed 聊天流区分〕/A2 提示词装配透镜〔instructionSegments 四段切分〔base/skills/project_dir/ontology_guide〕+debug≥1 恒含 instruction 口径变更〔删 snapshotWithoutInstructions〕+装配卡分段视图〕/A3 masked+KBHit.sources 接线/A4 run.started max_iteration_effective+迭代 k/N 进度 chip/A5 时序条第五智能体泳道〔栈式 enter/exit 切段〕+委派徽标与聚合统计/A6 context.stats 上下文账单事件〔预算/历史/裁剪压缩结构化〕+侧板 Context 生效口径注/A7 观测档位入口前置头部；API 真机 11/11+UI headless 16/16 smoke/req309/；P2 B1~B4 挂需求池待领取；01 v1.44/02 v0.209/20 v2.38/71 号交付注/53~56 号 synced） | 董奎 × 协作 Agent |
 | v2.87 | 2026-10-12 | REQ-305 分配+转正（✅ 报障立项即交付 M109 同日：导入本体体积与规模防线——importOntology MaxBytesReader+Content-Length 预检拒绝语义取代 64MB 静默截断〔消灭 TTL/CSV 截断丢尾〕+spec 五层规模上限 400+IMPORT_MAX_BODY_MB/IMPORT_MAX_SPEC_OBJECTS 两 env 可配+BuildPage 前端预检；单测 4 组+真机超限零入库核验+UI 6/6 smoke/req305/；03 v1.18 §2.29/02 v0.203/20 v2.32/14 v0.76/16 v0.8） | 董奎 × 协作 Agent |
 | v2.86 | 2026-10-12 | REQ-304 分配+转正（✅ 报障立项即交付 M108 同日：资产详情页大文本渲染优化——懒挂载门槛 LARGE_SPEC_CHARS=200k 单源〔超限摘要卡+显式打开只读+下载导出〕+JsonEditor lint 门控〔大文档关 jsonParseLinter 全文 parse 主凶〕+SourceView specText useMemo+Spec JSON 页签下载保护；headless 14/14 smoke/req304/；03 v1.17 §2.28/02 v0.202/20 v2.31/14 v0.75） | 董奎 × 协作 Agent |
 | v2.85 | 2026-10-12 | REQ-303 分配（**伴生抽取管线可配可视与增量 IO**，开发者对 35 号分析拍板「接受建议，立项」；挂 M107 待领取；01 v1.41/02 v0.201/31 号 v2.32） | 董奎 × 协作 Agent |
