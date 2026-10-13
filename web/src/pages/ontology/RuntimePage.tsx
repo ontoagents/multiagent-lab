@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  Upload,
   Alert,
   Badge,
   Button,
@@ -248,6 +249,7 @@ function EngineProfilesPage({
   const [detailId, setDetailId] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   // 安装任务终态复位：引擎已命中 / 上次安装报错时解除按钮 loading（轮询由父组件 5s 驱动）
   useEffect(() => {
@@ -289,10 +291,24 @@ function EngineProfilesPage({
     setInstalling(true)
     try {
       await api.installEngine(engine)
-      showToast('已开始后台下载安装（约 20MB），完成后状态自动刷新')
+      showToast(engine === 'fuseki' ? '已开始后台下载安装（发行包约 220MB，支持断点续传），完成后状态自动刷新' : '已开始后台下载安装（约 20MB），完成后状态自动刷新')
     } catch (e: any) {
       showToast(e.message, 'err')
       setInstalling(false)
+    }
+  }
+
+  // REQ-307 手动路径：使用方自行下载发行包（浏览器断点续传）→ 上传 → 服务端解包落位（同步秒级）
+  const installFromFile = async (f: File) => {
+    setUploading(true)
+    try {
+      const r = await api.installEngineFile(engine, f)
+      showToast(`安装完成：${(r.files ?? []).map((x) => x.split('/').pop()).join('、')} 已写入 data/bin（即时生效）`)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setUploading(false)
+      reload()
     }
   }
 
@@ -350,14 +366,46 @@ function EngineProfilesPage({
                 {engineStatus?.binary ? `（当前命中：${engineStatus.binary}）` : ''}
               </Typography.Paragraph>
               {engineStatus?.installable ? (
-                <Space wrap>
-                  <Button type="primary" size="small" loading={installing || !!engineStatus.installing} onClick={install}>
-                    {engineStatus.installing ? '安装中…' : '一键下载安装'}
-                  </Button>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    官方 release（pin v0.5.11）按当前平台自动选择，写入 data/bin 后即时生效，无需重启服务
+                <div>
+                  <Space wrap>
+                    <Button type="primary" size="small" loading={installing || !!engineStatus.installing} onClick={install}>
+                      {engineStatus.installing ? '安装中…' : '一键下载安装'}
+                    </Button>
+                    {engine === 'fuseki' && (
+                      <Upload
+                        accept=".tar.gz,.tgz"
+                        showUploadList={false}
+                        disabled={uploading}
+                        beforeUpload={(f) => {
+                          installFromFile(f)
+                          return false
+                        }}
+                      >
+                        <Button size="small" loading={uploading} data-testid="fuseki-upload-install">
+                          已自行下载？上传发行包安装
+                        </Button>
+                      </Upload>
+                    )}
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                    {engine === 'fuseki'
+                      ? '一键安装：官方发行包（pin 6.2.0，六源候选）自动下载解包 fuseki-server 与 fuseki-server.jar 到 data/bin，即时生效无需重启；运行需 JDK 17+（未装 JDK 时安装后仍会提示）。'
+                      : '官方 release（pin v0.5.11）按当前平台自动选择，写入 data/bin 后即时生效，无需重启服务。'}
                   </Typography.Text>
-                </Space>
+                  {engine === 'fuseki' && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                      文件较大也可自行下载后上传安装（浏览器下载自带断点续传）：{' '}
+                      <Typography.Link href="https://mirrors.pku.edu.cn/apache/jena/binaries/" target="_blank" rel="noreferrer">
+                        北大镜像
+                      </Typography.Link>
+                      {' / '}
+                      <Typography.Link href="https://downloads.apache.org/jena/binaries/" target="_blank" rel="noreferrer">
+                        官方 downloads
+                      </Typography.Link>{' '}
+                      下载 apache-jena-fuseki-6.2.0.tar.gz（旧版本见 archive.apache.org/dist/jena/binaries/），解压后将其中的 fuseki-server 与 fuseki-server.jar 两个文件放到 data/bin/ 即可（或解压目录设置 FUSEKI_BIN 后重启 runtimed）。
+                    </Typography.Text>
+                  )}
+                </div>
               ) : (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   该引擎暂不支持一键安装，请按上方指引手动配置后重启 runtimed。

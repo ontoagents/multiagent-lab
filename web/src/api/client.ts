@@ -545,6 +545,12 @@ export const api = {
     req<{ stopped: string }>(`/api/agents/${encodeURIComponent(id)}/sandbox/stop`, { method: 'POST' }),
 
   /** REQ-146 一键安装（仅 oxigraph；202 异步任务，结果轮询 listEngines） */
+  /** 上传发行包安装（REQ-307 手动路径）：使用方自行下载 apache-jena-fuseki tar.gz → 上传解包落位（同步） */
+  installEngineFile: (name: string, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return reqMultipart<{ installed: boolean; files: string[] }>(`/api/engines/${encodeURIComponent(name)}/install-file`, fd)
+  },
   installEngine: (name: string) =>
     req<{ started: boolean; engine: string }>(`/api/engines/${encodeURIComponent(name)}/install`, { method: 'POST' }),
   createRuntimeProfile: (p: { name: string; engine?: string; ontology_ids: string[]; config?: string | Record<string, unknown>; port?: number }) =>

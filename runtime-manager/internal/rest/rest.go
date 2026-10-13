@@ -44,8 +44,9 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/runtime-profiles/{id}/sparql", s.sparql)  // SPARQL 工作台端点（REQ-92，Yasgui）
 	m.HandleFunc("POST /api/runtime-profiles/{id}/sparql", s.sparql) // 同上
 	m.HandleFunc("GET /api/runtime-profiles/{id}/guide", s.guide)
-	m.HandleFunc("GET /api/engines", s.engines)                       // 引擎自检（REQ-146）
-	m.HandleFunc("POST /api/engines/{name}/install", s.engineInstall) // 一键安装（REQ-146，异步任务）
+	m.HandleFunc("GET /api/engines", s.engines)                                // 引擎自检（REQ-146）
+	m.HandleFunc("POST /api/engines/{name}/install", s.engineInstall)          // 一键安装（REQ-146，异步任务）
+	m.HandleFunc("POST /api/engines/{name}/install-file", s.engineInstallFile) // 上传发行包安装（REQ-307 手动路径）
 	m.HandleFunc("GET /healthz", s.healthz)
 }
 
@@ -131,6 +132,17 @@ func (s *Server) engineInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": true, "engine": name})
+}
+
+// engineInstallFile 上传发行包安装（REQ-307 手动路径）：使用方自行下载 apache-jena-fuseki tar.gz
+// （浏览器下载自带断点续传）→ multipart 上传 → 服务端只解包落位 data/bin（同步返回）。
+func (s *Server) engineInstallFile(w http.ResponseWriter, r *http.Request) {
+	files, err := s.Manager.InstallFromFile(r.PathValue("name"), r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"installed": true, "files": files})
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {

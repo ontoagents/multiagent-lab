@@ -8,6 +8,8 @@
 package fuseki
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -23,10 +26,122 @@ import (
 )
 
 type Runtime struct {
-	Binary  string // fuseki-server 启动脚本路径
+	Binary  string // fuseki-server 启动脚本路径（可空——经 candidatePaths 动态解析，REQ-307）
 	JavaBin string // java 可执行（FUSEKI_JAVA，默认 PATH 上的 java）
 	DataDir string // 数据根目录（每 profile 一个子目录）
 	LogDir  string // 引擎日志目录
+}
+
+// PinnedVersion 一键安装 pin 的官方发行版本（REQ-307）。
+const PinnedVersion = "6.2.0"
+
+// ReleaseURLs 发行包下载候选 URL（依次尝试；教育网/云厂商镜像实测快官方源两个数量级，
+// 首选北大/华为云；downloads 仅保留当前版本、archive 为全历史归档兜底；
+// tar.gz 含 fuseki-server 脚本与 fuseki-server.jar）。
+func ReleaseURLs() []string {
+	name := "apache-jena-fuseki-" + PinnedVersion + ".tar.gz"
+	return []string{
+		"https://mirrors.pku.edu.cn/apache/jena/binaries/" + name,
+		"https://mirrors.huaweicloud.com/apache/jena/binaries/" + name,
+		"https://mirrors.tuna.tsinghua.edu.cn/apache/jena/binaries/" + name,
+		"https://mirrors.aliyun.com/apache/jena/binaries/" + name,
+		"https://downloads.apache.org/jena/binaries/" + name,
+		"https://archive.apache.org/dist/jena/binaries/" + name,
+	}
+}
+
+// ExtractServerFiles 从已下载的 apache-jena-fuseki tar.gz 提取运行必需的两件（fuseki-server
+// 启动脚本 + fuseki-server.jar）到 destDir。只按 base 名匹配这两件（天然免疫包内目录前缀差异）；
+// 拒绝 ".." 路径条目（防解包穿越）。java 为运行时依赖而非安装依赖，安装不要求 JDK。
+func ExtractServerFiles(tarPath, destDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("gzip 解压失败（非 tar.gz 发行包？）: %w", err)
+	}
+	defer gz.Close()
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	want := map[string]bool{"fuseki-server": false, "fuseki-server.jar": false}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar 读取失败: %w", err)
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.Base(hdr.Name)
+		if _, isTarget := want[name]; !isTarget {
+			continue // 非目标文件
+		}
+		if want[name] {
+			continue // 已提取（重名取首见）
+		}
+		if strings.Contains(hdr.Name, "..") {
+			return fmt.Errorf("发行包含可疑路径条目，已中止: %s", hdr.Name)
+		}
+		dst := filepath.Join(destDir, name)
+		out, err := os.OpenFile(dst+".download", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, tr)
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(dst + ".download")
+			return fmt.Errorf("提取 %s 失败: %w", name, err)
+		}
+		if err := os.Rename(dst+".download", dst); err != nil {
+			return err
+		}
+		want[name] = true
+	}
+	missing := []string{}
+	for k, ok := range want {
+		if !ok {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("发行包缺少运行文件: %s（pin %s 的包形态可能已变化）", strings.Join(missing, ","), PinnedVersion)
+	}
+	return nil
+}
+
+// DownloadFunc 下载函数形态（manager.downloadTo 同签名，解耦下载机制便于单测）。
+type DownloadFunc func(ctx context.Context, url, target string, minBytes int64) error
+
+// Install 一键安装：依次尝试 urls 下载发行包到临时文件 → 提取两件到 destDir → 清理。
+func Install(ctx context.Context, destDir string, urls []string, download DownloadFunc) error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("fuseki 一键安装暂不支持 windows（fuseki-server 为 shell 脚本）：请从 https://jena.apache.org/download/ 下载 zip 发行包手动配置 FUSEKI_BIN")
+	}
+	tmp := filepath.Join(os.TempDir(), "apache-jena-fuseki-"+PinnedVersion+".tar.gz.download")
+	defer os.Remove(tmp)
+	var lastErr error
+	for _, url := range urls {
+		if err := download(ctx, url, tmp, 50<<20); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := ExtractServerFiles(tmp, destDir); err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("全部下载源失败: %w", lastErr)
 }
 
 func New(binary, javaBin, dataDir, logDir string) *Runtime {
@@ -35,14 +150,40 @@ func New(binary, javaBin, dataDir, logDir string) *Runtime {
 	return &Runtime{Binary: binary, JavaBin: javaBin, DataDir: dataDir, LogDir: logDir}
 }
 
-// Probe 引擎自检（REQ-146）：fuseki 依赖 JDK + 分发包解压，不支持一键安装（诚实边界），
-// 只报 detected/缺失 + 手动指引。
-func (r *Runtime) Probe() engine.EngineStatus {
-	st := engine.EngineStatus{Engine: "fuseki", Registered: true}
-	cands := []string{r.Binary}
-	if p, err := exec.LookPath("fuseki-server"); err == nil {
-		cands = append(cands, p)
+// candidatePaths fuseki-server 候选序（REQ-307）：显式配置 → PATH → data/bin（一键安装落点，
+// 装后即命中、无需重启 runtimed）。与 oxigraph 适配器搜索语义一致。
+func (r *Runtime) candidatePaths() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
 	}
+	add(r.Binary)
+	if p, err := exec.LookPath("fuseki-server"); err == nil {
+		add(p)
+	}
+	add("data/bin/fuseki-server")
+	return out
+}
+
+// resolveBinary 探测可用 fuseki-server；全落空给可自助的安装指引（含一键安装提示）。
+func (r *Runtime) resolveBinary() (string, error) {
+	cands := r.candidatePaths()
+	if bin, ok := engine.FindExecutable(cands); ok {
+		return bin, nil
+	}
+	return "", fmt.Errorf("未找到 fuseki-server（已探测 %s）: 可在本体运行页「一键下载安装」（官方发行包 pin %s，写入 data/bin 即时生效，运行需 JDK 17+），或从 https://jena.apache.org/download/ 下载 apache-jena-fuseki 解压后设置 FUSEKI_BIN 指向其 fuseki-server 脚本",
+		strings.Join(cands, " → "), PinnedVersion)
+}
+
+// Probe 引擎自检（REQ-146/REQ-307）：支持一键安装（官方发行包自动下载解包，java 为运行时依赖）。
+func (r *Runtime) Probe() engine.EngineStatus {
+	st := engine.EngineStatus{Engine: "fuseki", Registered: true, Installable: true}
+	cands := r.candidatePaths()
 	st.Searched = cands
 	if bin, ok := engine.FindExecutable(cands); ok {
 		st.Installed = true
@@ -52,7 +193,7 @@ func (r *Runtime) Probe() engine.EngineStatus {
 		}
 		return st
 	}
-	st.Hint = "未安装：请下载 apache-jena-fuseki（https://jena.apache.org/download/）解压，设置 FUSEKI_BIN 指向 fuseki-server 启动脚本（需 JDK 17+）后重启 runtimed；暂不支持一键安装"
+	st.Hint = "未安装：可在本体运行页「一键下载安装」（官方发行包自动下载解包到 data/bin，即时生效）；运行需 JDK 17+（java 缺失时安装后仍会提示）；或手动下载 apache-jena-fuseki（https://jena.apache.org/download/）设置 FUSEKI_BIN"
 	return st
 }
 
@@ -105,11 +246,10 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 
 // StartWithReasoning 装载并启动。ttls: ontology_id → TTL 内容；reasoning=true 开 RDFS/OWL 推理。
 func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port int, ttls map[string]string, reasoning bool) (*engine.Process, error) {
-	// 预检：fuseki-server 脚本 + java
-	if _, err := os.Stat(r.Binary); err != nil {
-		if _, lookErr := exec.LookPath(r.Binary); lookErr != nil {
-			return nil, fmt.Errorf("未找到 fuseki-server（%q 不存在且不在 PATH）: 请从 https://jena.apache.org/download/ 下载 apache-jena-fuseki 并解压，设置 FUSEKI_BIN 指向其 fuseki-server 启动脚本后重启 runtimed（本仓库 data/bin/ 下亦随版本放置）", r.Binary)
-		}
+	// 预检：fuseki-server 脚本（候选序动态解析，REQ-307——FUSEKI_BIN 未配置时 data/bin 一键安装命中）
+	bin, err := r.resolveBinary()
+	if err != nil {
+		return nil, err
 	}
 	java := r.JavaBin
 	if java == "" {
@@ -140,7 +280,7 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 	// 生成 dataset 配置（推理开关）；推理时从 fuseki-server.jar 解出 OWL_FB 规则文件（绝对 file: URL，不依赖 CWD）
 	rulesURL := ""
 	if reasoning {
-		rf, err := extractRulesFile(java, filepath.Dir(r.Binary), dir)
+		rf, err := extractRulesFile(java, filepath.Dir(bin), dir)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +294,7 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 	// 装载阶段：tdbloader 离线灌入默认图（快于在线 SPARQL PUT，且不依赖服务启动）。
 	// 不带 --graph：推理侧 InfModel baseModel 指向默认图，见 reasoningConfig 注释。
 	// Fuseki 6.x 精简发行版无独立 tdbloader 脚本，统一走 java -cp fuseki-server.jar tdb2.tdbloader。
-	fusekiJar := filepath.Join(filepath.Dir(r.Binary), "fuseki-server.jar")
+	fusekiJar := filepath.Join(filepath.Dir(bin), "fuseki-server.jar")
 	for oid := range ttls {
 		f := filepath.Join(loadDir, sanitizeID(oid)+".ttl")
 		cmd := exec.CommandContext(ctx, java, "-cp", fusekiJar, "tdb2.tdbloader", "--loc", dbDir, f)
@@ -167,8 +307,8 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 	}
 
 	// serve：fuseki-server --config config.ttl --port（Fuseki 6.x 无 --host 参数，默认监听 localhost）
-	cmd := exec.Command(r.Binary, "--config", cfgPath, "--port", fmt.Sprint(port))
-	cmd.Env = append(os.Environ(), fmt.Sprintf("JAVA=%s", java), fmt.Sprintf("FUSEKI_HOME=%s", filepath.Dir(r.Binary)))
+	cmd := exec.Command(bin, "--config", cfgPath, "--port", fmt.Sprint(port))
+	cmd.Env = append(os.Environ(), fmt.Sprintf("JAVA=%s", java), fmt.Sprintf("FUSEKI_HOME=%s", filepath.Dir(bin)))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {

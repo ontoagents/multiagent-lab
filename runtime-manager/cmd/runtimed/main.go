@@ -41,17 +41,16 @@ func main() {
 	eng := oxigraph.New(oxigraphBin, dataDir, logDir)
 	mg := manager.New(st, buildURL, logDir, env("ENGINE_INSTALL_DIR", "data/bin"))
 	mg.RegisterEngine("oxigraph", eng)
-	// O6：Fuseki 引擎（FUSEKI_BIN 指向 fuseki-server 启动脚本；未配置则不注册，创建 fuseki 方案时给可自助提示）
+	// O6：Fuseki 引擎（FUSEKI_BIN 指向 fuseki-server 启动脚本；REQ-307 起常注册——未配置时经
+	// 候选序动态解析（FUSEKI_BIN → PATH → data/bin），一键安装写入 data/bin 后即时命中无需重启）
 	fusekiBin := env("FUSEKI_BIN", "")
 	fusekiJava := env("FUSEKI_JAVA", "")
-	if fusekiBin != "" {
-		if _, err := os.Stat(fusekiBin); err == nil {
-			mg.RegisterEngine("fuseki", fuseki.New(fusekiBin, fusekiJava, dataDir, logDir))
-			log.Printf("[runtimed] fuseki 引擎已注册 (%s, java=%s)", fusekiBin, fusekiJava)
-		} else {
-			log.Printf("[runtimed] FUSEKI_BIN=%s 不存在，fuseki 引擎未注册", fusekiBin)
-		}
+	if fusekiBin == "" {
+		log.Printf("[runtimed] FUSEKI_BIN 未配置，fuseki 引擎以候选序动态解析（data/bin 一键安装落点）")
+	} else if _, err := os.Stat(fusekiBin); err != nil {
+		log.Printf("[runtimed] FUSEKI_BIN=%s 不存在，fuseki 引擎回退候选序动态解析", fusekiBin)
 	}
+	mg.RegisterEngine("fuseki", fuseki.New(fusekiBin, fusekiJava, dataDir, logDir))
 	fc := facade.New(st, mg.ProcEndpoint)
 	if env("TRACE_SPARQL", "on") == "off" { // 翻译透视开关（REQ-94，默认开）
 		fc.TraceSparql = false

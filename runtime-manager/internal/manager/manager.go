@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/fuseki"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
 )
@@ -96,7 +97,7 @@ func (m *Manager) EngineStatuses() []engine.EngineStatus {
 		} else {
 			st = engine.EngineStatus{Engine: name, Registered: false, Hint: engineHint(name)}
 		}
-		if name == "oxigraph" {
+		if name == "oxigraph" || name == "fuseki" {
 			st.Installable = true
 			st.Installing = active
 			st.LastInstallError = lastErr
@@ -109,8 +110,8 @@ func (m *Manager) EngineStatuses() []engine.EngineStatus {
 // StartInstall 异步发起一键安装（REQ-146，仅 oxigraph）：进行中返回错误；
 // 结果经 EngineStatuses 的 Installing/LastInstallError/Installed 轮询呈现。
 func (m *Manager) StartInstall(name string) error {
-	if name != "oxigraph" {
-		return fmt.Errorf("引擎 %q 暂不支持一键安装（fuseki 需 JDK + apache-jena-fuseki 解压，手动配置 FUSEKI_BIN）", name)
+	if name != "oxigraph" && name != "fuseki" {
+		return fmt.Errorf("引擎 %q 暂不支持一键安装", name)
 	}
 	m.installMu.Lock()
 	if m.installing {
@@ -121,9 +122,19 @@ func (m *Manager) StartInstall(name string) error {
 	m.installErr = ""
 	m.installMu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		// REQ-307：fuseki 发行包 ~220MB（oxigraph ~20MB），超时按引擎区分（30min/10min）
+		budget := 10 * time.Minute
+		if name == "fuseki" {
+			budget = 30 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), budget)
 		defer cancel()
-		err := m.installOxigraph(ctx)
+		var err error
+		if name == "fuseki" {
+			err = m.installFuseki(ctx)
+		} else {
+			err = m.installOxigraph(ctx)
+		}
 		m.installMu.Lock()
 		m.installing = false
 		if err != nil {
@@ -132,6 +143,56 @@ func (m *Manager) StartInstall(name string) error {
 		m.installMu.Unlock()
 	}()
 	return nil
+}
+
+// installFuseki 一键安装（REQ-307）：官方发行包（pin fuseki.PinnedVersion，downloads→archive 双源）
+// 下载后提取 fuseki-server 脚本与 fuseki-server.jar 两件到 data/bin——fuseki 适配器候选序动态解析
+// 即时命中，无需重启 runtimed。java 为运行时依赖（启动时预检），安装不要求 JDK。
+func (m *Manager) installFuseki(ctx context.Context) error {
+	return fuseki.Install(ctx, m.InstallBinDir, fuseki.ReleaseURLs(), downloadTo)
+}
+
+// InstallFromFile 安装使用方自行下载的发行包（REQ-307 手动路径，开发者定案「文件太大不用预下载，
+// 给出下载方式由使用方自己下载」）：仅 fuseki——上传 apache-jena-fuseki tar.gz，服务端只做解包落位
+// （浏览器下载自带断点续传，慢网络用户彻底绕开服务端下载瓶颈）；装后即时生效无需重启 runtimed。
+func (m *Manager) InstallFromFile(name string, r *http.Request) ([]string, error) {
+	if name != "fuseki" {
+		return nil, fmt.Errorf("引擎 %q 暂不支持上传文件安装（当前仅 fuseki）", name)
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return nil, fmt.Errorf("multipart 解析失败: %w", err)
+	}
+	f, hdr, err := r.FormFile("file")
+	if err != nil {
+		return nil, fmt.Errorf("缺少 file 字段: %w", err)
+	}
+	defer f.Close()
+	lname := strings.ToLower(hdr.Filename)
+	if !strings.HasSuffix(lname, ".tar.gz") && !strings.HasSuffix(lname, ".tgz") {
+		return nil, fmt.Errorf("请上传 apache-jena-fuseki 的 tar.gz 发行包（收到 %s）", hdr.Filename)
+	}
+	tmp, err := os.CreateTemp("", "fuseki-upload-*.tar.gz")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmp.Name())
+	n, err := io.Copy(tmp, f)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return nil, err
+	}
+	if n < 1<<20 {
+		return nil, fmt.Errorf("文件过小（%d 字节），不是有效的 apache-jena-fuseki 发行包", n)
+	}
+	if err := fuseki.ExtractServerFiles(tmp.Name(), m.InstallBinDir); err != nil {
+		return nil, err
+	}
+	return []string{
+		filepath.Join(m.InstallBinDir, "fuseki-server"),
+		filepath.Join(m.InstallBinDir, "fuseki-server.jar"),
+	}, nil
 }
 
 // installOxigraph 下载官方 release（GOOS/GOARCH 映射资产，pin PinnedVersion）流式落盘：
@@ -155,24 +216,50 @@ func (m *Manager) installOxigraph(ctx context.Context) error {
 
 // downloadTo 流式下载 url → target（temp+rename 原子替换，非 windows 补执行位）。
 // minBytes 下限防截断/错误页落盘。独立成函数便于对下载机制做零网络依赖单测（httptest）。
+// downloadTo 流式下载 url → target（temp+rename 原子替换，非 windows 补执行位）。
+// minBytes 下限防截断/错误页落盘。REQ-307：支持 HTTP Range 断点续传——tmp 半包保留（中断不删），
+// 重试/换源时从已收字节续传（206 append；服务器不支持 Range 回 200 则全量重写）——
+// 本机实测外网长连接 ~1 分钟即断，无续传时大包（fuseki ~220MB）永远下不完。
 func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("创建安装目录失败: %w", err)
 	}
 	tmp := target + ".download"
+	var resumeFrom int64
+	if fi, err := os.Stat(tmp); err == nil && fi.Size() > 0 {
+		resumeFrom = fi.Size()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
+	}
+	if resumeFrom > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeFrom))
 	}
 	resp, err := installHTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("下载失败（%s）: %w", url, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusPartialContent: // 206 续传
+	case http.StatusOK:
+		// 200 全量：无半包时是正常下载；**有半包说明该源不支持 Range——报错换源并保留半包**
+		//（重写会清掉已收字节，六源候选中有支持 Range 的镜像，换源续传优于从头再来）
+		if resumeFrom > 0 {
+			resp.Body.Close()
+			return fmt.Errorf("源不支持断点续传（200 全量响应，半包 %d 字节已保留，换源重试）", resumeFrom)
+		}
+	default:
 		return fmt.Errorf("下载失败: %s（%s）", resp.Status, url)
 	}
-	f, err := os.Create(tmp)
+	flag := os.O_CREATE | os.O_WRONLY
+	if resumeFrom > 0 {
+		flag |= os.O_APPEND
+	} else {
+		flag |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(tmp, flag, 0o644)
 	if err != nil {
 		return err
 	}
@@ -180,13 +267,14 @@ func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
+	total := resumeFrom + n
 	if err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("下载中断（已收 %d 字节）: %w", n, err)
+		// 半包保留供断点续传（REQ-307）；仅"内容异常"（非网络中断）时清空重来
+		return fmt.Errorf("下载中断（本次 %d 字节，累计 %d）: %w", n, total, err)
 	}
-	if n < minBytes {
+	if total < minBytes {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("下载内容异常（仅 %d 字节，预期更大）: %s", n, url)
+		return fmt.Errorf("下载内容异常（仅 %d 字节，预期更大）: %s", total, url)
 	}
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(tmp, 0o755); err != nil {
