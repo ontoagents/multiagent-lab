@@ -149,8 +149,9 @@ func (s *Service) OnOntologyDeleted(ontologyID string) {
 	snapshotDelete(ontologyID)
 	s.Plans.Invalidate(ontologyID)
 	s.invalidateLabelCache(ontologyID)
+	// REQ-309/M113：从伴生共享池 ontology_ids 摘除（残留会导致池重启 FetchTTL 404 整池不可用）
+	s.Plans.RemoveFromPools(context.Background(), ontologyID)
 }
-
 
 // parseSnapshotFile 快照文件 → 三元组（REQ-227④ 信封格式带 count 对账；兼容旧裸数组格式）。
 func parseSnapshotFile(raw []byte) ([]migrateTriple, error) {

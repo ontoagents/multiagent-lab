@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -33,9 +34,9 @@ type PlanEngines struct {
 	HTTP     *http.Client
 
 	mu      sync.Mutex
-	eps     map[string]string // ontologyID → 引擎基址缓存（查询失败失效重查；宿主方案重建后自愈）
-	hostIDs map[string]string // ontologyID → 宿主方案 id（status 透出/观测）
-	names   map[string]string // ontologyID → 宿主方案名（status 透出，增量轮③可观测）
+	eps     map[string]string      // ontologyID → 引擎基址缓存（查询失败失效重查；宿主方案重建后自愈）
+	hostIDs map[string]string      // ontologyID → 宿主方案 id（status 透出/观测）
+	names   map[string]string      // ontologyID → 宿主方案名（status 透出，增量轮③可观测）
 	locks   map[string]*sync.Mutex // REQ-216 增量④：每本体串行锁（Ensure 单飞化——防并发重复建方案）
 	// 增量轮④：拉起失败冷却（error 态方案在冷却期内不重试 start——防每次读路径同步重试风暴）
 	startFailAt  map[string]time.Time
@@ -54,13 +55,13 @@ func NewPlanEngines(runtimeURL, buildURL string) *PlanEngines {
 		buildURL = getenvDefault("BUILD_SVC_URL", "http://127.0.0.1:8091")
 	}
 	return &PlanEngines{
-		RuntimeURL: strings.TrimRight(runtimeURL, "/"),
-		BuildURL:   strings.TrimRight(buildURL, "/"),
-		HTTP:       &http.Client{Timeout: 60 * time.Second}, // start 为同步健康等待，预算放宽
-		eps:        map[string]string{},
-		hostIDs:    map[string]string{},
-		names:      map[string]string{},
-		locks:      map[string]*sync.Mutex{},
+		RuntimeURL:   strings.TrimRight(runtimeURL, "/"),
+		BuildURL:     strings.TrimRight(buildURL, "/"),
+		HTTP:         &http.Client{Timeout: 60 * time.Second}, // start 为同步健康等待，预算放宽
+		eps:          map[string]string{},
+		hostIDs:      map[string]string{},
+		names:        map[string]string{},
+		locks:        map[string]*sync.Mutex{},
 		startFailAt:  map[string]time.Time{},
 		startFailErr: map[string]string{},
 	}
@@ -165,12 +166,58 @@ func (p *PlanEngines) EnsureHostPlan(ctx context.Context, ontologyID string) (st
 			return p.remember(ontologyID, started), nil
 		}
 	}
-	// ③ 自动创建「伴生·{本体名}」并 start
+	// ③ 无任何方案 → 自动创建宿主。REQ-309/M113 池化分道：空 spec 伴生容器进固定名共享池
+	// （成员 append 逐个进入，避免 N 容器=N 引擎进程）；有 spec 的 regular 本体保持独立宿主
+	// （否则其他空成员 REQ-293 计数硬闸失配）；spec 拉取失败降级独立宿主（不阻塞主链路）。
+	cnt, cerr := p.specObjectCount(ctx, ontologyID)
+	// 仅「确认的空容器」进池；有 spec 或 spec 拉取失败（cerr）均降级独立宿主（REQ-309 定案：不阻塞主链路）
+	if cerr != nil || cnt > 0 {
+		return p.ensureDedicatedHost(ctx, ontologyID)
+	}
+	for i := range profiles {
+		pr := &profiles[i]
+		if pr.Name != CompanionPoolName {
+			continue
+		}
+		if pr.Status != "running" {
+			started, serr := p.startProfile(ctx, pr.ID)
+			if serr != nil {
+				p.recordStartFail(ontologyID, serr.Error())
+				return "", fmt.Errorf("伴生共享池 %s 拉起失败: %w", pr.ID, serr)
+			}
+			p.clearStartFail(ontologyID)
+			pr = started
+		}
+		pool, aerr := p.poolAppendMember(ctx, pr, ontologyID)
+		if aerr != nil {
+			return "", aerr
+		}
+		return p.remember(ontologyID, pool), nil
+	}
+	created, err := p.createProfile(ctx, CompanionPoolName, "")
+	if err != nil {
+		return "", fmt.Errorf("创建伴生共享池失败: %w", err)
+	}
+	started, serr := p.startProfile(ctx, created.ID)
+	if serr != nil {
+		p.recordStartFail(ontologyID, serr.Error())
+		return "", fmt.Errorf("伴生共享池 %s 启动失败: %w", created.Name, serr)
+	}
+	p.clearStartFail(ontologyID)
+	pool, aerr := p.poolAppendMember(ctx, started, ontologyID)
+	if aerr != nil {
+		return "", aerr
+	}
+	return p.remember(ontologyID, pool), nil
+}
+
+// ensureDedicatedHost 独立宿主创建（REQ-309：有 spec 本体不进池——「伴生·{本体名}」一方案一引擎）。
+func (p *PlanEngines) ensureDedicatedHost(ctx context.Context, ontologyID string) (string, error) {
 	name, _ := p.OntologyName(ctx, ontologyID)
 	if name == "" {
 		name = ontologyID
 	}
-	// ②命名去叠加（增量轮②）：本体名已带「伴生·」前缀（如历史宿主名直接复用为本体名）不重复拼接
+	// 命名去叠加（增量轮②）：本体名已带「伴生·」前缀（如历史宿主名直接复用为本体名）不重复拼接
 	planName := name
 	if !strings.HasPrefix(name, "伴生·") {
 		planName = "伴生·" + name
@@ -305,7 +352,11 @@ func (p *PlanEngines) startProfile(ctx context.Context, id string) (*runtimeProf
 
 // createProfile POST /api/runtime-profiles（engine=oxigraph 默认档）。
 func (p *PlanEngines) createProfile(ctx context.Context, name, ontologyID string) (*runtimeProfile, error) {
-	payload, _ := json.Marshal(map[string]any{"name": name, "engine": "oxigraph", "ontology_ids": []string{ontologyID}})
+	oids := []string{ontologyID}
+	if ontologyID == "" {
+		oids = []string{} // 池创建（REQ-309）：空容器集合，成员经 append 逐个进入
+	}
+	payload, _ := json.Marshal(map[string]any{"name": name, "engine": "oxigraph", "ontology_ids": oids})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.RuntimeURL+"/api/runtime-profiles", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -325,6 +376,97 @@ func (p *PlanEngines) createProfile(ctx context.Context, name, ontologyID string
 		return nil, err
 	}
 	return &out, nil
+}
+
+// CompanionPoolName 伴生宿主共享池固定名（REQ-309/M113 池化）：空 spec 伴生容器共用一个
+// oxigraph 引擎（图隔离内建=GRAPH ont-{本体ID}/快照引擎无关/伴生容器默认图恒 0 满足 REQ-293 硬闸）。
+const CompanionPoolName = "伴生·共享引擎"
+
+// specObjectCount 构建平面取 spec 五层元素总数（REQ-309 池准入判据：==0 为空容器可进池；
+// 拉取失败返回 -1——调用方降级独立宿主，不阻塞 Ensure 主链路）。
+func (p *PlanEngines) specObjectCount(ctx context.Context, ontologyID string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/ontologies/%s/spec", p.BuildURL, ontologyID), nil)
+	if err != nil {
+		return -1, err
+	}
+	resp, err := p.HTTP.Do(req)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return -1, fmt.Errorf("spec 拉取 %s", resp.Status)
+	}
+	var spec struct {
+		Concepts       []json.RawMessage `json:"concepts"`
+		Relations      []json.RawMessage `json:"relations"`
+		Instances      []json.RawMessage `json:"instances"`
+		DataProperties []json.RawMessage `json:"data_properties"`
+		Axioms         []json.RawMessage `json:"axioms"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&spec); err != nil {
+		return -1, err
+	}
+	return len(spec.Concepts) + len(spec.Relations) + len(spec.Instances) + len(spec.DataProperties) + len(spec.Axioms), nil
+}
+
+// updateProfileOntologyIDs 运行平面 PUT 方案 ontology_ids（池成员追加/摘除，REQ-309；
+// PUT /api/runtime-profiles/{id} 已支持，running 态改记录不重启引擎）。
+func (p *PlanEngines) updateProfileOntologyIDs(ctx context.Context, profileID string, oids []string) error {
+	payload, _ := json.Marshal(map[string]any{"ontology_ids": oids})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, fmt.Sprintf("%s/api/runtime-profiles/%s", p.RuntimeURL, profileID), bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := p.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("update 返回 %s: %s", resp.Status, truncateStr(string(body), 200))
+	}
+	return nil
+}
+
+// poolAppendMember 池成员追加（幂等：已含则零改动）。
+func (p *PlanEngines) poolAppendMember(ctx context.Context, pool *runtimeProfile, ontologyID string) (*runtimeProfile, error) {
+	if containsOID(pool.OntologyIDs, ontologyID) {
+		return pool, nil
+	}
+	oids := append(append([]string{}, pool.OntologyIDs...), ontologyID)
+	if err := p.updateProfileOntologyIDs(ctx, pool.ID, oids); err != nil {
+		return nil, fmt.Errorf("池成员追加失败: %w", err)
+	}
+	pool.OntologyIDs = oids
+	return pool, nil
+}
+
+// RemoveFromPools 本体删除后从共享池 ontology_ids 摘除（REQ-309 P1 边界：残留会导致池重启
+// FetchTTL 404→error 态整池不可用；api 删除守卫成功路径经 OnOntologyDeleted 调用）。
+func (p *PlanEngines) RemoveFromPools(ctx context.Context, ontologyID string) {
+	profiles, err := p.listProfiles(ctx)
+	if err != nil {
+		return // 运行平面不可达：池成员残留由删除守卫的方案引用警示兜底提示，下次删除重试
+	}
+	for i := range profiles {
+		pr := &profiles[i]
+		if pr.Name == CompanionPoolName && containsOID(pr.OntologyIDs, ontologyID) {
+			oids := make([]string, 0, len(pr.OntologyIDs))
+			for _, oid := range pr.OntologyIDs {
+				if oid != ontologyID {
+					oids = append(oids, oid)
+				}
+			}
+			if uerr := p.updateProfileOntologyIDs(ctx, pr.ID, oids); uerr != nil {
+				log.Printf("[companion] 池成员摘除失败（%s 自 %s）: %v", ontologyID, pr.ID, uerr)
+			} else {
+				log.Printf("[companion] 池成员已摘除：%s 自 %s（REQ-309）", ontologyID, pr.ID)
+			}
+		}
+	}
 }
 
 // OntologyName 构建平面取本体名（建宿主方案命名/绑定存在性校验用；失败返回错误——Ensure 忽略回退 ontologyID）。
