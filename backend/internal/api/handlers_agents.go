@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
@@ -490,4 +491,17 @@ func validateAgentHooks(h store.AgentHooks) error {
 		seen[key] = true
 	}
 	return nil
+}
+
+// agentHarnessAudit GET /api/agents/{id}/harness-audit?limit=50（REQ-311 B2/M115）：
+// 该智能体全部会话的 Harness 审计跨会话聚合（审批挂起/决议、hook 拦截、verify 背压），
+// 倒序 limit 分页；Harness 页签「审计历史」段数据源。
+func (s *Server) agentHarnessAudit(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, total, err := s.Store.ListHarnessAudit(r.PathValue("id"), limit)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": rows, "total": total})
 }

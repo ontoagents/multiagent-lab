@@ -229,3 +229,57 @@ func (s *Store) ListMessagesAfterCursor(convID, afterMessageID string) ([]*Messa
 	}
 	return out, rows.Err()
 }
+
+// HarnessAuditRow 跨会话 Harness 审计行（REQ-311 B2：审批/拦截/验证事件跨会话聚合，附会话标题）。
+type HarnessAuditRow struct {
+	ID                string `json:"id"`
+	ConversationID    string `json:"conversation_id"`
+	ConversationTitle string `json:"conversation_title"`
+	RunID             string `json:"run_id"`
+	Type              string `json:"type"`
+	Data              string `json:"data,omitempty"`
+	CreatedAt         string `json:"created_at"`
+}
+
+// harnessAuditTypes 进入跨会话审计聚合的事件族（REQ-224 schema v2 结构化审计 + approval.request 挂起——
+// 顺带 55 号开放问题③：挂起中的审批请求在审计历史可见）。
+var harnessAuditTypes = []string{"approval.request", "approval.granted", "approval.denied", "hook.denied", "verify.completed", "verify.failed"}
+
+// ListHarnessAudit 按智能体倒序聚合其全部会话的 Harness 审计事件。
+// v1 范围=agent 直聊会话（conversation.agent_id）；项目会话的成员执行审计仍在各会话轨迹内
+//（71 号 §4.2 B2 诚实边界：项目会话 agent_id 为空，跨成员聚合归属语义留后续）。
+func (s *Store) ListHarnessAudit(agentID string, limit int) ([]*HarnessAuditRow, int, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	in := make([]string, len(harnessAuditTypes))
+	args := make([]any, 0, len(harnessAuditTypes)+2)
+	for i, t := range harnessAuditTypes {
+		in[i] = "?"
+		args = append(args, t)
+	}
+	typeIn := "(" + strings.Join(in, ",") + ")"
+	var total int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM run_event e JOIN conversation c ON c.id=e.conversation_id WHERE c.agent_id=? AND e.type IN `+typeIn, append([]any{agentID}, args...)...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	q := `SELECT e.id,e.conversation_id,IFNULL(c.title,''),e.run_id,e.type,IFNULL(e.data,''),e.created_at
+		FROM run_event e JOIN conversation c ON c.id=e.conversation_id
+		WHERE c.agent_id=? AND e.type IN ` + typeIn + ` ORDER BY e.created_at DESC, e.id DESC LIMIT ?`
+	args = append([]any{agentID}, args...)
+	args = append(args, limit)
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []*HarnessAuditRow{}
+	for rows.Next() {
+		var r HarnessAuditRow
+		if err := rows.Scan(&r.ID, &r.ConversationID, &r.ConversationTitle, &r.RunID, &r.Type, &r.Data, &r.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, &r)
+	}
+	return out, total, rows.Err()
+}

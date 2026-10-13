@@ -17,6 +17,7 @@ import {
   InfoCircleOutlined,
 DeleteOutlined, PlusOutlined, EyeOutlined} from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
+import type { HarnessAuditEvent } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
 import AgentCompanionManage from './AgentCompanionManage'
 import AssistantProposalBanner from './AssistantProposalBanner'
@@ -1257,6 +1258,9 @@ function AgentConfigForm({
                       </Form.List>
                     </>
                   )}
+                  {/* REQ-311 B2/M115：Harness 审计跨会话聚合——审批挂起/决议、hook 拦截、verify 背压 */}
+                  {sec('审计历史（跨会话聚合，REQ-311 B2）')}
+                  <HarnessAuditSection agentId={agent.id} />
                 </>
               ),
             },
@@ -1974,5 +1978,101 @@ function ConfigVersionCard({ agentId, onRolled }: { agentId: string; onRolled?: 
         </>
       )}
     </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// REQ-311 B2/M115：Harness 审计跨会话聚合段——该智能体全部会话的审批挂起/决议、hook 拦截、
+// verify 背压倒序列表（GET /api/agents/{id}/harness-audit；展开时拉取）。55 号开放问题③
+// 「挂起触达」顺带覆盖：挂起中的 approval.request 在列表即时可见。
+// v1 范围=agent 直聊会话（项目会话成员执行审计在各会话轨迹内——后端 ListHarnessAudit 边界注）。
+// ---------------------------------------------------------------------------
+const HARNESS_AUDIT_META: Record<string, { color: string; label: string }> = {
+  'approval.request': { color: 'gold', label: '审批挂起' },
+  'approval.granted': { color: 'green', label: '批准' },
+  'approval.denied': { color: 'red', label: '拒绝' },
+  'hook.denied': { color: 'orange', label: '拦截' },
+  'verify.completed': { color: 'blue', label: '验证通过' },
+  'verify.failed': { color: 'red', label: '验证未通过' },
+}
+
+function describeHarnessAudit(type: string, dataJson?: string): string {
+  let d: any = {}
+  try { d = dataJson ? JSON.parse(dataJson) : {} } catch { /* 原始摘要兜底 */ }
+  switch (type) {
+    case 'approval.request':
+      return `工具 ${d.tool_name ?? '?'} 请求审批（等待处理${Array.isArray(d.options) ? `，${d.options.length} 个选项` : ''}）`
+    case 'approval.granted':
+    case 'approval.denied':
+      return `工具 ${d.tool_name ?? '?'} ${type === 'approval.granted' ? '批准' : '拒绝'}（${d.decision_source === 'timeout' ? '挂起超时自动' : '人工'}决议）`
+    case 'hook.denied':
+      return `guard=${d.guard ?? '?'} 拦截 ${d.tool_name ?? '?'}：${d.reason ?? ''}`
+    case 'verify.completed':
+      return `验证命令通过：${d.command ?? ''}`
+    case 'verify.failed':
+      return `验证命令未通过：${d.command ?? ''}${d.error ? `（${d.error}）` : ''}`
+    default:
+      return (dataJson ?? '').slice(0, 120)
+  }
+}
+
+function HarnessAuditSection({ agentId }: { agentId: string }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<HarnessAuditEvent[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [err, setErr] = useState('')
+  const load = useCallback(() => {
+    setErr('')
+    api.harnessAudit(agentId, 50)
+      .then((r) => { setRows(r.events ?? []); setTotal(r.total ?? 0) })
+      .catch((e: any) => setErr(e?.message ?? '加载失败'))
+  }, [agentId])
+  useEffect(() => {
+    setRows(null)
+    if (open) load()
+  }, [open, agentId, load])
+  return (
+    <Collapse
+      size="small"
+      ghost
+      activeKey={open ? ['a'] : []}
+      onChange={(k) => setOpen(Array.isArray(k) && k.includes('a'))}
+      items={[{
+        key: 'a',
+        label: (
+          <span style={{ fontSize: 12 }}>
+            审批 / 拦截 / 验证事件（跨会话倒序{total > 0 ? `，共 ${total} 条` : ''}；点开展开）
+          </span>
+        ),
+        children: (
+          <div data-testid="harness-audit-list">
+            {err && <Alert type="warning" showIcon message={err} />}
+            {rows === null && !err && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text>
+            )}
+            {rows !== null && rows.length === 0 && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                暂无记录——开启「危险工具审批」并运行后，审批/拦截/验证事件将在此聚合可见。
+              </Typography.Text>
+            )}
+            {(rows ?? []).map((r) => {
+              const meta = HARNESS_AUDIT_META[r.type] ?? { color: 'default', label: r.type }
+              return (
+                <div key={r.id} className="harness-audit-row" style={{ display: 'flex', gap: 6, alignItems: 'baseline', padding: '3px 0', borderBottom: '1px dashed var(--c-line)', fontSize: 12 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                    {new Date(r.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </Typography.Text>
+                  <Tag color={meta.color} style={{ margin: 0, flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{meta.label}</Tag>
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{describeHarnessAudit(r.type, r.data)}</span>
+                  <Typography.Text type="secondary" style={{ fontSize: 10.5, flexShrink: 0, maxWidth: 120 }} ellipsis={{ tooltip: r.conversation_title }}>
+                    {r.conversation_title || r.conversation_id}
+                  </Typography.Text>
+                </div>
+              )
+            })}
+          </div>
+        ),
+      }]}
+    />
   )
 }

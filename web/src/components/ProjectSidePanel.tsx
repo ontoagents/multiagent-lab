@@ -15,6 +15,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
+import CollabTopology from './CollabTopology'
 import AIOptimizeButton from './AIOptimizeButton'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry } from '../api/types'
 import DirCheckResult from './DirCheckResult'
@@ -883,7 +884,10 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
   }
   return (
     <div className="proj-view-body">
-      <Section first>协作模式</Section>
+      {/* REQ-311 B1/M115：协作拓扑（静态有向图+会话回放委派计数/在栈高亮）——「发生了什么」可见性 */}
+      <Section first>协作拓扑</Section>
+      <CollabTopology project={project} agents={agents} />
+      <Section>协作模式</Section>
       {/* REQ-251：智能体侧板 Graph 占位说明并入此处（编排配置的真正归属地） */}
       <div className="member-hint" style={{ marginBottom: 8 }}>
         项目会话由主智能体调度（M4 生效）：成员经 agent_as_tool（委派为工具）或 transfer（路由移交）并入运行；工作流模式控制成员执行拓扑。

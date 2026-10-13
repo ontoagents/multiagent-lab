@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { AppstoreOutlined, BookOutlined, BulbOutlined, ClusterOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -879,6 +879,7 @@ export default function ChatWindow({
     current: string | null,
     onPick: (id: string) => void,
     footer?: { icon: ReactNode; label: string; onClick: () => void },
+    extra?: ReactNode, // REQ-311 B3：附加区（会话检索参数），渲染在 footer 之前
   ) => (
     <div className="chip-picker" onKeyDown={(e) => { if (e.key === 'Escape') setPicker(null) }}>
       <div className="chip-picker-title">{title}</div>
@@ -896,6 +897,7 @@ export default function ChatWindow({
           </button>
         ))}
       </div>
+      {extra}
       {footer && (
         <>
           <div className="chip-picker-divider" />
@@ -1902,7 +1904,11 @@ export default function ChatWindow({
             />
           </div>
         ) : (
-          <Bubble.List items={listItems} role={BUBBLE_ROLES} />
+          <>
+            {/* REQ-311 B4/M115：todo 产物卡——todo_write 机器侧清单（conversation.todo_json），run 收尾刷新可见 */}
+            <TodoCard todoJson={conversation.todo_json} />
+            <Bubble.List items={listItems} role={BUBBLE_ROLES} />
+          </>
         )}
         {running && (
           <div className="chat-stop">
@@ -2040,6 +2046,29 @@ export default function ChatWindow({
                       kbs.map((k) => ({ id: k.id, name: k.name, meta: typeof k.doc_count === 'number' ? `${k.doc_count} 文档` : undefined })),
                       conversation.kb_id,
                       (id) => patchConv({ kb_id: id, enable_kb: true }),
+                      undefined,
+                      // REQ-311 B3/M115：会话检索参数（Q-11 既有列的 UI 欠账；68 号定案仅此两参不扩配置面；
+                      // 后端 recallKB 已消费 conv.TopK/MinScore，≤0 回落知识库默认）
+                      <div data-testid="conv-kb-params">
+                        <div className="chip-picker-divider" />
+                        <div className="chip-picker-title">会话检索参数（随会话保存；0=跟随知识库默认）</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 12px 8px', flexWrap: 'wrap' }}>
+                          <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>命中数 top_k</Typography.Text>
+                          <InputNumber
+                            size="small" min={0} max={50} precision={0} style={{ width: 72 }}
+                            value={conversation.top_k ?? 0}
+                            onChange={(v) => patchConv({ top_k: typeof v === 'number' ? v : 0 })}
+                            data-testid="conv-topk"
+                          />
+                          <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>最低分 min_score</Typography.Text>
+                          <InputNumber
+                            size="small" min={0} max={1} step={0.05} style={{ width: 84 }}
+                            value={conversation.min_score ?? 0}
+                            onChange={(v) => patchConv({ min_score: typeof v === 'number' ? v : 0 })}
+                            data-testid="conv-minscore"
+                          />
+                        </div>
+                      </div>,
                     )}
                   >
                     <span className="chip-slot">{kbChip}</span>
@@ -2122,6 +2151,62 @@ export default function ChatWindow({
           onPatchConv={patchConv}
         />
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// REQ-311 B4/M115：todo 产物卡——todo_write 机器侧清单渲染（conversation.todo_json，
+// [{title,status}] 全量覆写语义；run 收尾 onConversationUpdated 刷新后可见）。
+// 数据零新增（REQ-202 已落库），本卡只做进度外显：三态勾选渲染+完成计数。
+// ---------------------------------------------------------------------------
+type TodoItem = { title: string; status: string }
+
+function parseTodos(json?: string | null): TodoItem[] {
+  if (!json) return []
+  try {
+    const arr = JSON.parse(json)
+    if (!Array.isArray(arr)) return []
+    return arr.filter((it) => it && typeof it.title === 'string')
+  } catch {
+    return []
+  }
+}
+
+const TODO_STATUS_META: Record<string, { icon: string; color: string; label: string }> = {
+  pending: { icon: '○', color: 'var(--c-ink-3)', label: '待办' },
+  in_progress: { icon: '◐', color: 'var(--c-brand, #4f7cff)', label: '进行中' },
+  done: { icon: '●', color: '#52c41a', label: '完成' },
+}
+
+export function TodoCard({ todoJson }: { todoJson?: string | null }) {
+  const todos = parseTodos(todoJson)
+  if (todos.length === 0) return null
+  const done = todos.filter((t) => t.status === 'done').length
+  const active = todos.filter((t) => t.status === 'in_progress').length
+  return (
+    <div className="todo-card" data-testid="todo-card">
+      <div className="todo-card-head">
+        <CheckSquareOutlined style={{ color: 'var(--c-ink-2)' }} />
+        <span>任务清单</span>
+        <span className="todo-card-count">
+          {done}/{todos.length} 完成{active > 0 ? ` · ${active} 进行中` : ''}
+        </span>
+      </div>
+      <ul className="todo-card-list">
+        {todos.map((t, i) => {
+          const meta = TODO_STATUS_META[t.status] ?? TODO_STATUS_META.pending
+          return (
+            <li key={i} className={`todo-card-item st-${TODO_STATUS_META[t.status] ? t.status : 'pending'}`}>
+              <span className="todo-card-icon" style={{ color: meta.color }}>{meta.icon}</span>
+              <span className="todo-card-title" style={t.status === 'done' ? { textDecoration: 'line-through', color: 'var(--c-ink-3)' } : undefined}>
+                {t.title}
+              </span>
+              <span className="todo-card-status" style={{ color: meta.color }}>{meta.label}</span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

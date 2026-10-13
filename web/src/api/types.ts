@@ -214,6 +214,8 @@ export interface Conversation {
   model_conn_id?: string | null
   top_k: number
   min_score: number
+  /** REQ-202 todo_write 机器侧清单（[{"title","status"}]；REQ-311 B4 产物卡数据源） */
+  todo_json?: string | null
   created_at: string
   updated_at: string
 }

@@ -105,6 +105,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)
 	// REQ-226/M54：配置治理（版本/回滚）
 	m.HandleFunc("GET /api/agents/{id}/config-versions", s.listAgentConfigVersions)
+	// REQ-311 B2/M115：Harness 审计跨会话聚合（审批挂起/决议、hook 拦截、verify 背压）
+	m.HandleFunc("GET /api/agents/{id}/harness-audit", s.agentHarnessAudit)
 	m.HandleFunc("GET /api/agents/{id}/config-versions/{version}/diff", s.agentConfigDiff)
 	m.HandleFunc("POST /api/agents/{id}/config-versions/{version}/rollback", s.rollbackAgentConfig)
 

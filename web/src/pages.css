@@ -812,3 +812,13 @@
    AntD 6 多选 DOM 为 .ant-select-content > .ant-select-content-item（无 .ant-select-selector） */
 .viz-3d-bar .ant-select-multiple { overflow: hidden; height: 24px; }
 .viz-3d-bar .ant-select-multiple .ant-select-content { height: 100%; overflow: hidden; display: flex; align-items: center; }
+
+/* REQ-311 B4/M115：todo 产物卡（消息区顶部的机器侧任务清单） */
+.todo-card { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--c-line); border-radius: 10px; background: var(--c-panel); }
+.todo-card-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--c-ink-2); }
+.todo-card-count { margin-left: auto; font-weight: 400; font-size: 11px; color: var(--c-ink-3); }
+.todo-card-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.todo-card-item { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; padding: 2px 0; }
+.todo-card-icon { flex-shrink: 0; font-size: 11px; }
+.todo-card-title { flex: 1; min-width: 0; }
+.todo-card-status { flex-shrink: 0; font-size: 10.5px; }

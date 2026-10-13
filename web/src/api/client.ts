@@ -146,6 +146,9 @@ async function reqSparql(url: string, query: string, accept?: string): Promise<{
 export const api = {
   // agents
   listAgents: () => req<Agent[]>('/api/agents'),
+  /** REQ-311 B2/M115：Harness 审计跨会话聚合（审批挂起/决议、hook 拦截、verify 背压；倒序 limit） */
+  harnessAudit: (agentId: string, limit = 50) =>
+    req<{ events: HarnessAuditEvent[]; total: number }>(`/api/agents/${agentId}/harness-audit?limit=${limit}`),
   createAgent: (a: Partial<Agent>) => req<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(a) }),
   updateAgent: (id: string, a: Partial<Agent>) => req<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(a) }),
   deleteAgent: (id: string) => req<{ deleted: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
@@ -948,4 +951,15 @@ export interface LifecyclePlan {
   generated_at: string
   profiles: { profile_id: string; profile_name: string; engine: string; status: string; ontologies: string[]; loaded: Record<string, number>; current: Record<string, number>; drifted?: string[]; unknown_drift?: boolean; last_error?: string }[]
   actions: LifecycleAction[]
+}
+
+/** REQ-311 B2/M115：Harness 审计跨会话聚合行（run_event 审计族 + 会话标题 JOIN） */
+export interface HarnessAuditEvent {
+  id: string
+  conversation_id: string
+  conversation_title: string
+  run_id: string
+  type: string
+  data?: string
+  created_at: string
 }
