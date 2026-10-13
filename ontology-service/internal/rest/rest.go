@@ -86,6 +86,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ai-draft-jobs/{id}", s.aiDraftJob)
 	// REQ-306 A1/M110：AI 创建澄清轮（生成前缺口清单+逐轮补充，可跳过直接生成）
 	m.HandleFunc("POST /api/ontologies/ai-clarify", s.aiClarify)
+	// REQ-308/M112：AI 创建 CQ 候选生成（描述+澄清轮材料→ExtractCQs→前端确认卡人工勾选）
+	m.HandleFunc("POST /api/ontologies/ai-cq-extract", s.aiCQExtract)
 	// REQ-207/M43 本体自进化（候选 vN-cK 状态机：诊断→补丁→配对门控→人工采纳）
 	m.HandleFunc("GET /api/ontologies/{id}/evolution/candidates", s.listEvolutionCandidates)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates", s.proposeEvolutionCandidate)

@@ -1,6 +1,7 @@
 import type {
   AgentConfigVersion,
   Agent,
+  AiDraftJobState,
   AiDraftResult,
   BuildQualitySummary,
   McpServeInfo,
@@ -487,9 +488,17 @@ export const api = {
     }),
   /** 轮询异步草案任务：running | done（result 与同步端点同形）；progress=服务端实测轮次进度（REQ-295③） */
   aiDraftJob: (jobId: string) =>
-    req<{ id: string; status: 'running' | 'done' | 'failed'; progress?: string; result?: AiDraftResult; error?: string }>(
+    req<AiDraftJobState>(
       `/api/ai-draft-jobs/${encodeURIComponent(jobId)}`,
     ),
+  /** CQ 抽取候选（REQ-308） */
+
+  /** AI 创建 CQ 候选生成（REQ-308）：描述+澄清轮材料→ExtractCQs（P5 两净化）；202+job 轮询（cqs 字段） */
+  aiCQExtract: (description: string, hints: string[]) =>
+    req<{ job_id: string }>('/api/ontologies/ai-cq-extract', {
+      method: 'POST',
+      body: JSON.stringify({ description, hints }),
+    }),
   /** AI 创建澄清轮（REQ-306 A1/M110）：生成前基于描述+已补材料输出范围复述+五维缺口清单；同步 RawChat */
   aiClarify: (description: string, hints: string[]) =>
     req<{ reply: string }>('/api/ontologies/ai-clarify', {

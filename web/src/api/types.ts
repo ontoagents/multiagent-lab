@@ -606,6 +606,16 @@ export interface ImportReport {
 }
 
 /** AI 草案结果（POST /api/ontologies/ai-draft） */
+export interface ExtractedCQ { cq: string; origin?: string }
+export interface AiDraftJobState {
+  id: string
+  status: 'running' | 'done' | 'failed'
+  progress?: string
+  result?: AiDraftResult
+  cqs?: ExtractedCQ[]
+  dedup?: number
+  error?: string
+}
 export interface AiDraftResult {
   spec: Spec
   rounds: number

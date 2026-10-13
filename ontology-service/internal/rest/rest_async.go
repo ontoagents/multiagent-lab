@@ -14,16 +14,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 )
 
 type draftJob struct {
-	ID        string       `json:"id"`
-	Status    string       `json:"status"`             // running | done | failed
-	Progress  string       `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
-	Result    *draftResult `json:"result,omitempty"`
-	Error     string       `json:"error,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID        string                 `json:"id"`
+	Status    string                 `json:"status"`             // running | done | failed
+	Progress  string                 `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
+	Result    *draftResult           `json:"result,omitempty"`
+	CQs       []ontochat.ExtractedCQ `json:"cqs,omitempty"`   // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
+	Dedup     int                    `json:"dedup,omitempty"` // REQ-308：与既有 CQ 重复被滤除条数
+	Error     string                 `json:"error,omitempty"`
+	CreatedAt time.Time              `json:"created_at"`
 }
 
 type draftResult struct {
@@ -76,6 +79,47 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 		var specMap map[string]any
 		_ = json.Unmarshal(b, &specMap)
 		job.Result = &draftResult{Spec: specMap, Rounds: res.Rounds, Quality: res.Quality}
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
+}
+
+// aiCQExtract POST /api/ontologies/ai-cq-extract → 202 {job_id}（REQ-308）：
+// AI 创建路径 CQ 候选生成——描述+澄清轮累积 hints 为原料，复用 ExtractCQs（P5 两净化+回喂重试）；
+// 轮询复用 GET /api/ai-draft-jobs/{id}（job.cqs 字段透出）。候选经前端确认卡人工勾选后才并入生成。
+func (s *Server) aiCQExtract(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Description string   `json:"description"`
+		Hints       []string `json:"hints"` // 澄清轮累积的补充材料（可选）
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Description) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "description 必填"})
+		return
+	}
+	if s.LLM == nil || s.OntoChat == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	job := &draftJob{ID: fmt.Sprintf("job_%d", time.Now().UnixNano()), Status: "running", CreatedAt: time.Now()}
+	draftJobsMu.Lock()
+	draftJobs[job.ID] = job
+	draftJobsMu.Unlock()
+	go func() {
+		cqs, dedup, err := s.OntoChat.ExtractCQsFromMaterial(context.Background(), req.Description, req.Hints, nil,
+			func(_ int, msg string) {
+				draftJobsMu.Lock()
+				job.Progress = msg
+				draftJobsMu.Unlock()
+			})
+		draftJobsMu.Lock()
+		defer draftJobsMu.Unlock()
+		if err != nil {
+			job.Status = "failed"
+			job.Error = err.Error()
+			return
+		}
+		job.Status = "done"
+		job.CQs = cqs
+		job.Dedup = dedup
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }

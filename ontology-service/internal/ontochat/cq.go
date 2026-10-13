@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 )
 
 // cqSchema CQ 抽取输出契约。
@@ -46,6 +48,18 @@ type ExtractedCQ struct {
 // ExtractCQs 抽取 CQ 候选：解析失败带错误回喂重试 ≤2 轮；与既有 CQ 精确去重。
 // 返回（候选清单, 与既有重复被滤除的条数, error）。
 func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
+	return extractCQsCore(ctx, e.LLM, buildCQMaterial(sess), sess.Context.CQs, onProgress...)
+}
+
+// ExtractCQsFromMaterial 无会话 CQ 抽取（REQ-308）：AI 创建路径直接消费「描述+补充材料」——
+// 复用 P5 抽取提示词与两净化算子，材料组装与 OntoChat 会话解耦。
+func (e *Engine) ExtractCQsFromMaterial(ctx context.Context, description string, hints, existing []string, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
+	return extractCQsCore(ctx, e.LLM, buildCQMaterialFrom(description, "", hints), existing, onProgress...)
+}
+
+// extractCQsCore 抽取主循环：existing 既有 CQ（prompt 声明勿重复+精确去重双重防线）；
+// 解析失败带错误回喂重试 ≤2 轮。
+func extractCQsCore(ctx context.Context, llm *llmcreate.Creator, material string, existing []string, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
 	notify := func(msg string) {
 		for _, p := range onProgress {
 			if p != nil {
@@ -53,15 +67,14 @@ func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...Ro
 			}
 		}
 	}
-	material := buildCQMaterial(sess)
-	existing := "（无）"
-	if len(sess.Context.CQs) > 0 {
-		existing = joinNumbered(sess.Context.CQs)
+	existingStr := "（无）"
+	if len(existing) > 0 {
+		existingStr = joinNumbered(existing)
 	}
-	prompt := strings.Replace(strings.Replace(cqExtractPrompt, "{existing}", existing, 1), "{material}", material, 1)
+	prompt := strings.Replace(strings.Replace(cqExtractPrompt, "{existing}", existingStr, 1), "{material}", material, 1)
 	for round := 1; round <= 2; round++ {
 		notify(fmt.Sprintf("第 %d/2 轮：抽取能力问题中", round))
-		raw, _, err := e.LLM.Chat(ctx, prompt, cqSchema)
+		raw, _, err := llm.Chat(ctx, prompt, cqSchema)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -74,21 +87,26 @@ func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...Ro
 			prompt = cqExtractPrompt + "\n\n注意：上一次输出不是合法 JSON 数组（" + perr.Error() + "）。请严格只输出 JSON 数组。"
 			continue
 		}
-		return dedupeCQs(sess.Context.CQs, cqs)
+		return dedupeCQs(existing, cqs)
 	}
 	return nil, 0, fmt.Errorf("抽取循环异常退出")
 }
 
 // buildCQMaterial 抽取材料：领域描述 + 逐轮补充信息（story 制品 REQ-275 落地后并入）。
 func buildCQMaterial(sess *Session) string {
+	return buildCQMaterialFrom(sess.Context.Description, sess.Context.DraftStory, sess.Context.Hints)
+}
+
+// buildCQMaterialFrom 参数化材料组装（REQ-308 解 sess 化：AI 创建路径无会话复用）。
+func buildCQMaterialFrom(description, story string, hints []string) string {
 	var b strings.Builder
-	if ds := strings.TrimSpace(sess.Context.DraftStory); ds != "" {
+	if ds := strings.TrimSpace(story); ds != "" {
 		b.WriteString("用户故事（访谈制品）：\n" + ds + "\n\n")
 	}
-	b.WriteString(strings.TrimSpace(sess.Context.Description))
-	if len(sess.Context.Hints) > 0 {
+	b.WriteString(strings.TrimSpace(description))
+	if len(hints) > 0 {
 		b.WriteString("\n\n已补充信息：")
-		for i, h := range sess.Context.Hints {
+		for i, h := range hints {
 			fmt.Fprintf(&b, "\n%d. %s", i+1, h)
 		}
 	}

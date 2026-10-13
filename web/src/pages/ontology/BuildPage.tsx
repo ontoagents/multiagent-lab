@@ -1,6 +1,6 @@
 import DoneCTA from './components/DoneCTA'
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Checkbox, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
 import {
   ApiOutlined,
   CheckCircleOutlined,
@@ -10,7 +10,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { AiDraftResult, ImportReport, Ontology, Spec, ValidationError } from '../../api/types'
+import type { AiDraftResult, ExtractedCQ, ImportReport, Ontology, Spec, ValidationError } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { ERR_COLUMNS } from './shared'
 import SpecGraph from './components/SpecGraph'
@@ -257,6 +257,11 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   const [clarifyBusy, setClarifyBusy] = useState(false)
   const [clarifyHints, setClarifyHints] = useState<string[]>([])
   const [clarifyInput, setClarifyInput] = useState('')
+  // REQ-308/M112：CQ 候选生成确认卡——ExtractCQs（描述+澄清轮材料）→人工勾选/编辑→回填 aiCq
+  const [cqJobBusy, setCqJobBusy] = useState(false)
+  const [cqCandidates, setCqCandidates] = useState<ExtractedCQ[] | null>(null)
+  const [cqPicks, setCqPicks] = useState<boolean[]>([])
+  const [cqEdits, setCqEdits] = useState<Record<number, string>>({})
 
   const [sampleBusy, setSampleBusy] = useState(false)
 
@@ -307,6 +312,53 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     } finally {
       setImportBusy(false)
     }
+  }
+
+  // REQ-308/M112：AI 生成 CQ——描述+澄清轮材料为原料调 ExtractCQs（P5 两净化），候选经确认卡人工勾选
+  const doCQExtract = async () => {
+    if (!aiDesc.trim()) {
+      showToast('请先填写领域描述，再生成 CQ', 'err')
+      return
+    }
+    setCqJobBusy(true)
+    try {
+      const { job_id } = await api.aiCQExtract(aiDesc.trim(), clarifyHints)
+      let done = false
+      for (let i = 0; i < 150; i++) {
+        await new Promise((res) => setTimeout(res, 2000))
+        const j = await api.aiDraftJob(job_id)
+        if (j.status === 'done') {
+          const cqs = j.cqs ?? []
+          if (!cqs.length) throw new Error('未抽取到候选，请补充更多领域信息')
+          setCqCandidates(cqs)
+          setCqPicks(cqs.map(() => true))
+          setCqEdits({})
+          showToast(`已生成 ${cqs.length} 条 CQ 候选，请勾选确认`)
+          done = true
+          break
+        }
+        if (j.status === 'failed') throw new Error(j.error || 'CQ 生成失败')
+      }
+      if (!done) throw new Error('生成超时（>5 分钟）——可重试')
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setCqJobBusy(false)
+    }
+  }
+
+  const applyCQCandidates = () => {
+    if (!cqCandidates) return
+    const picked = cqCandidates.map((c, i) => (cqPicks[i] ? (cqEdits[i] ?? c.cq).trim() : '')).filter(Boolean)
+    if (!picked.length) {
+      showToast('请至少勾选一条候选', 'err')
+      return
+    }
+    const existing = aiCq.split('\n').map((x) => x.trim()).filter(Boolean)
+    const merged = [...existing, ...picked.filter((x) => !existing.includes(x))]
+    setAiCq(merged.join('\n'))
+    setCqCandidates(null)
+    showToast(`已采用 ${picked.length} 条 CQ 写入输入框（可继续手写补充后生成草案）`)
   }
 
   // REQ-306 A1：澄清轮——基于描述+已补材料调 LLM 输出范围复述+五维缺口清单（同步 RawChat，秒~十秒级）
@@ -561,8 +613,13 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
             <>
               <div className="onto-sec" style={{ marginTop: 0 }}>
                 <span className="onto-sec-title">能力问题（CQ）引导（可选，每行一个）</span>
+                <span className="hit-spacer" />
+                {/* REQ-308/M112：AI 生成 CQ——候选经确认卡人工勾选后回填，手写与生成共存 */}
+                <Button size="small" loading={cqJobBusy} disabled={!aiDesc.trim()} onClick={doCQExtract} data-testid="cq-generate-btn">
+                  AI 生成 CQ
+                </Button>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  先列 3~5 个本体要回答的问题，会并入生成上下文（REQ-82 / REQ-90 CQ 引导）
+                  先列 3~5 个本体要回答的问题，会并入生成上下文（REQ-82 / REQ-90 CQ 引导）；也可由 AI 依据领域描述生成候选
                 </Typography.Text>
               </div>
               <Input.TextArea
@@ -571,6 +628,48 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
                 autoSize={{ minRows: 2, maxRows: 5 }}
                 placeholder={'本体应能回答的关键问题，每行一个：\n某缺陷源于哪个需求？\n某故障应采取什么维护措施？'}
               />
+              {cqCandidates && (
+                <Card size="small" style={{ marginTop: 8 }} data-testid="cq-candidate-card" title={`CQ 候选（${cqPicks.filter(Boolean).length}/${cqCandidates.length} 已勾选）——勾选/编辑后采用，将并入上方输入框`}>
+                  {cqCandidates.map((c, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                      <Checkbox checked={!!cqPicks[i]} onChange={(e) => setCqPicks((p) => p.map((v, j) => (j === i ? e.target.checked : v)))} />
+                      <Input
+                        size="small"
+                        value={cqEdits[i] ?? c.cq}
+                        onChange={(e) => setCqEdits((m) => ({ ...m, [i]: e.target.value }))}
+                      />
+                      {c.origin && <Tag style={{ margin: 0, flexShrink: 0 }}>{c.origin}</Tag>}
+                      <Button
+                        size="small"
+                        type="text"
+                        onClick={() => {
+                          setCqCandidates((list) => (list ?? []).filter((_, j) => j !== i))
+                          setCqPicks((p) => p.filter((_, j) => j !== i))
+                        }}
+                      >
+                        删
+                      </Button>
+                    </div>
+                  ))}
+                  <Space style={{ marginTop: 6 }}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setCqCandidates((list) => [...(list ?? []), { cq: '' }])
+                        setCqPicks((p) => [...p, true])
+                      }}
+                    >
+                      手动添加
+                    </Button>
+                    <Button size="small" type="primary" onClick={applyCQCandidates} data-testid="cq-apply-btn">
+                      采用 {cqPicks.filter(Boolean).length} 条
+                    </Button>
+                    <Button size="small" onClick={() => setCqCandidates(null)}>
+                      放弃
+                    </Button>
+                  </Space>
+                </Card>
+              )}
               <div className="onto-sec">
                 <span className="onto-sec-title">领域描述（必填）</span>
               </div>
