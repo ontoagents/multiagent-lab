@@ -490,6 +490,12 @@ export const api = {
     req<{ id: string; status: 'running' | 'done' | 'failed'; progress?: string; result?: AiDraftResult; error?: string }>(
       `/api/ai-draft-jobs/${encodeURIComponent(jobId)}`,
     ),
+  /** AI 创建澄清轮（REQ-306 A1/M110）：生成前基于描述+已补材料输出范围复述+五维缺口清单；同步 RawChat */
+  aiClarify: (description: string, hints: string[]) =>
+    req<{ reply: string }>('/api/ontologies/ai-clarify', {
+      method: 'POST',
+      body: JSON.stringify({ description, hints }),
+    }),
   /** 导出下载地址（text/turtle attachment） */
   ontologyExportUrl: (id: string, format: string) => `/api/ontologies/${id}/export?format=${encodeURIComponent(format)}`,
   /** 注入指引（经构建平面路由，稳定可用） */

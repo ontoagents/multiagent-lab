@@ -39,12 +39,22 @@ type TurnResult struct {
 type RoundProgress func(round int, note string)
 
 // domainSufficientPrompt 补全轮的归纳 prompt：让模型归纳已给信息并判断是否可生成。
+// REQ-306 A3：缺口引导从一句话升级为五维清单（概念覆盖/关系与层级/属性/实例来源/约束规则）。
 const domainSufficientPrompt = `你是本体建模访谈专家。用户正在逐步补充领域信息，请：
 1. 用 2~4 条要点归纳用户本轮补充的信息（不要重复已有要点）；
 2. 判断当前信息是否足以生成一个可用的本体草稿；
-3. 若不足，明确列出还缺什么（如：关键概念间的关系、实例来源、层级深度），用一句话引导用户补充；
+3. 若不足，按五个维度输出缺口清单，每维一行「维度名：已足够」或「维度名：缺——<一句话说明>」：
+   概念覆盖（主要实体类型）/ 关系与层级（实体间关系与分类层次）/ 属性（关键对象的记录属性）/ 实例来源（是否需要实例、从哪来）/ 约束规则（互斥、数量限制等业务规则）；
 4. 若已足够，回复以「可以生成」开头，并简述你准备建模的概念范围。
-要求：中文、简洁（150 字内）、不要输出 JSON。`
+要求：中文、简洁（250 字内）、不要输出 JSON。`
+
+// domainQAPrompt domain 阶段自由问答槽（REQ-306 A3）：疑问类输入走 LLM 回答——不进 Hints、
+// 不触发归纳；回答完引导继续补充材料或生成草稿。对齐智能体对话基线的「说什么都被回应」能力。
+const domainQAPrompt = `你是本体建模访谈专家，正在协助用户构建本体。结合当前建模上下文回答用户的问题（概念设计、关系建模、层级划分、本体方法论等）；上下文未覆盖时按通用本体建模经验回答。回答完用一句话提醒：可以继续补充领域材料，或说「生成草稿」直接产出。
+要求：中文、简洁（300 字内）、不要输出 JSON。
+
+当前建模上下文：
+`
 
 // WillGenerate 判定该轮将进入生成器（REST 层同步/异步路径判定依据，REQ-271）：
 // draft/refine 阶段任意输入（修正意见/空文本重生成）都触发生成；domain 阶段命中生成意图才生成；
@@ -265,6 +275,7 @@ func (e *Engine) turnCQ(st *Store, sess *Session, userText string) (*TurnResult,
 }
 
 // turnDomain 补全轮：归纳要点；用户说「生成草稿」则直接进入 draft（onProgress 透传，REQ-271）。
+// REQ-306 A3：疑问类输入走自由问答槽（LLM 回答，不进 Hints 不归纳）——材料与提问分流。
 func (e *Engine) turnDomain(ctx context.Context, st *Store, sess *Session, userText string, onProgress ...RoundProgress) (*TurnResult, error) {
 	text := strings.TrimSpace(userText)
 	if text == "" {
@@ -272,6 +283,9 @@ func (e *Engine) turnDomain(ctx context.Context, st *Store, sess *Session, userT
 	}
 	if isGenerateIntent(text) {
 		return e.turnDraft(ctx, st, sess, onProgress...)
+	}
+	if isQuestion(text) {
+		return e.turnDomainQA(ctx, st, sess, text)
 	}
 	sess.Context.Hints = append(sess.Context.Hints, text)
 
@@ -301,6 +315,48 @@ func (e *Engine) turnDomain(ctx context.Context, st *Store, sess *Session, userT
 		return nil, err
 	}
 	return &TurnResult{Reply: reply, NextStage: stage}, nil
+}
+
+// turnDomainQA 问答轮（REQ-306 A3）：只回答不累积——Hints/Context 零副作用，回复留痕进 messages。
+func (e *Engine) turnDomainQA(ctx context.Context, st *Store, sess *Session, question string) (*TurnResult, error) {
+	var b strings.Builder
+	b.WriteString(domainQAPrompt)
+	b.WriteString("领域描述：" + sess.Context.Description + "\n")
+	if len(sess.Context.CQs) > 0 {
+		b.WriteString("能力问题：" + strings.Join(sess.Context.CQs, "；") + "\n")
+	}
+	if len(sess.Context.Hints) > 0 {
+		b.WriteString("已补充材料：" + strings.Join(sess.Context.Hints, "；") + "\n")
+	}
+	b.WriteString("\n用户问题：" + question)
+	reply, _, err := e.LLM.RawChat(ctx, b.String())
+	if err != nil {
+		return nil, err
+	}
+	round := sess.Round + 1
+	stage := "domain"
+	if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, &stage, &round, &sess.Context); err != nil {
+		return nil, err
+	}
+	return &TurnResult{Reply: reply, NextStage: stage}, nil
+}
+
+// isQuestion 疑问类输入判定（REQ-306 A3，确定性规则）：问号结尾，或疑问词开头。
+// 误判兜底=问答轮零副作用（材料不受影响）；确属材料的问句形内容用户可用陈述句重述。
+func isQuestion(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	if strings.HasSuffix(t, "？") || strings.HasSuffix(t, "?") {
+		return true
+	}
+	for _, p := range []string{"什么", "怎么", "如何", "为什么", "为何", "是否", "能否", "可以", "应该", "哪", "谁", "吗", "么", "怎样", "是不是", "要不要"} {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // turnDraft 生成轮：累积上下文 → llmcreate.Draft（内含校验回喂循环，最多 3 轮）。

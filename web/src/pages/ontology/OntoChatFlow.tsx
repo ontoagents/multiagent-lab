@@ -317,6 +317,15 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     })()
   }, [refreshList, openSession])
 
+  // REQ-306 A2：AI 创建「改用 OntoChat」分流携带描述——localStorage 一次性预填（cq 阶段第一行=领域描述）
+  useEffect(() => {
+    const preset = localStorage.getItem('eino.ontochat.preset.desc')
+    if (preset) {
+      localStorage.removeItem('eino.ontochat.preset.desc')
+      setInput((v) => v || preset)
+    }
+  }, [])
+
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [active?.messages?.length, turning])

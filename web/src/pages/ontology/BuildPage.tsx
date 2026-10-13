@@ -105,7 +105,16 @@ export default function BuildPage() {
         </nav>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          {buildPath === 'custom' && <CustomFlow onGoKbPath={() => select('kb')} />}
+          {buildPath === 'custom' && (
+            <CustomFlow
+              onGoKbPath={() => select('kb')}
+              // REQ-306 A2：AI 创建分流——描述携带进 OntoChat（localStorage 一次性预填）
+              onGoOntoChat={(desc) => {
+                if (desc) localStorage.setItem('eino.ontochat.preset.desc', desc)
+                select('ontochat')
+              }}
+            />
+          )}
           {buildPath === 'ontochat' && <OntoChatFlow onSaved={() => { /* 入库后产物进资产栏；此处留在会话页展示 done 态 */ }} />}
           {buildPath === 'kb' && (<><KbBuildFlow /><StructuredFlow /></>)}
           {buildPath === 'kg' && <KgGuide />}
@@ -127,7 +136,7 @@ const CUSTOM_STAGES = [
   { key: 's4', title: 'S4 可视化' },
 ]
 
-function CustomFlow({ onGoKbPath }: { onGoKbPath?: () => void }) {
+function CustomFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPath?: () => void; onGoOntoChat?: (desc: string) => void }) {
   const [step, setStep] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [spec, setSpec] = useState<Spec | null>(null)
@@ -173,7 +182,7 @@ function CustomFlow({ onGoKbPath }: { onGoKbPath?: () => void }) {
         }))}
         style={{ marginBottom: 14 }}
       />
-      {step === 0 && <S1Source onCreated={handleCreated} onGoKbPath={onGoKbPath} />}
+      {step === 0 && <S1Source onCreated={handleCreated} onGoKbPath={onGoKbPath} onGoOntoChat={onGoOntoChat} />}
       {step === 1 && activeId && (
         <S2EditPane
           ontologyId={activeId}
@@ -226,7 +235,7 @@ function CustomFlow({ onGoKbPath }: { onGoKbPath?: () => void }) {
 
 const S1_TAB_KEY = 'eino.onto.s1tab'
 
-function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) => void; onGoKbPath?: () => void }) {
+function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectId?: string) => void; onGoKbPath?: () => void; onGoOntoChat?: (desc: string) => void }) {
   // REQ-248/M71：S1 来源 tab 记忆（方法论卡「援引到构建」直达 AI 创建 CQ 输入点的落点）
   const [s1Tab, setS1Tab] = useState(() => localStorage.getItem(S1_TAB_KEY) ?? 'import')
   const { showToast } = useUI()
@@ -243,6 +252,11 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
   const [aiProgress, setAiProgress] = useState<string>('') // REQ-295③：服务端实测轮次进度（永不虚构百分比）
   const [aiResult, setAiResult] = useState<AiDraftResult | null>(null)
   const [aiName, setAiName] = useState('')
+  // REQ-306 A1/M110：AI 创建澄清轮——生成前 LLM 缺口清单+逐轮补充（可随时「直接生成」跳过）
+  const [clarifyReply, setClarifyReply] = useState<string | null>(null)
+  const [clarifyBusy, setClarifyBusy] = useState(false)
+  const [clarifyHints, setClarifyHints] = useState<string[]>([])
+  const [clarifyInput, setClarifyInput] = useState('')
 
   const [sampleBusy, setSampleBusy] = useState(false)
 
@@ -295,21 +309,51 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
     }
   }
 
-  const doAiDraft = async () => {
+  // REQ-306 A1：澄清轮——基于描述+已补材料调 LLM 输出范围复述+五维缺口清单（同步 RawChat，秒~十秒级）
+  const doClarify = async () => {
+    if (!aiDesc.trim()) {
+      showToast('请先填写领域描述', 'err')
+      return
+    }
+    const hints = [...clarifyHints]
+    if (clarifyInput.trim()) {
+      hints.push(clarifyInput.trim())
+      setClarifyHints(hints)
+      setClarifyInput('')
+    }
+    setClarifyBusy(true)
+    try {
+      const r = await api.aiClarify(aiDesc.trim(), hints)
+      setClarifyReply(r.reply)
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setClarifyBusy(false)
+    }
+  }
+
+  const doAiDraft = async (force = false) => {
     if (!aiDesc.trim()) {
       showToast('请描述本体用途', 'err')
+      return
+    }
+    const cqs = aiCq
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    // REQ-306 A2：材料单薄（短描述且无 CQ/提示/已澄清）先走澄清轮——不拦截，点「直接生成草案」可随时跳过
+    if (!force && clarifyReply === null && aiDesc.trim().length < 50 && cqs.length === 0 && !aiHint.trim()) {
+      await doClarify()
       return
     }
     setAiBusy(true)
     setAiResult(null)
     try {
       // REQ-248/G2：CQ 显式入参（后端 DraftWithCQ 回写 spec.cq 入资产）
-      const cqs = aiCq
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
+      // REQ-306 A1：澄清轮补充的材料并入生成上下文
       // REQ-267/M76：异步提交+轮询（202+job），去 120s 同步阻塞窗口；失败/超时回显可懂错误
-      const { job_id } = await api.aiDraftOntologyAsync(aiDesc.trim(), aiHint.trim() || undefined, cqs.length ? cqs : undefined)
+      const mergedHint = [aiHint.trim(), ...clarifyHints].filter(Boolean).join('\n\n')
+      const { job_id } = await api.aiDraftOntologyAsync(aiDesc.trim(), mergedHint || undefined, cqs.length ? cqs : undefined)
       showToast('已提交生成任务，生成中…')
       let r: AiDraftResult | undefined
       for (let i = 0; i < 160; i++) {
@@ -547,10 +591,61 @@ function S1Source({ onCreated, onGoKbPath }: { onCreated: (selectId?: string) =>
                 icon={<ThunderboltOutlined />}
                 loading={aiBusy}
                 style={{ marginTop: 10 }}
-                onClick={doAiDraft}
+                onClick={() => doAiDraft()}
+                data-testid="ai-draft-btn"
               >
                 生成草案
               </Button>
+              {/* REQ-306 A1/M110：澄清轮卡——生成前 LLM 范围复述+五维缺口清单；逐轮补充或直接生成；A2 一键切 OntoChat */}
+              {clarifyReply && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 10 }}
+                  title="生成前澄清——材料缺口清单"
+                  description={
+                    <>
+                      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 8, fontSize: 13 }} data-testid="clarify-reply">
+                        {clarifyReply}
+                      </Typography.Paragraph>
+                      <Input.TextArea
+                        value={clarifyInput}
+                        onChange={(e) => setClarifyInput(e.target.value)}
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                        placeholder="按缺口清单补充材料（可多轮；也可直接生成）…"
+                        data-testid="clarify-input"
+                      />
+                      <Space style={{ marginTop: 8 }} size={8} wrap>
+                        <Button size="small" loading={clarifyBusy} onClick={doClarify} data-testid="clarify-more">
+                          补充并继续澄清
+                        </Button>
+                        <Button size="small" type="primary" loading={aiBusy} onClick={() => doAiDraft(true)} data-testid="clarify-generate">
+                          直接生成草案
+                        </Button>
+                        {onGoOntoChat && (
+                          <Button
+                            size="small"
+                            onClick={() => onGoOntoChat([aiDesc.trim(), ...clarifyHints].filter(Boolean).join('\n'))}
+                            data-testid="clarify-goto-ontochat"
+                          >
+                            改用 OntoChat 对话式构建
+                          </Button>
+                        )}
+                      </Space>
+                      {clarifyHints.length > 0 && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                          已补充 {clarifyHints.length} 轮材料（将并入生成上下文）
+                        </Typography.Text>
+                      )}
+                      {clarifyHints.length >= 3 && (
+                        <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                          已澄清 {clarifyHints.length} 轮——建议直接生成，或切换 OntoChat 做深度多轮对话
+                        </Typography.Text>
+                      )}
+                    </>
+                  }
+                />
+              )}
               {/* REQ-295③（67 号 A4）：诚实进度——只显示服务端实测轮次计数，永不虚构百分比与 ETA */}
               {aiBusy && aiProgress && (
                 <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }} data-testid="ai-draft-progress">

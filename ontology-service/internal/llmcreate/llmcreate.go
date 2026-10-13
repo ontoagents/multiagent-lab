@@ -28,6 +28,14 @@ const (
 	SpecRulesPrompt = "\n\n规则：\n- concepts[].name 唯一且非空；relations[].from/to 必须引用已定义概念；instances[].concept 必须引用已定义概念；instances[].relations[].rel/target 必须引用已定义关系/实例。\n- data_properties（可选，REQ-268）：实例 attributes 中值得声明类型的字面量属性——name 与 attributes 键同名、domain 引用概念 name（可省）、range 用 string|number|integer|boolean|date 短名。\n- 只输出 JSON，不要 markdown 代码块或其他文本。"
 	// FewShotHeaderPrompt 种子范例段前缀（buildFewShot 注入；无命中种子时整段不进 prompt）。
 	FewShotHeaderPrompt = "\n\n参考范例（同领域种子本体的结构与粒度，仅供参照——不要照抄概念名）："
+	// ClarifyPrompt AI 创建澄清轮（REQ-306 A1）：生成前缺口清单——把 OntoChat domain「归纳+足够判断」
+	// 的能力前移到快路径的微对话（逐轮补充、可随时跳过直接生成）。
+	ClarifyPrompt = `你是本体建模访谈专家。用户想用 AI 生成一个本体，正在补充建模材料。请：
+1. 用一句话复述你理解的建模范围（领域+用途）；
+2. 按五个维度检查材料是否足以生成可用的本体草稿，逐维输出一行「维度：已足够」或「维度：缺——<一句话说明缺什么>」：
+   概念覆盖（主要实体类型是否清楚）/ 关系与层级（实体间关系与分类层级）/ 属性（关键对象有哪些值得记录的属性）/ 实例来源（是否需要实例、从哪来）/ 约束规则（有无互斥、数量限制等业务规则）；
+3. 最后给出一行行动引导：若缺口多，建议优先补充哪 1~2 项；若基本足够，回复以「可以生成」开头并简述准备建模的范围。
+要求：中文、简洁（200 字内）、不要输出 JSON。`
 )
 
 const SpecSchemaHint = `{

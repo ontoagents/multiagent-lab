@@ -84,6 +84,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	// REQ-207/M43（52 号 E5④）：生成异步化（ai-draft 202+轮询）
 	m.HandleFunc("POST /api/ontologies/ai-draft-async", s.aiDraftAsync)
 	m.HandleFunc("GET /api/ai-draft-jobs/{id}", s.aiDraftJob)
+	// REQ-306 A1/M110：AI 创建澄清轮（生成前缺口清单+逐轮补充，可跳过直接生成）
+	m.HandleFunc("POST /api/ontologies/ai-clarify", s.aiClarify)
 	// REQ-207/M43 本体自进化（候选 vN-cK 状态机：诊断→补丁→配对门控→人工采纳）
 	m.HandleFunc("GET /api/ontologies/{id}/evolution/candidates", s.listEvolutionCandidates)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates", s.proposeEvolutionCandidate)
@@ -1133,6 +1135,35 @@ func (s *Server) seedSample(w http.ResponseWriter, r *http.Request) {
 	}
 	o, _ := s.Store.GetOntology(sp.ID)
 	writeJSON(w, http.StatusCreated, o)
+}
+
+// aiClarify AI 创建澄清轮（REQ-306 A1/M110）：生成前基于描述+已补材料输出「范围复述+五维缺口清单+行动引导」。
+// 同步 RawChat（沿 OntoChat domain 归纳轮先例——单次调用秒~十秒级，生成才走异步 job）；回复不落库无副作用。
+func (s *Server) aiClarify(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Description string   `json:"description"`
+		Hints       []string `json:"hints"` // 逐轮澄清累积的补充材料
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Description) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "description 必填"})
+		return
+	}
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	var b strings.Builder
+	b.WriteString(llmcreate.ClarifyPrompt)
+	b.WriteString("\n\n领域描述：\n" + strings.TrimSpace(req.Description))
+	for i, h := range req.Hints {
+		b.WriteString(fmt.Sprintf("\n\n已补充材料 %d：\n%s", i+1, h))
+	}
+	reply, _, err := s.LLM.RawChat(r.Context(), b.String())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"reply": reply})
 }
 
 func (s *Server) aiDraft(w http.ResponseWriter, r *http.Request) {
