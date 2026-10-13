@@ -493,6 +493,11 @@ export const api = {
     ),
   /** CQ 抽取候选（REQ-308） */
 
+  /** 权威本体库来源代理（REQ-316）：只读拉取公网 TTL/RDF → filename+content（SSRF 防护+8MB 上限） */
+  catalogFetch: (url: string) =>
+    req<{ filename: string; content_type: string; content: string }>(
+      `/api/ontology-catalog/fetch?url=${encodeURIComponent(url)}`,
+    ),
   /** AI 创建 CQ 候选生成（REQ-308）：描述+澄清轮材料→ExtractCQs（P5 两净化）；202+job 轮询（cqs 字段） */
   aiCQExtract: (description: string, hints: string[]) =>
     req<{ job_id: string }>('/api/ontologies/ai-cq-extract', {

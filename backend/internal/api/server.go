@@ -278,6 +278,8 @@ func (s *Server) routes() {
 		m.Handle("/api/ontologies/", s.Ontology.BuildProxy())
 		// REQ-216 增量②b：本体删除伴生拦截（精确路由压过反代前缀——绑定者 409 保护+删除后快照清理）
 		m.HandleFunc("DELETE /api/ontologies/{id}", s.deleteOntologyGuard)
+	// REQ-316/M118：权威本体库来源代理（只读拉取公网 TTL/RDF → 前端走既有导入管线）
+	m.HandleFunc("GET /api/ontology-catalog/fetch", s.catalogFetch)
 		// REQ-233②/M60：本体「被引用」三源聚合（运行方案挂载/KB 词表/伴生绑定，删除确认预检同源）
 		m.HandleFunc("GET /api/ontologies/{id}/references", s.ontologyReferences)
 		// REQ-250/52 号 E6 余项：本体治理审计——spec 保存/导入/合并/fork/CSV 灌装落 onto_decision

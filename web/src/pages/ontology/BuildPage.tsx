@@ -19,6 +19,7 @@ import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import ReferenceMaterialsPanel from './components/ReferenceMaterialsPanel'
 import OntoExtendFlow from './components/OntoExtendFlow'
 import QualityReportCard, { qualityFindingsText } from './components/QualityReportCard'
+import CatalogPane from './components/CatalogPane'
 
 // ---------------------------------------------------------------------------
 // 本体构建（BuildPage，REQ-104 ②）：按构建路径分二级模块（六路径分层标注状态）
@@ -28,7 +29,7 @@ import QualityReportCard, { qualityFindingsText } from './components/QualityRepo
 //   未工程化路径显示引导卡、不做空壳交互（D-O11）；Open Ontologies 双轨已退役（66 号拍板，方案 B）
 // ---------------------------------------------------------------------------
 
-type BuildPath = 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'kb'
+type BuildPath = 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'kb' | 'catalog'
 
 const PATHS: { key: BuildPath; label: string; state: 'ok' | 'partial' | 'guide'; desc: string }[] = [
   { key: 'custom', label: '自定义构建', state: 'ok', desc: 'S1 来源 → S2 编辑 → S3 校验 → S4 可视化（七阶段前 4 步）' },
@@ -36,6 +37,7 @@ const PATHS: { key: BuildPath; label: string; state: 'ok' | 'partial' | 'guide';
   { key: 'kb', label: '由知识库构建', state: 'partial', desc: 'KB chunk→LLM / KG→直转 / 混合三策略独立流程页（O13，D-O14/REQ-108）' },
   { key: 'kg', label: 'KG 消费流程', state: 'guide', desc: '入口卡跳转「消费与审计」栏（D-O15 自研 KG，原 semantica 流程改造）' },
   { key: 'ontoextend', label: 'OntoExtend 流程', state: 'partial', desc: 'ODP 模式推荐 + LOV 词表扩展 → 审查入库（M-O14 P2②）' },
+  { key: 'catalog', label: '权威本体库', state: 'ok', desc: '查询并引入业界权威本体（W3C/ETSI/DCMI），运行与拓展零门槛（REQ-316）' },
 ]
 
 const STATE_TAG: Record<BuildPath, { color: string; text: string }> = {
@@ -44,13 +46,14 @@ const STATE_TAG: Record<BuildPath, { color: string; text: string }> = {
   kb: { color: 'orange', text: '部分可用' },
   kg: { color: 'cyan', text: '引导' },
   ontoextend: { color: 'gold', text: '部分可用' },
+  catalog: { color: 'green', text: '可用' },
 }
 
 const ONTO_BUILD_PATH_KEY = 'eino.onto.buildPath'
 
 function readBuildPath(): BuildPath {
   const v = localStorage.getItem(ONTO_BUILD_PATH_KEY)
-  return v === 'ontochat' || v === 'kg' || v === 'semantica' /* 旧值兼容 */ || v === 'ontoextend' || v === 'kb'
+  return v === 'ontochat' || v === 'kg' || v === 'semantica' /* 旧值兼容 */ || v === 'ontoextend' || v === 'kb' || v === 'catalog'
     ? (v as BuildPath)
     : 'custom'
 }
@@ -120,6 +123,7 @@ export default function BuildPage() {
           {buildPath === 'kb' && (<><KbBuildFlow /><StructuredFlow /></>)}
           {buildPath === 'kg' && <KgGuide />}
           {buildPath === 'ontoextend' && <OntoExtendFlow />}
+          {buildPath === 'catalog' && <CatalogPane />}
         </div>
       </div>
     </div>
