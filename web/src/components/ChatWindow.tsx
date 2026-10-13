@@ -1994,6 +1994,21 @@ export default function ChatWindow({
 
       <div className="composer">
         <div className="composer-inner">
+          {/* REQ-317：执行过程细节分级按钮上浮到对话框上方（原深藏调用轨迹·显示设置，原入口保留）——
+              全部=完整过程卡；关键=工具调用与运行状态；精简=仅消息与结论。会话级记忆（convCfg） */}
+          <div className="composer-toolbar">
+            <span className="composer-toolbar-label">过程显示</span>
+            <Segmented
+              size="small"
+              value={granularity}
+              onChange={(v) => patchConvCfg({ granularity: v as 'all' | 'key' | 'off' })}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'key', label: '关键' },
+                { value: 'off', label: '精简' },
+              ]}
+            />
+          </div>
           {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 技能 三个纯开关 */}
           <Sender
             value={input}

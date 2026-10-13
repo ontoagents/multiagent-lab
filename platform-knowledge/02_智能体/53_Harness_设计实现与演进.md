@@ -57,6 +57,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 沙箱纵深（work_dir volume/run_command/出网） | REQ-225 | M53 | 📋 触发驱动 | — |
 | hooks 可配置化（agent 级开关/自定义 deny 规则） | REQ-232 | M59 | ✅（2026-10-13 M59 领取交付：迁移 046 hooks_json+BuildHookChain agent 级装配+GET /api/hooks 生效链+hooks 卡可配化；run_command 消费绑定 REQ-225② 同轮兑现） | 单测+headless 7/7 smoke/req225/ |
 | 审计族 live 透出（审批决议/守卫拦截/验证背压/连接器降级/产物/CLI 运行中进聊天流） | REQ-311 A1 | M115 | ✅ | 真机 connector.degraded live 卡实锤（坏 MCP 即时拒）+UI 16/16 smoke/req311/ |
+| 对话执行过程树形化（tool_call_id 栈式调用树〔委派嵌套为子节点〕/live 展开·完成自动收起摘要行/入参单行滚动/分级按钮上浮对话框上方） | REQ-317 | M119 | ✅ | 真机 GLM 三调用链+UI 14/14 smoke/req317/ |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 

@@ -65,14 +65,34 @@
 @keyframes tool-spin { to { transform: rotate(360deg); } }
 
 .tool-name { flex: none; font-weight: 600; font-family: var(--font-mono, ui-monospace, monospace); }
+/* REQ-317：入参摘要同一行内横向滚动展示（不换行、细滚动条）——细节可读性优先于硬截断 */
 .tool-args {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  scrollbar-height: 3px;
   color: var(--ant-color-text-tertiary, #9ca3af);
 }
+.tool-args::-webkit-scrollbar { height: 3px; }
+.tool-args::-webkit-scrollbar-thumb { background: var(--c-line, #e5e7eb); border-radius: 2px; }
+/* REQ-317：live 运行中的调用行高亮（淡底 + 执行中提示） */
+.tool-line.running .tool-line-head { background: rgba(79, 70, 229, 0.05); }
+.tool-running-hint { flex: none; font-size: 10px; color: #4f46e5; }
 .tool-dur { flex: none; color: var(--ant-color-text-tertiary, #9ca3af); font-variant-numeric: tabular-nums; }
+
+/* REQ-317：调用树——嵌套子调用的引导线容器（委派成员内部工具等挂父节点下） */
+.tool-tree { min-width: 0; }
+.tool-node { min-width: 0; }
+.tool-node-children {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--c-line, #d1d5db);
+}
+.tool-phase-head.live-head { cursor: default; }
+.tool-phase-head.live-head:hover { background: transparent; }
 
 .tool-caret {
   flex: none;
