@@ -20,6 +20,7 @@ import (
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 )
 
 // Engine 多轮引导引擎（复用 llmcreate.Creator 的平台代理与校验循环）。
@@ -29,10 +30,11 @@ type Engine struct {
 
 // TurnResult 单轮交互结果：assistant 回复 + 可选草稿（draft/refine 阶段产出）。
 type TurnResult struct {
-	Reply     string        // assistant 消息
-	NextStage string        // 推进后的阶段
-	Draft     *pkgspec.Spec // 非 nil 表示本轮产出了草稿（含校验警告）
-	Warning   string        // 草稿带警告（如达最大修正轮数仍有错误）
+	Reply     string              // assistant 消息
+	NextStage string              // 推进后的阶段
+	Draft     *pkgspec.Spec       // 非 nil 表示本轮产出了草稿（含校验警告）
+	Warning   string              // 草稿带警告（如达最大修正轮数仍有错误）
+	Quality   *qualitygate.Report // REQ-312/M116：草稿质量报告（报告卡渲染+报告驱动优化）
 }
 
 // RoundProgress(round, note) 生成-校验环轮次进度回调（异步 job 进度透出，REQ-271）。
@@ -394,7 +396,7 @@ func (e *Engine) turnDraft(ctx context.Context, st *Store, sess *Session, onProg
 	if err := st.Append(sess.ID, Message{Role: "assistant", Content: reply}, &stage, &round, &sess.Context); err != nil {
 		return nil, err
 	}
-	return &TurnResult{Reply: reply, NextStage: stage, Draft: res.Spec, Warning: warn}, nil
+	return &TurnResult{Reply: reply, NextStage: stage, Draft: res.Spec, Warning: warn, Quality: res.Quality}, nil
 }
 
 // Refine 修正轮：用户修改意见 + 上稿校验错误回喂重新生成（由 turnDraft 复用：把意见并入 Hints 后再生成）。

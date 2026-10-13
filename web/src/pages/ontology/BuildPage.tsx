@@ -10,7 +10,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { AiDraftResult, ExtractedCQ, ImportReport, Ontology, Spec, ValidationError } from '../../api/types'
+import type { AiDraftResult, ExtractedCQ, ImportReport, Ontology, QualityReport, Spec, ValidationError } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { ERR_COLUMNS } from './shared'
 import SpecGraph from './components/SpecGraph'
@@ -18,6 +18,7 @@ import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import ReferenceMaterialsPanel from './components/ReferenceMaterialsPanel'
 import OntoExtendFlow from './components/OntoExtendFlow'
+import QualityReportCard, { qualityFindingsText } from './components/QualityReportCard'
 
 // ---------------------------------------------------------------------------
 // 本体构建（BuildPage，REQ-104 ②）：按构建路径分二级模块（六路径分层标注状态）
@@ -262,6 +263,9 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   const [cqCandidates, setCqCandidates] = useState<ExtractedCQ[] | null>(null)
   const [cqPicks, setCqPicks] = useState<boolean[]>([])
   const [cqEdits, setCqEdits] = useState<Record<number, string>>({})
+  // REQ-312/M116：质量报告卡——完整 Report 结构化渲染+新旧对照+报告驱动优化；REQ-314 渐进披露状态条
+  const [aiPrevQuality, setAiPrevQuality] = useState<QualityReport | null>(null)
+  const [aiShowResult, setAiShowResult] = useState(false)
 
   const [sampleBusy, setSampleBusy] = useState(false)
 
@@ -384,7 +388,7 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     }
   }
 
-  const doAiDraft = async (force = false) => {
+  const doAiDraft = async (force = false, extraHintOverride?: string) => {
     if (!aiDesc.trim()) {
       showToast('请描述本体用途', 'err')
       return
@@ -394,17 +398,21 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
       .map((s) => s.trim())
       .filter(Boolean)
     // REQ-306 A2：材料单薄（短描述且无 CQ/提示/已澄清）先走澄清轮——不拦截，点「直接生成草案」可随时跳过
-    if (!force && clarifyReply === null && aiDesc.trim().length < 50 && cqs.length === 0 && !aiHint.trim()) {
+    if (!force && !extraHintOverride && clarifyReply === null && aiDesc.trim().length < 50 && cqs.length === 0 && !aiHint.trim()) {
       await doClarify()
       return
     }
+    // REQ-312 A2/M116：按报告优化——旧报告存 prev 供对照；REQ-314 收口：生成时收起详情
+    setAiPrevQuality(aiResult?.quality ?? null)
+    setAiShowResult(false)
     setAiBusy(true)
     setAiResult(null)
     try {
       // REQ-248/G2：CQ 显式入参（后端 DraftWithCQ 回写 spec.cq 入资产）
       // REQ-306 A1：澄清轮补充的材料并入生成上下文
       // REQ-267/M76：异步提交+轮询（202+job），去 120s 同步阻塞窗口；失败/超时回显可懂错误
-      const mergedHint = [aiHint.trim(), ...clarifyHints].filter(Boolean).join('\n\n')
+      // REQ-312 A2：extraHintOverride=报告 findings 文本（按报告优化时由 QualityReportCard 回调传入）
+      const mergedHint = [[aiHint.trim(), ...clarifyHints].filter(Boolean).join('\n\n'), extraHintOverride].filter(Boolean).join('\n\n')
       const { job_id } = await api.aiDraftOntologyAsync(aiDesc.trim(), mergedHint || undefined, cqs.length ? cqs : undefined)
       showToast('已提交生成任务，生成中…')
       let r: AiDraftResult | undefined
@@ -610,170 +618,222 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
           key: 'ai',
           label: 'AI 创建',
           children: (
-            <>
-              <div className="onto-sec" style={{ marginTop: 0 }}>
-                <span className="onto-sec-title">能力问题（CQ）引导（可选，每行一个）</span>
-                <span className="hit-spacer" />
-                {/* REQ-308/M112：AI 生成 CQ——候选经确认卡人工勾选后回填，手写与生成共存 */}
-                <Button size="small" loading={cqJobBusy} disabled={!aiDesc.trim()} onClick={doCQExtract} data-testid="cq-generate-btn">
-                  AI 生成 CQ
-                </Button>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  先列 3~5 个本体要回答的问题，会并入生成上下文（REQ-82 / REQ-90 CQ 引导）；也可由 AI 依据领域描述生成候选
+            // REQ-314/M117：两栏化——左列建模输入 / 右列反馈与产出（澄清卡/CQ 候选卡/质量报告卡/预览）；
+            // 渐进披露：生成结果默认收起为状态条（首屏只留输入面）。窄屏 flexWrap 降级单列。
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 360px', minWidth: 320, maxWidth: 620 }}>
+                <div className="onto-sec" style={{ marginTop: 0 }}>
+                  <span className="onto-sec-title">领域描述（必填）</span>
+                </div>
+                <Input.TextArea
+                  value={aiDesc}
+                  onChange={(e) => setAiDesc(e.target.value)}
+                  autoSize={{ minRows: 4, maxRows: 9 }}
+                  placeholder="用自然语言描述要建模的领域（如：K8s 运维平台的概念、关系与实例）…"
+                />
+                <Input
+                  style={{ marginTop: 8 }}
+                  value={aiHint}
+                  onChange={(e) => setAiHint(e.target.value)}
+                  placeholder="额外提示（可选，如：聚焦 Deployment / Service / Pod 三类）"
+                />
+                <div className="onto-sec" style={{ marginTop: 12 }}>
+                  <span className="onto-sec-title">能力问题（CQ）引导（可选，每行一个）</span>
+                  <span className="hit-spacer" />
+                  {/* REQ-308/M112：AI 生成 CQ——候选经确认卡人工勾选后回填，手写与生成共存 */}
+                  <Button size="small" loading={cqJobBusy} disabled={!aiDesc.trim()} onClick={doCQExtract} data-testid="cq-generate-btn">
+                    AI 生成 CQ
+                  </Button>
+                </div>
+                <Input.TextArea
+                  value={aiCq}
+                  onChange={(e) => setAiCq(e.target.value)}
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  placeholder={'本体应能回答的关键问题，每行一个：\n某缺陷源于哪个需求？\n某故障应采取什么维护措施？'}
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                  先列 3~5 个本体要回答的问题，会并入生成上下文（REQ-82 / REQ-90）；也可由 AI 依据领域描述生成候选
                 </Typography.Text>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  loading={aiBusy}
+                  style={{ marginTop: 12 }}
+                  onClick={() => doAiDraft()}
+                  data-testid="ai-draft-btn"
+                >
+                  生成草案
+                </Button>
+                {/* REQ-295③（67 号 A4）：诚实进度——只显示服务端实测轮次计数，永不虚构百分比与 ETA */}
+                {aiBusy && aiProgress && (
+                  <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }} data-testid="ai-draft-progress">
+                    {aiProgress}
+                  </Typography.Paragraph>
+                )}
               </div>
-              <Input.TextArea
-                value={aiCq}
-                onChange={(e) => setAiCq(e.target.value)}
-                autoSize={{ minRows: 2, maxRows: 5 }}
-                placeholder={'本体应能回答的关键问题，每行一个：\n某缺陷源于哪个需求？\n某故障应采取什么维护措施？'}
-              />
-              {cqCandidates && (
-                <Card size="small" style={{ marginTop: 8 }} data-testid="cq-candidate-card" title={`CQ 候选（${cqPicks.filter(Boolean).length}/${cqCandidates.length} 已勾选）——勾选/编辑后采用，将并入上方输入框`}>
-                  {cqCandidates.map((c, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-                      <Checkbox checked={!!cqPicks[i]} onChange={(e) => setCqPicks((p) => p.map((v, j) => (j === i ? e.target.checked : v)))} />
-                      <Input
-                        size="small"
-                        value={cqEdits[i] ?? c.cq}
-                        onChange={(e) => setCqEdits((m) => ({ ...m, [i]: e.target.value }))}
-                      />
-                      {c.origin && <Tag style={{ margin: 0, flexShrink: 0 }}>{c.origin}</Tag>}
+              <div style={{ flex: '1 1 360px', minWidth: 320 }}>
+                {/* REQ-306 A1/M110：澄清轮卡——生成前 LLM 范围复述+五维缺口清单；逐轮补充或直接生成；A2 一键切 OntoChat */}
+                {clarifyReply && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 10 }}
+                    title="生成前澄清——材料缺口清单"
+                    description={
+                      <>
+                        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 8, fontSize: 13 }} data-testid="clarify-reply">
+                          {clarifyReply}
+                        </Typography.Paragraph>
+                        <Input.TextArea
+                          value={clarifyInput}
+                          onChange={(e) => setClarifyInput(e.target.value)}
+                          autoSize={{ minRows: 2, maxRows: 5 }}
+                          placeholder="按缺口清单补充材料（可多轮；也可直接生成）…"
+                          data-testid="clarify-input"
+                        />
+                        <Space style={{ marginTop: 8 }} size={8} wrap>
+                          <Button size="small" loading={clarifyBusy} onClick={doClarify} data-testid="clarify-more">
+                            补充并继续澄清
+                          </Button>
+                          <Button size="small" type="primary" loading={aiBusy} onClick={() => doAiDraft(true)} data-testid="clarify-generate">
+                            直接生成草案
+                          </Button>
+                          {onGoOntoChat && (
+                            <Button
+                              size="small"
+                              onClick={() => onGoOntoChat([aiDesc.trim(), ...clarifyHints].filter(Boolean).join('\n'))}
+                              data-testid="clarify-goto-ontochat"
+                            >
+                              改用 OntoChat 对话式构建
+                            </Button>
+                          )}
+                        </Space>
+                        {clarifyHints.length > 0 && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                            已补充 {clarifyHints.length} 轮材料（将并入生成上下文）
+                          </Typography.Text>
+                        )}
+                        {clarifyHints.length >= 3 && (
+                          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                            已澄清 {clarifyHints.length} 轮——建议直接生成，或切换 OntoChat 做深度多轮对话
+                          </Typography.Text>
+                        )}
+                      </>
+                    }
+                  />
+                )}
+                {cqCandidates && (
+                  <Card size="small" style={{ marginBottom: 10 }} data-testid="cq-candidate-card" title={`CQ 候选（${cqPicks.filter(Boolean).length}/${cqCandidates.length} 已勾选）——勾选/编辑后采用，将并入左列输入框`}>
+                    {cqCandidates.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                        <Checkbox checked={!!cqPicks[i]} onChange={(e) => setCqPicks((p) => p.map((v, j) => (j === i ? e.target.checked : v)))} />
+                        <Input
+                          size="small"
+                          value={cqEdits[i] ?? c.cq}
+                          onChange={(e) => setCqEdits((m) => ({ ...m, [i]: e.target.value }))}
+                        />
+                        {c.origin && <Tag style={{ margin: 0, flexShrink: 0 }}>{c.origin}</Tag>}
+                        <Button
+                          size="small"
+                          type="text"
+                          onClick={() => {
+                            setCqCandidates((list) => (list ?? []).filter((_, j) => j !== i))
+                            setCqPicks((p) => p.filter((_, j) => j !== i))
+                          }}
+                        >
+                          删
+                        </Button>
+                      </div>
+                    ))}
+                    <Space style={{ marginTop: 6 }}>
                       <Button
                         size="small"
-                        type="text"
                         onClick={() => {
-                          setCqCandidates((list) => (list ?? []).filter((_, j) => j !== i))
-                          setCqPicks((p) => p.filter((_, j) => j !== i))
+                          setCqCandidates((list) => [...(list ?? []), { cq: '' }])
+                          setCqPicks((p) => [...p, true])
                         }}
                       >
-                        删
+                        手动添加
                       </Button>
-                    </div>
-                  ))}
-                  <Space style={{ marginTop: 6 }}>
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        setCqCandidates((list) => [...(list ?? []), { cq: '' }])
-                        setCqPicks((p) => [...p, true])
-                      }}
-                    >
-                      手动添加
-                    </Button>
-                    <Button size="small" type="primary" onClick={applyCQCandidates} data-testid="cq-apply-btn">
-                      采用 {cqPicks.filter(Boolean).length} 条
-                    </Button>
-                    <Button size="small" onClick={() => setCqCandidates(null)}>
-                      放弃
-                    </Button>
-                  </Space>
-                </Card>
-              )}
-              <div className="onto-sec">
-                <span className="onto-sec-title">领域描述（必填）</span>
-              </div>
-              <Input.TextArea
-                value={aiDesc}
-                onChange={(e) => setAiDesc(e.target.value)}
-                autoSize={{ minRows: 3, maxRows: 6 }}
-                placeholder="用自然语言描述要建模的领域（如：K8s 运维平台的概念、关系与实例）…"
-              />
-              <Input
-                style={{ marginTop: 8 }}
-                value={aiHint}
-                onChange={(e) => setAiHint(e.target.value)}
-                placeholder="额外提示（可选，如：聚焦 Deployment / Service / Pod 三类）"
-              />
-              <Button
-                type="primary"
-                icon={<ThunderboltOutlined />}
-                loading={aiBusy}
-                style={{ marginTop: 10 }}
-                onClick={() => doAiDraft()}
-                data-testid="ai-draft-btn"
-              >
-                生成草案
-              </Button>
-              {/* REQ-306 A1/M110：澄清轮卡——生成前 LLM 范围复述+五维缺口清单；逐轮补充或直接生成；A2 一键切 OntoChat */}
-              {clarifyReply && (
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginTop: 10 }}
-                  title="生成前澄清——材料缺口清单"
-                  description={
-                    <>
-                      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 8, fontSize: 13 }} data-testid="clarify-reply">
-                        {clarifyReply}
-                      </Typography.Paragraph>
-                      <Input.TextArea
-                        value={clarifyInput}
-                        onChange={(e) => setClarifyInput(e.target.value)}
-                        autoSize={{ minRows: 2, maxRows: 5 }}
-                        placeholder="按缺口清单补充材料（可多轮；也可直接生成）…"
-                        data-testid="clarify-input"
-                      />
-                      <Space style={{ marginTop: 8 }} size={8} wrap>
-                        <Button size="small" loading={clarifyBusy} onClick={doClarify} data-testid="clarify-more">
-                          补充并继续澄清
+                      <Button size="small" type="primary" onClick={applyCQCandidates} data-testid="cq-apply-btn">
+                        采用 {cqPicks.filter(Boolean).length} 条
+                      </Button>
+                      <Button size="small" onClick={() => setCqCandidates(null)}>
+                        放弃
+                      </Button>
+                    </Space>
+                  </Card>
+                )}
+                {aiResult && !aiShowResult && (
+                  <Alert
+                    type="success"
+                    showIcon
+                    title="草案已生成"
+                    description={
+                      <Space size={6} wrap>
+                        <Tag color="blue" style={{ margin: 0 }}>概念 {aiResult.spec?.concepts?.length ?? 0}</Tag>
+                        <Tag color="geekblue" style={{ margin: 0 }}>关系 {aiResult.spec?.relations?.length ?? 0}</Tag>
+                        <Tag color="purple" style={{ margin: 0 }}>实例 {aiResult.spec?.instances?.length ?? 0}</Tag>
+                        {aiResult.quality?.score && <Tag color="gold" style={{ margin: 0 }}>质量分 {Number(aiResult.quality.score.overall ?? 0).toFixed(1)}</Tag>}
+                        <Button size="small" type="link" onClick={() => setAiShowResult(true)} data-testid="ai-show-result">
+                          展开质量报告与预览
                         </Button>
-                        <Button size="small" type="primary" loading={aiBusy} onClick={() => doAiDraft(true)} data-testid="clarify-generate">
-                          直接生成草案
-                        </Button>
-                        {onGoOntoChat && (
-                          <Button
-                            size="small"
-                            onClick={() => onGoOntoChat([aiDesc.trim(), ...clarifyHints].filter(Boolean).join('\n'))}
-                            data-testid="clarify-goto-ontochat"
-                          >
-                            改用 OntoChat 对话式构建
-                          </Button>
-                        )}
                       </Space>
-                      {clarifyHints.length > 0 && (
-                        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                          已补充 {clarifyHints.length} 轮材料（将并入生成上下文）
-                        </Typography.Text>
-                      )}
-                      {clarifyHints.length >= 3 && (
-                        <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-                          已澄清 {clarifyHints.length} 轮——建议直接生成，或切换 OntoChat 做深度多轮对话
-                        </Typography.Text>
-                      )}
-                    </>
-                  }
-                />
-              )}
-              {/* REQ-295③（67 号 A4）：诚实进度——只显示服务端实测轮次计数，永不虚构百分比与 ETA */}
-              {aiBusy && aiProgress && (
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }} data-testid="ai-draft-progress">
-                  {aiProgress}
-                </Typography.Paragraph>
-              )}
-              {aiResult && (
-                <div className="onto-ai-preview">
-                  <Space size={6} wrap>
-                    <Tag color="blue" style={{ margin: 0 }}>概念 {aiResult.spec?.concepts?.length ?? 0}</Tag>
-                    <Tag color="geekblue" style={{ margin: 0 }}>关系 {aiResult.spec?.relations?.length ?? 0}</Tag>
-                    <Tag color="purple" style={{ margin: 0 }}>实例 {aiResult.spec?.instances?.length ?? 0}</Tag>
-                    <Tag style={{ margin: 0 }}>rounds {aiResult.rounds ?? '—'}</Tag>
-                  </Space>
-                  {aiResult.warning && <Alert type="warning" showIcon style={{ marginTop: 8 }} title={aiResult.warning} />}
-                  <Space style={{ marginTop: 10 }} size={8}>
-                    <Input
-                      value={aiName}
-                      onChange={(e) => setAiName(e.target.value)}
-                      placeholder="本体名称"
-                      style={{ width: 260 }}
-                    />
-                    <Button type="primary" loading={aiBusy} onClick={saveAiDraft}>
-                      创建并保存
-                    </Button>
-                  </Space>
-                </div>
-              )}
-            </>
+                    }
+                  />
+                )}
+                {aiResult && aiShowResult && (
+                  <div className="onto-ai-preview" data-testid="ai-result-detail">
+                    <Space size={6} wrap style={{ marginBottom: 8 }}>
+                      <Tag color="blue" style={{ margin: 0 }}>概念 {aiResult.spec?.concepts?.length ?? 0}</Tag>
+                      <Tag color="geekblue" style={{ margin: 0 }}>关系 {aiResult.spec?.relations?.length ?? 0}</Tag>
+                      <Tag color="purple" style={{ margin: 0 }}>实例 {aiResult.spec?.instances?.length ?? 0}</Tag>
+                      <Tag style={{ margin: 0 }}>rounds {aiResult.rounds ?? '—'}</Tag>
+                      <Button size="small" type="link" onClick={() => setAiShowResult(false)}>
+                        收起
+                      </Button>
+                    </Space>
+                    {aiResult.warning && <Alert type="warning" showIcon style={{ marginBottom: 8 }} title={aiResult.warning} />}
+                    {/* REQ-312/M116：完整质量报告卡（三维分+Findings 分组+新旧对照+按报告优化） */}
+                    {aiResult.quality ? (
+                      <QualityReportCard
+                        report={aiResult.quality}
+                        prev={aiPrevQuality}
+                        optimizing={aiBusy}
+                        onOptimize={() => {
+                          const ftext = qualityFindingsText(aiResult.quality)
+                          if (!ftext) {
+                            showToast('当前报告无待修复问题', 'err')
+                            return
+                          }
+                          void doAiDraft(true, '请重点修复上次生成发现的质量问题：\n' + ftext)
+                        }}
+                      />
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        质量报告不可用（构建平面不可达时仅本地结构校验兜底）
+                      </Typography.Text>
+                    )}
+                    <Space style={{ marginTop: 10 }} size={8}>
+                      <Input
+                        value={aiName}
+                        onChange={(e) => setAiName(e.target.value)}
+                        placeholder="本体名称"
+                        style={{ width: 260 }}
+                      />
+                      <Button type="primary" loading={aiBusy} onClick={saveAiDraft}>
+                        创建并保存
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+                {!aiResult && !clarifyReply && !cqCandidates && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    填写左列材料后点「生成草案」——生成结果、质量报告与预览将在此处呈现（REQ-312/314）。
+                  </Typography.Text>
+                )}
+              </div>
+            </div>
           ),
         },
         {

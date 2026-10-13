@@ -3,10 +3,11 @@
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
+import QualityReportCard, { qualityFindingsText } from './components/QualityReportCard'
 import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
 import { ApartmentOutlined, CommentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
-import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, Spec } from '../../api/types'
+import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
@@ -33,6 +34,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [input, setInput] = useState('')
   const [draft, setDraft] = useState<Spec | null>(null)
   const [draftWarning, setDraftWarning] = useState('')
+  const [draftQuality, setDraftQuality] = useState<QualityReport | null>(null)
   const [saveName, setSaveName] = useState('')
   const [restored, setRestored] = useState<{ round: number; draft: boolean } | null>(null)
   const [job, setJob] = useState<OntoChatJob | null>(null)
@@ -99,6 +101,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
             setDraft(j.result.draft)
             setSaveName(j.result.draft.name || '')
             setDraftWarning(j.result.warning || '')
+            setDraftQuality(j.result.quality ?? null)
           } else if (j.status === 'error') {
             showToast(`生成失败：${j.error ?? '未知错误'}`, 'err')
           } else if (j.status === 'cancelled') {
@@ -382,6 +385,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
         setDraft(r.draft)
         setSaveName(r.draft.name || '')
       }
+      setDraftQuality(r.quality ?? null)
       if (r.warning) setDraftWarning(r.warning)
       else if (r.draft) setDraftWarning('')
       await refreshList()
@@ -718,6 +722,20 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                     <Tag color="purple" style={{ margin: 0 }}>实例 {draft.instances?.length ?? 0}</Tag>
                   </Space>
                   {draftWarning && <Alert type="warning" showIcon style={{ marginTop: 8 }} title={draftWarning} />}
+                  {/* REQ-312/M116：草稿质量报告卡（与 AI 创建共用）；「按报告优化」=报告 findings 作为修正意见走 refine 管道 */}
+                  {draftQuality && (
+                    <div style={{ marginTop: 8 }}>
+                      <QualityReportCard
+                        report={draftQuality}
+                        optimizing={turning}
+                        onOptimize={() => {
+                          const ftext = qualityFindingsText(draftQuality)
+                          if (!ftext) return
+                          void send('请重点修复上次生成发现的质量问题：\n' + ftext, '请重点修复上次生成发现的质量问题：\n' + ftext)
+                        }}
+                      />
+                    </div>
+                  )}
                   <Space style={{ marginTop: 10 }} size={8}>
                     <Input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="本体名称" style={{ width: 240 }} />
                     <Button type="primary" icon={<ThunderboltOutlined />} loading={turning} onClick={saveDraft}>

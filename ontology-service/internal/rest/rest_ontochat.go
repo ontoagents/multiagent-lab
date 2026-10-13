@@ -168,6 +168,9 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 			"round":   fresh.Round,
 			"session": fresh,
 		}
+		if res.Quality != nil {
+			out["quality"] = res.Quality
+		}
 		if res.Draft != nil {
 			out["draft"] = res.Draft
 		}
@@ -239,6 +242,9 @@ func (s *Server) runOntoChatJob(jobID string, sess *ontochat.Session, text, feed
 	if fresh, ferr := st.Get(sess.ID); ferr == nil {
 		result["round"] = fresh.Round
 		result["session"] = fresh
+	}
+	if res.Quality != nil {
+		result["quality"] = res.Quality
 	}
 	if res.Draft != nil {
 		result["draft"] = res.Draft

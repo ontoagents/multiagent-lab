@@ -89,7 +89,27 @@ function friendlyEngineError(err?: string): string | null {
     return '端口被占用：请更换方案端口后重试。'
   if (err.includes('load') && err.includes('失败'))
     return '本体数据装载失败：请检查所选本体是否可导出 TTL（自建本体先在「本体资产 → TTL 导出」确认）。'
-  return null
+  // REQ-310/M114：映射补全——拉取 404（本体已删/负例夹具残留）与 sidecar 导出链路
+  if (/拉取本体 .+ 失败: 404/.test(err))
+    return '所选本体已不存在（已被删除）：请删除该运行方案，或编辑方案更换本体后重试。'
+  if (err.includes('sidecar') || err.includes('导出失败'))
+    return 'TTL 导出链路异常：请检查构建平面 sidecar 环境（python3 + rdflib，SIDECAR_PYTHON / SIDECAR_SCRIPT），详见部署文档 16 号。'
+  // REQ-310：兜底显示原始错误摘要（不再落到含糊通用文案）
+  const raw = err.replace(/\s+/g, ' ').trim()
+  return `未映射错误——原始信息：${raw.length > 160 ? raw.slice(0, 160) + '…' : raw}`
+}
+
+/** REQ-310：相对时间（错误发生多久之前） */
+function relTime(iso?: string): string | null {
+  if (!iso) return null
+  const t = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').getTime()
+  if (Number.isNaN(t)) return iso
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000))
+  if (mins < 1) return '刚刚'
+  if (mins < 60) return `${mins} 分钟前`
+  const h = Math.round(mins / 60)
+  if (h < 24) return `${h} 小时前`
+  return `${Math.round(h / 24)} 天前`
 }
 
 export default function RuntimePage() {
@@ -415,14 +435,25 @@ function EngineProfilesPage({
           }
         />
       )}
-      {anyError && (
-        <Alert
-          type="error"
-          showIcon
-          title="引擎可用性预检（last_error 映射）"
-          description={friendlyEngineError(mine.find((p) => p.status === 'error')?.last_error) ?? '存在错误状态的方案，悬停状态徽标查看详情。'}
-        />
-      )}
+      {anyError && (() => {
+        // REQ-310/M114：错误汇总语义（去「预检」）——受影响方案数+最近失败时间+首个方案友好文案
+        const errs = mine.filter((p) => p.status === 'error' && p.last_error)
+        const latest = errs.map((p) => p.last_error_at ?? '').sort().reverse()[0]
+        const first = errs[0]
+        const friendly = friendlyEngineError(first?.last_error)
+        return (
+          <Alert
+            type="error"
+            showIcon
+            title={`运行方案错误汇总（${errs.length} 个方案处于错误态${relTime(latest) ? ` · 最近失败于 ${relTime(latest)}` : ''}）`}
+            description={
+              friendly
+                ? `「${first?.name ?? ''}」：${friendly}`
+                : '存在错误状态的方案，悬停状态徽标查看详情。'
+            }
+          />
+        )
+      })()}
 
       <div className="onto-sec" style={{ marginTop: 0 }}>
         <span className="onto-sec-title">{ENGINES.find((e) => e.key === engine)?.label} 运行方案（{mine.length}）</span>
@@ -938,7 +969,14 @@ function OverviewPane({ profile }: { profile: RuntimeProfile }) {
         <Descriptions.Item label="更新时间">{profile.updated_at ?? '—'}</Descriptions.Item>
         {profile.last_error && (
           <Descriptions.Item label="最近错误" span={2}>
-            <Typography.Text type="danger" style={{ fontSize: 12 }}>{profile.last_error}</Typography.Text>
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              {profile.last_error}
+              {profile.last_error_at && (
+                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                  （{relTime(profile.last_error_at)}）
+                </Typography.Text>
+              )}
+            </Typography.Text>
           </Descriptions.Item>
         )}
       </Descriptions>

@@ -28,6 +28,7 @@ type Profile struct {
 	Status      string   `json:"status"`
 	PID         string   `json:"pid,omitempty"`
 	LastError   string   `json:"last_error,omitempty"`
+	LastErrorAt string   `json:"last_error_at,omitempty"` // REQ-310/M114：错误发生时间（收敛清空）
 	CreatedAt   string   `json:"created_at"`
 	UpdatedAt   string   `json:"updated_at"`
 	// REQ-155/M-O15 阶段二：启动/重载成功时的加载版本快照（JSON {ontology_id: version}），生命周期 drift 检测数据源
@@ -86,16 +87,17 @@ func (s *Store) migrate(dir string) error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-const profileCols = `id,name,engine,ontology_ids,config,port,status,pid,last_error,created_at,updated_at,IFNULL(loaded_versions,''),IFNULL(loaded_quality,''),IFNULL(loaded_status,'')`
+const profileCols = `id,name,engine,ontology_ids,config,port,status,pid,last_error,created_at,updated_at,IFNULL(loaded_versions,''),IFNULL(loaded_quality,''),IFNULL(loaded_status,''),IFNULL(last_error_at,'')`
 
 func scanProfile(row interface{ Scan(...any) error }) (*Profile, error) {
 	var p Profile
-	var oids, cfg, pid, lastErr, loadedVersions, loadedQuality, loadedStatus string
-	if err := row.Scan(&p.ID, &p.Name, &p.Engine, &oids, &cfg, &p.Port, &p.Status, &pid, &lastErr, &p.CreatedAt, &p.UpdatedAt, &loadedVersions, &loadedQuality, &loadedStatus); err != nil {
+	var oids, cfg, pid, lastErr, loadedVersions, loadedQuality, loadedStatus, lastErrorAt string
+	if err := row.Scan(&p.ID, &p.Name, &p.Engine, &oids, &cfg, &p.Port, &p.Status, &pid, &lastErr, &p.CreatedAt, &p.UpdatedAt, &loadedVersions, &loadedQuality, &loadedStatus, &lastErrorAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(oids), &p.OntologyIDs)
 	p.Config, p.PID, p.LastError, p.LoadedVersions, p.LoadedQuality, p.LoadedStatus = cfg, pid, lastErr, loadedVersions, loadedQuality, loadedStatus
+	p.LastErrorAt = lastErrorAt
 	return &p, nil
 }
 
@@ -196,8 +198,9 @@ func (s *Store) SetPort(id string, port int) error {
 
 // SetStatus 更新状态/错误；pid 仅在启动时传入（"" 表示保持）。
 func (s *Store) SetStatus(id, status, lastErr, pid string) error {
-	q := `UPDATE runtime_profile SET status=?,last_error=?,updated_at=CURRENT_TIMESTAMP`
-	args := []any{status, lastErr}
+	// REQ-310/M114：last_error_at 随 last_error 生命周期——写入错误时打时间，收敛（lastErr=""）清空
+	q := `UPDATE runtime_profile SET status=?,last_error=?,last_error_at=CASE WHEN ?='' THEN NULL ELSE CURRENT_TIMESTAMP END,updated_at=CURRENT_TIMESTAMP`
+	args := []any{status, lastErr, lastErr}
 	if pid != "" {
 		q += `,pid=?`
 		args = append(args, pid)

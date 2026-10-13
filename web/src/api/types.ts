@@ -616,12 +616,36 @@ export interface AiDraftJobState {
   dedup?: number
   error?: string
 }
+/** 质量门禁报告（REQ-312/M116：完整 Report 透出——三维分+Findings+Stats，qualitygate 同形） */
+export interface QualityFinding {
+  severity: 'error' | 'warning' | 'info'
+  dimension?: string
+  message: string
+  samples?: string[]
+}
+export interface QualityScore {
+  overall: number
+  completeness: number
+  consistency: number
+  maintainability: number
+}
+export interface QualityReport {
+  pass?: boolean
+  strict?: boolean
+  error_count: number
+  warning_count: number
+  info_count?: number
+  findings?: QualityFinding[]
+  score?: QualityScore
+  stats?: { concepts: number; relations: number; instances: number; data_properties?: number; axioms?: number }
+}
+
 export interface AiDraftResult {
   spec: Spec
   rounds: number
   warning?: string
-  /** REQ-247/G4：草案质量报告（后端 rest.go aiDraft 透出） */
-  quality?: { score?: { overall?: number }; error_count?: number; warning_count?: number }
+  /** REQ-247/G4 + REQ-312/M116：草案质量报告（完整 qualitygate.Report） */
+  quality?: QualityReport
 }
 
 // ---- OntoChat 多轮引导（REQ-103 模式 A）----
@@ -664,6 +688,7 @@ export interface OntoChatTurnResult {
   round: number
   draft?: Spec
   warning?: string
+  quality?: QualityReport
   session: OntoChatSession
 }
 
@@ -679,6 +704,7 @@ export interface OntoChatJob {
     stage?: OntoChatStage
     round?: number
     warning?: string
+    quality?: QualityReport
     draft?: Spec
     session?: OntoChatSession
     cqs?: OntoChatExtractedCQ[] // REQ-272：CQ 抽取 job 终态候选
@@ -739,6 +765,7 @@ export interface RuntimeProfile {
   status: 'created' | 'starting' | 'running' | 'stopped' | 'error'
   pid?: number
   last_error?: string
+  last_error_at?: string
   created_at?: string
   updated_at?: string
   /** REQ-234①/M61：装载质量快照 JSON {oid:{overall,error_count,warning_count}}（启动异步快评） */
