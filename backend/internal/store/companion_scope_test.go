@@ -1,12 +1,15 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
 
 // REQ-211/M44 伴生图作用域 agent 化存储面：游标复合键（会话×agent）+ 迁移回填 +
 // agent 维度摘除/图迁移源/meta 标记。迁移 029 建表随 store.Open 自动执行。
+
+func strPtrS(s string) *string { return &s }
 
 func openCompanionTestStore(t *testing.T) *Store {
 	t.Helper()
@@ -111,5 +114,54 @@ func TestCompanionAgentScopeHelpers(t *testing.T) {
 	}
 	if v, _ := st.GetCompanionMeta("convgraphs_migrated"); v != "1" {
 		t.Fatalf("meta 回读不符: %q", v)
+	}
+}
+
+// TestListMessagesAfterCursor REQ-303 E1：游标行起增量拉消息（替代全量拉取）。
+func TestListMessagesAfterCursor(t *testing.T) {
+	st := openCompanionTestStore(t)
+	conv := "conv-inc"
+	if _, err := st.CreateAgent(&Agent{ID: "a-inc", Name: "增量测试agent"}); err != nil {
+		t.Fatalf("insert agent: %v", err)
+	}
+	if _, err := st.CreateConversation(&Conversation{ID: conv, Title: "增量测试", Scope: "agent", AgentID: strPtrS("a-inc")}); err != nil {
+		t.Fatalf("insert conversation: %v", err)
+	}
+	for i, mid := range []string{"ma", "mb", "mc", "md"} {
+		if _, err := st.DB.Exec(`INSERT INTO message (id,conversation_id,role,content,meta,created_at) VALUES (?,?,?,?,?,?)`,
+			mid, conv, "user", "内容"+mid, "", fmt.Sprintf("2026-10-12 10:%02d:00", i)); err != nil {
+			t.Fatalf("insert msg: %v", err)
+		}
+	}
+	all, _ := st.ListMessages(conv)
+	if len(all) != 4 {
+		t.Fatalf("前置：应 4 条消息，got %d", len(all))
+	}
+	for _, m := range all {
+		t.Logf("msg %s created=%q role=%s", m.ID, m.CreatedAt, m.Role)
+	}
+	// 游标在 mb（第 2 条，created 10:01）→ 增量应只含 mc/md
+	msgs, err := st.ListMessagesAfterCursor(conv, "mb")
+	if err != nil {
+		t.Fatalf("after cursor: %v", err)
+	}
+	if len(msgs) != 2 || msgs[0].ID != "mc" || msgs[1].ID != "md" {
+		t.Fatalf("增量消息不符: %+v", msgs)
+	}
+	// 游标在末条 md → 空
+	msgs, err = st.ListMessagesAfterCursor(conv, "md")
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("末条游标应为空: %v %+v", err, msgs)
+	}
+	// 游标消息已删 → 保守回退全量
+	if _, err := st.DB.Exec(`DELETE FROM message WHERE id = 'mb'`); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	msgs, err = st.ListMessagesAfterCursor(conv, "mb")
+	if err != nil {
+		t.Fatalf("deleted cursor: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatalf("游标消息已删应回退全量")
 	}
 }

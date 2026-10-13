@@ -227,8 +227,9 @@ func TestRetrievalVectorFallbackSmoke(t *testing.T) {
 	if entities[0]["label"] != "阿司匹林" {
 		t.Fatalf("命中实体不符: %v", entities[0])
 	}
-	if m, _ := entities[0]["match"].(string); m != "lexical" {
-		t.Fatalf("降级链 match 应=lexical，got %v", entities[0]["match"])
+	if m, _ := entities[0]["match"].(string); !strings.Contains(m, "lexical") {
+		// REQ-287 后 bm25 臂参与融合（FTS 可用时 match=lexical+bm25）——降级链断言只要求含 lexical
+		t.Fatalf("降级链 match 应含 lexical，got %v", entities[0]["match"])
 	}
 	// 2 跳链式边：阿司匹林 —抑制→ 前列腺素 —预防→ 血栓形成
 	if !strings.Contains(text, "血栓形成") || !strings.Contains(text, "（2跳）") {

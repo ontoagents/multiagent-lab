@@ -39,6 +39,8 @@ export interface Agent {
   /** REQ-187：伴生本体配置增强 */
   companion_extract_hint?: string
   companion_extract_conn_id?: string
+  /** REQ-303 C1：抽取高级配置 JSON（win_msgs/win_chars/max_windows/temperature；空=env 默认） */
+  companion_extract_cfg?: string
   companion_auto_threshold?: number
   /** REQ-201/M37：上下文预算档位（'' = 标准档；compact 紧凑 / standard 标准 / full 完整不限量） */
   context_mode?: string

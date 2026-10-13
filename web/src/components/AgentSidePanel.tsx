@@ -15,9 +15,7 @@ import {
   ToolOutlined,
   ControlOutlined,
   InfoCircleOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-} from '@ant-design/icons'
+DeleteOutlined, PlusOutlined, EyeOutlined} from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
 import AgentCompanionManage from './AgentCompanionManage'
@@ -431,18 +429,29 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
   const [allConns, setAllConns] = useState<ModelConnection[]>([])
   const [ontos, setOntos] = useState<Ontology[]>([])
   const [saving, setSaving] = useState(false)
+  const [promptsOpen, setPromptsOpen] = useState(false)
+  const [promptList, setPromptList] = useState<{ id: string; label: string; purpose: string; text: string }[]>([])
   const [creating, setCreating] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
 
+  // REQ-303 C1：抽取高级配置回填（JSON 列解析四字段）
   useEffect(() => {
+    let cfg: { win_msgs?: number; win_chars?: number; max_windows?: number; temperature?: number } = {}
+    try {
+      cfg = JSON.parse(agent.companion_extract_cfg ?? '{}') ?? {}
+    } catch { /* 旧数据无 cfg */ }
     form.setFieldsValue({
       companion_ontology_id: agent.companion_ontology_id ?? '',
       companion_extract_hint: agent.companion_extract_hint ?? '',
       companion_extract_conn_id: agent.companion_extract_conn_id ?? '',
       companion_auto_threshold: agent.companion_auto_threshold ?? 0,
+      cfg_win_msgs: cfg.win_msgs,
+      cfg_win_chars: cfg.win_chars,
+      cfg_max_windows: cfg.max_windows,
+      cfg_temperature: cfg.temperature,
     })
-  }, [agent.id, agent.companion_ontology_id, form])
+  }, [agent.id, agent.companion_ontology_id, agent.companion_extract_cfg, form])
   useEffect(() => {
     api.listConnections().then(setAllConns).catch(() => {})
     // REQ-216：绑定候选 = 全部本体资产（对话生长产物与其他本体同仓，可复用既有本体沉淀）
@@ -533,6 +542,15 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
         companion_extract_hint: v.companion_extract_hint ?? '',
         companion_extract_conn_id: v.companion_extract_conn_id ?? '',
         companion_auto_threshold: v.companion_auto_threshold ?? 0,
+        // REQ-303 C1：抽取高级设置（JSON 合列；空值字段剔除=env 默认兜底）
+        companion_extract_cfg: (() => {
+          const raw: Record<string, number> = {}
+          if (v.cfg_win_msgs != null) raw.win_msgs = v.cfg_win_msgs
+          if (v.cfg_win_chars != null) raw.win_chars = v.cfg_win_chars
+          if (v.cfg_max_windows != null) raw.max_windows = v.cfg_max_windows
+          if (v.cfg_temperature != null) raw.temperature = v.cfg_temperature
+          return Object.keys(raw).length ? JSON.stringify(raw) : ''
+        })(),
       })
       showToast('伴生配置已保存，下次运行生效')
       bumpData()
@@ -618,6 +636,47 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           >
             <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} placeholder="0（全人工确认）" />
           </Form.Item>
+          {/* REQ-303 C1：抽取高级设置（每 agent 覆盖；空=env 默认 16/8000/3/0.2） */}
+          <Collapse
+            size="small"
+            ghost
+            items={[{
+              key: 'extract-adv',
+              label: <span style={{ fontSize: 12 }}>抽取高级设置（可选）</span>,
+              children: (
+                <>
+                  <Form.Item name="cfg_win_msgs" label="每窗消息数" className="item-inline" tooltip="单窗携带的消息条数上限（越小越细粒度，token 越省）">
+                    <InputNumber min={2} max={100} style={{ width: '100%' }} placeholder="16" />
+                  </Form.Item>
+                  <Form.Item name="cfg_win_chars" label="每窗字符数" className="item-inline" tooltip="单窗语料字符上限">
+                    <InputNumber min={1000} max={100000} step={1000} style={{ width: '100%' }} placeholder="8000" />
+                  </Form.Item>
+                  <Form.Item name="cfg_max_windows" label="单轮最大窗数" className="item-inline" tooltip="每轮对话收尾最多抽取的窗数；积压窗自动在下轮续抽">
+                    <InputNumber min={1} max={20} style={{ width: '100%' }} placeholder="3" />
+                  </Form.Item>
+                  <Form.Item name="cfg_temperature" label="抽取温度" className="item-inline" tooltip="低温（0~0.3）输出更稳定；留空=0.2">
+                    <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} placeholder="0.2" />
+                  </Form.Item>
+                  <Button
+                    size="small"
+                    block
+                    icon={<EyeOutlined />}
+                    onClick={async () => {
+                      if (promptList.length === 0) {
+                        try {
+                          const r = await companionApi.prompts()
+                          setPromptList(r.prompts ?? [])
+                        } catch { /* 静默：抽屉仍开，提示加载失败 */ }
+                      }
+                      setPromptsOpen(true)
+                    }}>
+                    查看抽取提示词
+                  </Button>
+                </>
+              ),
+            }]}
+            style={{ marginBottom: 8 }}
+          />
           <div className="proj-view-actions">
             <Button type="primary" size="small" loading={saving} onClick={save}>
               保存伴生配置
@@ -638,6 +697,25 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           </Button>
         </Empty>
       )}
+      <Modal
+        title="伴生抽取提示词（只读）"
+        open={promptsOpen}
+        onCancel={() => setPromptsOpen(false)}
+        footer={null}
+        width={720}
+      >
+        {promptList.length === 0 ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载失败——请重试</Typography.Text>
+        ) : (
+          promptList.map((p) => (
+            <div key={p.id} style={{ marginBottom: 14 }}>
+              <Typography.Text strong style={{ fontSize: 12 }}>{p.label}</Typography.Text>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 4 }}>{p.purpose}</Typography.Paragraph>
+              <Input.TextArea readOnly value={p.text} autoSize={{ minRows: 4, maxRows: 12 }} style={{ fontSize: 11, fontFamily: 'monospace' }} />
+            </div>
+          ))
+        )}
+      </Modal>
 
       {/* REQ-216②：创建空本体弹窗（建议名默认「{agent 名}的伴生本体」） */}
       <Modal

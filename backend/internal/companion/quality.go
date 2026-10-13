@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
+	"sync"
 	"strings"
 	"time"
 
@@ -961,4 +963,104 @@ func (s *Service) CleanupGraph(ctx context.Context, ontID string, actions []stri
 	s.invalidateLabelCache(ontID)
 	s.snapshotAfterEdit(ctx, ontID)
 	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// REQ-303/M107 C1：抽取高级配置（每 agent 覆盖，JSON 列 companion_extract_cfg；
+// 空=env/内置默认）。字段：win_msgs（每窗消息数，默认 16）/win_chars（每窗字符，默认
+// 8000）/max_windows（单轮最大窗数，默认 3）/temperature（抽取温度，默认 0.2 低温稳 JSON）。
+// ---------------------------------------------------------------------------
+
+// ExtractCfg 抽取高级配置（解析后全字段有效值）。
+type ExtractCfg struct {
+	WinMsgs     int
+	WinChars    int
+	MaxWindows  int
+	Temperature float64
+}
+
+var cfgEnvOnce sync.Once
+var cfgEnvDefaults ExtractCfg
+
+// envCfgDefaults 全局 env 兜底（首次读取后缓存）。
+func envCfgDefaults() ExtractCfg {
+	cfgEnvOnce.Do(func() {
+		cfgEnvDefaults = ExtractCfg{
+			WinMsgs:     envInt("COMPANION_WIN_MSGS", 16),
+			WinChars:    envInt("COMPANION_WIN_CHARS", 8000),
+			MaxWindows:  envInt("COMPANION_MAX_WINDOWS", 3),
+			Temperature: envFloat("COMPANION_EXTRACT_TEMPERATURE", 0.2),
+		}
+	})
+	return cfgEnvDefaults
+}
+
+func envInt(k string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+func envFloat(k string, def float64) float64 {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 2 {
+			return f
+		}
+	}
+	return def
+}
+
+// ResolveExtractCfg 解析 agent 抽取配置：agent JSON 覆盖 → env 兜底 → 内置默认。
+func ResolveExtractCfg(agent *store.Agent) ExtractCfg {
+	cfg := envCfgDefaults()
+	if agent == nil || strings.TrimSpace(agent.CompanionExtractCfg) == "" {
+		return cfg
+	}
+	var j struct {
+		WinMsgs     *int     `json:"win_msgs"`
+		WinChars    *int     `json:"win_chars"`
+		MaxWindows  *int     `json:"max_windows"`
+		Temperature *float64 `json:"temperature"`
+	}
+	if err := json.Unmarshal([]byte(agent.CompanionExtractCfg), &j); err != nil {
+		return cfg
+	}
+	if j.WinMsgs != nil && *j.WinMsgs > 0 && *j.WinMsgs <= 200 {
+		cfg.WinMsgs = *j.WinMsgs
+	}
+	if j.WinChars != nil && *j.WinChars >= 1000 && *j.WinChars <= 100000 {
+		cfg.WinChars = *j.WinChars
+	}
+	if j.MaxWindows != nil && *j.MaxWindows > 0 && *j.MaxWindows <= 20 {
+		cfg.MaxWindows = *j.MaxWindows
+	}
+	if j.Temperature != nil && *j.Temperature >= 0 && *j.Temperature <= 2 {
+		cfg.Temperature = *j.Temperature
+	}
+	return cfg
+}
+
+// TempPtr 温度指针便捷（0.2 等默认在调用方已由 cfg 携带）。
+func TempPtr(f float64) *float64 { return &f }
+
+// PromptDef REQ-303 C2：伴生提示词只读透出形态（沿 OntoChat PromptDef 先例）。
+type PromptDef struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Purpose string `json:"purpose"`
+	Text    string `json:"text"`
+}
+
+// PromptDefs 伴生提示词清单（抽取/挖掘两条；Text 为模板骨架样例——语料/清单为运行时动态段）。
+func PromptDefs() []PromptDef {
+	sample := []GraphNode{{Label: "滚动更新", Kind: "Concept", Definition: "逐批替换实例的发布策略"}, {Label: "副本重建", Kind: "Concept", Definition: "被驱逐的实例在其他节点重新创建"}}
+	return []PromptDef{
+		{ID: "companion_extract", Label: "伴生抽取", Purpose: "对话收尾按窗抽取概念/关系/事件候选（REQ-187 hint 与对齐清单运行时注入）",
+			Text: companionPrompt("[对话片段（运行时按窗拼接）]", "[领域聚焦提示（agent 配置，可选）]", "[对齐约束节（既有实体清单，运行时注入）]")},
+		{ID: "companion_mine", Label: "关系挖掘", Purpose: "对图内已有实体 LLM 关系补全（REQ-286 A2）",
+			Text: mineRelationsPrompt(sample)},
+	}
 }

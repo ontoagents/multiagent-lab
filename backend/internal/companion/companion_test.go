@@ -578,3 +578,43 @@ func TestParseExtractOutFlexible(t *testing.T) {
 	}
 }
 
+
+// TestResolveExtractCfg REQ-303 C1：抽取高级配置解析——agent JSON 覆盖/env 兜底/越界回默认。
+func TestResolveExtractCfg(t *testing.T) {
+	// agent 空配置 → env/内置默认
+	agt := &store.Agent{ID: "a1"}
+	cfg := ResolveExtractCfg(agt)
+	if cfg.WinMsgs != 16 || cfg.WinChars != 8000 || cfg.MaxWindows != 3 || cfg.Temperature != 0.2 {
+		t.Fatalf("默认配置不符: %+v", cfg)
+	}
+	// agent JSON 覆盖（越界值回默认）
+	agt.CompanionExtractCfg = `{"win_msgs":32,"win_chars":12000,"max_windows":5,"temperature":0.1}`
+	cfg = ResolveExtractCfg(agt)
+	if cfg.WinMsgs != 32 || cfg.WinChars != 12000 || cfg.MaxWindows != 5 || cfg.Temperature != 0.1 {
+		t.Fatalf("JSON 覆盖不符: %+v", cfg)
+	}
+	// 越界回默认
+	agt.CompanionExtractCfg = `{"win_msgs":-5,"temperature":9}`
+	cfg = ResolveExtractCfg(agt)
+	if cfg.WinMsgs != 16 || cfg.Temperature != 0.2 {
+		t.Fatalf("越界应回默认: %+v", cfg)
+	}
+	// 坏 JSON 回默认
+	agt.CompanionExtractCfg = `{broken`
+	cfg = ResolveExtractCfg(agt)
+	if cfg.WinMsgs != 16 {
+		t.Fatalf("坏 JSON 应回默认: %+v", cfg)
+	}
+}
+
+// TestSplitWindowsParametrized REQ-303 C1：窗尺寸参数化（小窗更细粒度切分）。
+func TestSplitWindowsParametrized(t *testing.T) {
+	msgs := msgsOf("m1", "m2", "m3", "m4", "m5", "m6")
+	wins := splitWindows(msgs, 2, 100000)
+	if len(wins) != 3 {
+		t.Fatalf("每窗 2 条应切 3 窗: %d", len(wins))
+	}
+	if wins[0].lastID != "m2" || wins[2].lastID != "m6" {
+		t.Fatalf("窗末消息不符: %+v", wins)
+	}
+}

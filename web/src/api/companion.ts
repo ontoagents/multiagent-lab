@@ -177,6 +177,9 @@ export const companionApi = {
   // REQ-286 A2/REQ-297 异步化：触发关系挖掘（202+job_id；分批在后台执行，前端轮询进度）
   mineRelations: (ontologyId: string) =>
     req<{ job_id: string }>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/mine-relations`, { method: 'POST', body: '{}' }),
+  // REQ-303 C2：伴生提示词只读可见（沿 OntoChat PromptDef 先例）
+  prompts: () =>
+    req<{ prompts: { id: string; label: string; purpose: string; text: string }[] }>(`/api/companion/prompts`),
   // REQ-299：伴生图检查清理（只读诊断报告 + 有限自动清理）
   diagnose: (ontologyId: string) =>
     req<CompanionDiagnosis>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/diagnose`, { method: 'POST', body: '{}' }),

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
@@ -67,7 +68,51 @@ func GenerateStructured(ctx context.Context, st *store.Store, box *secrets.Box, 
 	if err != nil {
 		return nil, err
 	}
+	return generateStructuredWithModel(ctx, cm, schemaJSON, prompt)
+}
 
+// GenerateStructuredTemp REQ-303 C1：带可选温度的结构化生成（抽取等任务低温稳定输出）。
+// temp 为 nil 时用连接默认（与 GenerateStructured 一致）。
+func GenerateStructuredTemp(ctx context.Context, st *store.Store, box *secrets.Box, connID, prompt, schemaJSON string, temp *float64) (*GenerateStructuredResult, error) {
+	var rec *store.ConnectionRecord
+	var err error
+	if connID != "" {
+		rec, err = st.GetConnectionRecord(connID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve model connection %s: %w", connID, err)
+		}
+	} else {
+		def, derr := st.GetDefaultConnection("chat")
+		if derr != nil {
+			return nil, derr
+		}
+		if def == nil {
+			return nil, &ModelNotConfiguredError{}
+		}
+		rec, err = st.GetConnectionRecord(def.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !rec.Conn.Enabled {
+		return nil, fmt.Errorf("模型连接 %q 已停用，请在「设置-模型连接」启用或更换", rec.Conn.Name)
+	}
+	apiKey := ""
+	if len(rec.Encrypted) > 0 {
+		apiKey, err = box.Decrypt(rec.Encrypted)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt api key: %w", err)
+		}
+	}
+	cm, err := buildChatModel(ctx, rec.Conn, apiKey, temp, nil)
+	if err != nil {
+		return nil, err
+	}
+	return generateStructuredWithModel(ctx, cm, schemaJSON, prompt)
+}
+
+// generateStructuredWithModel schema 注入 system + 生成 + JSON 提取（公共尾段）。
+func generateStructuredWithModel(ctx context.Context, cm model.BaseChatModel, schemaJSON, prompt string) (*GenerateStructuredResult, error) {
 	// 2) 结构化生成：schema 注入 system，要求仅输出 JSON
 	sys := "你是结构化数据生成器。请严格按给定的 JSON Schema 生成一份符合结构的 JSON 草稿。\n" +
 		"要求：只输出一个 JSON 对象，不要输出任何解释、Markdown 代码围栏或其他文本。\n\nJSON Schema:\n" + schemaJSON

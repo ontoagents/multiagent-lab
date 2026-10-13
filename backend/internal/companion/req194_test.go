@@ -13,7 +13,7 @@ import (
 func TestSplitWindows(t *testing.T) {
 	// ≤16 条 → 单窗
 	msgs := msgsOf("m1", "m2", "m3")
-	if w := splitWindows(msgs); len(w) != 1 || w[0].lastID != "m3" {
+	if w := splitWindows(msgs, 16, 8000); len(w) != 1 || w[0].lastID != "m3" {
 		t.Fatalf("3 条应单窗: %d", len(w))
 	}
 	// 35 条 → 3 窗（16+16+3），窗末锚点正确
@@ -24,7 +24,7 @@ func TestSplitWindows(t *testing.T) {
 		}
 		return ids
 	}()...)
-	wins := splitWindows(many)
+	wins := splitWindows(many, 16, 8000)
 	if len(wins) != 3 {
 		t.Fatalf("35 条应 3 窗（16/16/3），got %d", len(wins))
 	}
@@ -39,7 +39,7 @@ func TestSplitWindows(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		long = append(long, &store.Message{ID: itoa(i), Role: "user", Content: strings.Repeat("长", 600)})
 	}
-	wins2 := splitWindows(long)
+	wins2 := splitWindows(long, 16, 8000)
 	if len(wins2[0].msgs) >= 16 {
 		t.Fatalf("字符上限应先于条数上限触发，首窗 %d 条", len(wins2[0].msgs))
 	}

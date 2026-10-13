@@ -194,3 +194,38 @@ func (s *Store) DeleteCheckpoint(id string) error {
 	_, err := s.DB.Exec(`DELETE FROM checkpoint WHERE id = ?`, id)
 	return err
 }
+
+// ListMessagesAfterCursor REQ-303 E1：游标行之后的增量消息（O(增量)——替代全量拉取后内存过滤）。
+// 游标为空/游标消息已删（会话裁剪）→ 回退全量（保守语义与 remainingAfter 一致）。
+func (s *Store) ListMessagesAfterCursor(convID, afterMessageID string) ([]*Message, error) {
+	if afterMessageID == "" {
+		return s.ListMessages(convID)
+	}
+	cur := &Message{}
+	if err := s.DB.QueryRow(`SELECT id,conversation_id,role,content,meta,created_at FROM message WHERE id = ?`, afterMessageID).
+		Scan(&cur.ID, &cur.ConversationID, &cur.Role, &cur.Content, &cur.Meta, &cur.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return s.ListMessages(convID) // 游标消息已删 → 保守全量
+		}
+		return nil, err
+	}
+	// REQ-303 E1：created_at 参数归一为空格格式（驱动 Scan 可能回 T/Z 格式，
+	// 与列内存格式不一致会导致字符串比较失配——真机实证）
+	curCreated := strings.Replace(strings.Replace(cur.CreatedAt, "T", " ", 1), "Z", "", 1)
+	rows, err := s.DB.Query(`SELECT id,conversation_id,role,content,meta,created_at FROM message
+		WHERE conversation_id = ? AND (created_at > ? OR (created_at = ? AND id > ?))
+		ORDER BY created_at, id`, convID, curCreated, curCreated, afterMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Message
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Meta, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &m)
+	}
+	return out, rows.Err()
+}

@@ -41,6 +41,7 @@ type Agent struct {
 	// REQ-187：伴生本体配置增强（默认空/空/0 = 现行为零回归）
 	CompanionExtractHint   string  `json:"companion_extract_hint"`
 	CompanionExtractConnID string  `json:"companion_extract_conn_id"`
+	CompanionExtractCfg    string  `json:"companion_extract_cfg"`
 	CompanionAutoThreshold float64 `json:"companion_auto_threshold"`
 	// REQ-201/M37：上下文预算档位（'' = 标准档；compact 紧凑 / standard 标准 / full 完整不限量=存量行为）
 	ContextMode string `json:"context_mode"`

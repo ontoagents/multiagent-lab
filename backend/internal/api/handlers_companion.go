@@ -530,3 +530,9 @@ func (s *Server) companionCommunitySummarize(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": body.OntologyID, "label": body.Label, "summary": summary, "method": method})
 }
+
+// companionPrompts GET /api/companion/prompts（REQ-303 C2：提示词只读可见——
+// 沿 OntoChat PromptDef 先例，Text 为模板骨架 {占位符} 标注运行时动态段；单源不可编辑）。
+func (s *Server) companionPrompts(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"prompts": companion.PromptDefs()})
+}

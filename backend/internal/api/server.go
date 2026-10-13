@@ -138,6 +138,7 @@ func (s *Server) routes() {
 	// REQ-299/M103：伴生图检查清理（诊断只读+有限自动清理）
 	m.HandleFunc("POST /api/companion/ontologies/{id}/diagnose", s.diagnoseCompanionGraph)
 	m.HandleFunc("POST /api/companion/ontologies/{id}/cleanup", s.cleanupCompanionGraph)
+	m.HandleFunc("GET /api/companion/prompts", s.companionPrompts) // REQ-303 C2：提示词只读可见
 
 	// Projects
 	m.HandleFunc("GET /api/projects", s.listProjects)

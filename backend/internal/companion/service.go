@@ -120,7 +120,7 @@ type extractWindow struct {
 }
 
 // splitWindows 增量消息分窗（纯函数；窗尺寸按渲染后语料字符计，与实际送 LLM 的文本同源）。
-func splitWindows(msgs []*store.Message) []extractWindow {
+func splitWindows(msgs []*store.Message, maxMsgs, maxChars int) []extractWindow {
 	var wins []extractWindow
 	var cur []*store.Message
 	size := 0
@@ -132,7 +132,7 @@ func splitWindows(msgs []*store.Message) []extractWindow {
 	}
 	for _, m := range msgs {
 		w := len([]rune(renderCorpus([]*store.Message{m})))
-		if len(cur) > 0 && (len(cur)+1 > windowMaxMsgs || size+w > windowMaxChars) {
+		if len(cur) > 0 && (len(cur)+1 > maxMsgs || size+w > maxChars) {
 			flush()
 		}
 		cur = append(cur, m)
@@ -455,12 +455,13 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 	// REQ-194①：已有实体清单（REQ-216 起=本体伴生子图全量；宿主方案不在位/查询失败=空清单）
 	known := s.knownEntityLabels(ctx, ontID)
 
-	windows := splitWindows(fresh)
+	cfg := ResolveExtractCfg(agent)
+	windows := splitWindows(fresh, cfg.WinMsgs, cfg.WinChars)
 	pendingWindows := 0
-	if len(windows) > maxWindowsPerRun {
+	if len(windows) > cfg.MaxWindows {
 		// 超长积压：本轮只处理前 3 窗，游标停在第 3 窗末，后续 Run 自然续抽
-		pendingWindows = len(windows) - maxWindowsPerRun
-		windows = windows[:maxWindowsPerRun]
+		pendingWindows = len(windows) - cfg.MaxWindows
+		windows = windows[:cfg.MaxWindows]
 	}
 	emit := func(eventType string, data map[string]any) { s.emitEvent(convID, runID, eventType, data) }
 	emit("companion.extract", map[string]any{
@@ -474,8 +475,8 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		// REQ-282 A2：每窗独立预算（原 90s 总预算 3 窗共享——思考模型首窗即耗尽，后续窗必死于 deadline；
 		// 与游标「失败停上一窗末、下轮续抽」语义对齐）
 		wctx, wcancel := context.WithTimeout(ctx, extractTimeout())
-		res, err := chat.GenerateStructured(wctx, s.Store, s.Box, connID,
-			companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)), companionSchema)
+		res, err := chat.GenerateStructuredTemp(wctx, s.Store, s.Box, connID,
+			companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)), companionSchema, TempPtr(cfg.Temperature))
 		if err != nil {
 			wcancel()
 			emit("companion.extract", map[string]any{"phase": "error", "window": i + 1, "total": len(windows), "message": err.Error()})
@@ -486,7 +487,7 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		if perr != nil {
 			retryPrompt := companionPrompt(renderCorpus(win.msgs), agent.CompanionExtractHint, buildAlignmentSection(known)) +
 				"\n\n注意：你上一次的输出无法按契约解析（" + truncate(perr.Error(), 120) + "）。请重新只输出一个 JSON 对象（不要数组、不要围栏）。"
-			if res2, err2 := chat.GenerateStructured(wctx, s.Store, s.Box, connID, retryPrompt, companionSchema); err2 == nil {
+			if res2, err2 := chat.GenerateStructuredTemp(wctx, s.Store, s.Box, connID, retryPrompt, companionSchema, TempPtr(cfg.Temperature)); err2 == nil {
 				out, perr = parseExtractOut(res2.DraftJSON)
 			} else {
 				perr = err2
