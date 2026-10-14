@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { AppstoreOutlined, BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, DeploymentUnitOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -654,7 +654,7 @@ export default function ChatWindow({
   const [kbs, setKbs] = useState<KnowledgeBase[]>([])
   const [profilesErr, setProfilesErr] = useState(false)
   const [kbsErr, setKbsErr] = useState(false)
-  const [picker, setPicker] = useState<'kb' | 'onto' | 'model' | null>(null)
+  const [picker, setPicker] = useState<'kb' | 'onto' | 'companion' | 'model' | null>(null)
 
   // 选项列表：挂载时拉取；失败降级为空 + chip 置灰说明
   const loadCfgOptions = () => {
@@ -962,6 +962,49 @@ export default function ChatWindow({
       </span>
     </Popover>
   )
+
+  // REQ-322：会话级伴生本体覆盖——自 ChatWindow 头部 Select 迁入输入区配置行（REQ-302 选择器落位演进：
+  // 会话级配置归位会话级配置面，与知识库/本体/技能 chip 同形态；头部不再出现本体选择控件）。
+  // 仅 agent 有伴生绑定时出现；「跟随智能体默认」即清除覆盖（''）。
+  const companionBoundName = companionOntos.find((o) => o.id === agent?.companion_ontology_id)?.name
+  const companionOverrideName = companionOntos.find((o) => o.id === conversation.companion_ontology_id)?.name
+  const companionChip = !isProjectScope && agent?.companion_ontology_id ? (
+    <Popover
+      open={picker === 'companion'}
+      onOpenChange={(o) => { if (!o) setPicker(null) }}
+      trigger="click"
+      placement="topLeft"
+      arrow={false}
+      content={pickerList(
+        `本会话伴生本体（覆盖仅本会话生效：抽取/召回走该本体；agent 默认绑定${companionBoundName ? `「${companionBoundName}」` : ''}不受影响）`,
+        [
+          { id: '', name: '跟随智能体默认', meta: companionBoundName },
+          ...companionOntos
+            .filter((o) => o.id !== agent.companion_ontology_id)
+            .map((o) => ({ id: o.id, name: o.name })),
+        ],
+        conversation.companion_ontology_id || '',
+        (id) => {
+          // REQ-322 顺修 REQ-302 存量缺陷：伴生切换原为裸 PUT（仅 companion 字段）——后端 PUT 为
+          // full-replace，会盲清 title/kb_id/top_k 等。改走 patchConv 合并当前会话字段再落库。
+          void patchConv({ companion_ontology_id: id }, { silent: true }).then(() => {
+            showToast(id ? `本会话伴生已切换（抽取/召回走该本体；其他会话不受影响）` : '已清除覆盖——本会话跟随智能体默认伴生本体')
+          })
+        },
+      )}
+    >
+      <span className="chip-slot">
+        <ChatChip
+          on={!!conversation.companion_ontology_id}
+          disabled={false}
+          icon={<DeploymentUnitOutlined />}
+          label={conversation.companion_ontology_id ? `伴生 · ${companionOverrideName ?? '已覆盖'}` : '伴生 · 跟随默认'}
+          title="本会话伴生本体覆盖（抽取/召回走覆盖本体，跨会话分域；点击切换或清除）"
+          onClick={() => setPicker(picker === 'companion' ? null : 'companion')}
+        />
+      </span>
+    </Popover>
+  ) : null
 
   // 事件卡渲染（ThoughtChain 深度思考 / 工具详情 / 终态摘要）：
   // 紧凑、左侧色条区分来源、与助手文本列对齐（缩进统一由样式 .event-card/.event-side/.tool-phase
@@ -1636,36 +1679,8 @@ export default function ChatWindow({
         {!isProjectScope && agent && (
           <>
             <Tag>{agent.runtime_backend}</Tag>
-            {/* REQ-302/M106：会话级伴生本体切换（''=跟随智能体默认；覆盖后抽取/召回走覆盖本体，跨会话分域） */}
-            {agent.companion_ontology_id && (
-              <Select
-                size="small"
-                style={{ width: 210 }}
-                value={conversation.companion_ontology_id || ''}
-                onChange={(v) => {
-                  void fetch(`/api/conversations/${conversation.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ companion_ontology_id: v }),
-                  }).then((r) => {
-                    if (r.ok) {
-                      showToast(v ? `本会话伴生已切换（抽取/召回走该本体；其他会话不受影响）` : '已清除覆盖——本会话跟随智能体默认伴生本体')
-                      onConversationUpdated()
-                    } else {
-                      showToast('切换失败', 'err')
-                    }
-                  })
-                }}
-                options={[
-                  { value: '', label: `🧩 跟随智能体默认（当前绑定）` },
-                  ...companionOntos.map((o) => ({ value: o.id, label: `${o.name}` })),
-                ]}
-                data-testid="conv-companion-select"
-              />
-            )}
-            <Tooltip title="配置值；后端 ≤0 归一默认 25——运行中的生效值随 run.started max_iteration_effective 透出">
-              <Tag>{agent.max_iteration && agent.max_iteration > 0 ? `最大迭代 ${agent.max_iteration}` : '最大迭代 默认 25'}</Tag>
-            </Tooltip>
+            {/* REQ-322：会话伴生选择器已迁输入区配置行（companionChip）；头部不再放本体选择控件。
+                「最大迭代」静态配置标签同步移除——生效值随运行中「迭代 k/N」chip 与侧板 Loop 页签透出 */}
           </>
         )}
         {/* REQ-311 A4：运行中迭代进度（k=模型调用步累计，N=生效迭代上限；项目会话同样可见） */}
@@ -1693,6 +1708,23 @@ export default function ChatWindow({
           >
             <Button size="small">导出</Button>
           </Dropdown>
+          {/* REQ-322：过程显示三档迁头部 ops 行（对话历史上方、紧邻观测——「看什么过程细节」的控制归一处；
+              原落点为输入区上方工具条，开发者反馈位置不符）。会话级记忆（convCfg） */}
+          <Tooltip title="过程显示：全部=完整过程卡 · 关键=工具调用与运行状态 · 精简=仅消息与结论（会话级记忆）">
+            <span className="chat-gran" aria-label="过程显示分级">
+              <span className="chat-gran-label">过程显示</span>
+              <Segmented
+                size="small"
+                value={granularity}
+                onChange={(v) => patchConvCfg({ granularity: v as 'all' | 'key' | 'off' })}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'key', label: '关键' },
+                  { value: 'off', label: '精简' },
+                ]}
+              />
+            </span>
+          </Tooltip>
           {/* REQ-311 A7：观测档位入口前置（原深藏调用轨迹·显示设置）——级别与调试入库，仅影响之后的运行 */}
           <Dropdown
             trigger={['click']}
@@ -2038,22 +2070,8 @@ export default function ChatWindow({
 
       <div className="composer">
         <div className="composer-inner">
-          {/* REQ-317：执行过程细节分级按钮上浮到对话框上方（原深藏调用轨迹·显示设置，原入口保留）——
-              全部=完整过程卡；关键=工具调用与运行状态；精简=仅消息与结论。会话级记忆（convCfg） */}
-          <div className="composer-toolbar">
-            <span className="composer-toolbar-label">过程显示</span>
-            <Segmented
-              size="small"
-              value={granularity}
-              onChange={(v) => patchConvCfg({ granularity: v as 'all' | 'key' | 'off' })}
-              options={[
-                { value: 'all', label: '全部' },
-                { value: 'key', label: '关键' },
-                { value: 'off', label: '精简' },
-              ]}
-            />
-          </div>
-          {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 技能 三个纯开关 */}
+          {/* REQ-322：过程显示分级已迁头部 ops 行（对话历史上方、观测旁），输入区回归「输入卡+会话配置行」两件 */}
+          {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 伴生 / 技能 开关与模型切换 */}
           <Sender
             value={input}
             onChange={setInput}
@@ -2137,6 +2155,7 @@ export default function ChatWindow({
                     <span className="chip-slot">{ontoChip}</span>
                   </Popover>
                 )}
+                {companionChip}
                 {skillsDisabled ? <Tooltip title={skillsHint}><span className="chip-slot">{skillsChip}</span></Tooltip> : skillsChip}
                 <span className="chat-chips-hint">Enter 发送 · Shift+Enter 换行</span>
                 </>)}

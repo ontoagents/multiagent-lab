@@ -318,9 +318,9 @@ pre.raw-json {
 
 .composer { border-top: 1px solid var(--c-line); background: var(--c-panel); padding: 12px 20px 14px; flex: none; }
 .composer-inner { max-width: var(--chat-col); margin: 0 auto; }
-/* REQ-316：对话框上方过程显示分级工具条（granularity 上浮自调用轨迹·显示设置） */
-.composer-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 0 2px 6px; }
-.composer-toolbar-label { font-size: 11px; color: var(--ant-color-text-tertiary, #9ca3af); }
+/* REQ-322：过程显示分级迁头部 ops 行（对话历史上方、观测旁）；输入区工具条随之退役 */
+.chat-gran { display: inline-flex; align-items: center; gap: 6px; }
+.chat-gran-label { font-size: 11px; color: var(--ant-color-text-tertiary, #9ca3af); white-space: nowrap; }
 
 /* ---- 通用页面 ---- */
 .page { flex: 1; overflow: auto; padding: 22px 26px; }
