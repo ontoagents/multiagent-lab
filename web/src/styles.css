@@ -318,9 +318,22 @@ pre.raw-json {
 
 .composer { border-top: 1px solid var(--c-line); background: var(--c-panel); padding: 12px 20px 14px; flex: none; }
 .composer-inner { max-width: var(--chat-col); margin: 0 auto; }
-/* REQ-322：过程显示分级迁头部 ops 行（对话历史上方、观测旁）；输入区工具条随之退役 */
-.chat-gran { display: inline-flex; align-items: center; gap: 6px; }
-.chat-gran-label { font-size: 11px; color: var(--ant-color-text-tertiary, #9ca3af); white-space: nowrap; }
+/* REQ-323：头部「过程」面板（显示档 Segmented + 采集档选项 + 关系说明）——过程显示与观测并为一个入口 */
+.proc-pop { width: 320px; }
+.proc-pop-title { font-size: 12px; font-weight: 600; color: var(--c-ink); margin: 2px 0 8px; }
+.proc-pop-opts { display: flex; flex-direction: column; gap: 2px; }
+.proc-pop-hint { margin-top: 10px; font-size: 11px; line-height: 1.55; color: var(--c-ink-3); }
+/* REQ-323：伴生沉淀过程卡归组块——处理中展开、完成自动收起（头部单行摘要） */
+.companion-group { padding: 6px 10px; }
+.companion-group.open { padding-bottom: 8px; }
+.companion-group-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-width: 0; }
+.companion-group-caret { display: inline-block; width: 12px; color: var(--c-ink-3); transition: transform .15s ease; flex: none; }
+.companion-group-caret.open { transform: rotate(90deg); }
+.companion-group-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.companion-group-state { flex: none; font-size: 11px; color: var(--c-ink-3); }
+.companion-group-state.live { color: var(--ant-color-primary, #4f46e5); }
+.companion-group-state.bad { color: var(--c-err, #c2373f); }
+.companion-group .event-card { margin-top: 6px; }
 
 /* ---- 通用页面 ---- */
 .page { flex: 1; overflow: auto; padding: 22px 26px; }

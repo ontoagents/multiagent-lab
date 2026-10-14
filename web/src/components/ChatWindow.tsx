@@ -403,6 +403,72 @@ function ChatChip({ on, disabled, icon, label, title, onClick }: {
   )
 }
 
+/** REQ-323：归组后的伴生沉淀过程块（连续 companion.* 事件收进一个可折叠组） */
+interface CompanionEventGroup {
+  kind: '__companion_group'
+  events: any[]
+  firstIdx: number // 首事件在 displayItems 中的下标（renderEventCard 全局序，供 extracting 判定等）
+  subDepth: number
+}
+
+/** REQ-323：连续 companion.* 沉淀过程事件归组（轮询增量与历史回放都成组）；其余事件照原样透传 */
+function groupCompanionPhases(items: any[]): any[] {
+  const out: any[] = []
+  let buf: any[] = []
+  let firstIdx = 0
+  const flush = () => {
+    if (!buf.length) return
+    out.push({ kind: '__companion_group', events: buf, firstIdx, subDepth: buf[0]?.subDepth ?? 0 })
+    buf = []
+  }
+  items.forEach((it, i) => {
+    if (it.kind === 'event' && typeof it.evType === 'string' && it.evType.startsWith('companion.')) {
+      if (!buf.length) firstIdx = i
+      buf.push(it)
+    } else {
+      flush()
+      out.push(it)
+    }
+  })
+  flush()
+  return out
+}
+
+/** REQ-323：伴生沉淀过程卡归组块——处理中（轮询活跃且未到终态）展开逐卡可见，
+ *  完成（done/error 到达或轮询终止）自动收起为单行摘要；点击头部可随时手动展开/收起（手动优先于自动态） */
+function CompanionGroupBlock({ group, live, renderEvent }: {
+  group: CompanionEventGroup
+  live: boolean
+  renderEvent: (it: any, i: number) => ReactNode
+}) {
+  const events = group.events
+  const terminal = events.find((e) => e.evType === 'companion.extract' && (e.evData?.phase === 'done' || e.evData?.phase === 'error'))
+  const processing = live && !terminal
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const wasProcessingRef = useRef(processing)
+  useEffect(() => {
+    if (wasProcessingRef.current && !processing) setUserOpen(null) // 完成瞬间自动收起（清除手动覆盖，回到自动态=收起）
+    wasProcessingRef.current = processing
+  }, [processing])
+  const open = userOpen ?? processing
+  const candTotal = events.reduce((s, e) => s + (e.evType === 'companion.candidates' ? Number(e.evData?.count ?? 0) : 0), 0)
+  const autoIngested = Number(terminal?.evData?.auto_ingested ?? 0)
+  const failed = terminal?.evData?.phase === 'error'
+  const label = `🧩 伴生沉淀${failed ? '失败' : ''} · ${events.length} 条过程卡${candTotal > 0 ? ` · 候选 ${candTotal} 条` : ''}${
+    autoIngested > 0 ? ` · 自动入图 ${autoIngested} 条` : ''}`
+  return (
+    <div className={`event-card src-onto companion-group${open ? ' open' : ''}`} style={({ '--sub-depth': group.subDepth } as CSSProperties)}>
+      <div className="companion-group-head" data-testid="companion-group-head" onClick={() => setUserOpen(!open)} title={open ? '收起伴生沉淀过程' : '展开伴生沉淀过程卡'}>
+        <span className={`companion-group-caret${open ? ' open' : ''}`}>▸</span>
+        {processing && <LoadingOutlined spin style={{ marginRight: 6, color: 'var(--ant-color-primary, #4f46e5)' }} />}
+        <span className="companion-group-title">{label}</span>
+        <span className={`companion-group-state${processing ? ' live' : ''}${failed ? ' bad' : ''}`}>{processing ? '处理中 · 展开跟随' : failed ? '失败 · 已收起' : '已完成 · 已收起'}</span>
+      </div>
+      {open && events.map((e, j) => renderEvent(e, group.firstIdx + j))}
+    </div>
+  )
+}
+
 // Bubble 角色映射（X 2.x：role 单数；条目 role 必须命中此处定义的 key）
 const BUBBLE_ROLES: BubbleListProps['role'] = {
   user: {
@@ -551,15 +617,19 @@ export default function ChatWindow({
   // REQ-282 B2：固定 2s×60（120s 硬顶）改指数退避 2s→5s→10s + 10 分钟硬顶——
   // 思考模型抽取动辄数分钟，预算调大后终态卡不再被轮询上限饿死（历史回放仍兜底自愈）。
   const companionPollRef = useRef<{ timer: number; cancel: () => void } | null>(null)
+  // REQ-323：伴生沉淀归组的「处理中」态（轮询活跃）——归组块据此展开/自动收起
+  const [companionLive, setCompanionLive] = useState(false)
   const stopCompanionPoll = () => {
     if (companionPollRef.current) {
       companionPollRef.current.cancel()
       window.clearTimeout(companionPollRef.current.timer)
       companionPollRef.current = null
     }
+    setCompanionLive(false)
   }
   const startCompanionPoll = (convId: string) => {
     stopCompanionPoll()
+    setCompanionLive(true)
     let waited = 0
     let emptyAfterDone = 0
     let sawDone = false
@@ -581,7 +651,11 @@ export default function ChatWindow({
         }
         emptyAfterDone = sawDone && freshCount === 0 ? emptyAfterDone + 1 : 0
       } catch { /* 网络抖动下一轮重试 */ }
-      if (waited >= 600000 || (sawDone && emptyAfterDone >= 2)) return
+      if (waited >= 600000 || (sawDone && emptyAfterDone >= 2)) {
+        companionPollRef.current = null
+        setCompanionLive(false) // REQ-323：轮询自然终止，归组块转入「已完成」
+        return
+      }
       const delay = waited < 20000 ? 2000 : waited < 120000 ? 5000 : 10000
       waited += delay
       const timer = window.setTimeout(tick, delay)
@@ -1341,23 +1415,28 @@ export default function ChatWindow({
   // REQ-174：连续 tool.call/result 归组为「执行过程」块（单行/收起）后再映射
   // REQ-217④ 顺修：granularity/showReasoning 此前已接线（状态与记忆在）但 displayItems 只应用
   // levelGated——两开关从未生效；现补过程门控（key=工具与运行状态，off=仅消息结论）。
+  // REQ-323：连续 companion.* 沉淀过程卡再归组——处理中展开、完成自动收起（可手动展开），治多窗沉淀卡刷屏；
+  // running 透传 groupToolPhases——运行期间最新工具组恒展开（叶级执行细节可见）
   const displayItems = useMemo(() => {
-    return groupToolPhases(
-      withSubDepth(
-        items.filter((it) => {
-          if (it.evType && levelGated(it.evType, debugLevel)) return false
-          if (!showReasoning && it.evType === 'reasoning') return false
-          if (it.kind === 'msg' || !it.evType) return true
-          if (granularity === 'off') return false
-          if (granularity === 'key') {
-            return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
-              ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats'].includes(it.evType)
-          }
-          return true
-        }),
+    return groupCompanionPhases(
+      groupToolPhases(
+        withSubDepth(
+          items.filter((it) => {
+            if (it.evType && levelGated(it.evType, debugLevel)) return false
+            if (!showReasoning && it.evType === 'reasoning') return false
+            if (it.kind === 'msg' || !it.evType) return true
+            if (granularity === 'off') return false
+            if (granularity === 'key') {
+              return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
+                ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats'].includes(it.evType)
+            }
+            return true
+          }),
+        ),
+        running,
       ),
     )
-  }, [items, debugLevel, granularity, showReasoning])
+  }, [items, debugLevel, granularity, showReasoning, running])
   const listItems = useMemo(
     () =>
       displayItems.map((it, i) => {
@@ -1373,13 +1452,16 @@ export default function ChatWindow({
         if ((it as unknown as { kind: string }).kind === '__tool_phase') {
           return { key: `t${i}`, role: 'event', content: <ToolPhaseBlock group={it as unknown as ToolPhaseGroup} /> }
         }
+        if ((it as unknown as { kind: string }).kind === '__companion_group') {
+          return { key: `cg${i}`, role: 'event', content: <CompanionGroupBlock group={it as unknown as CompanionEventGroup} live={companionLive} renderEvent={renderEventCard} /> }
+        }
         return {
           key: `e${i}`,
           role: 'event',
           content: renderEventCard(it, i),
         }
       }),
-    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel],
+    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, companionLive],
   )
 
   // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问），窗格头统一呈现
@@ -1708,48 +1790,66 @@ export default function ChatWindow({
           >
             <Button size="small">导出</Button>
           </Dropdown>
-          {/* REQ-322：过程显示三档迁头部 ops 行（对话历史上方、紧邻观测——「看什么过程细节」的控制归一处；
-              原落点为输入区上方工具条，开发者反馈位置不符）。会话级记忆（convCfg） */}
-          <Tooltip title="过程显示：全部=完整过程卡 · 关键=工具调用与运行状态 · 精简=仅消息与结论（会话级记忆）">
-            <span className="chat-gran" aria-label="过程显示分级">
-              <span className="chat-gran-label">过程显示</span>
-              <Segmented
-                size="small"
-                value={granularity}
-                onChange={(v) => patchConvCfg({ granularity: v as 'all' | 'key' | 'off' })}
-                options={[
-                  { value: 'all', label: '全部' },
-                  { value: 'key', label: '关键' },
-                  { value: 'off', label: '精简' },
-                ]}
-              />
-            </span>
-          </Tooltip>
-          {/* REQ-311 A7：观测档位入口前置（原深藏调用轨迹·显示设置）——级别与调试入库，仅影响之后的运行 */}
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                { key: 'lv0', label: `简洁（默认）${debugLevel === 0 ? ' ✓' : ''}` },
-                { key: 'lv1', label: `详细 · 装配快照/分步用量${debugLevel === 1 ? ' ✓' : ''}` },
-                { key: 'lv2', label: `调试 · 另附模型输入全文${debugLevel === 2 ? ' ✓' : ''}` },
-                { type: 'divider' as const },
-                { key: 'persist', label: `${debugPersist ? '✓ ' : ''}调试事件入库（轨迹/回放可回看）` },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'persist') patchConvCfg({ debugPersist: !debugPersist })
-                else changeDebugLevel(Number(key.slice(2)))
-              },
-            }}
-            disabled={running}
+          {/* REQ-323：「过程显示」（聊天流展示多少）与「观测/采集档」（后端记录多少）并为一个「过程」入口——
+              两档同面板+关系说明自解释（采集决定记多少、显示决定看多少，采集仅影响之后的运行）。
+              替代 REQ-322 头部并列的过程显示 Segmented + 观测 Dropdown（开发者问「是否重复了」）。
+              TraceDrawer「显示与运行治理」原入口保留（同源 convCfg/会话记忆） */}
+          <Popover
+            trigger="click"
+            placement="bottomRight"
+            arrow={false}
+            content={
+              <div className="proc-pop" data-testid="proc-pop">
+                <div className="proc-pop-title">过程显示 · 聊天流展示多少（即时生效，会话级记忆）</div>
+                <Segmented
+                  size="small"
+                  value={granularity}
+                  onChange={(v) => patchConvCfg({ granularity: v as 'all' | 'key' | 'off' })}
+                  options={[
+                    { value: 'all', label: '全部' },
+                    { value: 'key', label: '关键' },
+                    { value: 'off', label: '精简' },
+                  ]}
+                />
+                <div className="chip-picker-divider" />
+                <div className="proc-pop-title">采集档 · 后端记录多少（仅影响之后的运行）</div>
+                <div className="proc-pop-opts">
+                  {([
+                    { k: 0, label: '简洁（默认）', hint: '常规过程卡' },
+                    { k: 1, label: '详细', hint: '另记装配快照/分步用量' },
+                    { k: 2, label: '调试', hint: '另附模型输入全文' },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.k}
+                      type="button"
+                      className={`chip-picker-item${debugLevel === o.k ? ' current' : ''}`}
+                      data-testid={`proc-lv${o.k}`}
+                      onClick={() => changeDebugLevel(o.k)}
+                    >
+                      <span className="chip-picker-name">{o.label}{debugLevel === o.k ? ' ✓' : ''}</span>
+                      <span className="chip-picker-meta">{o.hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className={`chip-picker-item${debugPersist ? ' current' : ''}`}
+                  data-testid="proc-persist"
+                  onClick={() => patchConvCfg({ debugPersist: !debugPersist })}
+                >
+                  <span className="chip-picker-name">{debugPersist ? '✓ ' : ''}调试事件入库</span>
+                  <span className="chip-picker-meta">轨迹/回放可回看</span>
+                </button>
+                <div className="proc-pop-hint">
+                  两档关系：采集档决定「记多少」，显示档决定「看多少」——「精简」显示下已记录的细节仍可在「调用轨迹」回看（入库后跨会话可查）。
+                </div>
+              </div>
+            }
           >
-          <Button
-            size="small"
-            title="观测级别与调试事件入库（仅影响之后的运行；详情见「调用轨迹·运行治理」）"
-          >
-            观测 · {['简洁', '详细', '调试'][debugLevel] ?? debugLevel}{debugPersist ? ' +入库' : ''}
-          </Button>
-          </Dropdown>
+            <Button size="small" data-testid="proc-btn" title="过程显示（看多少）与采集档（记多少）——面板内有关系说明">
+              过程 · {granularity === 'all' ? '全部' : granularity === 'key' ? '关键' : '精简'}{debugLevel > 0 ? ` · ${['简洁', '详细', '调试'][debugLevel] ?? debugLevel}` : ''}{debugPersist ? '+入库' : ''}
+            </Button>
+          </Popover>
           {/* REQ-217①②④/M48：调用轨迹入口（重放/过程展示/调试三档/原始 JSON 收编面板，头部精简） */}
           <Button size="small" onClick={() => setTraceOpen(true)}>调用轨迹</Button>
           {/* REQ-19e 对比模式：开关 + 2~4 列（运行中锁定；开关与窗格配置按会话记忆） */}

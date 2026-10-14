@@ -1,10 +1,12 @@
 /**
- * REQ-174 对话执行过程展示优化（ZCode 式单行/收起）→ REQ-317 树形化升级：
+ * REQ-174 对话执行过程展示优化（ZCode 式单行/收起）→ REQ-317 树形化升级 → REQ-323 叶级收放：
  * - buildGroup：把连续的 tool.call / tool.result 事件流按 tool_call_id 栈式配对成**调用树**——
  *   挂起调用期间到达的新调用（典型=agent_as_tool 委派成员后成员内部的工具调用）成为其子节点；
  *   无主结果独立成根节点（中断残留语义不变），无 id 时回退同栈同名配对（存量事件兼容）；
- * - ToolPhaseBlock：live（流式中）整树展开、运行中节点高亮；结束后**自动收起**为单行摘要
- *   （只剩最上层枝干），点击可重新展开整树回看；
+ * - REQ-323 叶级收放：运行中**活跃叶子节点**（栈顶挂起调用）自动展开执行步骤信息（入参/结果），
+ *   叶子完成（结果到达、栈顶回退到上级分支）即自动收起，焦点随执行推进；用户手动开合优先于自动态；
+ * - ToolPhaseBlock：live（流式中）树展开、运行节点高亮；结束后**自动收起**为单行摘要
+ *   （只剩最上层枝干），点击可重新展开整树回看（REQ-317 语义保持）；
  * - ToolLine：入参摘要**同一行内横向滚动**展示（不换行；摘要上限放宽，不再截到不可读），
  *   委派徽标（REQ-311 A5）保留。
  */
@@ -39,6 +41,7 @@ export interface ToolPhaseGroup {
   totalMs: number
   live: boolean // 流式进行中（展开）；结束后 false（收起）
   subDepth: number
+  activeLeafCallId?: string // REQ-323：运行中活跃叶子（栈顶挂起调用）——其执行细节自动展开
 }
 
 /** 来源分类（与 ChatWindow.eventSource 同口径的最小副本——避免环导入） */
@@ -83,19 +86,27 @@ function truncate(s: string, n: number): string {
 
 const isToolEv = (t?: string) => t === 'tool.call' || t === 'tool.result'
 
-/** 归组：连续 tool.call/result 合并为调用树；其余事件照原样透传（打断分组） */
-export function groupToolPhases(items: any[]): any[] {
+/** 归组：一轮内的 tool.call/result 合并为**一棵调用树**（REQ-323 改制——此前任何非工具事件都切组，
+ *  委派场景 subagent.enter/exit 恰在 tool.call 与 tool.result 之间到达，调用被劈进两组、
+ *  委派节点永远挂起配不上结果）。现在仅用户/助手消息切分组（新提问=新一轮）；
+ *  subagent/思考/model.step 等事件照常按原位透传渲染，同时进入配对上下文（buildGroup 跳过）。
+ *  runActive=运行中（ChatWindow running 透传）：最新组在工具执行期间保持展开，叶级细节可见。 */
+export function groupToolPhases(items: any[], runActive = false): any[] {
   const out: any[] = []
   let buf: any[] = []
-  for (const it of items) {
-    if (it.kind === 'event' && isToolEv(it.evType)) buf.push(it)
-    else {
-      if (buf.length) out.push(buildGroup(buf, items))
-      buf = []
-      out.push(it)
-    }
+  const flush = () => {
+    if (buf.length) { out.push(buildGroup(buf, items, runActive)); buf = [] }
   }
-  if (buf.length) out.push(buildGroup(buf, items))
+  for (const it of items) {
+    if (it.kind === 'event' && isToolEv(it.evType)) {
+      buf.push(it)
+      continue
+    }
+    if (it.kind === 'msg') flush()
+    if (buf.length) buf.push(it) // 已开组的轮次内：非工具事件进配对上下文（不切组）+ 原位渲染
+    out.push(it)
+  }
+  flush()
   return out
 }
 
@@ -122,12 +133,13 @@ function closeNode(node: ToolCallNode, d: any): void {
   node.row.err = /^Error|^错误|执行失败|QUERY_REJECTED|invalid/i.test(content)
 }
 
-function buildGroup(buf: any[], all: any[]): ToolPhaseGroup {
+function buildGroup(buf: any[], all: any[], runActive = false): ToolPhaseGroup {
   const roots: ToolCallNode[] = []
   const stack: ToolCallNode[] = [] // 挂起中的调用（栈顶=当前最内层）
   const openById = new Map<string, ToolCallNode>()
 
   for (const it of buf) {
+    if (!isToolEv(it.evType)) continue // REQ-323：轮内吸收的非工具事件（subagent/思考等，组外原位渲染）不参与配对
     const d = it.evData ?? {}
     if (it.evType === 'tool.call') {
       const node = makeNode(d)
@@ -164,13 +176,15 @@ function buildGroup(buf: any[], all: any[]): ToolPhaseGroup {
         })
     }
   }
-  // live：运行整体仍在流式（末项=流式助手消息）且本组之后没有更多工具事件——
-  // REQ-317 修正：组间插入的 model.step/思考卡曾是打断点，「先思考后动手/多次调用」时整段被折叠
-  const lastBuf = buf[buf.length - 1]
-  const groupEndIdx = all.lastIndexOf(lastBuf)
+  // live：REQ-323 放宽——runActive（运行中）即最新组展开（工具执行数秒内叶级细节可见），
+  // 兼走旧流式判定（末项=流式助手消息且本组后无更多工具事件）；
+  // REQ-317 修正仍保留：组间插入的 model.step/思考卡不再是打断点（laterTool 才是）。
+  // runActive 为 false（历史/空闲）时严格按旧口径，回放态不虚展开。
+  const lastBuf = [...buf].reverse().find((b) => isToolEv(b.evType))
+  const groupEndIdx = lastBuf ? all.lastIndexOf(lastBuf) : -1
   const runLive = all.length > 0 && all[all.length - 1]?.kind === 'msg' && all[all.length - 1]?.streaming === true
-  const laterTool = all.slice(groupEndIdx + 1).some((m) => m.kind === 'event' && isToolEv(m.evType))
-  const live = runLive && !laterTool
+  const laterTool = all.slice(groupEndIdx + 1).some((m) => m.kind === 'event' && (isToolEv(m.evType) || m.evType === 'run.started'))
+  const live = (runActive || runLive) && !laterTool
 
   const calls: ToolCallRow[] = []
   const walk = (n: ToolCallNode) => {
@@ -185,22 +199,27 @@ function buildGroup(buf: any[], all: any[]): ToolPhaseGroup {
     calls,
     totalMs: calls.reduce((s, c) => s + (c.durationMs ?? 0), 0),
     live,
-    subDepth: buf[0]?.subDepth ?? 0,
+    subDepth: (buf.find((b) => isToolEv(b.evType))?.subDepth) ?? 0,
+    // REQ-323：栈顶=当前最内层挂起调用（活跃叶子）——其执行细节自动展开，完成（出栈）即收起
+    activeLeafCallId: live ? stack[stack.length - 1]?.row.callId : undefined,
   }
 }
 
 const fmtMs = (ms?: number) => (ms == null ? '' : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`)
 
-/** 单次调用行：入参摘要同行横向滚动；点击展开原始入参/结果 */
-function ToolLine({ call, pending }: { call: ToolCallRow; pending?: boolean }) {
-  const [open, setOpen] = useState(false)
+/** 单次调用行：入参摘要同行横向滚动；点击展开原始入参/结果。
+ *  REQ-323：autoOpen=本行为运行中活跃叶子时自动展开执行步骤信息（入参/结果），完成即自动收起；
+ *  用户手动开合后以手动状态优先（不再被自动态翻转）。 */
+function ToolLine({ call, pending, autoOpen }: { call: ToolCallRow; pending?: boolean; autoOpen?: boolean }) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = userOpen ?? !!autoOpen
   const cls = srcClassOf(call.source, call.name)
   const isLiveRunning = call.running && !pending
   const dotCls = isLiveRunning ? 'run' : pending ? 'pend' : call.err ? 'bad' : 'ok'
   const dotTxt = isLiveRunning ? '' : pending ? '–' : call.err ? '✕' : '✓'
   return (
     <div className={`tool-line src-${cls}${call.err ? ' err' : ''}${isLiveRunning ? ' running' : ''}`}>
-      <div className="tool-line-head" onClick={() => setOpen((o) => !o)} title={open ? '收起详情' : '展开入参与结果'}>
+      <div className="tool-line-head" onClick={() => setUserOpen(!open)} title={open ? '收起详情' : '展开入参与结果'}>
         <span className={`tool-dot ${dotCls}`}>{dotTxt}</span>
         {/* REQ-311 A5：委派徽标——source=agent:{id} 的调用即协调者对成员智能体的委派（function name=成员名） */}
         {cls === 'subagent' && <span className="tool-delegate">委派</span>}
@@ -220,15 +239,20 @@ function ToolLine({ call, pending }: { call: ToolCallRow; pending?: boolean }) {
   )
 }
 
-/** 调用树节点渲染：子调用挂在父调用下的引导线容器内（树形层级一眼可读） */
-function TreeNode({ node, pendingTree }: { node: ToolCallNode; pendingTree?: boolean }) {
+/** 调用树节点渲染：子调用挂在父调用下的引导线容器内（树形层级一眼可读）；
+ *  REQ-323：callId 作 key（流式重建时不丢行内手动开合状态），活跃叶子逐层透传 autoOpen */
+function TreeNode({ node, pendingTree, activeLeafCallId }: { node: ToolCallNode; pendingTree?: boolean; activeLeafCallId?: string }) {
   return (
     <div className="tool-node">
-      <ToolLine call={node.row} pending={pendingTree && node.row.running} />
+      <ToolLine
+        call={node.row}
+        pending={pendingTree && node.row.running}
+        autoOpen={node.row.callId != null && node.row.callId === activeLeafCallId}
+      />
       {node.children.length > 0 && (
         <div className="tool-node-children">
           {node.children.map((ch, i) => (
-            <TreeNode key={i} node={ch} pendingTree={pendingTree} />
+            <TreeNode key={ch.row.callId ?? i} node={ch} pendingTree={pendingTree} activeLeafCallId={activeLeafCallId} />
           ))}
         </div>
       )}
@@ -277,7 +301,7 @@ export function ToolPhaseBlock({ group }: { group: ToolPhaseGroup }) {
         </div>
         <div className="tool-tree">
           {group.tree.map((n, i) => (
-            <TreeNode key={i} node={n} />
+            <TreeNode key={n.row.callId ?? i} node={n} activeLeafCallId={group.activeLeafCallId} />
           ))}
         </div>
         {delegates && <div className="tool-phase-title tool-delegate-summary">委派统计：{delegates}</div>}
