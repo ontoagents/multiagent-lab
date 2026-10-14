@@ -44,6 +44,41 @@ type ReasoningRuntime interface {
 	StartWithReasoning(ctx context.Context, profileID string, port int, ttls map[string]string, reasoning bool) (*Process, error)
 }
 
+// GraphIsolationOpts per-graph 装载语义开关（REQ-320/M122）。
+type GraphIsolationOpts struct {
+	// CompanionMode 伴生宿主方案（方案名「伴生·」前缀，REQ-309 池与存量伴生宿主）：
+	// 保持 legacy 默认图装载路径与对账口径、不开 union——伴生读写走自描述 GRAPH 块
+	// 与 GRAPH ont-{id}，池「子图互不可见」验收不可破（REQ-320 P1 边界）。
+	CompanionMode bool
+	// Reasoning 推理开关（fuseki O6；GraphIsolation 路由时自 profile config 透传，
+	// 防止 per-graph 化丢失推理装配）。
+	Reasoning bool
+}
+
+// GraphIsolationRuntime 支持 per-graph 装载与 union 默认图开关的引擎（REQ-320；可选实现）。
+// regular 方案=逐本体独立 named graph（GraphIRI）+ union 默认图（消费面零改动）；
+// 伴生方案=legacy 路径原样（CompanionMode）。
+type GraphIsolationRuntime interface {
+	Runtime
+	StartWithGraphIsolation(ctx context.Context, profileID string, port int, ttls map[string]string, opts GraphIsolationOpts) (*Process, error)
+}
+
+// GraphIRI 本体在方案引擎内的独立命名图（REQ-320①：urn:onto:{id}，与伴生 GRAPH ont-{id}
+// 隔离同构；装载与对账两侧共用本函数派生，保证图名一致）。
+func GraphIRI(ontologyID string) string {
+	var b strings.Builder
+	b.WriteString("urn:onto:")
+	for _, r := range ontologyID {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
 // EngineStatus 引擎可执行文件自检结果（REQ-146）。
 type EngineStatus struct {
 	Engine           string   `json:"engine"`

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,7 +124,19 @@ func probeVersion(bin string) string {
 }
 
 // Start 装载并启动。ttls: ontology_id → TTL 内容。
+// 语义=CompanionMode（legacy 默认图装载、无 union）；regular 方案经
+// StartWithGraphIsolation 走 per-graph（REQ-320）。
 func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls map[string]string) (*engine.Process, error) {
+	return r.StartWithGraphIsolation(ctx, profileID, port, ttls, engine.GraphIsolationOpts{CompanionMode: true})
+}
+
+// StartWithGraphIsolation per-graph 装载启动（REQ-320/M122）：
+//   - CompanionMode（伴生宿主/池）：现行路径原样——CLI bulk load 进默认图 + serve 不开 union
+//     （伴生容器 TTL 默认图恒 0 满足硬闸；伴生数据走自描述 GRAPH 块/GRAPH ont-{id}，子图互不可见）；
+//   - regular：serve --union-default-graph 起服 → Graph Store Protocol 逐本体 PUT 进独立命名图
+//     urn:onto:{oid}（oxigraph CLI load 无 --graph 参数〔pin v0.5.11 实测〕，GSP 为 per-graph 唯一通道；
+//     消费面无 GRAPH 子句查询经 union 可见全数据集，零改动）。
+func (r *Runtime) StartWithGraphIsolation(ctx context.Context, profileID string, port int, ttls map[string]string, opts engine.GraphIsolationOpts) (*engine.Process, error) {
 	// 预检并解析引擎二进制（REQ-146：动态解析，data/bin 一键安装后即时命中）
 	bin, rerr := r.resolveBinary()
 	if rerr != nil {
@@ -135,7 +148,21 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
 	}
-	// bulk load 各本体
+	if !opts.CompanionMode {
+		// REQ-320①：先起服（union）再 GSP 逐本体落图——装载失败即停服报错，不留半装载实例
+		p, serr := r.serve(ctx, bin, profileID, port, dir, true)
+		if serr != nil {
+			return nil, serr
+		}
+		for oid, ttl := range ttls {
+			if perr := putGraphRetry(ctx, port, engine.GraphIRI(oid), ttl); perr != nil {
+				_ = p.Stop()
+				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", oid, perr)
+			}
+		}
+		return p, nil
+	}
+	// 伴生模式：bulk load 各本体（与 REQ-309 前行为逐字节一致）
 	for oid, ttl := range ttls {
 		f := filepath.Join(dir, "load_"+sanitizeID(oid)+".ttl")
 		if err := os.WriteFile(f, []byte(ttl), 0o644); err != nil {
@@ -148,8 +175,16 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 		}
 		_ = os.Remove(f)
 	}
-	// serve
-	cmd := exec.Command(bin, "serve", "--location", dir, "--bind", fmt.Sprintf("127.0.0.1:%d", port))
+	return r.serve(ctx, bin, profileID, port, dir, false)
+}
+
+// serve 启动 oxigraph serve（union=--union-default-graph，REQ-320③：无 GRAPH 子句查询可见全数据集）。
+func (r *Runtime) serve(ctx context.Context, bin, profileID string, port int, dir string, union bool) (*engine.Process, error) {
+	args := []string{"serve", "--location", dir, "--bind", fmt.Sprintf("127.0.0.1:%d", port)}
+	if union {
+		args = append(args, "--union-default-graph")
+	}
+	cmd := exec.Command(bin, args...)
 	procgroup.SetPgid(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -174,6 +209,41 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 		return nil
 	})
 	return p, nil
+}
+
+// putGraphRetry Graph Store Protocol 单图整替（PUT /store?graph=...）：serve 刚起时端口
+// 可能未就绪，传输错误/5xx 退避重试至多 ~20s（与 manager 健康轮询同量级）；其余状态码立即报错。
+func putGraphRetry(ctx context.Context, port int, graph, ttl string) error {
+	url := fmt.Sprintf("http://127.0.0.1:%d/store?graph=%s", port, url.QueryEscape(graph))
+	var lastErr error
+	for i := 0; i < 40; i++ {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, strings.NewReader(ttl))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "text/turtle")
+		resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
+		// 409/422 等语义错误重试无意义，直接失败；503（启动中）退避重试
+		if resp.StatusCode < 500 {
+			return fmt.Errorf("GSP PUT %s: %s: %s", graph, resp.Status, tail(body, 200))
+		}
+		lastErr = fmt.Errorf("GSP PUT %s: %s: %s", graph, resp.Status, tail(body, 200))
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("GSP 落图重试耗尽: %w", lastErr)
 }
 
 // HealthCheck SPARQL ping：POST 空查询。

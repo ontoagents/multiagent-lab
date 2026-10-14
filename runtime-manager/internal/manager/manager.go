@@ -325,8 +325,18 @@ func (m *Manager) FetchTTLWithCount(ontologyID string) (string, int, error) {
 // countTriples 引擎全图三元组计数（REQ-293① 计数硬闸：装载后 SELECT COUNT 对账）。
 // 两引擎（oxigraph /query、fuseki /ds/）均接受 POST SPARQL 到 proc.Endpoint。
 func countTriples(ctx context.Context, endpoint string) (int, error) {
+	return runCount(ctx, endpoint, "SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }")
+}
+
+// countGraphTriples 命名图三元组计数（REQ-320②：per-graph 装载后逐本体逐图对账，不再数
+// 整个引擎默认图——多本体同方案下无 GRAPH 查询=各图并集，单体计数恒失配的口径修正）。
+func countGraphTriples(ctx context.Context, endpoint, graph string) (int, error) {
+	return runCount(ctx, endpoint, fmt.Sprintf("SELECT (COUNT(*) AS ?c) WHERE { GRAPH <%s> { ?s ?p ?o } }", graph))
+}
+
+func runCount(ctx context.Context, endpoint, query string) (int, error) {
 	tr := &http.Client{Timeout: 15 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader("SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }"))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(query))
 	if err != nil {
 		return 0, err
 	}
@@ -475,6 +485,10 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		_ = m.Store.SetStatus(id, "error", err.Error(), "")
 		return err
 	}
+	// REQ-320②：对账口径与装载方式联动——伴生方案/推理 fuseki 走默认图计数（legacy 语义），
+	// regular per-graph 方案逐本体按独立命名图计数（不再数并集）。
+	companionMode := companionProfileName(p.Name)
+	perGraphGate := !companionMode && !(p.Engine == "fuseki" && profileReasoning(p.Config))
 	proc, err := m.startEngine(ctx, eng, p, port, ttls)
 	if err != nil {
 		_ = m.Store.SetStatus(id, "error", err.Error(), "")
@@ -493,18 +507,27 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		}
 		lastErr = eng.HealthCheck(ctx, proc.Endpoint)
 		if lastErr == nil {
-			// REQ-293① 计数硬闸：源三元组数（构建平面 X-Onto-Triples）≠ 引擎 COUNT → 中止启动，
-			// 旧 loaded 快照保持不动（此前成功装载的 generation 语义上仍「活跃」，Foundry 原子发布口径）
+			// REQ-293① 计数硬闸（REQ-320② 口径修正）：源三元组数（构建平面 X-Onto-Triples）
+			// ≠ 引擎侧计数 → 中止启动，旧 loaded 快照保持不动（此前成功装载的 generation
+			// 语义上仍「活跃」，Foundry 原子发布口径）。regular 方案按命名图逐本体对账。
 			for _, oid := range p.OntologyIDs {
 				src := sourceTriples[oid]
 				if src < 0 {
 					if _, ok := loadedStatus[oid]; !ok {
 						loadedStatus[oid] = map[string]any{}
 					}
-					loadedStatus[oid]["gate"] = "skipped" // 计数未知（original turtle/旧平面）——诚实标注跳过
+					loadedStatus[oid]["gate"] = "skipped" // 计数未知（original turtle/REQ-318 拼接还原）——诚实标注跳过
 					continue
 				}
-				got, cerr := countTriples(ctx, proc.Endpoint)
+				var got int
+				var cerr error
+				graphLabel := "默认图"
+				if perGraphGate {
+					graphLabel = engine.GraphIRI(oid)
+					got, cerr = countGraphTriples(ctx, proc.Endpoint, graphLabel)
+				} else {
+					got, cerr = countTriples(ctx, proc.Endpoint)
+				}
 				if cerr != nil {
 					// 引擎不支持计数（罕见）——不阻断，标注 skipped
 					if _, ok := loadedStatus[oid]; !ok {
@@ -518,7 +541,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 					m.mu.Lock()
 					delete(m.procs, id)
 					m.mu.Unlock()
-					msg := fmt.Sprintf("装载对账失败（REQ-293① 计数硬闸）：本体 %s 源 %d 三元组 ≠ 引擎 %d——启动中止，旧装载快照保持", oid, src, got)
+					msg := fmt.Sprintf("装载对账失败（REQ-293①/REQ-320② 计数硬闸）：本体 %s 图 %s 源 %d 三元组 ≠ 引擎 %d——启动中止，旧装载快照保持", oid, graphLabel, src, got)
 					_ = m.Store.SetStatus(id, "error", msg, "")
 					return fmt.Errorf("%s", msg)
 				}
@@ -629,6 +652,11 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 	// REQ-236④/M63（D-O20 v0.73 变更，2026-10-01 开发者拍板）：默认执行方式改 docker，
 	// **未安装 docker 时启动期降级进程内 native**（迁移 006 翻转存量默认值；此处为配置 docker
 	// 但运行环境探测不可用的运行期兜底——配置值不写回，用户显式配置优先）。
+	// REQ-320：per-graph 装载语义随方案透传（伴生形态保持 legacy 路径，regular 走独立命名图）。
+	opts := engine.GraphIsolationOpts{
+		CompanionMode: companionProfileName(p.Name),
+		Reasoning:     profileReasoning(p.Config),
+	}
 	switch m.Store.GetConfig().ExecutionMethod {
 	case "docker":
 		if ox, ok := eng.(*oxigraph.Runtime); ok {
@@ -636,17 +664,25 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 				log.Printf("[manager] 方案 %s：执行方式配置为 docker 但 docker 不可用，降级进程内 native（REQ-236④）", p.ID)
 				break
 			}
-			return ox.DockerStart(ctx, p.ID, port, ttls)
+			return ox.DockerStartOpts(ctx, p.ID, port, ttls, opts)
 		}
 		return nil, fmt.Errorf("执行方式 docker 当前仅支持 oxigraph 引擎（fuseki docker 化随需求推进）")
 	case "k8s":
 		return nil, fmt.Errorf("执行方式 k8s 为接口预留（复用 M10 10d K8sBackend 模式，随集群环境落地）——当前请在系统配置切换 docker 容器或内置二进制")
+	}
+	if gi, ok := eng.(engine.GraphIsolationRuntime); ok {
+		return gi.StartWithGraphIsolation(ctx, p.ID, port, ttls, opts)
 	}
 	if rr, ok := eng.(engine.ReasoningRuntime); ok {
 		return rr.StartWithReasoning(ctx, p.ID, port, ttls, profileReasoning(p.Config))
 	}
 	return eng.Start(ctx, p.ID, port, ttls)
 }
+
+// companionProfileName 伴生宿主方案判定（REQ-309 池「伴生·共享引擎」与存量「伴生·{本体名}」
+// 自动命名契约）：此类方案保持 legacy 默认图装载与对账口径、不开 union——伴生读写走自描述
+// GRAPH 块/GRAPH ont-{id}，池「子图互不可见」验收不可破（REQ-320 P1 边界）。
+func companionProfileName(name string) bool { return strings.HasPrefix(name, "伴生·") }
 
 // profileReasoning 从 profile config JSON 读 reasoning 开关（O6：fuseki 推理对照基座）。
 func profileReasoning(cfgJSON string) bool {

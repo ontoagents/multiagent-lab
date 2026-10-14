@@ -205,7 +205,10 @@ func (r *Runtime) Probe() engine.EngineStatus {
 // 数据一律装入默认图（tdbloader 不带 --graph）：TDB2 的 unionDefaultGraph 只在
 // 数据集级 assembler 生效，图级 tdb:GraphTDB 会静默忽略，推理侧 InfModel 的
 // baseModel 指向默认图才能看到数据。多本体共存默认图，URI 按本体 ID 命名空间隔离。
-func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning bool) string {
+// 〔REQ-320 演进〕regular 无推理方案改 per-graph：--graph=urn:onto:{id} 逐本体独立命名图 +
+// 数据集级 tdb:unionDefaultGraph（union 分支）；推理形态保持默认图（图级 union 静默忽略的
+// 勘误仍在，推理 per-graph 待 Jena 数据集级 InfModel 改造）；伴生形态恒默认图（路径不动）。
+func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning, union bool) string {
 	var b strings.Builder
 	b.WriteString("@prefix tdb:   <http://jena.apache.org/2016/tdb#> .\n")
 	b.WriteString("@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n")
@@ -229,6 +232,13 @@ func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning bool) st
 		b.WriteString("    ja:reasoner [ rdf:type ja:GenericRuleReasoner ;\n")
 		fmt.Fprintf(&b, "        ja:rulesFrom <%s> ;\n", rulesFileURL)
 		b.WriteString("        ja:mode \"FULL\" ; ] ;\n    .\n")
+	} else if union {
+		// regular 无推理（REQ-320）：数据集级 union——命名图并集作默认图视图（与 Oxigraph
+		// --union-default-graph 同语义；数据全在命名图，无「盖掉裸默认图」问题）
+		b.WriteString("<#dataset> rdf:type tdb:DatasetTDB2 ;\n")
+		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", dbDir)
+		b.WriteString("    tdb:unionDefaultGraph true ;\n")
+		b.WriteString("    .\n")
 	} else {
 		// 无推理：纯 TDB2 数据集。数据在默认图（见函数头注释），不开 union——
 		// unionDefaultGraph 使默认图=命名图并集，反而盖掉裸默认图里的数据。
@@ -241,11 +251,25 @@ func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning bool) st
 
 // Start 装载并启动（无推理基线；带推理用 StartWithReasoning）。
 func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls map[string]string) (*engine.Process, error) {
-	return r.StartWithReasoning(ctx, profileID, port, ttls, false)
+	// legacy 语义=CompanionMode（默认图装载、无 union）；见 StartWithGraphIsolation（REQ-320）。
+	return r.startFuseki(ctx, profileID, port, ttls, false, true)
+}
+
+// StartWithReasoning 推理开关入口（O6）。legacy 语义=默认图装载、无 union（数据全在裸默认图时
+// 开 union 反而使 Jena 的默认图视图变为「命名图并集」而盖掉裸默认图数据——见 reasoningConfig 注）。
+func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port int, ttls map[string]string, reasoning bool) (*engine.Process, error) {
+	return r.startFuseki(ctx, profileID, port, ttls, reasoning, true)
+}
+
+// StartWithGraphIsolation per-graph 装载入口（REQ-320/M122）：regular=逐本体 tdbloader
+// --graph=urn:onto:{oid} 落独立命名图 + tdb2:unionDefaultGraph（消费面无 GRAPH 子句查询可见
+// 全数据集）；CompanionMode=legacy 路径原样（伴生池/宿主边界不动）。
+func (r *Runtime) StartWithGraphIsolation(ctx context.Context, profileID string, port int, ttls map[string]string, opts engine.GraphIsolationOpts) (*engine.Process, error) {
+	return r.startFuseki(ctx, profileID, port, ttls, opts.Reasoning, opts.CompanionMode)
 }
 
 // StartWithReasoning 装载并启动。ttls: ontology_id → TTL 内容；reasoning=true 开 RDFS/OWL 推理。
-func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port int, ttls map[string]string, reasoning bool) (*engine.Process, error) {
+func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, ttls map[string]string, reasoning, companionMode bool) (*engine.Process, error) {
 	// 预检：fuseki-server 脚本（候选序动态解析，REQ-307——FUSEKI_BIN 未配置时 data/bin 一键安装命中）
 	bin, err := r.resolveBinary()
 	if err != nil {
@@ -277,7 +301,7 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 			return nil, err
 		}
 	}
-	// 生成 dataset 配置（推理开关）；推理时从 fuseki-server.jar 解出 OWL_FB 规则文件（绝对 file: URL，不依赖 CWD）
+	// 生成 dataset 配置（推理开关 + union 默认图开关）；推理时从 fuseki-server.jar 解出 OWL_FB 规则文件（绝对 file: URL，不依赖 CWD）
 	rulesURL := ""
 	if reasoning {
 		rf, err := extractRulesFile(java, filepath.Dir(bin), dir)
@@ -287,17 +311,25 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 		rulesURL = "file://" + rf
 	}
 	cfgPath := filepath.Join(dir, "config.ttl")
-	if err := os.WriteFile(cfgPath, []byte(reasoningConfig("ds", dbDir, rulesURL, reasoning)), 0o644); err != nil {
+	perGraph := !companionMode && !reasoning // 推理形态保持默认图（图级 union 静默忽略勘误，见 reasoningConfig 注）
+	if err := os.WriteFile(cfgPath, []byte(reasoningConfig("ds", dbDir, rulesURL, reasoning, perGraph)), 0o644); err != nil {
 		return nil, err
 	}
 
-	// 装载阶段：tdbloader 离线灌入默认图（快于在线 SPARQL PUT，且不依赖服务启动）。
-	// 不带 --graph：推理侧 InfModel baseModel 指向默认图，见 reasoningConfig 注释。
+	// 装载阶段：tdbloader 离线灌入（快于在线 SPARQL PUT，且不依赖服务启动）。
+	// perGraph（REQ-320①）：--graph=urn:onto:{oid} 逐本体落独立命名图（tdbloader 不带图参数只能进
+	// 默认图）；其余（伴生形态/推理形态）：不带 --graph 进默认图（推理侧 InfModel baseModel 指向
+	// 默认图，路径原样不动——REQ-320 P1 边界）。
 	// Fuseki 6.x 精简发行版无独立 tdbloader 脚本，统一走 java -cp fuseki-server.jar tdb2.tdbloader。
 	fusekiJar := filepath.Join(filepath.Dir(bin), "fuseki-server.jar")
 	for oid := range ttls {
 		f := filepath.Join(loadDir, sanitizeID(oid)+".ttl")
-		cmd := exec.CommandContext(ctx, java, "-cp", fusekiJar, "tdb2.tdbloader", "--loc", dbDir, f)
+		args := []string{"-cp", fusekiJar, "tdb2.tdbloader", "--loc", dbDir}
+		if perGraph {
+			args = append(args, "--graph="+engine.GraphIRI(oid))
+		}
+		args = append(args, f)
+		cmd := exec.CommandContext(ctx, java, args...)
 		cmd.Env = append(os.Environ(), fmt.Sprintf("JAVA_HOME=%s", javaHome(java)))
 		out, err := cmd.CombinedOutput()
 		if err != nil {

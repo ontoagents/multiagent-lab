@@ -62,7 +62,15 @@ func dockerBin() string {
 func containerName(profileID string) string { return ContainerPrefix + profileID }
 
 // DockerStart 以容器方式装载并启动（准备与 native 同源；load/serve 均经官方镜像）。
+// 语义=CompanionMode（legacy 默认图装载、无 union）；regular 方案经 DockerStartOpts（REQ-320）。
 func (r *Runtime) DockerStart(ctx context.Context, profileID string, port int, ttls map[string]string) (*engine.Process, error) {
+	return r.DockerStartOpts(ctx, profileID, port, ttls, engine.GraphIsolationOpts{CompanionMode: true})
+}
+
+// DockerStartOpts 容器方式 per-graph 装载启动（REQ-320/M122）：与 native 同构——
+// regular=容器 serve --union-default-graph 起后 GSP 逐本体 PUT（宿主 127.0.0.1 映射端口直达容器
+// /store；CLI load 无 --graph 参数同 native）；CompanionMode=容器内 bulk load 原路径（边界不动）。
+func (r *Runtime) DockerStartOpts(ctx context.Context, profileID string, port int, ttls map[string]string, opts engine.GraphIsolationOpts) (*engine.Process, error) {
 	bin := dockerBin()
 	if bin == "" {
 		return nil, fmt.Errorf("docker 执行方式不可用：PATH 中未找到 docker CLI")
@@ -88,7 +96,29 @@ func (r *Runtime) DockerStart(ctx context.Context, profileID string, port int, t
 	}
 	// 容器名清理（重启用同名冲突）
 	_, _ = run("rm", "-f", containerName(profileID))
-	// 装载：容器内 oxigraph load（数据目录挂载 /data）
+	serveArgs := []string{"run", "-d", "--name", containerName(profileID),
+		"-p", fmt.Sprintf("127.0.0.1:%d:8080", port),
+		"-v", abs+":/data"}
+	if !opts.CompanionMode {
+		serveArgs = append(serveArgs, image, "serve", "--location", "/data", "--bind", "0.0.0.0:8080", "--union-default-graph")
+		if _, serr := run(serveArgs...); serr != nil {
+			return nil, fmt.Errorf("oxigraph 容器启动失败: %s", serr)
+		}
+		// GSP 逐本体落图（容器刚起未监听由 putGraphRetry 退避吸收）
+		for oid, ttl := range ttls {
+			if perr := putGraphRetry(ctx, port, engine.GraphIRI(oid), ttl); perr != nil {
+				_, _ = run("rm", "-f", containerName(profileID))
+				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", oid, perr)
+			}
+		}
+		endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
+		return engine.NewProcess(endpoint, 0, func() error {
+			c := exec.Command(bin, "rm", "-f", containerName(profileID))
+			_, _ = c.CombinedOutput()
+			return nil
+		}), nil
+	}
+	// 伴生模式：容器内 oxigraph load（数据目录挂载 /data，与 REQ-309 前行为一致）
 	for oid, ttl := range ttls {
 		f := filepath.Join(dir, "load_"+sanitizeID(oid)+".ttl")
 		if err := os.WriteFile(f, []byte(ttl), 0o644); err != nil {
