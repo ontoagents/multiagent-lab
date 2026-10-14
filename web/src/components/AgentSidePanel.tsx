@@ -527,6 +527,7 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
         temperature: agent.temperature ?? null,
         max_tokens: agent.max_tokens ?? null,
         max_iteration: agent.max_iteration ?? 25,
+        delegate_timeout_seconds: agent.delegate_timeout_seconds ?? 0, // REQ-319 A2
         runtime_backend: agent.runtime_backend ?? 'inprocess',
         sandbox_memory: agent.sandbox_memory ?? '',
         sandbox_cpus: agent.sandbox_cpus ?? 0,
@@ -765,6 +766,7 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
     temperature: v.temperature !== undefined ? v.temperature : (agent.temperature ?? null),
     max_tokens: v.max_tokens !== undefined ? v.max_tokens : (agent.max_tokens ?? null),
     max_iteration: v.max_iteration ?? agent.max_iteration ?? 25,
+    delegate_timeout_seconds: typeof v.delegate_timeout_seconds === 'number' ? v.delegate_timeout_seconds : (agent.delegate_timeout_seconds ?? 0), // REQ-319 A2：成员委派超时（Graph 层）
     runtime_backend: v.runtime_backend ?? agent.runtime_backend ?? 'inprocess',
     sandbox_memory: v.sandbox_memory ?? agent.sandbox_memory ?? '',
     sandbox_cpus: v.sandbox_cpus ?? agent.sandbox_cpus ?? 0,
@@ -1273,6 +1275,10 @@ function AgentConfigForm({
                   {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
                   <Form.Item name="max_iteration" label="最大迭代次数" className="item-inline" tooltip="ReAct 循环单次运行的最大步数上限" initialValue={25}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                  </Form.Item>
+                  {/* REQ-319 A2：成员委派超时（作为成员被项目协调者委派时生效；超时降级回喂不炸 run） */}
+                  <Form.Item name="delegate_timeout_seconds" label="委派超时（秒）" className="item-inline" tooltip="REQ-319：本智能体作为项目成员被协调者委派调用时，单次执行的超时秒数；0=不限（默认，存量行为）。超时以结构化错误回喂协调者（可改道/重试），不会终止整个运行">
+                    <InputNumber min={0} max={86400} style={{ width: '100%' }} placeholder="0 = 不限" />
                   </Form.Item>
                   <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     挂起恢复与定时续跑为会话级（对话窗口配置，checkpoint 持久化重启可恢复）；进度产物 todo.md，usage 随运行事件落库。

@@ -253,7 +253,9 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 			return nil, fmt.Errorf("build member %q: %w", s.Name, berr)
 		}
 		entries = append(entries, agentSnapshotEntry("member", s.Name, sb.Meta.ModelLabel, sb.Meta.SourceOf, sb.Meta.LoadedSkills, a.mcpSnapshotOf(s), sb.Meta.Instruction))
-		tools = append(tools, normalizeEmptyArgsTool(adk.NewAgentTool(ctx, sb.Inst)))
+		// REQ-319 A1/A2/A3：成员委派包装——错误降级回喂（中断类穿透）+ per-member 超时（成员行
+		// delegate_timeout_seconds，0=不限）+ subagent.delegate 委派单事件
+		tools = append(tools, normalizeEmptyArgsTool(newDelegateTool(adk.NewAgentTool(ctx, sb.Inst), s.Name, time.Duration(s.DelegateTimeoutSeconds)*time.Second)))
 		for k, v := range sb.Meta.SourceOf {
 			if _, dup := src[k]; !dup {
 				src[k] = v

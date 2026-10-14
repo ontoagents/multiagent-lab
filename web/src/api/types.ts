@@ -9,6 +9,8 @@ export interface Agent {
   temperature: number | null
   max_tokens: number | null
   max_iteration: number
+  /** REQ-319 A2：作为项目成员被委派调用时的单次执行超时秒数（0=不限）；超时降级回喂协调者 */
+  delegate_timeout_seconds?: number
   /** REQ-14：agent 级工具审批策略（''=关闭 | 'danger' 危险档 | 'all' 全部审批；会话级可覆盖）——REQ-219 顺修前端类型缺字段 */
   tool_approval?: string
   /** REQ-231②：审批豁免清单（danger/all 档下免审工具名） */

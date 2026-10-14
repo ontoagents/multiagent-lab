@@ -12,9 +12,12 @@ type Agent struct {
 	Temperature  *float64    `json:"temperature"`
 	MaxTokens    *int        `json:"max_tokens"`
 	MaxIteration int         `json:"max_iteration"`
-	Tools        []string    `json:"tools"`
-	Skills       []string    `json:"skills"`      // P2 生效
-	MCPServers   []MCPServer `json:"mcp_servers"` // P2 生效；REQ-214 起退役为兼容残留（存量迁移后置空，JSON 字段保留供旧导出消费）
+	// REQ-319 A2：本 agent 作为项目成员被委派调用时的单次执行超时秒数（0=不限）；
+	// 超时经委派包装器降级回喂协调者（chat/delegatetool.go），不终止整个 run
+	DelegateTimeoutSeconds int         `json:"delegate_timeout_seconds"`
+	Tools                  []string    `json:"tools"`
+	Skills                 []string    `json:"skills"`      // P2 生效
+	MCPServers             []MCPServer `json:"mcp_servers"` // P2 生效；REQ-214 起退役为兼容残留（存量迁移后置空，JSON 字段保留供旧导出消费）
 	// REQ-214/M46：连接器引用（实例 id 数组）——agent 级连接白名单（最小权限第一层）。
 	Connectors       []string `json:"connectors"`
 	RuntimeBackend   string   `json:"runtime_backend"`
