@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,7 +33,8 @@ func TestDownloadToSuccess(t *testing.T) {
 	if st.Size() != int64(len(payload)) {
 		t.Fatalf("size = %d, want %d", st.Size(), len(payload))
 	}
-	if st.Mode()&0o111 == 0 {
+	if runtime.GOOS != "windows" && st.Mode()&0o111 == 0 {
+		// Windows 无执行位语义（REQ-321）：chmod 在 Windows 为空操作，跳过断言
 		t.Fatal("执行位未设置")
 	}
 	if _, err := os.Stat(target + ".download"); !os.IsNotExist(err) {

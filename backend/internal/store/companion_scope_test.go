@@ -17,6 +17,8 @@ func openCompanionTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("建临时库失败: %v", err)
 	}
+	// Windows 下 SQLite 句柄未关会阻塞 t.TempDir() 的 RemoveAll 清理（REQ-321 顺修）
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 

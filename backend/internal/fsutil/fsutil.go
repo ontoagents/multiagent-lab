@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -118,4 +119,19 @@ func SafeJoin(root, rel string) (string, error) {
 		}
 	}
 	return full, nil
+}
+
+// IsExecutableFile 可执行文件判定（os.Stat 结果入参，供引擎/容器二进制探测共用）。
+// 目录恒不命中（unix 0700 目录带 x 位、Windows 端目录查询同样排除——保持原内联实现语义）。
+// Windows 侧（REQ-321）：Go 的 os.Stat 对 .exe 不置执行位（Mode()=-rw-rw-rw-），
+// Mode()&0o111 恒假——以「存在且非目录」为判据；候选均为显式配置路径/已知二进制名，
+// 误配由执行时报错兜底。unix 语义不变（任一 x 位）。
+func IsExecutableFile(st os.FileInfo) bool {
+	if st.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return st.Mode()&0o111 != 0
 }

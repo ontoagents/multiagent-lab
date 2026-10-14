@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -63,14 +64,14 @@ type StatusProbe interface {
 }
 
 // FindExecutable 按候选序找可执行文件（REQ-146 共享助手）：
-// 含路径分隔符的候选做 Stat + 可执行位检查；裸名走 PATH 查找。返回命中的路径。
+// 含路径分隔符的候选做 Stat + 可执行检查；裸名走 PATH 查找。返回命中的路径。
 func FindExecutable(paths []string) (string, bool) {
 	for _, p := range paths {
 		if p == "" {
 			continue
 		}
 		if strings.ContainsRune(p, '/') || strings.ContainsRune(p, '\\') {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			if st, err := os.Stat(p); err == nil && isExecutableFile(st) {
 				return p, true
 			}
 			continue
@@ -80,4 +81,18 @@ func FindExecutable(paths []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isExecutableFile Windows 移植（REQ-321）：Go 的 os.Stat 在 Windows 对 .exe 不置执行位
+// （实测 Mode()=-rw-rw-rw-），原 Mode()&0o111 检查在 Windows 恒假致引擎恒判「未安装」；
+// Windows 侧以「存在且非目录」为判据（候选序均为显式配置路径/已知二进制名，误配由执行时报错兜底）。
+// 目录恒不命中（unix x 位语义保持——0700 目录带执行位但非文件）。
+func isExecutableFile(st os.FileInfo) bool {
+	if st.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return st.Mode()&0o111 != 0
 }

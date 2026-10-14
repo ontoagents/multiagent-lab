@@ -20,3 +20,8 @@ exe/
 # REQ-223 agenteval 评测产物（agent 写入的样例文件，不入库）
 backend/internal/agenteval/data/
 backend/internal/inference/data/
+
+# REQ-321 Windows 桌面安装包构建产物（staging/安装包/本地编译的壳二进制不入库）
+deploy/windows/build/
+deploy/windows/dist/
+deploy/windows/launcher/MultiAgentLab.exe

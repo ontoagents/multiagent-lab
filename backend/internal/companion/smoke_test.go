@@ -306,5 +306,12 @@ func TestStoreCompanionRoundTrip(t *testing.T) {
 
 func openTestStore(t *testing.T) (*store.Store, error) {
 	t.Helper()
-	return store.Open(filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		return nil, err
+	}
+	// Windows 下 SQLite 句柄未关会阻塞 t.TempDir() 的 RemoveAll 清理（REQ-321 顺修；
+	// unix 侧为无副作用兜底）
+	t.Cleanup(func() { _ = st.Close() })
+	return st, nil
 }

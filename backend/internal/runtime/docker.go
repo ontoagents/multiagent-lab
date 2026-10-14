@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
 )
 
 // DockerBackend Docker 沙箱后端（§6.3，P1）。
@@ -83,7 +85,7 @@ func (d *DockerBackend) dockerBin() string {
 
 func fileExecutable(p string) bool {
 	st, err := os.Stat(p)
-	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
+	return err == nil && fsutil.IsExecutableFile(st) // Windows 执行位语义修正（REQ-321，见 fsutil.IsExecutableFile）
 }
 
 // docker 执行 helper：输出 stdout，非零退出返回 error。

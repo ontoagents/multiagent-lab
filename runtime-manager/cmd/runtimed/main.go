@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/fuseki"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
@@ -31,7 +32,9 @@ func main() {
 	dataDir := env("ENGINE_DATA_DIR", "data/engines")
 	logDir := env("ENGINE_LOG_DIR", "logs")
 
-	if err := os.MkdirAll(dbPath[:len(dbPath)-len(basename(dbPath))], 0o755); err != nil {
+	// DB_PATH 父目录确保存在（filepath.Dir 兼容 / 与 \ 分隔符——Windows 桌面安装包 REQ-321 顺修，
+	// 原手写 basename 仅识别 '/'，反斜杠路径会切出空串）
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
 	}
 	st, err := store.Open(dbPath, migrationsDir)
@@ -66,13 +69,4 @@ func main() {
 
 	log.Printf("[runtimed] 运行平面监听 %s (build=%s, oxigraph=%s)", addr, buildURL, oxigraphBin)
 	log.Fatal(http.ListenAndServe(addr, mux))
-}
-
-func basename(p string) string {
-	for i := len(p) - 1; i >= 0; i-- {
-		if p[i] == '/' {
-			return p[i+1:]
-		}
-	}
-	return p
 }

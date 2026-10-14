@@ -19,10 +19,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/procgroup"
 )
 
 type Runtime struct {
@@ -309,7 +309,7 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 	// serve：fuseki-server --config config.ttl --port（Fuseki 6.x 无 --host 参数，默认监听 localhost）
 	cmd := exec.Command(bin, "--config", cfgPath, "--port", fmt.Sprint(port))
 	cmd.Env = append(os.Environ(), fmt.Sprintf("JAVA=%s", java), fmt.Sprintf("FUSEKI_HOME=%s", filepath.Dir(bin)))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.SetPgid(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -328,13 +328,13 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 	// Fuseki 6.x dataset 端点为 /ds/（POST SPARQL 即查询；GET /$/ping 做健康探测）
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/ds/", port)
 	p := engine.NewProcess(endpoint, cmd.Process.Pid, func() error {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		_ = procgroup.Kill(cmd.Process.Pid, true)
 		done := make(chan struct{})
 		go func() { _, _ = cmd.Process.Wait(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(8 * time.Second): // JVM 退出较慢，宽限 8s
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = procgroup.Kill(cmd.Process.Pid, false)
 		}
 		return nil
 	})

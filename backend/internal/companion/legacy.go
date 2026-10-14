@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -93,7 +94,7 @@ func (e *LegacyInstance) Ensure(ctx context.Context) (string, error) {
 	}
 	var bin string
 	for _, p := range e.candidatePaths() {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+		if st, err := os.Stat(p); err == nil && fsutil.IsExecutableFile(st) {
 			bin = p
 			break
 		}
@@ -102,7 +103,7 @@ func (e *LegacyInstance) Ensure(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("未找到 oxigraph 可执行文件（旧伴生实例迁移不可用）")
 	}
 	cmd := exec.Command(bin, "serve", "--location", e.DataDir, "--bind", fmt.Sprintf("127.0.0.1:%d", e.Port))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setPgid(cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("旧伴生实例启动失败: %w", err)
 	}
@@ -134,7 +135,7 @@ func (e *LegacyInstance) Stop() {
 
 func (e *LegacyInstance) stopLocked() {
 	if e.cmd != nil && e.cmd.Process != nil {
-		_ = syscall.Kill(-e.cmd.Process.Pid, syscall.SIGTERM)
+		_ = killTree(e.cmd.Process.Pid, true)
 	}
 	e.cmd = nil
 	e.base = ""

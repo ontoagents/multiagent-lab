@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -68,6 +69,10 @@ func TestExtractRejectsMissingParts(t *testing.T) {
 }
 
 func TestInstallDownloadChain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// windows 一键安装为有意拒绝边界（REQ-307：fuseki 发行包为 shell 脚本形态，本用例沿平台跳过）
+		t.Skip("fuseki 一键安装不支持 windows（REQ-307 既有边界），链路验证在 linux/macos 侧承载")
+	}
 	// httptest 桩发行包 → Install 下载+提取链（download 由桩 HTTP 承载）
 	fake := buildFakeTarball(t, map[string]string{
 		"apache-jena-fuseki-6.2.0/fuseki-server":     "#!/bin/sh\nexit 0",

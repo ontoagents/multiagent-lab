@@ -17,6 +17,8 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 	utils "github.com/cloudwego/eino/components/tool/utils"
+
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
 )
 
 // RunCommandDeps run_command 装配依赖（WorkDir=绑定目录，空=容器工作目录）。
@@ -41,7 +43,7 @@ func NewRunCommandTool(d RunCommandDeps) (einotool.BaseTool, error) {
 	if !sandboxExecWorld() {
 		return nil, fmt.Errorf("run_command 仅在沙箱执行世界可用（SANDBOX_EXEC_WORLD 未置位）")
 	}
-	if d.WorkDir != "" && !strings.HasPrefix(d.WorkDir, "/") {
+	if d.WorkDir != "" && !fsutil.IsAbsDir(d.WorkDir) { // 跨平台绝对判定（REQ-321：POSIX "/" 与 Windows 盘符均合法；原 strings.HasPrefix 仅认 "/"）
 		return nil, fmt.Errorf("run_command 工作目录须为绝对路径: %q", d.WorkDir)
 	}
 	if d.Timeout <= 0 {

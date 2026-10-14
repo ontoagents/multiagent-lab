@@ -12,10 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/procgroup"
 )
 
 type Runtime struct {
@@ -150,7 +150,7 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 	}
 	// serve
 	cmd := exec.Command(bin, "serve", "--location", dir, "--bind", fmt.Sprintf("127.0.0.1:%d", port))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.SetPgid(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -162,14 +162,14 @@ func (r *Runtime) Start(ctx context.Context, profileID string, port int, ttls ma
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
 	p := engine.NewProcess(endpoint, cmd.Process.Pid, func() error {
-		// 进程组整体终止（Rust 子进程树）
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		// 进程组整体终止（Rust 子进程树；Windows 为 taskkill /T 等价，见 procgroup）
+		_ = procgroup.Kill(cmd.Process.Pid, true)
 		done := make(chan struct{})
 		go func() { _, _ = cmd.Process.Wait(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = procgroup.Kill(cmd.Process.Pid, false)
 		}
 		return nil
 	})

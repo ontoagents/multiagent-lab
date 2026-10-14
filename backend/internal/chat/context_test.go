@@ -131,6 +131,8 @@ func TestBuildRunContextBudgetAndCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Windows 下 SQLite 句柄未关会阻塞 t.TempDir() 的 RemoveAll 清理（REQ-321 顺修）
+	t.Cleanup(func() { _ = st.Close() })
 	ag, err := st.CreateAgent(&store.Agent{Name: "ctx-bot", Instruction: "x"})
 	if err != nil {
 		t.Fatal(err)

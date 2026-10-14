@@ -51,11 +51,19 @@ func TestFindExecutable(t *testing.T) {
 
 	// 可执行文件命中；无执行位/不存在跳过；按候选序取第一个命中
 	bin, found := engine.FindExecutable([]string{noexec, filepath.Join(dir, "eng_missing"), ok})
-	if !found || bin != ok {
-		t.Fatalf("FindExecutable = %q, %v; want %q", bin, found, ok)
-	}
-	if _, found := engine.FindExecutable([]string{noexec, filepath.Join(dir, "eng_missing")}); found {
-		t.Fatal("无执行位/缺失候选不应命中")
+	if runtime.GOOS == "windows" {
+		// Windows 无执行位（REQ-321，engine.isExecutableFile）：存在即命中，
+		// 按候选序取第一个存在者（noexec 在前），缺失候选仍跳过
+		if !found || bin != noexec {
+			t.Fatalf("windows: FindExecutable = %q, %v; want %q", bin, found, noexec)
+		}
+	} else {
+		if !found || bin != ok {
+			t.Fatalf("FindExecutable = %q, %v; want %q", bin, found, ok)
+		}
+		if _, found := engine.FindExecutable([]string{noexec, filepath.Join(dir, "eng_missing")}); found {
+			t.Fatal("无执行位/缺失候选不应命中")
+		}
 	}
 	if _, found := engine.FindExecutable(nil); found {
 		t.Fatal("空候选不应命中")

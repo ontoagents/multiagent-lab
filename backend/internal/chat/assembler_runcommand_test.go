@@ -4,6 +4,9 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,7 +16,17 @@ import (
 func TestAssemblerRunCommandGate(t *testing.T) {
 	t.Setenv("SANDBOX_EXEC_WORLD", "1")
 	asm, st, _ := newAssemblerFixture(t)
-	ag, err := st.CreateAgent(&store.Agent{Name: "rc-agent", ToolApproval: "all", WorkDir: "/tmp/rc-root"})
+	// 绑定目录夹具平台自适应（REQ-321）：POSIX 形态（/tmp/rc-root）仅在 unix 语义成立——
+	// Windows 的 NormalizeDir 会 Clean 成 \tmp\... 致三种绝对形态判定全落空；
+	// Windows 用本机临时绝对目录承载同语义
+	workDir := "/tmp/rc-root"
+	if runtime.GOOS == "windows" {
+		workDir = filepath.Join(t.TempDir(), "rc-root")
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ag, err := st.CreateAgent(&store.Agent{Name: "rc-agent", ToolApproval: "all", WorkDir: workDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +46,7 @@ func TestAssemblerRunCommandGate(t *testing.T) {
 	}
 
 	// 审批档缺失 → 不装配 + warning
-	ag3, _ := st.CreateAgent(&store.Agent{Name: "rc-noappr", WorkDir: "/tmp/rc-root"})
+	ag3, _ := st.CreateAgent(&store.Agent{Name: "rc-noappr", WorkDir: workDir})
 	tb3 := asm.assembleOnly(context.Background(), t, ag3)
 	if _, ok := tb3.SourceOf["run_command"]; ok {
 		t.Fatal("审批档缺失不应装配 run_command")

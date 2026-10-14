@@ -4,6 +4,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -40,7 +41,13 @@ func TestDockerBinResolution(t *testing.T) {
 	}
 	noexec := filepath.Join(dir, "noexec")
 	_ = os.WriteFile(noexec, []byte("x"), 0o644)
-	if fileExecutable(noexec) || fileExecutable(dir) || fileExecutable(filepath.Join(dir, "missing")) {
+	if runtime.GOOS == "windows" {
+		// Windows 无执行位语义（REQ-321，fsutil.IsExecutableFile）：存在即命中，
+		// 目录/缺失仍不命中
+		if fileExecutable(noexec) == false || fileExecutable(dir) || fileExecutable(filepath.Join(dir, "missing")) {
+			t.Fatal("windows: 存在文件应命中，目录/缺失不应命中")
+		}
+	} else if fileExecutable(noexec) || fileExecutable(dir) || fileExecutable(filepath.Join(dir, "missing")) {
 		t.Fatal("目录/缺失/无执行位不应命中")
 	}
 }
