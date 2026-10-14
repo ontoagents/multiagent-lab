@@ -6,6 +6,7 @@ param(
 )
 $ErrorActionPreference = "Continue"
 $log = Join-Path $env:TEMP "mlab-uninstall.log"
+$keep = Join-Path $env:TEMP "MultiAgentLab-data-keep"
 function Log($msg) { Add-Content -Path $log -Value ("[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg) }
 if ($Target.EndsWith("\")) { $Target = $Target.TrimEnd("\") }
 Log "uninstall start TARGET=$Target"
@@ -30,7 +31,15 @@ if (Test-Path $ps1) {
 $regKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MultiAgentLab"
 if (Test-Path $regKey) { Remove-Item -Recurse -Force $regKey }
 
-Write-Host "[3/3] Removing program files (data dir %LOCALAPPDATA%\eino-lab kept)..."
+Write-Host "[3/3] Removing program files (data dir kept)..."
+# 数据目录 = <安装目录>\data（data.location 由安装器写、launcher 读）；卸载时暂存到 %TEMP%，
+# 由分离 finisher 删树后回迁——保证任何安装盘符选择下用户数据都不丢。
+$hasData = Test-Path (Join-Path $Target "data")
+if ($hasData) {
+    if (Test-Path $keep) { Remove-Item -Recurse -Force $keep }
+    robocopy (Join-Path $Target "data") $keep /E /MOVE /NFL /NDL /NJH /NJS /NP | Out-Null
+    Log "data stash robocopy exit=$LASTEXITCODE"
+}
 # 删自身目录树必须由 %TEMP% 里的分离进程完成：本目录内有 cmd 仍在增量读取的 .cmd 与
 # PowerShell 的执行现场，父进程直接 rd 会在删除瞬间中断读取方（实测整树删除后脚本静默死亡
 # ——自删窗口期问题）。finisher 延迟 2 秒等父进程退出后收尾，重试 5 次容忍句柄释放延迟。
@@ -41,6 +50,11 @@ foreach (`$i in 1..5) {
     Remove-Item -Recurse -Force '$Target' -ErrorAction SilentlyContinue
     if (-not (Test-Path '$Target')) { break }
     Start-Sleep -Seconds 2
+}
+New-Item -ItemType Directory -Force -Path (Join-Path '$Target' 'data') | Out-Null
+if ('$hasData' -eq 'True' -and (Test-Path '$keep')) {
+    robocopy '$keep' (Join-Path '$Target' 'data') /E /MOVE /NFL /NDL /NJH /NJS /NP | Out-Null
+    Remove-Item -Recurse -Force '$keep' -ErrorAction SilentlyContinue
 }
 Add-Content -Path '$log' -Value ("[{0}] finisher done TARGET=$Target" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 "@ | Set-Content -Path $fin -Encoding UTF8

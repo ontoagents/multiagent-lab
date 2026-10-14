@@ -10,11 +10,11 @@
 
 数据与日志
 ----------
-- 数据目录：%LOCALAPPDATA%\eino-lab\（SQLite 数据库、项目文件、引擎数据、伴生快照），
-  独立于程序目录——卸载/升级程序不影响数据。
-  备份 = 停止服务后复制整个 eino-lab\ 目录（换机迁移请连同 eino-lab\.secret 一起带走）。
-- 服务日志：%LOCALAPPDATA%\eino-lab\logs\（backend.log / ontology-service.log / runtime-manager.log）。
-- 卸载程序不会删除数据目录：数据保留，彻底清理请手动删除 %LOCALAPPDATA%\eino-lab\。
+- 数据目录：安装目录\data\（SQLite 数据库、项目文件、引擎数据、伴生快照）——安装器已把该位置
+  写入 data.location 供启动器读取；数据随安装目录走（装在其他盘则数据同样不占 C 盘）。
+  备份 = 停止服务后复制整个 data\ 目录（换机迁移请连同 data\.secret 一起带走）。
+- 服务日志：安装目录\data\logs\（backend.log / ontology-service.log / runtime-manager.log）。
+- 卸载程序不会删除数据目录：数据保留，彻底清理请手动删除安装目录。
 - oxigraph 引擎不随包分发（减小安装包体积）：首次使用本体「运行」功能时，
   在运行页「引擎未安装」提示中一键下载安装（自动落位即时生效）。
 

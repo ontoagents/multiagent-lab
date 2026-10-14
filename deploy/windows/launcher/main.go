@@ -80,13 +80,18 @@ func exeDir() string {
 	return filepath.Dir(exe)
 }
 
-// dataRoot 数据根：%LOCALAPPDATA%\eino-lab（REQ-321 定案；环境异常退回安装目录自包含）。
+// dataRoot 数据根：安装器把所选数据根写入 <安装目录>\data.location（数据随安装目录走——
+// C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\eino-lab 兜底。
 func dataRoot() string {
-	localAppData := os.Getenv("LOCALAPPDATA")
-	if localAppData == "" {
-		return exeDir()
+	if b, err := os.ReadFile(filepath.Join(exeDir(), "data.location")); err == nil {
+		if p := strings.TrimSpace(string(b)); p != "" {
+			return p
+		}
 	}
-	return filepath.Join(localAppData, "eino-lab")
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		return filepath.Join(localAppData, "eino-lab")
+	}
+	return filepath.Join(exeDir(), "data")
 }
 
 // run 常规入口：清理残留 → 拉起三服务 → 等主平台就绪 → 窗口（或 headless 驻留）→ 退出回收。
