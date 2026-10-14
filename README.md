@@ -32,6 +32,9 @@
 # 浏览器访问 http://localhost:8080
 ```
 
+Windows 也可用桌面安装包：双击 `deploy/windows` 构建产物（或源码构建 `powershell -File deploy/windows/build.ps1`），
+安装后从开始菜单启动——壳自动拉起本地服务并打开平台窗口，详见 [deploy/windows/README.md](deploy/windows/README.md)。
+
 首次启动自动：
 - 初始化 SQLite（`backend/data/platform.db`）
 - 预置 DeepSeek 模型连接（名称「DeepSeek（预置）」，key 留空待填）
