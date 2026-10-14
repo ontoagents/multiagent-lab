@@ -264,6 +264,19 @@ func boundOntology(agent *store.Agent) string {
 	return strings.TrimSpace(agent.CompanionOntologyID)
 }
 
+// effectiveBinding 会话有效伴生绑定（REQ-302/M106 两层化单点解析）：
+// 会话显式覆盖 > agent 默认；空 = 该会话未启用伴生。
+// 抽取/召回走本解析（会话级生效点）；入图归属/图视图/候选确认保持 agent 级
+//（绑定所有者口径——跨 agent 覆盖一期限制，立项定案）。
+func effectiveBinding(agent *store.Agent, conv *store.Conversation) string {
+	if conv != nil && conv.CompanionOntologyID != nil {
+		if v := strings.TrimSpace(*conv.CompanionOntologyID); v != "" {
+			return v
+		}
+	}
+	return boundOntology(agent)
+}
+
 // graphQuery 宿主方案引擎 SPARQL SELECT（读侧兜底拉起：Ensure 确保宿主方案 running；
 // 重建检测回灌：方案重建后首访自快照恢复子图）。
 func (s *Service) graphQuery(ctx context.Context, ontologyID, sparql string) ([]byte, error) {
@@ -317,7 +330,7 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, ru
 	if s == nil || conv == nil || agent == nil {
 		return
 	}
-	if boundOntology(agent) == "" {
+	if effectiveBinding(agent, conv) == "" {
 		return
 	}
 	switch conv.Scope {
@@ -433,7 +446,11 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 	if err != nil {
 		return 0, err
 	}
-	ontID := boundOntology(agent)
+	conv, err := s.Store.GetConversation(convID)
+	if err != nil {
+		return 0, err
+	}
+	ontID := effectiveBinding(agent, conv)
 	if ontID == "" {
 		return 0, nil
 	}

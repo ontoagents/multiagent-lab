@@ -152,6 +152,9 @@ type Conversation struct {
 	// ModelConnID 会话级模型连接覆盖（REQ-291：nil=不改 | ''=跟随智能体默认 | 连接 ID；
 	// 合并序 请求级 > 会话级 > 智能体默认 > 全局默认，与 REQ-135② 同构）
 	ModelConnID *string `json:"model_conn_id,omitempty"`
+	// CompanionOntologyID 会话级伴生本体覆盖（REQ-302/M106：nil=不改 | ''=清除覆盖跟随智能体默认 | 本体 ID；
+	// 显式覆盖后抽取/召回/入图归属走覆盖本体，跨会话分域；沉淀图仍本体级共享 REQ-211）
+	CompanionOntologyID *string `json:"companion_ontology_id,omitempty"`
 	// ContextState 上下文压缩状态（REQ-201/M37：JSON 摘要+覆盖消息 ID；空=未压缩）
 	ContextState string `json:"context_state,omitempty"`
 	// TodoJSON todo_write 任务清单（REQ-202/M38：模型自写进度，机器可读侧；空=未写）

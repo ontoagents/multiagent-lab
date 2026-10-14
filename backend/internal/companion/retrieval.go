@@ -76,7 +76,7 @@ func (s *Service) RetrievalContext(ctx context.Context, conv *store.Conversation
 	if s == nil || s.Plans == nil || agent == nil || strings.TrimSpace(input) == "" {
 		return "", nil, nil
 	}
-	ontID := boundOntology(agent)
+	ontID := effectiveBinding(agent, conv)
 	if ontID == "" {
 		return "", nil, nil
 	}

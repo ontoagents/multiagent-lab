@@ -1558,7 +1558,9 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 // System 消息追加；retrieval 事件带 source=companion（过程可观测，与 KB retrieval 同形）。
 // 失败降级不阻断（与 recallKB 同口径；低侵入三原则——对话主链路 0 改动语义，仅配置增量生效）。
 func (s *Service) recallCompanion(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, histMsgs []*schema.Message, emit EmitFn) []*schema.Message {
-	if s.Companion == nil || agent == nil || !agent.CompanionOntology {
+	// REQ-302/M106：会话级覆盖也放行（agent 未绑 + 会话显式绑定 = 仅该会话启用伴生召回）
+	hasConvOverride := conv != nil && conv.CompanionOntologyID != nil && strings.TrimSpace(*conv.CompanionOntologyID) != ""
+	if s.Companion == nil || agent == nil || (!agent.CompanionOntology && !hasConvOverride) {
 		return histMsgs
 	}
 	text, entities, err := s.Companion.RetrievalContext(ctx, conv, agent, input)

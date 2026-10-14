@@ -10,7 +10,8 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	var agentID, projectID, kbID, profileID sql.NullString
 	var enableKB, ontoEnabled, enableSkills int
 	var toolApproval, modelConnID sql.NullString
-	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID)
+	var compOntologyID string
+	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID)
 	if err != nil {
 		return nil, err
 	}
@@ -23,6 +24,8 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 		mc := modelConnID.String
 		c.ModelConnID = &mc
 	}
+	// REQ-302/M106：会话伴生覆盖（恒非空；''=跟随智能体默认）
+	c.CompanionOntologyID = &compOntologyID
 	if agentID.Valid {
 		c.AgentID = &agentID.String
 	}
@@ -42,7 +45,7 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	return &c, nil
 }
 
-const convCols = `id,scope,agent_id,project_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id`
+const convCols = `id,scope,agent_id,project_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id`
 
 // ConversationFilter 会话列表过滤。
 type ConversationFilter struct {
@@ -130,8 +133,15 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 		empty := ""
 		c.ModelConnID = &empty
 	}
-	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Scope, c.AgentID, c.ProjectID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID)
+	// REQ-302/M106：会话伴生覆盖（恒非空；''=跟随智能体默认）
+	compOID := c.CompanionOntologyID
+	if compOID == nil {
+		empty := ""
+		compOID = &empty
+	}
+	c.CompanionOntologyID = compOID
+	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Scope, c.AgentID, c.ProjectID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,8 +163,13 @@ func (s *Store) UpdateConversation(c *Conversation) (*Conversation, error) {
 	if c.ModelConnID != nil {
 		modelArg = *c.ModelConnID
 	}
-	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),model_conn_id=COALESCE(?,model_conn_id),updated_at=? WHERE id=?`,
-		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, modelArg, now(), c.ID)
+	// REQ-302/M106：会话伴生覆盖（*string 三态：nil=不改 | ''=清除覆盖跟随智能体默认 | 本体 ID=覆盖）
+	var compArg any
+	if c.CompanionOntologyID != nil {
+		compArg = *c.CompanionOntologyID
+	}
+	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),model_conn_id=COALESCE(?,model_conn_id),companion_ontology_id=COALESCE(?,companion_ontology_id),updated_at=? WHERE id=?`,
+		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, modelArg, compArg, now(), c.ID)
 	if err != nil {
 		return nil, err
 	}

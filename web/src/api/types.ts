@@ -212,6 +212,7 @@ export interface Conversation {
   tool_approval?: string | null
   /** REQ-291：会话级模型连接覆盖（空=跟随智能体默认；合并序 请求级 > 会话级 > 智能体默认） */
   model_conn_id?: string | null
+  companion_ontology_id?: string | null
   top_k: number
   min_score: number
   /** REQ-202 todo_write 机器侧清单（[{"title","status"}]；REQ-311 B4 产物卡数据源） */

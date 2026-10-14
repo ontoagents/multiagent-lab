@@ -481,6 +481,17 @@ export default function ChatWindow({
       : project
         ? agents.find((a) => a.id === (project.coordinator || project.agent_ids[0])) ?? null
         : null
+  // REQ-302/M106：会话级伴生本体切换——本体候选（agent 有伴生绑定时拉一次）
+  const [companionOntos, setCompanionOntos] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    if (!agent?.companion_ontology_id) return
+    let alive = true
+    api.listOntologies().then((lst) => {
+      if (alive) setCompanionOntos((Array.isArray(lst) ? lst : []).map((o) => ({ id: o.id, name: o.name })))
+    }).catch(() => { /* 目录失败时仅默认项可选 */ })
+    return () => { alive = false }
+  }, [agent?.companion_ontology_id])
+
 
   const [items, setItems] = useState<ChatItem[]>([])
   const [input, setInput] = useState('')
@@ -1625,6 +1636,33 @@ export default function ChatWindow({
         {!isProjectScope && agent && (
           <>
             <Tag>{agent.runtime_backend}</Tag>
+            {/* REQ-302/M106：会话级伴生本体切换（''=跟随智能体默认；覆盖后抽取/召回走覆盖本体，跨会话分域） */}
+            {agent.companion_ontology_id && (
+              <Select
+                size="small"
+                style={{ width: 210 }}
+                value={conversation.companion_ontology_id || ''}
+                onChange={(v) => {
+                  void fetch(`/api/conversations/${conversation.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ companion_ontology_id: v }),
+                  }).then((r) => {
+                    if (r.ok) {
+                      showToast(v ? `本会话伴生已切换（抽取/召回走该本体；其他会话不受影响）` : '已清除覆盖——本会话跟随智能体默认伴生本体')
+                      onConversationUpdated()
+                    } else {
+                      showToast('切换失败', 'err')
+                    }
+                  })
+                }}
+                options={[
+                  { value: '', label: `🧩 跟随智能体默认（当前绑定）` },
+                  ...companionOntos.map((o) => ({ value: o.id, label: `${o.name}` })),
+                ]}
+                data-testid="conv-companion-select"
+              />
+            )}
             <Tooltip title="配置值；后端 ≤0 归一默认 25——运行中的生效值随 run.started max_iteration_effective 透出">
               <Tag>{agent.max_iteration && agent.max_iteration > 0 ? `最大迭代 ${agent.max_iteration}` : '最大迭代 默认 25'}</Tag>
             </Tooltip>
