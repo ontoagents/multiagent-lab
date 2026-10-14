@@ -496,6 +496,9 @@ export const api = {
     ),
   /** CQ 抽取候选（REQ-308） */
 
+  /** 读取本体 artifact 内容（REQ-318：axioms-raw 透传公理等；原样返回存储 JSON 文本） */
+  getArtifactContent: (id: string, format: string) =>
+    req<string>(`/api/ontologies/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(format)}/content`),
   /** 权威本体库来源代理（REQ-316）：只读拉取公网 TTL/RDF → filename+content（SSRF 防护+8MB 上限） */
   catalogFetch: (url: string) =>
     req<{ filename: string; content_type: string; content: string }>(

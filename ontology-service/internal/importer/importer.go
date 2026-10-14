@@ -34,6 +34,9 @@ type Report struct {
 	Lossy     bool     `json:"lossy"`
 	Warnings  []string `json:"warnings"`
 	LossyNote string   `json:"lossy_note,omitempty"`
+	// Unprojected 未投影公理透传（REQ-318/M120）：sidecar 收集的原 Turtle 公理片段，
+	// 导入侧存 artifact axioms-raw、导出拼接还原（77 号 §6 设计；确定性规则零 LLM）。
+	Unprojected []string `json:"unprojected,omitempty"`
 }
 
 type Sidecar struct {
@@ -386,10 +389,11 @@ func parseGraphML(content string) (*pkgspec.Spec, *Report) {
 // ---- OWL/TTL：经 sidecar（Python rdflib，不自研）----
 
 type sidecarParseOut struct {
-	Spec     pkgspec.Spec `json:"spec"`
-	Warnings []string     `json:"warnings"`
-	Lossy    bool         `json:"lossy"`
-	Note     string       `json:"note"`
+	Spec        pkgspec.Spec `json:"spec"`
+	Warnings    []string     `json:"warnings"`
+	Lossy       bool         `json:"lossy"`
+	Note        string       `json:"note"`
+	Unprojected []string     `json:"unprojected,omitempty"` // REQ-318/M120：未投影公理透传（Turtle 片段）
 }
 
 func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Report, error) {
@@ -409,6 +413,7 @@ func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Repor
 		return nil, nil, fmt.Errorf("sidecar 输出解析失败: %w; stdout: %.200s", err, out.String())
 	}
 	rep := &Report{Format: format, Lossy: res.Lossy, Warnings: res.Warnings, LossyNote: res.Note}
+	rep.Unprojected = res.Unprojected
 	return &res.Spec, rep, nil
 }
 

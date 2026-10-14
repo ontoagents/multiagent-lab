@@ -996,6 +996,13 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// REQ-318/M120：未投影公理透传存档（artifact axioms-raw）——77 号 §6 设计；
+	// 导出 TTL 时拼接还原（三要素编辑无损 + 高级公理透传）；spec_json 结构零改动（LLM 契约零影响）
+	if len(rep.Unprojected) > 0 {
+		if ab, err := json.Marshal(map[string]any{"fragments": rep.Unprojected}); err == nil {
+			_ = s.Store.PutArtifact(id, "axioms-raw", string(ab), false)
+		}
+	}
 	// 导入即首次入库：CreateOntology 初始 version=1，此处不再 Bump（REQ-93 版本语义）
 	_ = s.Store.SaveVersion(id, 1, string(bts), origFormat, content)
 	o, _ := s.Store.GetOntology(id)
@@ -1051,6 +1058,19 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeErr(w, err)
 			return
+		}
+		// REQ-318/M120：未投影公理透传还原——axioms-raw artifact 片段原样拼接（77 号 §6）。
+		// 拼接后精确计数未知：移除 X-Onto-Triples 头（运行平面装载对账 gate=skipped 诚实口径，
+		// 防「头计数 < 实际行数」硬闸误中止）；片段引用被改名/删除的 IRI 时原样保留可能悬空（一期边界）。
+		if raw_ax, _, axerr := s.Store.GetArtifact(id, "axioms-raw"); axerr == nil && raw_ax != "" {
+			var envelope struct {
+				Fragments []string `json:"fragments"`
+			}
+			if json.Unmarshal([]byte(raw_ax), &envelope) == nil && len(envelope.Fragments) > 0 {
+				ttl += "\n\n# —— 未投影公理透传（REQ-318：导入时无法投影的公理原样还原；引用对象被改名/删除时可能悬空）——\n" +
+					strings.Join(envelope.Fragments, "\n")
+				triples = -1
+			}
 		}
 		w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, o.Version))

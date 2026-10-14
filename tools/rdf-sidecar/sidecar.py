@@ -106,6 +106,10 @@ def parse(format: str) -> int:
         return 1
 
     warnings, lossy = [], False
+    # REQ-318/M120：未投影公理透传——丢弃点同步收集完整公理 Turtle 片段（确定性零 LLM），
+    # 经导入侧存 artifact axioms-raw、导出拼接还原（77 号 §6 设计）。上限 500 条防爆炸。
+    unprojected = []
+    UNPROJECTED_CAP = 500
     spec = {"name": "", "description": "", "concepts": [], "relations": [], "instances": []}
 
     # ---- 类：owl:Class / rdfs:Class / skos:Concept（REQ-235① SKOS 词表；跳过系统内建类）----
@@ -136,6 +140,8 @@ def parse(format: str) -> int:
             else:
                 lossy = True
                 warnings.append(f"{name} 的匿名父类（限制/公理）丢弃: {p.n3()[:80]}")
+                if len(unprojected) < UNPROJECTED_CAP:
+                    unprojected.append(f"{c.n3()} rdfs:subClassOf {p.n3()} .")
         # REQ-235①：skos:broader/narrower → parents 统一放第二轮（父注册完成后补，避免悬空引用）
         if parents:
             concept["parents"] = parents
@@ -237,6 +243,21 @@ def parse(format: str) -> int:
     if data_properties:
         spec["data_properties"] = data_properties
 
+    # REQ-318/M120：属性公理透传收集——函数性/逆函数性/传递/对称声明、逆关系、属性链
+    #（此前一律丢弃+warning；现原样收集进 unprojected，经 axioms-raw artifact 导出还原）
+    for pred in (OWL.FunctionalProperty, OWL.InverseFunctionalProperty, OWL.TransitiveProperty, OWL.SymmetricProperty):
+        for subj in g.subjects(RDF.type, pred):
+            if not isinstance(subj, URIRef) or str(subj).startswith((str(RDF), str(RDFS), str(OWL), str(SKOS))):
+                continue
+            if len(unprojected) < UNPROJECTED_CAP:
+                unprojected.append(f"{subj.n3()} a {pred.n3()} .")
+    for subj, obj in g.subject_objects(OWL.inverseOf):
+        if isinstance(subj, URIRef) and isinstance(obj, URIRef) and len(unprojected) < UNPROJECTED_CAP:
+            unprojected.append(f"{subj.n3()} owl:inverseOf {obj.n3()} .")
+    for subj, obj in g.subject_objects(OWL.propertyChainAxiom):
+        if len(unprojected) < UNPROJECTED_CAP:
+            unprojected.append(f"{subj.n3()} owl:propertyChainAxiom {obj.n3()} .")
+
     # REQ-269/M78（D-O22 批次三）：类级公理捕获——owl:disjointWith / owl:equivalentClass。
     # 双端均已注册为概念才入 axioms（URI → 已注册概念名归一）；任一端未注册则 warning 丢弃
     # （防悬空引用，沿 SKOS broader/narrower 先例）；同 (type, subject) 多目标合并为一条。
@@ -253,6 +274,8 @@ def parse(format: str) -> int:
                 warnings.append(f"公理 {atype} 端点 {label_or_local(g, subj if s_name is None else obj)} 未注册为概念，丢弃")
                 lossy = True
                 _ = miss
+                if len(unprojected) < UNPROJECTED_CAP:
+                    unprojected.append(f"{subj.n3()} {pred.n3()} {obj.n3()} .")
                 continue
             if s_name == o_name:
                 continue
@@ -315,7 +338,8 @@ def parse(format: str) -> int:
         spec["instances"].append(it)
 
     out = {"spec": spec, "warnings": warnings, "lossy": lossy,
-           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235；REQ-268 数据属性声明捕获）：保留 类层次/SKOS 词表层次/对象属性/数据属性声明/实例断言，datatype 断言落实例 attributes；公理、限制、推理语义丢弃（计入 warnings）"}
+           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235；REQ-268 数据属性声明捕获）：保留 类层次/SKOS 词表层次/对象属性/数据属性声明/实例断言，datatype 断言落实例 attributes；未投影公理（限制/属性公理等）收集进 unprojected 透传（REQ-318）",
+           "unprojected": unprojected}
     json.dump(out, sys.stdout, ensure_ascii=False)
     return 0
 

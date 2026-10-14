@@ -70,7 +70,7 @@ export default function CatalogPane({ onCreated }: { onCreated?: (id: string) =>
         showIcon
         style={{ marginBottom: 10 }}
         title="权威本体库——查询并引入业界权威本体（REQ-316）"
-        description="内置目录均为 W3C / ETSI / DCMI / EDM Council 发布的权威本体（来源经真机可达性验证）；「引入到本地」经平台代理拉取源文件并走既有导入审查管线（有损项如实报告）。引入后即可在「本体资产」中直接挂运行方案运行，或 Fork / 导入合并进行拓展。许可以来源条目标注为准。"
+        description="内置目录均为 W3C / ETSI / DCMI / EDM Council 发布的权威本体（来源经真机可达性验证）；「引入到本地」经平台代理拉取源文件并走既有导入审查管线（有损项如实报告）。双形态口径：original 源文件完整语义无损（运行/查询直挂）；归一化 spec_json 为建模子集——大型 OWL 本体的投影丢弃项会较多（导入报告逐项列明），未投影公理已透传存档（详情页「透传公理」可查）。引入后即可在「本体资产」中直接挂运行方案运行，或 Fork / 导入合并进行拓展。许可以来源条目标注为准。"
       />
       <Space style={{ marginBottom: 10 }} wrap>
         <Input

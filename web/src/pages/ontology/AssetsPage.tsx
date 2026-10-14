@@ -12,6 +12,7 @@ import { sourceTag, type ValidationState } from './shared'
 import CsvIngestPane from './components/CsvIngestPane'
 import GraphEditor from './components/GraphEditor'
 import SourceView from './components/SourceView'
+import AxiomsRawPane from './components/assets/AxiomsRawPane'
 import SpecEditorPane from './components/assets/SpecEditorPane'
 import ImpactPane from './components/assets/ImpactPane'
 import CommunityPane from './components/companion/CommunityPane'
@@ -86,6 +87,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
         { key: 'validate', label: '校验' },
         { key: 'quality', label: '质量卡' },
         { key: 'versions', label: '版本与源码' },
+        { key: 'axioms-raw', label: '透传公理' },
         { key: 'evolution', label: '进化' },
         { key: 'impact', label: '影响分析' },
       ],
@@ -727,6 +729,7 @@ export default function AssetsPage() {
                   />
                 )}
                 {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} onRestored={refreshAfterSave} />}
+                {secKey === 'axioms-raw' && !isCompActive && <AxiomsRawPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'artifacts' && <ArtifactsPane ontologyId={active.id} />}
                 {secKey === 'graph' && (isCompActive
                   // REQ-285①：伴生型「沉淀总览」直挂伴生成长图（spec 2D/3D/WebVOWL 对空 spec 无意义）

@@ -540,22 +540,28 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   }
 
   const reportAlert = report ? (
-    <Alert
-      type={report.lossy ? 'warning' : 'success'}
-      showIcon
-      style={{ marginTop: 12 }}
-      title={`导入报告：格式 ${report.format}${report.lossy ? '（有损）' : '（无损）'}`}
-      description={
-        report.warnings?.length || report.lossy_note ? (
-          <ul className="onto-report-list">
-            {(report.warnings ?? []).map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-            {report.lossy_note && <li>{report.lossy_note}</li>}
-          </ul>
-        ) : undefined
-      }
-    />
+    <>
+      <Alert
+        type={report.lossy ? 'warning' : 'success'}
+        showIcon
+        style={{ marginTop: 12 }}
+        title={`导入报告：格式 ${report.format}${report.lossy ? '（有损）' : '（无损）'}`}
+        description={
+          report.warnings?.length || report.lossy_note ? (
+            <ul className="onto-report-list">
+              {(report.warnings ?? []).map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+              {report.lossy_note && <li>{report.lossy_note}</li>}
+            </ul>
+          ) : undefined
+        }
+      />
+      {/* REQ-318/M120：双形态口径——original 完整语义无损；spec_json 为建模子集，未投影公理已透传存档 */}
+      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+        口径：original 源文件完整语义无损（运行/查询/推理直挂）；归一化 spec_json 为建模子集（未投影公理已透传存档，详情页「透传公理」可查）。
+      </Typography.Text>
+    </>
   ) : null
 
   return (
