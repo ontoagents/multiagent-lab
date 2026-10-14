@@ -34,6 +34,8 @@
 
 Windows 也可用桌面安装包：双击 `deploy/windows` 构建产物（或源码构建 `powershell -File deploy/windows/build.ps1`），
 安装后从开始菜单启动——壳自动拉起本地服务并打开平台窗口，详见 [deploy/windows/README.md](deploy/windows/README.md)。
+macOS 也可用桌面客户端：`deploy/macos/build.sh` 构建（或取 dist 产物），双击 `MultiAgentLab.app` 即启动——
+壳自动拉起本地服务并打开平台窗口，详见 [deploy/macos/README.md](deploy/macos/README.md)。
 
 首次启动自动：
 - 初始化 SQLite（`backend/data/platform.db`）

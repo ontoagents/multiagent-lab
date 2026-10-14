@@ -25,3 +25,5 @@ backend/internal/inference/data/
 deploy/windows/build/
 deploy/windows/dist/
 deploy/windows/launcher/MultiAgentLab.exe
+deploy/macos/build/
+deploy/macos/dist/
