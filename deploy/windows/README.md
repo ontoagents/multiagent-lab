@@ -7,7 +7,7 @@
 
 | 产物 | 说明 |
 | --- | --- |
-| `dist/MultiAgentLab_1.0.0_setup.exe`（约 13 MB） | SFX 自解压安装包（默认路径）；双击 → 解压 → 自动安装到 `%LOCALAPPDATA%\Programs\MultiAgentLab` + 开始菜单/桌面快捷方式 + HKCU 卸载注册项（「应用与功能」可见） |
+| `dist/MultiAgentLab_1.0.0_setup.exe`（约 36 MB） | 自解压安装包（Go 引导器 + 附加 zip）；双击 → 控制台解压安装到 `%LOCALAPPDATA%\Programs\MultiAgentLab` + 开始菜单/桌面快捷方式 + HKCU 卸载注册项（「应用与功能」可见）。`MLAB_SILENT=1` 环境变量静默（冒烟自动化用） |
 | 安装后目录（约 93 MB） | `MultiAgentLab.exe`（壳）、`bin\`（backend/ontologyd/runtimed）、`web\dist`、`migrations\`、`docs\ + platform-knowledge\ + research\`（平台知识随包）、`tools\rdf-sidecar\`、`README.txt` |
 | 数据目录 | `%LOCALAPPDATA%\eino-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `eino-lab\bin`，即时生效）；构建期 `-IncludeOxigraph` 可显式预置 |
 
@@ -19,9 +19,10 @@ powershell -ExecutionPolicy Bypass -File deploy/windows/build.ps1 -SkipWeb   # �
 powershell -ExecutionPolicy Bypass -File deploy/windows/build.ps1 -StageOnly # 只组装 staging
 ```
 
-依赖：Go 1.25+、Node 22+、网络（7zr/7zSD 自举自 7-zip.org，`build\cache` 缓存；oxigraph 默认不抓取，`-IncludeOxigraph` 时抓官方 release）。
+依赖：Go 1.25+、Node 22+、网络（oxigraph 默认不抓取，`-IncludeOxigraph` 时抓官方 release）。
 打包双路径：**检测到 ISCC（Inno Setup 6）走 `installer.iss`（推荐正式发布：中文向导/标准卸载器）；
-否则走 7-Zip SFX 兜底**（零外部工具链：7zr.exe + 7zSD.sfx 自举自 7-zip.org）。
+否则走 Go 自解压引导器兜底**（`setup/main.go`：读自身尾部附加 zip → 解压临时目录 → 执行 installer.cmd；
+曾用 7zSD.sfx 方案因其配置标记兼容性黑盒〔双击报「找不到 setup.exe」〕弃用）。
 
 ## 安装与卸载
 

@@ -3,6 +3,7 @@ go 1.25.0
 use (
 	./backend
 	./deploy/windows/launcher
+	./deploy/windows/setup
 	./ontology-service
 	./pkg/ontology/spec
 	./runtime-manager

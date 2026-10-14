@@ -108,16 +108,8 @@ if ($iscc -and (Test-Path $iscc)) {
     & $iscc /DMyAppVersion=$version $here\installer.iss
     if ($LASTEXITCODE -ne 0) { throw "ISCC 编译失败（exit $LASTEXITCODE）" }
 } else {
-    Step "未检测到 ISCC，走 7-Zip SFX 兜底路径（自举 7zr.exe + 7zSD.sfx）"
-    # 工具链自举：7zr.exe（官方单文件）+ 7zSD.sfx（7z920-extra 经典安装器 SFX 模块，25.01 起已移除）
-    if (-not (Test-Path "$cache\7zr.exe")) {
-        Invoke-WebRequest -UseBasicParsing -Uri "https://www.7-zip.org/a/7zr.exe" -OutFile "$cache\7zr.exe"
-    }
-    if (-not (Test-Path "$cache\7zSD.sfx")) {
-        Invoke-WebRequest -UseBasicParsing -Uri "https://www.7-zip.org/a/7z920_extra.7z" -OutFile "$cache\7z920-extra.7z"
-        & "$cache\7zr.exe" e -y "$cache\7z920-extra.7z" 7zSD.sfx "-o$cache" | Out-Null
-    }
-    if (-not (Test-Path "$cache\7zSD.sfx")) { throw "7zSD.sfx 自举失败（检查网络或手动放置 $cache\7zSD.sfx）" }
+    Step "未检测到 ISCC，走 Go 自解压引导器兜底路径"
+    # 工具链自举：setup-bootstrap.exe（deploy/windows/setup 的 Go 引导器缓存；首次自动编译）
 
     # sfx 组装目录：根放安装脚本，payload\ 收全部 staging 产物（被占用时改用固定备用名，
     # 不堆时间戳目录——旧 stage 残留会让「取最新目录」的调用方装到旧脚本）
@@ -145,25 +137,31 @@ if ($iscc -and (Test-Path $iscc)) {
         $c = [IO.File]::ReadAllText("$here\sfx\$f")
         [IO.File]::WriteAllText("$sfxStage\$f", $c, $utf8bom)
     }
-    # 原版 7zSD（7z920 extra）按 ANSI 经典配方：;!@Install@! 标记 + ASCII 配置
-    # （中文标题交由 installer.cmd 内的 chcp 65001 输出承载，配置本体保持 ASCII 最稳）
-    $cfg = ";!@Install@!`r`nTitle=`"MultiAgentLab Setup`"`r`nRunProgram=`"installer.cmd`"`r`n;!@InstallEnd@!`r`n"
-    [IO.File]::WriteAllText("$sfxStage\config.txt", $cfg, [Text.Encoding]::ASCII)
-
-    & "$cache\7zr.exe" a -mx=9 "$build\payload.7z" "$sfxStage\*" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "payload.7z 打包失败（exit $LASTEXITCODE）" }
-    # SFX = 7zSD.sfx + config.txt + payload.7z（PowerShell 原生字节拼接，规避 cmd copy /b 多层引号丢参）
+    # setup.exe = Go 自解压引导器（deploy/windows/setup，读自身尾部附加 zip）+ Compress-Archive 生成的
+    # payload.zip 拼接。弃用 7zSD.sfx：其配置标记兼容性黑盒（ANSI 标记走「找 setup.exe」默认行为，
+    # 用户双击报「找不到 setup.exe」；对话框流程在本机无法可视化验证），自研引导器全程确定性可控。
+    # Go 引导器编译（GOWORK=off 独立 module）
+    if (-not (Test-Path "$cache\setup-bootstrap.exe")) {
+        Push-Location "$here\setup"
+        $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w" -o "$cache\setup-bootstrap.exe" .
+        Remove-Item Env:\GOWORK; Pop-Location
+        if ($LASTEXITCODE -ne 0) { throw "setup 引导器编译失败" }
+    }
+    Step "打包 payload.zip（Compress-Archive）"
+    $zip = "$build\payload.zip"
+    if (Test-Path $zip) { Remove-Item -Force $zip }
+    Compress-Archive -Path "$sfxStage\*" -DestinationPath $zip -CompressionLevel Optimal
+    if (-not (Test-Path $zip)) { throw "payload.zip 打包失败" }
+    Step "拼接 setup.exe = 引导器 + payload.zip"
     $out = "$dist\MultiAgentLab_${version}_setup.exe"
-    $p1 = [IO.File]::ReadAllBytes("$cache\7zSD.sfx")
-    $p2 = [IO.File]::ReadAllBytes("$sfxStage\config.txt")
-    $p3 = [IO.File]::ReadAllBytes("$build\payload.7z")
-    $bytes = New-Object byte[] ($p1.Length + $p2.Length + $p3.Length)
+    $p1 = [IO.File]::ReadAllBytes("$cache\setup-bootstrap.exe")
+    $p3 = [IO.File]::ReadAllBytes($zip)
+    $bytes = New-Object byte[] ($p1.Length + $p3.Length)
     [Array]::Copy($p1, 0, $bytes, 0, $p1.Length)
-    [Array]::Copy($p2, 0, $bytes, $p1.Length, $p2.Length)
-    [Array]::Copy($p3, 0, $bytes, ($p1.Length + $p2.Length), $p3.Length)
+    [Array]::Copy($p3, 0, $bytes, $p1.Length, $p3.Length)
     [IO.File]::WriteAllBytes($out, $bytes)
-    if (-not (Test-Path $out)) { throw "SFX 拼接失败" }
-    Remove-Item -Force "$build\payload.7z"
+    if (-not (Test-Path $out)) { throw "setup 拼接失败" }
+    Remove-Item -Force $zip
 }
 
 $setup = Get-ChildItem "$dist\MultiAgentLab_*_setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
