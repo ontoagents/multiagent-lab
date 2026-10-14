@@ -193,6 +193,9 @@ type Service struct {
 	// REQ-287②：实体定义投影缓存（label→definition，SelectEntityDefs；失效同 vecCache）
 	defCache map[string]map[string]string
 
+	// REQ-313：概念画像语料缓存（label→画像，查询时聚合零新表；失效同 vecCache）
+	profileCache map[string]map[string]string
+
 	// REQ-286 对齐/关联比对专用：仅标签向量缓存（与检索的定义增广向量分空间，语义互不干扰）
 	labelVecMu    sync.Mutex
 	labelVecCache map[string]map[string][]float32
@@ -229,7 +232,7 @@ func NewService(st *store.Store, box *secrets.Box, plans *PlanEngines) *Service 
 	if plans == nil {
 		plans = NewPlanEngines("", "")
 	}
-	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]*vecBucket{}, defCache: map[string]map[string]string{}, labelVecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}, mineJobs: map[string]*MineJob{}, runningMine: map[string]bool{}}
+	return &Service{Store: st, Box: box, Plans: plans, running: map[string]bool{}, pendingExtract: map[string]string{}, vecCache: map[string]*vecBucket{}, defCache: map[string]map[string]string{}, profileCache: map[string]map[string]string{}, labelVecCache: map[string]map[string][]float32{}, inflatedBase: map[string]string{}, mineJobs: map[string]*MineJob{}, runningMine: map[string]bool{}}
 }
 
 // EnsureHost 供 API 层复用：确保宿主方案 running + 重建检测回灌（绑定/状态读路径同口径）。
@@ -250,6 +253,7 @@ func (s *Service) invalidateLabelCache(ontologyID string) {
 	s.vecMu.Lock()
 	delete(s.vecCache, ontologyID)
 	delete(s.defCache, ontologyID)
+	delete(s.profileCache, ontologyID) // REQ-313：画像语料随图写入同周期失效
 	s.vecMu.Unlock()
 	s.labelVecMu.Lock()
 	delete(s.labelVecCache, ontologyID)

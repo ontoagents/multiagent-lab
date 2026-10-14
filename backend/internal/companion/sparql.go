@@ -349,6 +349,16 @@ SELECT ?label WHERE {
 } LIMIT 1`, BotNS, GraphURI(graphID), turtleEscape(alias))
 }
 
+// SelectAliasPairs REQ-313：别名全量投影（owner label→alias，画像语料聚合用——
+// 单查询零新表，查询时聚合口径；LIMIT 500 与 SelectLabels 同口径）。
+func SelectAliasPairs(graphID string) string {
+	return fmt.Sprintf(`PREFIX bot: <%s>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?label ?alias WHERE {
+  GRAPH <%s> { ?s a bot:Concept ; bot:alias ?alias ; rdfs:label ?label }
+} ORDER BY ?label LIMIT 500`, BotNS, GraphURI(graphID))
+}
+
 // RenameEntity REQ-286 C1：实体重命名（迁移式）——返回顺序操作序列（多次独立 Update 执行；
 // oxigraph 对 `;` 串联多操作更新执行不完整——真机实证只落首段，必须拆步）。
 // 步骤：①新实体（label+类型）+旧名转别名 ②边主体位重定向 ③边客体位重定向 ④旧主体三元组清理。

@@ -165,5 +165,5 @@ func TestDelegateToolInfoPassthrough(t *testing.T) {
 	if err != nil || info == nil || info.Name != "stub_member" {
 		t.Fatalf("Info 应透传内层: %v %v", info, err)
 	}
-	fmt.Sprint() // 占位保持 fmt 引用（错误文案构建在实现内验证）
+	_ = fmt.Sprint // 占位保持 fmt 引用（错误文案构建在实现内验证）
 }

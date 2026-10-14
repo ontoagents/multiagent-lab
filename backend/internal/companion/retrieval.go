@@ -16,13 +16,15 @@ import (
 
 // ---------------------------------------------------------------------------
 // REQ-170 P2「KG 检索源并入」+ REQ-194/M34 批次一②召回增强（治 G1 词法召回恰是隐式召回失败）：
-// 召回链——a) 向量主（embedding 余弦，REQ-287② 起 embed 语料=标签+定义）→ b) 词法兜底
-// （recallEntities 双向包含）→ c) BM25/FTS5 兜底臂（REQ-287①，SQLite 投影惰性回填）；
+// 召回链——a) 向量主（embedding 余弦；语料=概念画像〔REQ-313：本名+定义+别名+一阶关系+属类后代
+// 聚合，查询时聚合零新表〕，REQ-287② 起定义并入）→ b) 词法兜底（recallEntities 双向包含）→
+// c) BM25/FTS5 兜底臂（REQ-287①，SQLite 投影惰性回填）；
 // REQ-287③ 三臂 RRF 融合（k=60 沿 kb hybrid 先例）取代向量优先占坑式合并。
 // 命中实体拉 2 跳邻域（bot:Relation 边节点两跳，每实体 ≤8 边，2 跳边标 hop=2）；
 // retrieval 事件明细带 match 字段（vector/lexical/bm25 及「+」组合，诚实呈现召回来源）。
 // 降级链：embedding/FTS5 未配置或失败 → 静默降级其余臂 + 日志（与 KB 召回同口径，不发 run.warning）；
-// 全部臂空 = 空上下文不阻断主链路。chat.CompanionSource 接口与 SSE 契约零改动。
+// 画像投影失败 → 语料精确回退旧格式（label+定义）；全部臂空 = 空上下文不阻断主链路。
+// chat.CompanionSource 接口与 SSE 契约零改动。
 // ---------------------------------------------------------------------------
 
 // maxRecallEntities 单次并入检索的命中实体上限（薄版口径：少而准，避免上下文淹没）。
@@ -34,9 +36,10 @@ const vecMatchThreshold = 0.35
 // maxEntityEdges 命中实体邻域边总量限流（1 跳优先，2 跳补位）。
 const maxEntityEdges = 8
 
-// REQ-287④ 缓存治理常量：embed 语料版本（定义并入=2，变更即全桶重建）、桶 TTL、单桶实体上限。
+// REQ-287④ 缓存治理常量：embed 语料版本（定义并入=2，REQ-313 概念画像=3，变更即全桶重建）、
+// 桶 TTL、单桶实体上限。
 const (
-	embedTextVersion  = 2
+	embedTextVersion  = 3
 	vecCacheTTL       = 10 * time.Minute
 	vecCacheMaxLabels = 2000
 	rrfK              = 60.0 // REQ-287③ RRF 常数（沿 kb hybrid rrfK=60 先例）
@@ -85,15 +88,19 @@ func (s *Service) RetrievalContext(ctx context.Context, conv *store.Conversation
 		return "", nil, err
 	}
 	defs := s.entityDefs(ctx, ontID)
+	// REQ-313：概念画像语料（本名+定义+别名+一阶关系+属类后代聚合，查询时聚合零新表）；
+	// profiles=nil（图查询失败/空图）时 corpus 精确回退旧格式（label+"\n"+definition）
+	profiles := s.conceptProfiles(ctx, ontID, defs)
+	corpus := retrievalCorpus(labels, defs, profiles)
 	// a) 向量主召回（embedding 未配置/失败 → 静默降级其余臂 + 日志）
-	vecHits, vecErr := s.vectorRecall(ctx, ontID, labels, defs, input)
+	vecHits, vecErr := s.vectorRecall(ctx, ontID, labels, corpus, input)
 	if vecErr != nil {
 		log.Printf("[companion] 向量召回不可用，降级其余臂（本体 %s）: %v", ontID, vecErr)
 	}
 	// b) 词法兜底
 	lexHits := recallEntities(labels, input)
 	// c) BM25/FTS5 兜底臂（REQ-287①：SQLite 投影惰性回填；FTS 不可用静默降级）
-	bm25Hits := s.bm25Recall(ontID, labels, defs, input)
+	bm25Hits := s.bm25Recall(ontID, labels, corpus, input)
 	// REQ-287③：三臂 RRF 融合 + 别名回溯主实体（REQ-286 B3 空挂修复）
 	hits, matchOf := fuseRecallRRF(vecHits, bm25Hits, lexHits)
 	hits = s.resolveHitAliases(ctx, ontID, hits, defs)
@@ -165,14 +172,32 @@ func (s *Service) entityDefs(ctx context.Context, ontologyID string) map[string]
 	return defs
 }
 
-// vectorRecall 向量召回：embed 语料=标签+定义（REQ-287②——定义是区分同义实体的关键信号），
+// retrievalCorpus 召回语料组装（REQ-313）：画像命中用画像全文（以本名开头，embed/FTS 同源）；
+// 未命中/画像不可用回退旧格式（label+"\n"+definition）——profiles=nil 时与 REQ-287 语料逐字节一致。
+func retrievalCorpus(labels []string, defs, profiles map[string]string) map[string]string {
+	corpus := make(map[string]string, len(labels))
+	for _, l := range labels {
+		if p := profiles[l]; p != "" {
+			corpus[l] = p
+			continue
+		}
+		text := l
+		if d := defs[l]; d != "" {
+			text = l + "\n" + d
+		}
+		corpus[l] = text
+	}
+	return corpus
+}
+
+// vectorRecall 向量召回：embed 语料=召回语料（REQ-287② 标签+定义起，REQ-313 起为概念画像），
 // 标签向量（进程内桶缓存：版本+TTL+容量，图写入失效）与输入向量余弦 topK≤5 阈值 0.35。
-func (s *Service) vectorRecall(ctx context.Context, ontologyID string, labels []string, defs map[string]string, input string) ([]string, error) {
+func (s *Service) vectorRecall(ctx context.Context, ontologyID string, labels []string, corpus map[string]string, input string) ([]string, error) {
 	if len(labels) == 0 {
 		return nil, nil
 	}
 	emb := &kb.Embedder{Store: s.Store, Box: s.Box}
-	labelVecs, err := s.labelVectors(ctx, ontologyID, labels, defs, emb)
+	labelVecs, err := s.labelVectors(ctx, ontologyID, labels, corpus, emb)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +227,8 @@ func (s *Service) vectorRecall(ctx context.Context, ontologyID string, labels []
 }
 
 // labelVectors 标签批量向量（REQ-287④：桶版本/TTL/容量治理；缺失标签一次批量补齐后写缓存）。
-// embed 语料=标签+定义（textOf），定义变更随图写入失效自然重建。
-func (s *Service) labelVectors(ctx context.Context, ontologyID string, labels []string, defs map[string]string, emb *kb.Embedder) (map[string][]float32, error) {
+// embed 语料=召回语料（textOf，REQ-313 起为概念画像），语料变更随图写入失效自然重建。
+func (s *Service) labelVectors(ctx context.Context, ontologyID string, labels []string, corpus map[string]string, emb *kb.Embedder) (map[string][]float32, error) {
 	s.vecMu.Lock()
 	b := s.vecCache[ontologyID]
 	if b == nil || b.version != embedTextVersion || time.Since(b.updated) > vecCacheTTL {
@@ -218,11 +243,7 @@ func (s *Service) labelVectors(ctx context.Context, ontologyID string, labels []
 		if len(b.textOf) >= vecCacheMaxLabels {
 			break
 		}
-		text := l
-		if d := defs[l]; d != "" {
-			text = l + "\n" + d
-		}
-		b.textOf[l] = text
+		b.textOf[l] = corpus[l]
 	}
 	var missing []string
 	for l := range b.textOf {
@@ -284,9 +305,10 @@ func cosineSim(a, b []float32) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
-// bm25Recall REQ-287①：FTS5 兜底臂——投影（label+别名+定义）惰性回填（桶空时）后 BM25 检索。
-// 别名与主标签各自成文档（别名命中后由 resolveHitAliases 回溯主实体）；FTS 不可用/无 Store 返回 nil。
-func (s *Service) bm25Recall(ontologyID string, labels []string, defs map[string]string, input string) []string {
+// bm25Recall REQ-287①：FTS5 兜底臂——投影（召回语料=REQ-313 起为概念画像）惰性回填（桶空时）
+// 后 BM25 检索。别名与主标签各自成文档（别名命中后由 resolveHitAliases 回溯主实体）；
+// FTS 不可用/无 Store 返回 nil。
+func (s *Service) bm25Recall(ontologyID string, labels []string, corpus map[string]string, input string) []string {
 	if s == nil || s.Store == nil || strings.TrimSpace(input) == "" || len(labels) == 0 {
 		return nil
 	}
@@ -294,11 +316,7 @@ func (s *Service) bm25Recall(ontologyID string, labels []string, defs map[string
 	if err == nil && n == 0 {
 		docs := make([]store.CompanionFTSDoc, 0, len(labels))
 		for _, l := range labels {
-			content := l
-			if d := defs[l]; d != "" {
-				content = l + "\n" + d
-			}
-			docs = append(docs, store.CompanionFTSDoc{Label: l, Content: content})
+			docs = append(docs, store.CompanionFTSDoc{Label: l, Content: corpus[l]})
 		}
 		if err := s.Store.ReplaceCompanionFTS(ontologyID, docs); err != nil {
 			log.Printf("[companion] FTS 投影回填失败（降级其余臂）: %v", err)
