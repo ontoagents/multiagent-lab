@@ -10,8 +10,10 @@
 //     Windows=Job Object（KILL_ON_JOB_CLOSE，随进程退出生效）；macOS=Setpgid 进程组 + SIGTERM→SIGKILL
 //     阶梯（退出钩子）+ sh 兽护子进程（壳被 kill -9 后 ≤2s 轮询感知整树回收——Job Object 等价）；
 //   - backend 就绪前窗口隐藏，就绪后展示（60s 兜底展示错误页）；
-//   - **端口预检（共享路径，双平台）**：8080/8090/8091 任一被占即不拉服务、窗口落本地占位页并明示
-//     占用态——防止把仍在运行的 run-dev 等他方实例渲染进本壳窗口（数据串台缺陷，macOS 切换轮顺修）。
+//   - **端口预检 + 自动顺延（共享路径，双平台）**：端口被占（如本机 WSL 开发栈占 :8090）时自动
+//     顺延到空闲端口（+100 起逐个探测）拉起本壳自己的完整服务集——窗口加载的永远是本实例 UI，
+//     防串台语义不变（绝不渲染 run-dev 等他方实例，macOS 切换轮缺陷顺修）；顺延也找不到空闲
+//     端口时窗口才落本地占位页明示占用态（兜底，实际难触发）。
 //
 // 诚实边界：macOS 强杀回收系 sh 兽护 2s 轮询（非系统级 Job Object 强保真）；--stop 无进程名兜底
 // （防误伤开发实例）；launcher.json 换端口双平台同口径。
@@ -56,6 +58,13 @@ impl Ports {
                 if let Some(n) = v["runtime_port"].as_u64() { p.runtime = n as u16; }
             }
         }
+        // 端口被占自动顺延（+100 起逐个探测）：任一端口被外部进程占用（如本机 WSL 开发栈 runtimed
+        // 占 :8090）时换到空闲端口拉起本壳自己的完整服务集——窗口加载的永远是本实例 UI，防串台语义
+        // 不变（绝不渲染他方实例）；占位页仅剩「顺延也找不到空闲端口」的兜底。launcher.json 显式
+        // 配置同样受让。跨端口去重：后选端口排除已选，避免两服务落到同一顺延位。
+        p.backend = free_port_shift(p.backend, &[]);
+        p.ontology = free_port_shift(p.ontology, &[p.backend]);
+        p.runtime = free_port_shift(p.runtime, &[p.backend, p.ontology]);
         p
     }
     fn backend_url(&self) -> String { format!("http://127.0.0.1:{}", self.backend) }
@@ -309,6 +318,22 @@ fn port_open(port: u16) -> bool {
     .is_ok()
 }
 
+// 端口顺延：首选端口被占（或与本轮已选端口撞位）则 +100 起逐个探测空闲位，10 档全满则原样
+// 返回（交由占位页兜底）。探测的是「可绑定」近似——connect 失败即视为空闲，与本壳后续实际
+// bind 之间存在理论竞态窗口（外部进程恰好抢绑），量级可忽略。
+fn free_port_shift(preferred: u16, taken: &[u16]) -> u16 {
+    if !port_open(preferred) && !taken.contains(&preferred) {
+        return preferred;
+    }
+    for n in 100u16..=109 {
+        let Some(c) = preferred.checked_add(n) else { break };
+        if !port_open(c) && !taken.contains(&c) {
+            return c;
+        }
+    }
+    preferred
+}
+
 fn http_status_body(port: u16) -> Option<String> {
     let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
@@ -513,7 +538,8 @@ pub fn run() {
                 }
             }
 
-            // 端口预检（共享路径）：任一端口被占 → 不拉服务，窗口落本地占位页明示占用态，
+            // 端口预检（共享路径）：Ports::load 已对被占端口自动顺延，走到这里的 busy 仅剩
+            // 「顺延 10 档也找不到空闲端口」的兜底——不拉服务，窗口落本地占位页明示占用态，
             // 防止把他方实例（如 run-dev 开发栈）渲染进本壳窗口造成数据串台
             let busy = port_open(ports.backend) || port_open(ports.ontology) || port_open(ports.runtime);            PORTS_BUSY.store(busy, Ordering::SeqCst);
             if busy {
@@ -579,7 +605,12 @@ pub fn run() {
                     let _ = win.show();
                     let _ = win.set_focus();
                     let _ = win.emit("backend-ready", ready);
-                    let _ = win.eval("setTimeout(function(){try{location.reload()}catch(e){}},600)");
+                    // 就绪后显式导航到实际 backend 地址（端口顺延时 tauri.conf 的静态 8080 初始
+                    // 导航必然失败，reload 会停留在死地址；replace 才能落到本实例真实端口）
+                    let _ = win.eval(&format!(
+                        "setTimeout(function(){{try{{location.replace({:?})}}catch(e){{}}}},600)",
+                        ports_for_spawn.backend_url()
+                    ));
                 }
             });
 
