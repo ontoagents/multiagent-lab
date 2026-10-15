@@ -262,6 +262,140 @@ main { flex: 1; }
 .dl-releases-hint { margin-top: 12px; font-size: 13px; color: var(--c-ink-2); }
 .dl-releases-hint a { color: var(--c-brand); text-decoration: none; }
 
+/* ===== 首页 · 30 秒导览 ===== */
+.tour-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.tour-card {
+  display: flex; flex-direction: column; gap: 7px; padding: 16px 16px 14px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 14px;
+  text-decoration: none; color: var(--c-ink);
+  transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.tour-card:hover { border-color: var(--c-brand); box-shadow: 0 6px 20px rgba(79, 70, 229, .10); transform: translateY(-2px); }
+.tour-num {
+  width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(79, 70, 229, .10); color: var(--c-brand); font-size: 12px; font-weight: 800;
+}
+.tour-title { font-size: 14px; font-weight: 700; }
+.tour-desc { font-size: 12px; color: var(--c-ink-2); line-height: 1.65; }
+
+/* ===== 实现原理页 ===== */
+.page-hero { padding: 40px 0 8px; }
+.eyebrow {
+  display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--c-brand); margin-bottom: 8px;
+}
+.page-hero h1 { margin: 0 0 12px; font-size: 30px; }
+.lead { margin: 0; max-width: 860px; font-size: 14.5px; line-height: 1.9; color: var(--c-ink-2); }
+.lead a { color: var(--c-brand); text-decoration: none; }
+.lead a:hover { text-decoration: underline; }
+.lead strong { color: var(--c-ink); }
+
+.sec-head { margin-bottom: 16px; }
+.sec-head h2 { margin: 0 0 6px; }
+.sec-head p { margin: 0; max-width: 820px; font-size: 13px; color: var(--c-ink-2); line-height: 1.8; }
+.sec-note {
+  margin: 14px 2px 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.8;
+}
+.sec-note code {
+  padding: 1px 6px; border-radius: 5px; background: #eef0fa; font-size: 12px; color: var(--c-ink);
+}
+.sec-note a { color: var(--c-brand); text-decoration: none; }
+.sec-note a:hover { text-decoration: underline; }
+
+/* —— 五层视角 —— */
+.layer-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.layer-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 14px;
+}
+.layer-card header { display: flex; flex-direction: column; gap: 4px; }
+.layer-card h3 { margin: 0; font-size: 13.5px; }
+.layer-key {
+  align-self: flex-start; padding: 2px 8px; border-radius: 6px;
+  background: rgba(79, 70, 229, .10); color: var(--c-brand);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 700;
+}
+.layer-scope { font-size: 11.5px; color: var(--c-ink-3); }
+.layer-card ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 7px; }
+.layer-card li { font-size: 12px; color: var(--c-ink-2); line-height: 1.7; }
+
+/* —— 本体工程机制 / 知识增强 —— */
+.onto-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.onto-card {
+  padding: 18px; background: #fff; border: 1px solid var(--c-line); border-radius: 14px;
+}
+.onto-card h3 { margin: 0 0 8px; font-size: 14.5px; }
+.onto-card p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.8; }
+.kb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.kb-card { padding: 18px; background: #fff; border: 1px solid var(--c-line); border-radius: 14px; }
+.kb-card h3 { margin: 0 0 8px; font-size: 14.5px; }
+.kb-card p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.8; }
+
+/* —— 设计原则 —— */
+.principle-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.principle-card {
+  position: relative; padding: 18px 16px 16px; background: #fff;
+  border: 1px solid var(--c-line); border-radius: 14px;
+}
+.principle-num {
+  position: absolute; top: 10px; right: 14px; font-size: 22px; font-weight: 800;
+  color: rgba(79, 70, 229, .16); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.principle-card h3 { margin: 0 0 8px; font-size: 14.5px; }
+.principle-card p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.8; }
+
+/* —— 依据清单 —— */
+.ref-sub { margin: 26px 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.badge {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700;
+}
+.badge-integrated { background: rgba(22, 163, 74, .12); color: #15803d; }
+.badge-inspired { background: rgba(124, 58, 237, .12); color: #7c3aed; }
+.ref-table {
+  display: flex; flex-direction: column; background: #fff;
+  border: 1px solid var(--c-line); border-radius: 14px; overflow: hidden;
+}
+.ref-row {
+  display: grid; grid-template-columns: 250px 210px 1fr; gap: 14px; align-items: baseline;
+  padding: 11px 18px; border-bottom: 1px solid var(--c-line);
+  color: var(--c-ink); text-decoration: none; font-size: 12.5px;
+}
+.ref-row:last-child { border-bottom: none; }
+a.ref-row:hover { background: #f7f8ff; }
+.ref-name { font-weight: 700; font-size: 13px; }
+a.ref-row .ref-name { color: var(--c-brand); }
+.ref-meta { color: var(--c-ink-3); font-size: 12px; }
+.ref-use { color: var(--c-ink-2); line-height: 1.65; }
+.inspired-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.inspired-card { padding: 15px 16px; background: #fff; border: 1px solid var(--c-line); border-radius: 12px; }
+.inspired-card h4 { margin: 0 0 6px; font-size: 13px; color: var(--c-ink); }
+.inspired-card p { margin: 0; font-size: 12px; color: var(--c-ink-2); line-height: 1.7; }
+
+/* —— 延伸阅读 —— */
+.guide-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.guide-card {
+  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 18px 44px 16px 18px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 14px;
+  text-decoration: none; color: var(--c-ink);
+  transition: box-shadow .15s ease, border-color .15s ease;
+}
+.guide-card:hover { border-color: var(--c-brand); box-shadow: 0 6px 20px rgba(79, 70, 229, .10); }
+.guide-card h3 { margin: 0; font-size: 14.5px; }
+.guide-card p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.7; }
+.guide-arrow {
+  position: absolute; top: 50%; right: 16px; transform: translateY(-50%);
+  color: var(--c-brand); font-size: 16px;
+}
+
+@media (max-width: 960px) {
+  .tour-strip { grid-template-columns: repeat(2, 1fr); }
+  .layer-grid { grid-template-columns: repeat(2, 1fr); }
+  .onto-grid, .kb-grid, .guide-grid { grid-template-columns: 1fr; }
+  .principle-grid { grid-template-columns: repeat(2, 1fr); }
+  .ref-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
 @media (max-width: 800px) {
   .arch-grid, .impl-grid, .dl-grid { grid-template-columns: 1fr; }
 }

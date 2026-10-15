@@ -17,7 +17,16 @@ import { MODULES, REPO_URL, SEEDS } from '../content'
 // ---------------------------------------------------------------------------
 // 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / platform-knowledge/
 // 01_整体设计/00_整体设计.md（摘编口径，深入阅读走模块页导读档，避免双源）。
+// 新人导览：Hero 后紧跟"30 秒了解"五步导览，覆盖 是什么→能做什么→长什么样→如何工作→上手。
 // ---------------------------------------------------------------------------
+
+const TOUR: { title: string; desc: string; href: string }[] = [
+  { title: '它是什么', desc: '单机可部署的智能体 + 本体双核平台，Go + Eino/ADK，数据全留本机', href: '#/module/design' },
+  { title: '能做什么', desc: '六大模块：智能体 / 本体 / 知识库 / 连接器 / 消费审计 / 学习中心', href: '#/module/agents' },
+  { title: '系统长什么样', desc: '三平面 + 双代理拓扑，一张总图看清服务边界与端口', href: '#/architecture' },
+  { title: '如何工作', desc: '五层执行模型 + 质量门禁机制，附论文与开源依据', href: '#/principles' },
+  { title: '立即上手', desc: '桌面安装包开箱即用，或在线 demo 零安装体验', href: '#/download' },
+]
 
 const SCENES: { icon: React.ReactNode; title: string; desc: string; link: { href: string; text: string } }[] = [
   {
@@ -87,7 +96,7 @@ export default function HomePage() {
       <section className="hero">
         <div className="page-inner">
           <Tag color="geekblue" style={{ marginBottom: 14 }}>
-            开源 · Apache License 2.0
+            开源 · Apache License 2.0 · 单机可部署
           </Tag>
           <h1>
             AgentLab
@@ -114,6 +123,20 @@ export default function HomePage() {
       </section>
 
       <div className="page-inner">
+        {/* 30 秒了解（新人导览） */}
+        <section className="sec">
+          <h2>30 秒了解 AgentLab</h2>
+          <div className="tour-strip">
+            {TOUR.map((t, i) => (
+              <a className="tour-card" key={t.title} href={t.href}>
+                <span className="tour-num">{i + 1}</span>
+                <span className="tour-title">{t.title}</span>
+                <span className="tour-desc">{t.desc}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+
         {/* 使用场景 */}
         <section className="sec">
           <h2>使用场景</h2>
