@@ -20,7 +20,7 @@ Start-Sleep -Milliseconds 800
 Write-Host "[2/3] Removing shortcuts and registry entry..."
 $ps1 = Join-Path $Target "install-shortcuts.ps1"
 if (Test-Path $ps1) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $ps1 -Remove
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $ps1 -Remove -TargetDir $Target
 } else {
     Log "install-shortcuts.ps1 missing, direct cleanup"
     $group = Join-Path ([Environment]::GetFolderPath("Programs")) "MultiAgentLab"

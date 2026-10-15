@@ -1,9 +1,11 @@
 # REQ-321 安装器辅助：快捷方式（开始菜单分组 + 桌面）与 HKCU 卸载注册项
-# 用法：install-shortcuts.ps1 -Install ｜ install-shortcuts.ps1 -Remove
-param([switch]$Install, [switch]$Remove)
+# 用法：install-shortcuts.ps1 -Install [-TargetDir <dir>] ｜ install-shortcuts.ps1 -Remove [-TargetDir <dir>]
+# TargetDir=实际安装目录（安装位置可自定义，REQ-321；缺省回退 %LOCALAPPDATA% 旧默认）
+param([switch]$Install, [switch]$Remove, [string]$TargetDir)
 $ErrorActionPreference = "Stop"
 
-$target  = Join-Path $env:LOCALAPPDATA "Programs\MultiAgentLab"
+$target  = $TargetDir
+if (-not $target) { $target = Join-Path $env:LOCALAPPDATA "Programs\MultiAgentLab" }
 $progMenu = [Environment]::GetFolderPath("Programs")
 $group   = Join-Path $progMenu "MultiAgentLab"
 $desktop = [Environment]::GetFolderPath("Desktop")

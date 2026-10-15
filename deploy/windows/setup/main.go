@@ -2,9 +2,10 @@
 //
 // 结构：setup.exe = 本程序 + 尾部附加 zip（build.ps1 拼接）。
 // 双形态：
-//   - GUI（默认双击）：WebView2 现代向导——安装位置可改、磁盘空间预检、解压直达安装目录
-//     （无 %TEMP% 中转，目标盘瞬时占用减半）、进度条、完成后可一键启动平台；
-//   - Console（-y 或 MLAB_SILENT=1，冒烟自动化）：同逻辑，进度走 stdout，无窗口。
+//   - GUI（默认双击）：WebView2 窗口 + 内置 127.0.0.1 随机端口 HTTP 向导（真网页交互，
+//     fetch 轮询进度；不依赖 data:URL——实测 WebView2 对其渲染/脚本不可靠）。
+//     安装位置可改、磁盘空间预检、解压直达安装目录（无 %TEMP% 中转）、完成页一键启动；
+//   - Console（-y 或 MLAB_SILENT=1，冒烟自动化）：同 install() 核心，进度走 stdout，无窗口。
 //
 // 数据根：安装器把所选安装目录下的 data\ 写入 <安装目录>\data.location，launcher 启动时读取
 // （数据随安装目录走——C 盘紧张机器可选装其他盘；未写则 launcher 兜底 %LOCALAPPDATA%\eino-lab）。
@@ -13,16 +14,20 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/jchv/go-webview2"
@@ -31,16 +36,44 @@ import (
 
 const (
 	defaultDir     = `Programs\MultiAgentLab` // 相对 %LOCALAPPDATA%
-	needBytesSlack = 80 << 20                 // 解压后预留量（zip 解压后 ~95MB + 余量）
+	needBytesSlack = 80 << 20                 // 解压后预留量
 )
 
-type uiState struct {
-	w      webview2.WebView
-	appDir string // 安装目录（GUI 由用户输入，console 由默认/参数）
-	self   []byte
-	zr     *zip.Reader
-	// 进度推送统一走 dispatch（WebView2 UI 线程）
+type installState struct {
+	mu      sync.Mutex
+	running bool
+	pct     int
+	step    string
+	done    bool
+	errMsg  string
+	appDir  string
 }
+
+func (s *installState) snapshot() (running bool, pct int, step string, done bool, errMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running, s.pct, s.step, s.done, s.errMsg
+}
+
+func (s *installState) set(pct int, step string) {
+	s.mu.Lock()
+	s.pct, s.step = pct, step
+	s.mu.Unlock()
+}
+
+func (s *installState) finish(errMsg string) {
+	s.mu.Lock()
+	s.running, s.done, s.errMsg = false, true, errMsg
+	s.mu.Unlock()
+}
+
+var (
+	st    installState
+	home  webview2.WebView // GUI 窗口（console 模式不创建）
+	ln    net.Listener
+	zr    *zip.Reader
+	appEx string // 附加 zip 所在 exe（信息用）
+)
 
 func main() {
 	silent := len(os.Args) > 1 && (os.Args[1] == "-y" || os.Args[1] == "-silent") ||
@@ -49,10 +82,12 @@ func main() {
 	if err != nil {
 		failSilent("无法读取自身文件: " + err.Error())
 	}
-	zr, err := appendedZip(self)
+	reader, err := appendedZip(self)
 	if err != nil {
 		failSilent("安装包不完整或已损坏（附加载荷缺失）: " + err.Error())
 	}
+	zr = reader
+	appEx = mustExe()
 
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
@@ -64,45 +99,39 @@ func main() {
 	}
 
 	if silent {
-		st := &uiState{appDir: defDir, self: self, zr: zr}
-		if msg := st.install(func(pct int, step string) { fmt.Printf("[%3d%%] %s\n", pct, step) }); msg != "" {
+		st.appDir = defDir
+		st.running = true
+		if msg := install(func(pct int, step string) { fmt.Printf("[%3d%%] %s\n", pct, step) }); msg != "" {
 			fmt.Fprintln(os.Stderr, "[setup] "+msg)
 			os.Exit(1)
 		}
 		fmt.Println("安装完成。开始菜单/桌面「智能体构建平台」启动。")
 		return
 	}
-	runGUI(defDir, self, zr)
+	runGUI(defDir)
 }
 
 // ---- 安装核心（GUI/console 共用） ----
 
-// install 执行完整安装；返回人话错误（空串=成功）。progress 回调可能来自任意 goroutine，
-// 由调用方保证线程安全（console=直接打印；GUI=包一层 Dispatch）。
-func (st *uiState) install(progress func(pct int, step string)) (errMsg string) {
-	step := func(pct int, s string) {
-		progress(pct, s)
-	}
-
+func install(progress func(pct int, step string)) (errMsg string) {
 	// ① 磁盘空间预检（目标盘：解压后体量 + 预留）
 	var need int64
-	for _, f := range st.zr.File {
+	for _, f := range zr.File {
 		need += int64(f.UncompressedSize64)
 	}
 	need += needBytesSlack
 	if msg := checkDiskSpace(st.appDir, need); msg != "" {
 		return msg
 	}
-	step(2, "磁盘空间检查通过")
+	progress(2, "磁盘空间检查通过")
 
-	// ② 解压直达安装目录（含防穿越/目录条目归一——Compress-Archive 反斜杠条目见 probe 取证）。
-	// zip 内程序文件带 payload\app\ 前缀（原 7zSD 流程由 installer.cmd robocopy 摊平，
-	// 直解形态在此剥离；payload 外的根级文件〔uninstall/installer 脚本、README〕原位落 root）。
+	// ② 解压直达安装目录。zip 内程序文件带 payload\app\ 前缀（原 7zSD 流程由 installer.cmd
+	// robocopy 摊平，直解形态在此剥离）；payload 外的根级文件原位落 root。
 	if err := os.MkdirAll(st.appDir, 0o755); err != nil {
 		return "无法创建安装目录 " + st.appDir + ": " + err.Error()
 	}
-	total := len(st.zr.File)
-	for i, f := range st.zr.File {
+	total := len(zr.File)
+	for i, f := range zr.File {
 		rel := strings.ReplaceAll(f.Name, "\\", "/")
 		rel = strings.TrimPrefix(rel, "payload/app/")
 		if strings.Contains(rel, "../") || strings.HasPrefix(rel, "/") {
@@ -112,7 +141,7 @@ func (st *uiState) install(progress func(pct int, step string)) (errMsg string) 
 			return "解压 " + f.Name + " 失败: " + err.Error()
 		}
 		if i%24 == 0 || i == total-1 {
-			step(2+80*(i+1)/total, fmt.Sprintf("释放程序文件 %d/%d", i+1, total))
+			progress(2+80*(i+1)/total, fmt.Sprintf("释放程序文件 %d/%d", i+1, total))
 		}
 	}
 
@@ -122,16 +151,17 @@ func (st *uiState) install(progress func(pct int, step string)) (errMsg string) 
 		return "写入数据位置标记失败: " + err.Error()
 	}
 
-	// ④ 快捷方式 + 卸载注册项（payload 内的 install-shortcuts.ps1；隐藏窗口）
-	step(88, "创建快捷方式与卸载项")
+	// ④ 快捷方式 + 卸载注册项（payload 内的 install-shortcuts.ps1；隐藏窗口；TargetDir=自定义安装目录）
+	progress(88, "创建快捷方式与卸载项")
 	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-		"-File", filepath.Join(st.appDir, "install-shortcuts.ps1"), "-Install")
+		"-File", filepath.Join(st.appDir, "install-shortcuts.ps1"),
+		"-Install", "-TargetDir", st.appDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "快捷方式/注册项创建失败: " + err.Error() + " " + strings.TrimSpace(string(out))
 	}
 
-	step(100, "安装完成")
+	progress(100, "安装完成")
 	return ""
 }
 
@@ -157,68 +187,122 @@ func checkDiskSpace(dir string, need int64) string {
 	return ""
 }
 
-// ---- GUI 向导 ----
+// ---- GUI：WebView2 窗口 + 内置 HTTP 向导 ----
 
-func runGUI(defDir string, self []byte, zr *zip.Reader) {
+func runGUI(defDir string) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		failSilent("无法启动内置向导服务: " + err.Error())
+	}
+	mux := http.NewServeMux()
+	registerWizard(mux)
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+
+	home = newHomeWindow()
+	wizardURL := fmt.Sprintf("http://127.0.0.1:%d/", ln.Addr().(*net.TCPAddr).Port)
+	// windowsgui 子系统无 stdout：自动化经 MLAB_WIZARD_LOG 拿向导地址
+	if p := os.Getenv("MLAB_WIZARD_LOG"); p != "" {
+		_ = os.WriteFile(p, []byte(wizardURL), 0o644)
+	}
+
+	need := int64(0)
+	for _, f := range zr.File {
+		need += int64(f.UncompressedSize64)
+	}
+	home.Init(fmt.Sprintf(`document.addEventListener('DOMContentLoaded',function(){uiInit(%q,%d,%q)});`,
+		defDir, need/1e6, wizardURL))
+	home.Navigate(wizardURL)
+	home.Run() // 窗口关闭/Terminate 后返回
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+}
+
+func registerWizard(mux *http.ServeMux) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, pageHTML)
+	})
+	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", 405)
+			return
+		}
+		st.mu.Lock()
+		if st.running || st.done {
+			st.mu.Unlock()
+			writeJSON(w, map[string]any{"started": !st.done, "done": st.done})
+			return
+		}
+		dir := strings.TrimSpace(r.URL.Query().Get("dir"))
+		if dir == "" {
+			dir = st.appDir
+		}
+		st.appDir, st.running, st.pct, st.step, st.done, st.errMsg = dir, true, 0, "准备中…", false, ""
+		st.mu.Unlock()
+		go func() {
+			msg := install(func(pct int, step string) { st.set(pct, step) })
+			st.finish(msg)
+		}()
+		writeJSON(w, map[string]any{"started": true})
+	})
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		running, pct, step, done, errMsg := st.snapshot()
+		writeJSON(w, map[string]any{"running": running, "pct": pct, "step": step, "done": done, "err": errMsg})
+	})
+	mux.HandleFunc("/api/launch", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", 405)
+			return
+		}
+		exe := filepath.Join(st.appDir, "MultiAgentLab.exe")
+		c := exec.Command(exe)
+		c.Dir = st.appDir
+		_ = c.Start()
+		writeJSON(w, map[string]any{"ok": true})
+		if home != nil {
+			home.Dispatch(func() { home.Terminate() }) // 启动器接管服务编排与窗口，安装器退出
+		}
+	})
+	mux.HandleFunc("/api/close", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", 405)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+		if home != nil {
+			home.Dispatch(func() { home.Terminate() })
+		}
+	})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func newHomeWindow() webview2.WebView {
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "智能体构建平台 安装向导",
 			Width:  620,
-			Height: 480,
+			Height: 500,
 			Center: true,
 		},
 	})
 	if w == nil {
-		// WebView2 缺失：回退 console 流程 + 提示
-		msgBox("WebView2 运行时缺失", "未检测到 WebView2 运行时，将以简洁模式继续安装。")
-		st := &uiState{appDir: defDir, self: self, zr: zr}
-		if msg := st.install(func(pct int, step string) { fmt.Printf("[%3d%%] %s\n", pct, step) }); msg != "" {
-			failSilent(msg)
-		}
-		return
+		// WebView2 缺失：回退 console 流程（同 install 核心）
+		failSilent("未检测到 WebView2 运行时，将以简洁模式继续安装。")
 	}
-	st := &uiState{w: w, appDir: defDir, self: self, zr: zr}
-
-	dirJSON, _ := json.Marshal(defDir)
-	need := int64(0)
-	for _, f := range zr.File {
-		need += int64(f.UncompressedSize64)
-	}
-	w.Bind("goStartInstall", func(dir string) string {
-		go func() {
-			st.appDir = dir
-			msg := st.install(func(pct int, stepText string) {
-				w.Dispatch(func() {
-					w.Eval(fmt.Sprintf("uiProgress(%d,%q)", pct, stepText))
-				})
-			})
-			w.Dispatch(func() {
-				w.Eval(fmt.Sprintf("uiDone(%q)", msg))
-			})
-		}()
-		return "started"
-	})
-	w.Bind("goLaunch", func() string {
-		exe := filepath.Join(st.appDir, "MultiAgentLab.exe")
-		c := exec.Command(exe)
-		c.Dir = st.appDir
-		c.SysProcAttr = &syscall.SysProcAttr{HideWindow: false}
-		_ = c.Start()
-		// 启动器接管服务编排与窗口，安装器功成身退
-		w.Dispatch(func() { w.Terminate() })
-		return "ok"
-	})
-	w.Bind("goClose", func() string {
-		w.Dispatch(func() { w.Terminate() })
-		return "ok"
-	})
-
-	w.Init(fmt.Sprintf(`document.addEventListener('DOMContentLoaded',function(){uiInit(%s,%d)});`, dirJSON, need/1e6))
-	// 接口未暴露 NavigateToString：以 data: URL 承载向导页（Bind 的 RPC 注入走 Init 同文档生效）
-	w.Navigate("data:text/html;charset=utf-8," + url.QueryEscape(pageHTML))
-	w.Run()
+	return w
 }
 
 const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -227,10 +311,9 @@ body{height:100vh;display:flex;flex-direction:column;background:#f6f7fb;color:#1
 .hero{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:28px 32px}
 .hero h1{font-size:22px;font-weight:600;letter-spacing:.5px}
 .hero p{opacity:.85;font-size:13px;margin-top:6px}
-.body{flex:1;padding:24px 32px;display:flex;flex-direction:column;gap:14px}
+.body{flex:1;padding:24px 32px;display:flex;flex-direction:column;gap:14px;overflow:auto}
 label{font-size:13px;color:#4b5563;font-weight:600}
-.dirrow{display:flex;gap:8px}
-input{flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none}
+input{width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none}
 input:focus{border-color:#6366f1}
 .hint{font-size:12px;color:#6b7280}
 #btn{align-self:flex-start;background:#4f46e5;color:#fff;border:0;border-radius:8px;
@@ -251,7 +334,7 @@ font-weight:600;cursor:pointer}
 <div class="body">
   <div id="form">
     <label>安装位置</label>
-    <div class="dirrow"><input id="dir" spellcheck="false"></div>
+    <input id="dir" spellcheck="false">
     <p class="hint" id="space"></p>
     <div style="height:10px"></div>
     <button id="btn" onclick="go()">立即安装</button>
@@ -259,12 +342,13 @@ font-weight:600;cursor:pointer}
   <div id="prog"><div id="bar"><div id="fill"></div></div><p id="step">准备中…</p></div>
   <div id="err" class="err"></div>
   <div id="done"><h3>✓ 安装完成</h3><p>已创建开始菜单与桌面快捷方式。数据目录位于安装目录内，卸载时自动保留。</p>
-    <button id="launch" onclick="goLaunch()">立即启动平台</button><button id="fin" onclick="goClose()">完成</button></div>
+    <button id="launch" onclick="doLaunch()">立即启动平台</button><button id="fin" onclick="doClose()">完成</button></div>
 </div>
 <div class="foot">Go + WebView2 · oxigraph 等原生依赖在首次使用对应功能时引导下载 · 数据目录卸载时保留</div>
 <script>
-function uiInit(dir,needMB){document.getElementById('dir').value=dir;
-document.getElementById('space').textContent='安装体积约 '+needMB+' MB（下载内容为当前盘瞬时占用，不影响其他盘）';}
+let BASE='/';
+function uiInit(dir,needMB,base){BASE=base;document.getElementById('dir').value=dir;
+document.getElementById('space').textContent='安装体积约 '+needMB+' MB';}
 function uiProgress(pct,step){document.getElementById('prog').style.display='block';
 document.getElementById('form').style.display='none';document.getElementById('err').style.display='none';
 document.getElementById('fill').style.width=pct+'%';document.getElementById('step').textContent=step;}
@@ -272,7 +356,13 @@ function uiDone(err){document.getElementById('prog').style.display='none';
 if(err){var e=document.getElementById('err');e.style.display='block';e.textContent=err;
 document.getElementById('form').style.display='block';document.getElementById('btn').disabled=false;return;}
 document.getElementById('form').style.display='none';document.getElementById('done').style.display='block';}
-function go(){document.getElementById('btn').disabled=true;goStartInstall(document.getElementById('dir').value);}
+async function go(){document.getElementById('btn').disabled=true;
+await fetch(BASE+'api/start?dir='+encodeURIComponent(document.getElementById('dir').value),{method:'POST'});poll();}
+async function poll(){for(;;){const s=await(await fetch(BASE+'api/status')).json();
+if(s.running){uiProgress(s.pct,s.step);}else{uiDone(s.err);return;}
+await new Promise(r=>setTimeout(r,400));}}
+async function doLaunch(){await fetch(BASE+'api/launch',{method:'POST'});}
+async function doClose(){await fetch(BASE+'api/close',{method:'POST'});}
 </script></body></html>`
 
 // ---- 附加 zip 定位 / 解压 / 小工具 ----

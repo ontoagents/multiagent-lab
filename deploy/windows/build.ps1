@@ -143,7 +143,8 @@ if ($iscc -and (Test-Path $iscc)) {
     # Go 引导器编译（GOWORK=off 独立 module）
     if (-not (Test-Path "$cache\setup-bootstrap.exe")) {
         Push-Location "$here\setup"
-        $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w" -o "$cache\setup-bootstrap.exe" .
+        # -H windowsgui：双击安装只出现向导窗口，不弹控制台黑窗（进度在向导页内）
+        $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w -H windowsgui" -o "$cache\setup-bootstrap.exe" .
         Remove-Item Env:\GOWORK; Pop-Location
         if ($LASTEXITCODE -ne 0) { throw "setup 引导器编译失败" }
     }
