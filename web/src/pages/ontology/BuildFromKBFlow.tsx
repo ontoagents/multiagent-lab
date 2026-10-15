@@ -364,6 +364,7 @@ function KbBuildFlow() {
               icon={<RightOutlined />}
               onClick={() => {
                 localStorage.setItem('eino.onto.sidebar', 'assets')
+                localStorage.setItem('eino.onto.asset.focus', savedId) // REQ-326③：直达新本体详情
                 window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
               }}
             >

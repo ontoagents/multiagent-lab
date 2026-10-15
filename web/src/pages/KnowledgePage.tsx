@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Button, Form, Input, Modal, Select, Checkbox, Space, Splitter, Tag, Result } from 'antd'
+import { Button, Form, Input, Modal, Select, Checkbox, Space, Tag, Result, Tooltip } from 'antd'
 import { BookOutlined, ApartmentOutlined, FileSearchOutlined, PlusOutlined } from '@ant-design/icons'
 import type { KnowledgeBase } from '../api/types'
 import { api } from '../api/client'
 import { useUI } from '../store/ui'
-import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
-import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 import { modeOf, type KBMode } from './knowledge/shared'
 import RagPage from './knowledge/RagPage'
 import GraphRagPage from './knowledge/GraphRagPage'
@@ -13,10 +11,11 @@ import WikiPage from './knowledge/WikiPage'
 
 // ---------------------------------------------------------------------------
 // 知识库模块壳（REQ-258，开发者指令「三种类型改为类似本体模块的左侧边栏标题形式，
-// 每种类型的页面都不一样，实现和显示各自独立」）：左侧边栏 = 三类型导航项
-// （图标+标题+一句话描述+库计数徽标，本体五栏同款范式）；右侧内容 = 各类型独立页面
+// 每种类型的页面都不一样，实现和显示各自独立」）：三类型导航项 + 各类型独立页面
 // （RagPage / GraphRagPage / WikiPage，各自实现库列表与详情，互不共享类型专属逻辑）。
-// 旧实现（单页 + 左栏 Tabs 切类型）退役：类型页内列表替代原 modeTab 过滤列表。
+// REQ-326②：类型导航自左侧边栏迁内容区顶部水平页签（与本体五栏同批演进，全局导航
+// 左置①必要配套）；选中记忆键（eino.kb.view）与 eino.kb.focus 深链语义原样保留，
+// 仅承载形态演进；一句话描述收 Tooltip；「新建库」上移页签行右端。
 // ---------------------------------------------------------------------------
 
 type KbView = KBMode
@@ -142,7 +141,6 @@ function CreateKBModal({ defaultMode, onClose, onCreated }: { defaultMode: KBMod
 
 export default function KnowledgePage() {
   const { bumpData } = useUI()
-  const rail = useSidebarCollapse('eino.kb.sidebar.collapsed')
   const [view, setView] = useState<KbView>(readView)
   const [kbs, setKbs] = useState<KnowledgeBase[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -192,59 +190,38 @@ export default function KnowledgePage() {
   }
 
   return (
-    // 左栏宽度并入全站单一约定（lib/layout.ts 单源，REQ-237 布局基线）
-    <Splitter className="main sidebar-splitter" onResizeEnd={sidebarRemember}>
-      <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
-        {rail.collapsed ? (
-          <CollapsedRail onExpand={rail.toggle} ariaLabel="知识库侧栏（已收起）" />
-        ) : (
-          <aside className="sidebar">
-            <div className="side-head">
-              <span className="side-title">知识库</span>
-              <SidebarCollapseButton onClick={rail.toggle} />
-              <span className="side-count">{kbs.length}</span>
-            </div>
-            {/* REQ-258：三类型导航（本体五栏同款范式：图标+标题+一句话描述，库计数徽标） */}
-            <div className="onto-nav">
-              {NAV.map((n) => (
-                <button
-                  key={n.key}
-                  type="button"
-                  className={`onto-nav-item${view === n.key ? ' active' : ''}`}
-                  aria-current={view === n.key || undefined}
-                  onClick={() => select(n.key)}
+    // REQ-326②：三类型导航改内容区顶部水平页签（库计数徽标保留；描述收 Tooltip）
+    <div className="module-shell">
+      <div className="module-tabs" role="tablist" aria-label="知识库类型导航" data-testid="kb-module-tabs">
+        {NAV.map((n) => (
+          <Tooltip key={n.key} title={n.desc} placement="bottom" mouseEnterDelay={0.4}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === n.key}
+              aria-current={view === n.key || undefined}
+              className={`module-tab${view === n.key ? ' active' : ''}`}
+              onClick={() => select(n.key)}
+            >
+              <span className="module-tab-icon">{n.icon}</span>
+              <span className="module-tab-label">
+                {n.label}
+                <Tag
+                  color={view === n.key ? 'geekblue' : 'default'}
+                  style={{ margin: 0, marginInlineStart: 6, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}
                 >
-                  <span className="onto-nav-icon">{n.icon}</span>
-                  <span className="onto-nav-text">
-                    <span className="onto-nav-label">
-                      {n.label}
-                      <Tag
-                        color={view === n.key ? 'geekblue' : 'default'}
-                        style={{ margin: 0, marginInlineStart: 6, fontSize: 10, lineHeight: '16px', padding: '0 5px' }}
-                      >
-                        {kbs.filter((k) => modeOf(k) === n.key).length}
-                      </Tag>
-                    </span>
-                    <span className="onto-nav-desc">{n.desc}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="side-actions">
-              <Button type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-                新建库
-              </Button>
-            </div>
-            <div className="side-reserve-wrap">
-              <div className="reserve-note">
-                <div className="reserve-title">模块定位</div>
-                知识资产管理模块（M14 双子模块 + REQ-241 第三类型）：RAG / GraphRAG / LLM Wiki 三类型独立页面，检索增强对话的知识源。
-              </div>
-            </div>
-          </aside>
-        )}
-      </Splitter.Panel>
-      <Splitter.Panel className="content-panel">
+                  {kbs.filter((k) => modeOf(k) === n.key).length}
+                </Tag>
+              </span>
+            </button>
+          </Tooltip>
+        ))}
+        <span className="module-tabs-spacer" />
+        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          新建库
+        </Button>
+      </div>
+      <div className="module-body">
         {loadErr && !kbs.length ? (
           <div className="work-empty">
             <Result
@@ -275,7 +252,7 @@ export default function KnowledgePage() {
             }}
           />
         )}
-      </Splitter.Panel>
-    </Splitter>
+      </div>
+    </div>
   )
 }

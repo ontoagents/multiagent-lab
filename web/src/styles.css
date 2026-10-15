@@ -32,63 +32,64 @@ body { font-size: 14px; background: var(--c-bg); }
 /* 根因修复：antd <App> 在 #root 与 .app 之间渲染 .ant-app 包裹 div（默认无高度），
    不补齐这条高度链，.app 的 height:100% 会退化为内容高度——空态时左栏不满高 */
 .ant-app { height: 100%; }
-/* 顶栏 + 主区：主区占满剩余视口高度，内部再左右分栏（各栏自行内滚）；关键节点显式 height:100% 加固 */
-.app { height: 100%; display: flex; flex-direction: column; }
-.app-body { flex: 1; display: flex; min-height: 0; }
-/* 顶栏：开发者工具风格，浅色克制——发丝分隔 + 极浅渐变 + 品牌强调 */
-.topnav {
-  display: flex; align-items: center; gap: 6px;
-  padding: 0 18px; height: 56px; flex: none;
-  background: linear-gradient(180deg, var(--c-panel) 0%, #fbfbfe 100%);
-  border-bottom: 1px solid var(--c-line);
-  box-shadow: 0 1px 2px rgba(28, 33, 48, 0.03);
-  position: relative; z-index: var(--z-topnav);
-}
+/* REQ-326①：全局导航左置——.app 由「顶栏(行)+主区」改为「左侧导航(列)+主区」横向布局：
+   左侧全局导航（可收缩）+ 右侧主区（内部再左右分栏，各栏自行内滚） */
+.app { height: 100%; display: flex; flex-direction: row; }
+.app-body { flex: 1; display: flex; min-height: 0; min-width: 0; }
 
-/* 品牌区：渐变几何标记（多智能体联结点）+ 词标 / Lab 徽标 / 副标题 */
-.brand { display: flex; align-items: center; gap: 10px; margin-right: 16px; flex: none; }
+/* ---- 全局导航（REQ-326①）：左侧可收缩侧边栏 ----
+   展开态 208px（品牌 + 六模块带一句话定位）；收起态 48px 图标列（CollapsedRail 同款形态）；
+   底部工具区（主题 + 设置）；视觉分层：--c-panel 底色 + 发丝右边框，与模块左栏（--c-bg-soft）区分 */
+.global-nav {
+  width: 208px; flex: none; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 8px 8px; overflow: hidden; overflow-y: auto;
+  background: var(--c-panel); border-right: 1px solid var(--c-line);
+}
+.global-nav.collapsed { width: 48px; padding: 10px 4px 8px; align-items: center; }
+.gn-brand { display: flex; align-items: center; gap: 8px; padding: 2px 6px 10px; min-height: 34px; flex: none; }
+.global-nav.collapsed .gn-brand { padding: 2px 0 10px; justify-content: center; }
+.gn-fold { margin-bottom: 2px; flex: none; }
+.gn-nav { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gn-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  min-height: 36px; padding: 5px 10px; border: 0; border-radius: 9px; background: none;
+  color: var(--c-ink-2); font-family: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;
+  text-align: left; white-space: nowrap;
+  transition: background .16s ease, color .16s ease;
+}
+.global-nav.collapsed .gn-item { width: 40px; justify-content: center; padding: 8px 0; }
+.gn-item-icon { display: inline-flex; font-size: 15px; opacity: .92; flex: none; }
+.gn-item:hover { background: var(--c-hover-soft); color: var(--c-ink); }
+.gn-item.active { background: var(--c-active-soft); color: var(--c-brand); font-weight: 600; }
+.gn-item-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.gn-item-label { overflow: hidden; text-overflow: ellipsis; }
+.gn-item-desc {
+  font-size: 11px; font-weight: 400; color: var(--c-ink-3);
+  overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+}
+.gn-foot {
+  margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-line);
+  display: flex; flex-direction: column; gap: 2px; flex: none;
+}
+.gn-foot-btn { min-height: 34px; }
+
+/* 品牌区：渐变几何标记（多智能体联结点）+ 词标 / 副标题（原顶栏同源迁入） */
 .brand-mark {
   width: 30px; height: 30px; border-radius: 9px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--c-panel); background: linear-gradient(135deg, #7c6cf5 0%, #4f46e5 58%, #3f36c9 100%);
   box-shadow: 0 2px 6px rgba(79, 70, 229, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
-.brand-text { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.brand-text { display: flex; align-items: baseline; gap: 7px; min-width: 0; flex-wrap: wrap; }
 .brand-name { font-size: 15.5px; font-weight: 700; letter-spacing: .2px; color: var(--c-ink); }
-.brand-sub { font-size: 12px; color: var(--c-ink-3); letter-spacing: .01em; white-space: nowrap; }
+.brand-sub { font-size: 11.5px; color: var(--c-ink-3); letter-spacing: .01em; white-space: nowrap; }
+
 /* REQ-133：目录检测分字段直连——远程目录存在性未核实的说明文案 */
 .dir-check-hint { font-size: 12px; color: var(--c-ink-3); line-height: 1.5; }
 
-/* 导航：自绘 pill（图标 + 文字），激活态品牌底 + 底部强调条 */
-.topnav-nav { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.nav-item {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 34px; padding: 0 12px; border: 0; border-radius: 9px; background: none;
-  color: var(--c-ink-2); font-family: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;
-  position: relative; white-space: nowrap;
-  transition: background .18s ease, color .18s ease;
-}
-.nav-item-icon { display: inline-flex; font-size: 15px; opacity: .92; }
-.nav-item:hover { background: var(--c-bg-soft); color: var(--c-ink); }
-.nav-item.active { background: var(--c-active-soft); color: var(--c-brand); font-weight: 600; }
-.nav-item.active::after {
-  content: ""; position: absolute; left: 12px; right: 12px; bottom: -11px; height: 2px;
-  border-radius: 2px; background: var(--c-brand);
-}
-.topnav-spacer { flex: 1; }
-
-/* 顶栏最右端设置齿轮（原型 06 §3.6 入口：导航栏外侧，悬停微旋转，激活态高亮） */
-.topnav-gear {
-  margin-left: 10px; width: 34px; height: 34px; border-radius: 9px; border: 0; background: none;
-  color: var(--c-ink-3); display: inline-flex; align-items: center; justify-content: center;
-  flex: none; cursor: pointer; padding: 0; font-size: 17px;
-  transition: background .18s ease, color .18s ease;
-}
-.topnav-gear .anticon { display: inline-flex; transition: transform .25s ease; }
-.topnav-gear:hover, .topnav-gear.active { background: var(--c-active-soft); color: var(--c-brand); }
-.topnav-gear:hover .anticon { transform: rotate(30deg); }
-
-@media (max-width: 1080px) { .brand-sub { display: none; } }
+/* min-width:0：flex 子项默认 min-width:auto 会被长内容撑破（REQ-326③ 冒烟实锤：窄窗 800
+   下资产整页列表把 .main 撑到 1588px 横向溢出），显式允许收缩 */
+.main { flex: 1; min-width: 0; display: flex; min-height: 0; height: 100%; }
 
 /* ---- 智能体标识：三节点网络标记（品牌同源），mask + currentColor 上色，处处一致 ----
    用于：侧栏智能体节点 / 消息气泡头像 / 对话空态 / 智能体属性弹窗标题；项目保留各自图标以作区分 */
@@ -114,7 +115,37 @@ body { font-size: 14px; background: var(--c-bg); }
 .agent-avatar .agent-glyph { font-size: 17px; }
 .modal-title { display: inline-flex; align-items: center; gap: 8px; }
 
-.main { flex: 1; display: flex; min-height: 0; height: 100%; }
+/* ---- REQ-326②：模块内导航页签行（本体五栏 / 知识库三类型共用）----
+   内容区顶部水平页签：图标 + 名称（+ 可选计数徽标），一句话定位收 Tooltip；
+   选中态品牌底 + 底部 2px 强调条（原顶栏 nav-item 同语言迁入） */
+.module-shell { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.module-tabs {
+  display: flex; align-items: center; gap: 2px; flex: none; min-width: 0;
+  padding: 8px 14px 0; overflow-x: auto; overflow-y: hidden;
+  background: var(--c-panel); border-bottom: 1px solid var(--c-line);
+}
+.module-tabs-spacer { flex: 1; }
+.module-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 36px; padding: 0 12px; border: 0; border-radius: 9px 9px 0 0; background: none;
+  color: var(--c-ink-2); font-family: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;
+  position: relative; white-space: nowrap;
+  transition: background .18s ease, color .18s ease;
+}
+.module-tab:hover { background: var(--c-bg-soft); color: var(--c-ink); }
+.module-tab.active { background: var(--c-active-soft); color: var(--c-brand); font-weight: 600; }
+.module-tab.active::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px;
+  border-radius: 2px; background: var(--c-brand);
+}
+.module-tab-icon { display: inline-flex; font-size: 15px; opacity: .92; }
+.module-tab-label { display: inline-flex; align-items: center; }
+.module-body { flex: 1; display: flex; min-height: 0; min-width: 0; }
+
+/* ---- REQ-326④：上方筛选 + 搜索工具条（技能页先用；预留区/动作收编） ---- */
+.work-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none;
+}
 
 /* ---- 左右分栏（可拖拽调宽）：所有「左列表 + 右主区」工作台共用 ----
    antd Splitter 面板默认 overflow:auto，会与各栏内部滚动冲突，改为 hidden 交由子栏自行滚动；
@@ -561,9 +592,12 @@ html[data-theme='light'] {
   --c-active-soft: var(--c-active-soft);
   --c-icon-soft: var(--c-icon-soft);
 }
-html[data-theme='dark'] .topnav {
+html[data-theme='dark'] .global-nav {
   background: linear-gradient(180deg, #171b28 0%, #141824 100%);
   box-shadow: none;
+}
+html[data-theme='dark'] .module-tabs {
+  background: #171b28;
 }
 html[data-theme='dark'] .onto-nav-item:hover { background: var(--c-hover-soft); }
 html[data-theme='dark'] .onto-nav-item.active { background: var(--c-active-soft); border-color: #3b4266; }

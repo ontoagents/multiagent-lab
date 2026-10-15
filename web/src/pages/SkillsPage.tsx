@@ -4,42 +4,48 @@ import {
   Empty,
   Form,
   Input,
-  Menu,
   Modal,
   Popconfirm,
+  Popover,
   Result,
+  Segmented,
   Select,
   Space,
-  Splitter,
   Switch,
   Tag,
   Tooltip,
   Typography,
 } from 'antd'
-import { EyeOutlined, MinusCircleOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import {
+  EllipsisOutlined,
+  EyeOutlined,
+  MinusCircleOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { api } from '../api/client'
 import EmptyGuide from '../components/EmptyGuide'
 import type { Agent, Skill, ToolInfo } from '../api/types'
 import { useUI } from '../store/ui'
-import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 
 type FilterKey = 'all' | 'mounted' | 'unmounted'
 
 /**
  * 技能视图（原型 06 §3.5 / 02 文档 §10）：
- * 左栏筛选（全部 / 已挂载 / 未挂载，真实过滤：挂载 = 技能 id 出现在任一智能体 skills 中）
- * + 预留区（分组 / 标签 / 版本历史 / 市场导入，标注「规划中」且 disabled）；
- * 右栏技能卡片列表 + 新建；编辑弹窗含 instruction / tools 白名单 / resources 文本块 + 注入预览。
+ * REQ-326④：筛选自左栏上移为上方「筛选 + 搜索」工具条（三态 Segmented + 计数徽标 +
+ * 关键词搜索沿 REQ-233 资产列表搜索先例；预留区收进工具条「更多」Popover），技能左栏退役；
+ * 挂载判定不变：挂载 = 技能 id 出现在任一智能体 skills 中。
+ * 主体为技能卡片列表 + 新建；编辑弹窗含 instruction / tools 白名单 / resources 文本块 + 注入预览。
  */
-import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function SkillsPage() {
-  const rail = useSidebarCollapse('eino.skills.sidebar.collapsed')
   const { showToast, bumpData } = useUI()
   const [skills, setSkills] = useState<Skill[]>([])
   const [tools, setTools] = useState<ToolInfo[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterKey>('all')
+  const [q, setQ] = useState('')
   const [modal, setModal] = useState<Skill | 'new' | undefined>(undefined)
   const [preview, setPreview] = useState<{ skill: Skill; instruction: string } | null>(null)
 
@@ -73,10 +79,16 @@ export default function SkillsPage() {
   }, [skills, mountedIds])
 
   const filtered = useMemo(() => {
-    if (filter === 'mounted') return skills.filter((s) => mountedIds.has(s.id))
-    if (filter === 'unmounted') return skills.filter((s) => !mountedIds.has(s.id))
-    return skills
-  }, [skills, filter, mountedIds])
+    const base =
+      filter === 'mounted'
+        ? skills.filter((s) => mountedIds.has(s.id))
+        : filter === 'unmounted'
+          ? skills.filter((s) => !mountedIds.has(s.id))
+          : skills
+    const ql = q.trim().toLowerCase()
+    if (!ql) return base
+    return base.filter((s) => [s.name, s.description ?? ''].some((t) => t.toLowerCase().includes(ql)))
+  }, [skills, filter, mountedIds, q])
 
   const openPreview = async (s: Skill) => {
     try {
@@ -99,81 +111,72 @@ export default function SkillsPage() {
   }
 
   return (
-    <Splitter
-      className="main sidebar-splitter"
-      onResizeEnd={sidebarRemember}
-    >
-      <Splitter.Panel defaultSize={sidebarDefaultSize()} min={SIDEBAR_WIDTH.min} max={SIDEBAR_WIDTH.max} className="sidebar-panel">
-        {rail.collapsed ? (
-        <CollapsedRail onExpand={rail.toggle} ariaLabel="技能筛选侧栏（已收起）" />
-      ) : (
-        <aside className="sidebar">
-          <div className="side-head">
-            <span className="side-title">技能筛选</span>
-            <SidebarCollapseButton onClick={rail.toggle} />
-          </div>
-          <Menu
-            mode="vertical"
-            selectedKeys={[filter]}
-            onClick={({ key }) => setFilter(key as FilterKey)}
-            style={{ padding: '0 10px', background: 'transparent' }}
-            items={[
-              { key: 'all', label: <Space size={6}>全部<Tag style={{ margin: 0 }}>{counts.all}</Tag></Space> },
-              { key: 'mounted', label: <Space size={6}>已挂载<Tag color="green" style={{ margin: 0 }}>{counts.mounted}</Tag></Space> },
-              { key: 'unmounted', label: <Space size={6}>未挂载<Tag style={{ margin: 0 }}>{counts.unmounted}</Tag></Space> },
-            ]}
-          />
-          <Menu
-            mode="vertical"
-            selectable={false}
-            style={{ padding: '0 10px', background: 'transparent' }}
-            items={[
-              {
-                key: 'reserve',
-                type: 'group',
-                label: (
-                  <Space size={6}>
-                    预留区
-                    <Tag color="purple" style={{ margin: 0 }}>
-                      规划中
-                    </Tag>
-                  </Space>
-                ),
-                children: [
-                  { key: 'reserve-group', label: '技能分组 / 标签', disabled: true },
-                  { key: 'reserve-version', label: '版本历史', disabled: true },
-                  { key: 'reserve-market', label: '技能市场导入', disabled: true },
-                ],
-              },
-            ]}
-          />
-          <div className="side-reserve-wrap">
-            <div className="reserve-note">
-              「已挂载 / 未挂载」为真实过滤：挂载 = 技能出现在任一智能体的技能列表中。
+    // REQ-326④：技能左栏退役——筛选上移内容区顶部工具条，主体满高（与其他单主区页一致）
+    <div className="main">
+      <div className="work-main">
+        <div className="work-head">
+          <div className="work-head-text">
+            <div className="work-head-title">
+              <Typography.Title level={4} style={{ margin: 0 }}>
+                技能
+              </Typography.Title>
+              <Tag style={{ margin: 0 }}>{filtered.length}</Tag>
             </div>
+            <p className="work-head-desc">
+              技能是<strong>配置级能力包</strong>（提示词 + 工具白名单），不提供脚本执行环境；装配期按「主指令 + # 启用技能」拼接注入（§6.12）。
+            </p>
           </div>
-        </aside>
-      )}
-      </Splitter.Panel>
-      <Splitter.Panel className="content-panel">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal('new')}>
+            新建技能
+          </Button>
+        </div>
 
-        <div className="work-main">
-          <div className="work-head">
-            <div className="work-head-text">
-              <div className="work-head-title">
-                <Typography.Title level={4} style={{ margin: 0 }}>
-                  技能
-                </Typography.Title>
-                <Tag style={{ margin: 0 }}>{filtered.length}</Tag>
+        {/* REQ-326④：上方筛选 + 搜索组件（三态 + 计数徽标 + 关键词搜索；预留区收进「更多」Popover） */}
+        <div className="work-toolbar" data-testid="skills-toolbar">
+          <Segmented
+            value={filter}
+            onChange={(v) => setFilter(v as FilterKey)}
+            options={[
+              { value: 'all', label: <Space size={6}>全部<Tag style={{ margin: 0 }}>{counts.all}</Tag></Space> },
+              { value: 'mounted', label: <Space size={6}>已挂载<Tag color="green" style={{ margin: 0 }}>{counts.mounted}</Tag></Space> },
+              { value: 'unmounted', label: <Space size={6}>未挂载<Tag style={{ margin: 0 }}>{counts.unmounted}</Tag></Space> },
+            ]}
+          />
+          <Input
+            allowClear
+            size="small"
+            prefix={<SearchOutlined style={{ color: 'var(--c-ink-3)' }} />}
+            placeholder="搜索名称 / 描述"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ width: 220 }}
+            data-testid="skills-search"
+          />
+          <span style={{ flex: 1 }} />
+          <Popover
+            trigger="click"
+            placement="bottomRight"
+            title={
+              <Space size={6}>
+                预留区
+                <Tag color="purple" style={{ margin: 0 }}>
+                  规划中
+                </Tag>
+              </Space>
+            }
+            content={
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+                <Button size="small" disabled>技能分组 / 标签</Button>
+                <Button size="small" disabled>版本历史</Button>
+                <Button size="small" disabled>技能市场导入</Button>
               </div>
-              <p className="work-head-desc">
-                技能是<strong>配置级能力包</strong>（提示词 + 工具白名单），不提供脚本执行环境；装配期按「主指令 + # 启用技能」拼接注入（§6.12）。
-              </p>
-            </div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal('new')}>
-              新建技能
+            }
+          >
+            <Button size="small" icon={<EllipsisOutlined />}>
+              更多
             </Button>
-          </div>
+          </Popover>
+        </div>
 
           {loadErr ? (
             <div className="work-empty">
@@ -269,7 +272,6 @@ export default function SkillsPage() {
               ))}
             </div>
           )}
-        </div>
 
         {modal !== undefined && (
           <SkillModal
@@ -285,8 +287,8 @@ export default function SkillsPage() {
           />
         )}
         {preview && <PreviewModal skill={preview.skill} instruction={preview.instruction} onClose={() => setPreview(null)} />}
-      </Splitter.Panel>
-    </Splitter>
+      </div>
+    </div>
   )
 }
 

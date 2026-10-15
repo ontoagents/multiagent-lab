@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Badge, Breadcrumb, Button, Card, Checkbox, Collapse, Divider, Empty, Form, FormInstance, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd'
 import {
   ApiOutlined,
+  ApartmentOutlined,
   CloudOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -424,7 +425,7 @@ function SegmentedFormView({
 // ---------------------------------------------------------------------------
 
 function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: () => void }) {
-  const { showToast, bumpData } = useUI()
+  const { showToast, bumpData, setPage: gotoPage } = useUI()
   const [page, setPage] = useState<'config' | 'manage'>('config')
   const [form] = Form.useForm()
   const [allConns, setAllConns] = useState<ModelConnection[]>([])
@@ -680,6 +681,21 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
             style={{ marginBottom: 8 }}
           />
           <div className="proj-view-actions">
+            {/* REQ-326③：跨模块深链带详情语义——已绑定时直达绑定本体的资产详情 */}
+            {agent.companion_ontology_id && (
+              <Button
+                size="small"
+                icon={<ApartmentOutlined />}
+                onClick={() => {
+                  localStorage.setItem('eino.onto.sidebar', 'assets')
+                  localStorage.setItem('eino.onto.asset.focus', agent.companion_ontology_id!)
+                  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+                  gotoPage('ontology')
+                }}
+              >
+                打开本体资产
+              </Button>
+            )}
             <Button type="primary" size="small" loading={saving} onClick={save}>
               保存伴生配置
             </Button>

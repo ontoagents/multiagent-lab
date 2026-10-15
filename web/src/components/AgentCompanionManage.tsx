@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Empty, Popconfirm, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
-import { CheckOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, ReloadOutlined, ApartmentOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, Conversation } from '../api/types'
 import { companionApi } from '../api/companion'
@@ -57,7 +57,7 @@ function NoteBadge({ note }: { note?: string }) {
 }
 
 export default function AgentCompanionManage({ agent, onUnbound }: { agent: Agent; onUnbound?: () => void }) {
-  const { showToast } = useUI()
+  const { showToast, setPage } = useUI()
   const [convs, setConvs] = useState<Conversation[]>([])
   const [convsErr, setConvsErr] = useState<string | null>(null)
 
@@ -307,6 +307,24 @@ export default function AgentCompanionManage({ agent, onUnbound }: { agent: Agen
             >
               <Button size="small" danger loading={unbinding}>解绑伴生本体</Button>
             </Popconfirm>
+            {/* REQ-326③：跨模块深链带详情语义——直达绑定本体的资产详情页级工作区 */}
+            {agent.companion_ontology_id && (
+              <Tooltip title="在本体模块打开该伴生本体的资产详情（沉淀图/候选/内容清单全量管理面）">
+                <Button
+                  size="small"
+                  icon={<ApartmentOutlined />}
+                  data-testid="companion-open-asset"
+                  onClick={() => {
+                    localStorage.setItem('eino.onto.sidebar', 'assets')
+                    localStorage.setItem('eino.onto.asset.focus', agent.companion_ontology_id!)
+                    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+                    setPage('ontology')
+                  }}
+                >
+                  打开本体资产
+                </Button>
+              </Tooltip>
+            )}
           </Space>
         )}
       </div>

@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Input, Popconfirm, Result, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
-import { BranchesOutlined, CloudDownloadOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ImportOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Input, Popconfirm, Result, Space, Tag, Tooltip, Typography } from 'antd'
+import {
+  ArrowLeftOutlined,
+  BranchesOutlined,
+  CloudDownloadOutlined,
+  CloudUploadOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ImportOutlined,
+  LeftOutlined,
+  RightOutlined,
+} from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { QualityReport } from '../../api/client'
 import { companionApi } from '../../api/companion'
@@ -29,18 +39,19 @@ import EvolutionPane from './components/assets/EvolutionPane'
 import RelationTypesPane from './components/assets/RelationTypesPane'
 import AxiomsPane from './components/assets/AxiomsPane'
 import DataPropertiesPane from './components/assets/DataPropertiesPane'
-import AssetList from './components/assets/AssetList'
+import AssetListPage, { AssetSearchBox, orderedGroups } from './components/assets/AssetList'
 import QualityCardPane from './components/assets/QualityCardPane'
 import ImportMergeWizard from './components/assets/ImportMergeWizard'
 import ReferencesPane from './components/assets/ReferencesPane'
-import EmptyGuide from '../../components/EmptyGuide'
-import Maximizeable from '../../components/Maximizeable'
 
 // ---------------------------------------------------------------------------
 // 本体资产（AssetsPage，REQ-104 ③）：全部已构建本体统一管理
-//   REQ-181 v2 重构：平台统一「左列表（来源分组）+ 右主区」两栏（原选择条在上+详情在下）；
-//   详情工作区（REQ-237，57 号 F1 整改）：原 12 页签平铺改「左锚点分区导航 + 右内容」——
-//   三簇分组（内容与编辑 / 质量与演进 / 消费与引用），加分区不再加宽；
+//   REQ-326③：列表/详情双态页级工作区——资产列表自左侧窄栏升格独占整页（搜索/来源
+//   分组/校验徽标/质量雷达全宽承载），点击行进详情页级工作区（原 12 页签平铺改
+//   「左锚点分区导航 + 右内容」，REQ-237，57 号 F1 整改）；返回列表链路不丢列表态
+//   （搜索词提升）；跨模块深链 eino.onto.asset.focus（沿 eino.kb.focus 模式）带详情
+//   语义；详情内上一条/下一条轻切换（分组序）；Maximizeable「最大化编辑」页内最大化
+//   补丁随页级化退役（可视化 VizTabs 的保留——看图纯净全屏仍是有意语义）。
 //   Spec 编辑常驻保活（切分区不丢未保存编辑），其余分区激活挂载（沿原 destroyOnHidden 行为）。
 //   分区：Spec 编辑 | 校验 | 质量卡 | 版本与源码 | 进化 | 图形编辑 | CSV 灌装 |
 //         可视化 | 伴生候选 | 被引用 | 产物 | TTL 导出
@@ -49,6 +60,9 @@ import Maximizeable from '../../components/Maximizeable'
 // REQ-233/M60：资产列表搜索 + 空态 EmptyGuide 接入 + 详情「被引用」聚合区块 + 删除确认引用预检
 // （running 方案引用服务端拦截 409、前端禁用；stopped/KB 引用警示放行——聚合源 GET /{id}/references）。
 // ---------------------------------------------------------------------------
+
+/** 跨模块深链 handoff（伴生卡 / 构建完成跳转等）：非空时进详情态并选中该本体（消费后置空）。 */
+export const ASSET_FOCUS_KEY = 'eino.onto.asset.focus'
 
 /** 详情工作区分区（三簇；57 号 F1 分组口径）。REQ-240 优化④：伴生分区仅伴生型本体注入。 */
 function sectionGroups(isCompanion: boolean): { title: string; items: { key: string; label: string }[] }[] {
@@ -110,7 +124,11 @@ export default function AssetsPage() {
   const [ontos, setOntos] = useState<Ontology[]>([])
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [listErr, setListErr] = useState<string | null>(null)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  // REQ-326③：列表/详情双态（列表独占整页 ↔ 详情页级工作区）；深链 eino.onto.asset.focus 直接进详情
+  const [view, setView] = useState<'list' | 'detail'>(() => (localStorage.getItem(ASSET_FOCUS_KEY) ? 'detail' : 'list'))
+  const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(ASSET_FOCUS_KEY))
+  // 列表态状态提升：返回列表不丢列表态（REQ-326③ 验收项）
+  const [listQ, setListQ] = useState('')
 
   const [spec, setSpec] = useState<Spec | null>(null)
   const [specErr, setSpecErr] = useState<string | null>(null)
@@ -123,9 +141,20 @@ export default function AssetsPage() {
   const [publishName, setPublishName] = useState('') // REQ-239/M65 发布命名
   const [forkName, setForkName] = useState('')
   // REQ-240③/M66：资产卡能力雷达数据（缓存质量报告静默拉取；无报告不显示）
+  // REQ-326③：列表态整页雷达——缓存扩为全量渐进拉取（详情态同口径 ensure）
   const [qualityCache, setQualityCache] = useState<Record<string, QualityReport | null>>({})
   const [forkBusy, setForkBusy] = useState(false)
   const [forkErr, setForkErr] = useState<string | null>(null)
+
+  // 深链消费（挂载一次）：handoff 置空，选中即进详情
+  useEffect(() => {
+    const f = localStorage.getItem(ASSET_FOCUS_KEY)
+    if (f) {
+      localStorage.removeItem(ASSET_FOCUS_KEY)
+      setActiveId(f)
+      setView('detail')
+    }
+  }, [])
 
   const reloadOntos = (selectId?: string) => {
     api
@@ -136,7 +165,7 @@ export default function AssetsPage() {
         setActiveId((cur) => {
           if (selectId && ls.some((o) => o.id === selectId)) return selectId
           if (cur && ls.some((o) => o.id === cur)) return cur
-          return ls[0]?.id ?? null
+          return null // REQ-326③：列表态无隐式选中（点行进详情）
         })
       })
       .catch((e: any) => {
@@ -229,6 +258,65 @@ export default function AssetsPage() {
 
   const active = useMemo(() => ontos.find((o) => o.id === activeId) ?? null, [ontos, activeId])
 
+  // REQ-326③：详情意图但本体不存在（深链失效/被删）→ 回落列表态
+  useEffect(() => {
+    if (view === 'detail' && ontos.length > 0 && !active) setView('list')
+  }, [view, ontos, active])
+
+  // REQ-326③：列表态质量雷达渐进预取（并发 3；缓存命中跳过；失败静默 null 与详情态同口径）
+  useEffect(() => {
+    if (view !== 'list') return
+    let alive = true
+    const pending = ontos.filter((o) => qualityCache[o.id] === undefined).map((o) => o.id)
+    let cursor = 0
+    const ensureOne = (id: string) => {
+      api
+        .qualityReport(id)
+        .then((r) => {
+          if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: r.report ?? null } : m))
+        })
+        .catch(() => {
+          // 缓存无报告 → 静默快评兜底（qualitygate 规则检查非 LLM、零副作用不落产物）
+          api
+            .qualityRun(id, false, false, false)
+            .then((r2) => {
+              if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: r2.report } : m))
+            })
+            .catch(() => {
+              if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: null } : m))
+            })
+        })
+        .finally(() => {
+          if (alive) pump()
+        })
+    }
+    const pump = () => {
+      if (alive && cursor < pending.length) ensureOne(pending[cursor++]) // 每次完成补发一个：恒定并发 3
+    }
+    // 启动并发窗 3 路
+    pump()
+    pump()
+    pump()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 渐进预取：仅列表态触发，缓存命中由 ensureOne 内部判断
+  }, [view, ontos])
+
+  // REQ-326③：详情内上一条/下一条（与列表同一排序源：分组序 + 组内既有排序）
+  const flatIds = useMemo(
+    () => orderedGroups(ontos, boundIds, '').flatMap(([, items]) => items.map((o) => o.id)),
+    [ontos, boundIds],
+  )
+  const curIdx = activeId ? flatIds.indexOf(activeId) : -1
+  const prevId = curIdx > 0 ? flatIds[curIdx - 1] : null
+  const nextId = curIdx >= 0 && curIdx < flatIds.length - 1 ? flatIds[curIdx + 1] : null
+  const jumpTo = (id: string | null) => {
+    if (!id) return
+    setActiveId(id)
+    setTabKey(null)
+  }
+
   // REQ-285②：伴生型详情头数据加载（伴生图计数/绑定者/待确认候选）——分型模板统计行数据源；
   // 经首个绑定 agent 解析伴生子图（多 agent 共享同一子图，任一视角等价，与成长图同口径）
   const isCompActive = !!(active && boundIds.has(active.id))
@@ -290,6 +378,7 @@ export default function AssetsPage() {
       await api.deleteOntology(active.id)
       showToast('已删除本体')
       setActiveId(null)
+      setView('list') // REQ-326③：删除后回列表
       reloadOntos()
       reloadProfiles()
     } catch (e: any) {
@@ -322,56 +411,36 @@ export default function AssetsPage() {
     if (activeId) setQualityCache(({ [activeId]: _drop, ...rest }) => rest)
   }
 
-  // REQ-240 前端优化①：资产列表栏可收起为图标列（44px；localStorage 记忆）——默认宽 260→220 为详情让空间
-  const [listCollapsed, setListCollapsed] = useState(() => localStorage.getItem('eino.assets.collapsed') === '1')
-  const toggleList = () => {
-    setListCollapsed((v) => {
-      localStorage.setItem('eino.assets.collapsed', v ? '0' : '1')
-      return !v
-    })
-  }
   const groups = sectionGroups(!!active && boundIds.has(active.id))
 
-  const listAside = (collapsed: boolean) =>
-    collapsed ? (
-      <aside className="sidebar" style={{ width: 44, flex: '0 0 44px', maxWidth: 44, alignItems: 'center', padding: '8px 0', gap: 4 }} aria-label="本体列表（已收起）">
-        <Button type="text" size="small" icon={<MenuUnfoldOutlined />} aria-label="展开本体列表" onClick={toggleList} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4, overflowY: 'auto' }}>
-          {ontos.slice(0, 14).map((o) => (
-            <Tooltip key={o.id} title={o.name} placement="right">
-              <button
-                type="button"
-                aria-label={`选中 ${o.name}`}
-                onClick={() => setActiveId(o.id)}
-                style={{
-                  width: 28, height: 28, borderRadius: '50%', border: o.id === activeId ? '2px solid var(--c-brand)' : '1px solid var(--c-border)',
-                  background: 'var(--c-bg-soft)', color: 'var(--c-ink-2)', fontSize: 12, cursor: 'pointer', lineHeight: 1,
-                }}
-              >
-                {(o.name || '？').slice(0, 1)}
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-      </aside>
-    ) : (
-      <aside className="sidebar">
-        <div className="side-head">
-          <span className="side-title">本体资产</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span className="side-count">{ontos.length}</span>
-            <Button type="text" size="small" icon={<MenuFoldOutlined />} aria-label="收起本体列表" onClick={toggleList} />
-          </span>
-        </div>
-        <div className="ref-menu" style={{ paddingBottom: 12 }}>
-          <AssetList ontos={ontos} profiles={profiles} activeId={activeId} onSelect={setActiveId} validations={validations} />
-        </div>
-      </aside>
-    )
+  /** REQ-326③：点行进详情页级工作区 */
+  const openAsset = (id: string) => {
+    setActiveId(id)
+    setTabKey(null)
+    setView('detail')
+  }
+  const backToList = () => setView('list')
 
-
-  const renderBody = () => (
-    <>
+  // REQ-326③：列表态——独占整页（搜索/来源分组/校验徽标/质量雷达全宽承载）
+  const renderList = () => (
+    <div className="work-main">
+      <div className="work-head">
+        <div className="work-head-text">
+          <div className="work-head-title">
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              本体资产
+            </Typography.Title>
+            <Tag color="blue" style={{ margin: 0 }}>统一管理</Tag>
+            <Tag style={{ margin: 0 }}>{ontos.length}</Tag>
+          </div>
+          <p className="work-head-desc">
+            已构建本体的统一仓库（REQ-60）：新建请到「本体构建」选择路径；点击本体进详情工作区，负责编辑、校验、版本、产物、可视化与 TTL 导出。
+          </p>
+        </div>
+      </div>
+      <div className="work-toolbar">
+        <AssetSearchBox q={listQ} onQ={setListQ} />
+      </div>
       {listErr ? (
         <div className="work-empty">
           <Result
@@ -381,37 +450,43 @@ export default function AssetsPage() {
             extra={<Button onClick={() => reloadOntos()}>重试</Button>}
           />
         </div>
-      ) : !active ? (
-        <>
-          <div className="work-head">
-            <div className="work-head-text">
-              <div className="work-head-title">
-                <Typography.Title level={4} style={{ margin: 0 }}>
-                  本体资产
-                </Typography.Title>
-                <Tag color="blue" style={{ margin: 0 }}>统一管理</Tag>
-              </div>
-              <p className="work-head-desc">
-                已构建本体的统一仓库（REQ-60）：新建请到「本体构建」选择路径；此处负责编辑、校验、版本、产物、可视化与 TTL 导出。
-              </p>
-            </div>
-          </div>
-          <EmptyGuide
-            title="暂无本体资产"
-            steps={[
-              '到「本体构建」栏选择一条构建路径（自定义 / OntoChat / 由知识库构建 / OntoExtend / OO 回流）',
-              '构建产物统一进入本栏管理：编辑、校验、质量卡、版本、可视化、导出',
-              '在「本体运行」栏创建运行方案装载本体，供智能体对话查询',
-            ]}
-            actionLabel="前往本体构建"
-            onAction={() => {
-              localStorage.setItem('eino.onto.sidebar', 'build')
-              window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-            }}
-          />
-        </>
       ) : (
-        <>
+        <AssetListPage
+          ontos={ontos}
+          profiles={profiles}
+          q={listQ}
+          onOpen={openAsset}
+          validations={validations}
+          qualityCache={qualityCache}
+          bound={boundIds}
+        />
+      )}
+    </div>
+  )
+
+  // REQ-326③：详情态——页级工作区（返回列表 + 面包屑 + 上一条/下一条轻切换）
+  const renderDetail = () => {
+    if (!active) return null // 调用侧已保证 view==='detail' && active；此处兼作 TS 窄化
+    return (
+    <>
+      <div className="detail-topbar" data-testid="asset-detail-topbar">
+        <Button size="small" icon={<ArrowLeftOutlined />} onClick={backToList}>
+          返回列表
+        </Button>
+        <span className="detail-crumb">
+          本体资产 <span className="detail-crumb-sep">/</span> {active?.name}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span className="detail-nav-pos">
+          {curIdx + 1} / {flatIds.length}
+        </span>
+        <Tooltip title={prevId ? `上一条：${ontos.find((o) => o.id === prevId)?.name ?? ''}` : '已是第一个'}>
+          <Button size="small" icon={<LeftOutlined />} disabled={!prevId} onClick={() => jumpTo(prevId)} />
+        </Tooltip>
+        <Tooltip title={nextId ? `下一条：${ontos.find((o) => o.id === nextId)?.name ?? ''}` : '已是最后一个'}>
+          <Button size="small" icon={<RightOutlined />} disabled={!nextId} onClick={() => jumpTo(nextId)} />
+        </Tooltip>
+      </div>
           <div className="work-head" style={{ flexWrap: 'wrap', rowGap: 8 }}>
             <div className="work-head-text" style={{ minWidth: 0, flex: 1 }}>
               <div className="work-head-title">
@@ -754,9 +829,8 @@ export default function AssetsPage() {
                 {secKey === 'companion' && <OntologyCompanionPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'references' && <ReferencesPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'graph-edit' && (
-                  <Maximizeable label="最大化编辑">
-                    <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
-                  </Maximizeable>
+                  // REQ-326③：Maximizeable「最大化编辑」页内最大化补丁退役——详情已升页级工作区
+                  <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
                 )}
                 {secKey === 'reltypes' && <RelationTypesPane spec={spec} />}
                 {secKey === 'dataprops' && <DataPropertiesPane spec={spec} />}
@@ -768,8 +842,6 @@ export default function AssetsPage() {
               </div>
             </div>
           </Card>
-        </>
-      )}
 
       {renameOpen && active && (
         <RenameModal
@@ -782,23 +854,20 @@ export default function AssetsPage() {
         />
       )}
     </>
-  )
-
-  if (listCollapsed) {
-    return (
-      <div className="main" style={{ display: 'flex', minHeight: 0, flex: 1 }}>
-        {listAside(true)}
-        <div className="content-panel asset-detail-scroll" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>{renderBody()}</div>
-      </div>
     )
   }
 
+  // REQ-326③：列表/详情双态页级渲染（列表独占整页 ↔ 详情页级工作区；过渡渲染空等待数据/
+  // 深链失效由回落 effect 切回列表态）
   return (
-    <Splitter className="main sidebar-splitter">
-      <Splitter.Panel defaultSize={Number(localStorage.getItem('eino.assets.width')) || 200} min={180} max={420} className="sidebar-panel">
-        {listAside(false)}
-      </Splitter.Panel>
-      <Splitter.Panel className="content-panel asset-detail-scroll" style={{ overflowY: 'auto' }}>{renderBody()}</Splitter.Panel>
-    </Splitter>
+    <div className="main">
+      {view === 'detail' && active ? (
+        <div className="content-panel asset-detail-scroll" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>
+          {renderDetail()}
+        </div>
+      ) : view === 'list' ? (
+        <div className="content-panel" style={{ flex: 1, minWidth: 0, height: '100%', overflowY: 'auto' }}>{renderList()}</div>
+      ) : null}
+    </div>
   )
 }
