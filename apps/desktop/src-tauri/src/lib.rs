@@ -381,6 +381,21 @@ fn kill_group(pid: u32, force: bool) {
         .status();
 }
 
+// Windows 等价：taskkill /T 整树回收（/F 强制档对齐 unix KILL；无 /F 先试优雅终止）
+#[cfg(windows)]
+fn kill_group(pid: u32, force: bool) {
+    let mut cmd = Command::new("taskkill");
+    cmd.args(["/PID", &pid.to_string(), "/T"]);
+    if force {
+        cmd.arg("/F");
+    }
+    let _ = cmd
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 // sh 兽护：壳被 kill -9 等异常退出后，2s 轮询感知并整树回收（Job Object 的 macOS 等价，
 // best-effort；正常退出路径由 RunEvent::Exit 钩子先回收，兽护随后自然消亡）
 #[cfg(not(windows))]
@@ -660,12 +675,16 @@ pub fn run() {
                     if !busy && !healthy && !restarted && !SHUTTING_DOWN.load(Ordering::SeqCst) {
                         restarted = true;
                         #[cfg(windows)]
-                        std::thread::spawn(move || {
+                        {
                             // 自愈 ≤1 次（R-X11；Windows Job Object 覆盖该子进程的回收）。
                             // macOS 不自愈：与 mlabd 无自愈口径一致——`--stop` 兜底语义与自愈打架
                             // 且重生进程游离于回收名册外（实测泄漏），异常态由托盘如实呈现。
-                            let exe = svc_path(&exe_dir_for_poll, "backend");
-                            let data = data_dir_for_poll.clone();
+                            // 每轮迭代克隆：闭包 move 会耗尽外层捕获值（循环内二次 spawn 即 E0382）
+                            let exe_dir_heal = exe_dir_for_poll.clone();
+                            let data_dir_heal = data_dir_for_poll.clone();
+                            std::thread::spawn(move || {
+                                let exe = svc_path(&exe_dir_heal, "backend");
+                                let data = data_dir_heal;
                             let mut cmd = Command::new(exe);
                             cmd.env("ADDR", format!(":{}", ports_for_poll.backend))
                                 .env("DB_PATH", data.join("platform.db"))
@@ -687,6 +706,7 @@ pub fn run() {
                                 drop(child); // 仅释放句柄，进程继续运行
                             }
                         });
+                        }
                     }
                 }
             });
