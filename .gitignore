@@ -27,3 +27,13 @@ deploy/windows/dist/
 deploy/windows/launcher/MultiAgentLab.exe
 deploy/macos/build/
 deploy/macos/dist/
+apps/desktop/node_modules/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/bin/
+apps/desktop/src-tauri/resources/
+apps/desktop/src-tauri/web-dist/
+apps/desktop/src-tauri/migrations/
+apps/desktop/src-tauri/docs/
+apps/desktop/src-tauri/platform-knowledge/
+apps/desktop/src-tauri/research/
+apps/desktop/src-tauri/tools/

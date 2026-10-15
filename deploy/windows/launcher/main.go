@@ -1,17 +1,17 @@
 // MultiAgentLab Windows 桌面客户端壳与进程编排（REQ-321/M123）。
 //
 // 职责（对应 10 号跨端方案 R-X3/R-X11/SC-X1 的 Windows 单平台先行实现）：
-//   - 编排三服务启动：本体两平面（ontologyd :8091 → runtimed :8090）→ 主平台 backend :8080，
-//     环境变量与 run-dev.sh 一一同构（部署见 platform-knowledge/01_整体设计/16_部署与运行.md）；
-//   - 数据根独立于程序目录：%LOCALAPPDATA%\eino-lab（卸载/升级程序目录时数据自然保留）；
-//   - WebView2 窗口承载 Web UI（无浏览器依赖的桌面客户端形态；运行时缺失时回退系统默认浏览器）；
-//   - Job Object（KILL_ON_JOB_CLOSE）保证壳退出（关窗）时整棵进程树回收，无孤儿进程；
-//   - data\platform.pids 留痕 + `-stop` 幂等停服（壳异常退出后的兜底回收手段）；
-//   - `-headless` 无窗口编排（冒烟自动化用）：就绪后打印 READY 并驻留。
+//   - 编排三服务启动：本体两平面（ontologyd → runtimed）→ 主平台 backend，
+//     端口经安装目录 launcher.json 可配置（端口被占用的共存出路），环境变量与 run-dev.sh 同构；
+//   - 端口被占用时的分级处理：自身残留服务按 PID/exe 名回收 → 无法回收时透明诊断
+//     （谁占的、PID、完整路径）+ 处置建议（停实例 / 检查 WSL2 / launcher.json 换端口）；
+//   - 单实例：已有客户端窗口时聚焦唤起而非报错；
+//   - 数据根：data.location（安装器写）→ %LOCALAPPDATA%\eino-lab → 安装目录 data\；
+//   - Job Object（KILL_ON_JOB_CLOSE）关窗整树回收；PID 留痕 + -stop 兜底停服；
+//   - WebView2 缺失回退默认浏览器。
 //
-// 诚实边界（v1）：单机单实例（端口 8080/8091/8090 固定）；SQLite 为 WAL 模式，停服为进程树
-// 终止（崩溃安全由 WAL 承担，不持久化连接排空）；不支持开机自启/系统托盘/自动更新（R-X9/X10 后续，
-// Tauri 2 壳定案项见 18 号 REQ-321 行）。
+// 诚实边界（v1）：端口固定单次运行内不变；SQLite WAL 停服为进程树终止；无系统托盘/自启/
+// 自动更新（R-X9/X10 后续）；跨显示器拖动 DPI 动态重排未处理。
 package main
 
 import (
@@ -36,23 +36,23 @@ import (
 // ShellVersion 客户端壳版本（与 installer.iss 的 AppVersion 保持一致）。
 const ShellVersion = "1.0.0"
 
-// appName 窗口标题与提示文案用名。
+// appName 窗口标题与提示文案用名（单实例聚焦按此精确匹配窗口标题）。
 const appName = "智能体构建平台"
-
-const (
-	backendURL = "http://127.0.0.1:8080"
-	healthPath = "/healthz"
-)
 
 // CREATE_NO_WINDOW：子进程为控制台程序，GUI 进程派生时不弹黑窗。
 const createNoWindow = 0x08000000
 
 type service struct {
-	name string // exe 名（backend.exe 等，-stop 兜底按名回收用）
+	name string // exe 名（-stop 兜底按名回收用）
 	exe  string
 	env  [][2]string
 	log  string
 }
+
+var (
+	cfg        config
+	backendURL string
+)
 
 func main() {
 	stop := flag.Bool("stop", false, "停止本安装的三个平台服务并退出")
@@ -60,7 +60,9 @@ func main() {
 	flag.Parse()
 
 	root := exeDir()
-	dataDir := dataRoot()
+	cfg = loadConfig(root)
+	backendURL = fmt.Sprintf("http://127.0.0.1:%d", cfg.BackendPort)
+	dataDir := dataRoot(root)
 	logDir := filepath.Join(dataDir, "logs")
 
 	switch {
@@ -82,8 +84,8 @@ func exeDir() string {
 
 // dataRoot 数据根：安装器把所选数据根写入 <安装目录>\data.location（数据随安装目录走——
 // C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\eino-lab 兜底。
-func dataRoot() string {
-	if b, err := os.ReadFile(filepath.Join(exeDir(), "data.location")); err == nil {
+func dataRoot(root string) string {
+	if b, err := os.ReadFile(filepath.Join(root, "data.location")); err == nil {
 		if p := strings.TrimSpace(string(b)); p != "" {
 			return p
 		}
@@ -91,11 +93,16 @@ func dataRoot() string {
 	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
 		return filepath.Join(localAppData, "eino-lab")
 	}
-	return filepath.Join(exeDir(), "data")
+	return filepath.Join(root, "data")
 }
 
-// run 常规入口：清理残留 → 拉起三服务 → 等主平台就绪 → 窗口（或 headless 驻留）→ 退出回收。
+// run 常规入口：单实例聚焦 → 清理残留 → 拉起三服务 → 等主平台就绪 → 窗口/驻留 → 退出回收。
 func run(root, dataDir, logDir string, headless bool) int {
+	// 单实例语义：已有客户端窗口时聚焦唤起并退出，而非双实例撞端口（headless 运维模式不适用）
+	if !headless && focusExistingWindow() {
+		return 0
+	}
+
 	for _, d := range []string{dataDir, logDir,
 		filepath.Join(dataDir, "projects"), filepath.Join(dataDir, "engines"),
 		filepath.Join(dataDir, "engine_logs"), filepath.Join(dataDir, "bin")} {
@@ -104,8 +111,8 @@ func run(root, dataDir, logDir string, headless bool) int {
 		}
 	}
 
-	if code := cleanupStale(dataDir, headless); code != 0 {
-		return code
+	if msg := cleanupStale(dataDir, headless); msg != "" {
+		return fail(headless, msg)
 	}
 
 	svcs := buildServices(root, dataDir)
@@ -137,9 +144,9 @@ func run(root, dataDir, logDir string, headless bool) int {
 
 	// 本体两平面就绪不阻塞主平台窗口（与 run-dev.sh 语义一致：失败仅留日志），
 	// 但 backend 必须就绪——窗口要承载它。
-	if !waitHealthy(backendURL+healthPath, 20*time.Second) {
+	if !waitHealthy(backendURL+"/healthz", 20*time.Second) {
 		tail := tailFile(filepath.Join(logDir, "backend.log"), 800)
-		return fail(headless, "主平台未在 20 秒内就绪（端口 8080）。backend.log 末尾：\n"+tail)
+		return fail(headless, "主平台未在 20 秒内就绪（"+backendURL+"）。backend.log 末尾：\n"+tail)
 	}
 
 	if headless {
@@ -151,18 +158,19 @@ func run(root, dataDir, logDir string, headless bool) int {
 	return runShell(backendURL)
 }
 
-// buildServices 三服务环境面——与 run-dev.sh / 16 号部署文档 §7 一一同构；路径全部钉绝对
-// （正斜杠形态，Windows API 原生接受且与仓库内 unix 风格相对路径习惯一致）。
-// 数据类路径落 dataDir（%LOCALAPPDATA%\eino-lab）；程序类路径落安装根 root。
+// buildServices 三服务环境面——与 run-dev.sh / 16 号部署文档 §7 一一同构；端口来自
+// launcher.json（可配），路径全部钉绝对（正斜杠形态）。
 func buildServices(root, dataDir string) []service {
 	p := func(elem ...string) string { return filepath.ToSlash(filepath.Join(elem...)) }
+	ontURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.OntologyPort)
+	rtURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.RuntimePort)
 	oxigraph := p(root, "bin", "oxigraph.exe")
 
 	svcs := []service{
 		{
 			name: "ontologyd.exe", exe: p(root, "bin", "ontologyd.exe"), log: "ontology-service.log",
 			env: [][2]string{
-				{"ADDR", ":8091"},
+				{"ADDR", ontURL[strings.LastIndex(ontURL, ":"):] /* :8091 */},
 				{"DB_PATH", p(dataDir, "ontology.db")},
 				{"MIGRATIONS_DIR", p(root, "migrations", "ontology-service")},
 				{"SIDECAR_SCRIPT", p(root, "tools", "rdf-sidecar", "sidecar.py")},
@@ -172,10 +180,10 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "runtimed.exe", exe: p(root, "bin", "runtimed.exe"), log: "runtime-manager.log",
 			env: [][2]string{
-				{"ADDR", ":8090"},
+				{"ADDR", rtURL[strings.LastIndex(rtURL, ":"):]},
 				{"DB_PATH", p(dataDir, "runtime.db")},
 				{"MIGRATIONS_DIR", p(root, "migrations", "runtime-manager")},
-				{"BUILD_SVC_URL", "http://127.0.0.1:8091"},
+				{"BUILD_SVC_URL", ontURL},
 				{"ENGINE_DATA_DIR", p(dataDir, "engines")},
 				{"ENGINE_LOG_DIR", p(dataDir, "engine_logs")},
 				{"ENGINE_INSTALL_DIR", p(dataDir, "bin")},
@@ -184,7 +192,7 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "backend.exe", exe: p(root, "bin", "backend.exe"), log: "backend.log",
 			env: [][2]string{
-				{"ADDR", ":8080"},
+				{"ADDR", backendURL[strings.LastIndex(backendURL, ":"):]},
 				{"DB_PATH", p(dataDir, "platform.db")},
 				{"SECRET_KEY_FILE", p(dataDir, ".secret")},
 				{"FILES_ROOT", p(dataDir, "projects")},
@@ -193,6 +201,8 @@ func buildServices(root, dataDir string) []service {
 				{"DOCS_ROOT", p(root, "docs")},
 				{"RESEARCH_ROOT", p(root, "research")},
 				{"KNOWLEDGE_ROOT", p(root, "platform-knowledge")},
+				{"BUILD_SVC_URL", ontURL},
+				{"RUNTIME_MGR_URL", rtURL},
 			},
 		},
 	}
@@ -247,6 +257,7 @@ func newKillOnCloseJob() (windows.Handle, error) {
 }
 
 func assignToJob(job windows.Handle, pid int) error {
+	// AssignProcessToJobObject 要求 SET_QUOTA|TERMINATE 权限（QUERY_LIMITED 不够）
 	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
 		return err
@@ -255,8 +266,12 @@ func assignToJob(job windows.Handle, pid int) error {
 	return windows.AssignProcessToJobObject(job, h)
 }
 
-// cleanupStale 启动前回收：上次壳异常退出遗留的服务进程（pids 留痕优先，exe 名兜底）。
-func cleanupStale(dataDir string, headless bool) int {
+// cleanupStale 启动前分级处理端口占用。返回非空 = 无法自动解决的诊断报告。
+// 层级：①PID 留痕回收上次残留 ②本平台服务 exe 名回收 ③仍占用 → 透明诊断
+// （端口/PID/进程名/完整路径 + 三条处置建议：停开发实例、检查 WSL2 内实例、launcher.json 换端口）。
+func cleanupStale(dataDir string, headless bool) string {
+	ports := []int{cfg.BackendPort, cfg.OntologyPort, cfg.RuntimePort}
+
 	if pids := readPIDFile(dataDir); len(pids) > 0 {
 		for _, pid := range pids {
 			killPID(pid)
@@ -264,18 +279,53 @@ func cleanupStale(dataDir string, headless bool) int {
 		removePIDFile(dataDir)
 		time.Sleep(300 * time.Millisecond) // 端口释放窗口
 	}
-	if portBusy(8080) || portBusy(8090) || portBusy(8091) {
-		for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe"} {
-			killImage(name)
-		}
-		time.Sleep(500 * time.Millisecond)
-		if portBusy(8080) {
-			return fail(headless, "端口 8080 被占用且无法回收（可能为手动启动的开发实例），请先停止后重试。")
+
+	busy := false
+	for _, port := range ports {
+		if portBusy(port) {
+			busy = true
 		}
 	}
-	return 0
+	if !busy {
+		return ""
+	}
+
+	// 按镜像名回收本平台服务（含 go run 开发实例——其临时 exe 基名同为 backend.exe 等）
+	for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "MultiAgentLab.exe"} {
+		killImage(name)
+	}
+	time.Sleep(800 * time.Millisecond) // 进程树退出 + 端口释放窗口
+
+	// 仍占用 → 收集占用者，输出透明诊断
+	var report strings.Builder
+	for _, port := range ports {
+		owners := findPortOwners(port)
+		if len(owners) == 0 {
+			continue
+		}
+		fmt.Fprintf(&report, "\n· 端口 %d 被占用：", port)
+		for _, o := range owners {
+			if o.Path != "" {
+				fmt.Fprintf(&report, "\n    PID %d  %s  (%s)", o.PID, o.Name, o.Path)
+			} else {
+				fmt.Fprintf(&report, "\n    PID %d  %s", o.PID, o.Name)
+			}
+		}
+	}
+	if report.Len() == 0 {
+		return fmt.Sprintf("端口 %d/%d/%d 被占用且无法定位占用进程，请重启系统后重试。",
+			ports[0], ports[2], ports[1])
+	}
+	return "启动所需端口被其他程序占用，为避免误杀未自动处理：\n" + report.String() + `
+
+处理建议（任选其一）：
+  1) 若是手动启动的平台开发实例（run-dev.sh / go run / WSL 内实例），请先停止它再启动本客户端；
+     WSL2 内的实例 Windows 端 taskkill 不可见，需在 WSL 内停止；
+  2) 在本安装目录新建 launcher.json 可更换客户端端口后共存，例如：
+     {"backend_port":18080, "ontology_port":18091, "runtime_port":18090}`
 }
 
+// stopServices 幂等停服：PID 留痕优先，exe 镜像名兜底（覆盖 launcher 已损坏/无留痕场景）。
 func stopServices(dataDir string) int {
 	pids := readPIDFile(dataDir)
 	if len(pids) == 0 {
@@ -321,7 +371,7 @@ func runShell(url string) int {
 	return 0
 }
 
-// ---- PID 留痕 / 进程回收 / 探活 / 小工具 ----
+// ---- 数据根 / PID 留痕 ----
 
 func pidFile(dataDir string) string { return filepath.Join(dataDir, "platform.pids") }
 
@@ -415,9 +465,7 @@ func openInBrowser(url string) {
 	_ = cmd.Start()
 }
 
-var (
-	procMessageBoxW = user32.NewProc("MessageBoxW") // user32 声明在 dpi.go
-)
+var procMessageBoxW = user32.NewProc("MessageBoxW") // user32 声明在 dpi.go
 
 func msgBox(title, text string) {
 	t, _ := syscall.UTF16PtrFromString(title)

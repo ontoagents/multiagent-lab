@@ -7,6 +7,7 @@
 # 依赖：Go 1.25+、Node 22+、ISCC（Inno Setup 6；env ISCC 或默认安装路径自动发现）
 
 param(
+    [string]$Shell = "tauri",    # tauri（REQ-321 定案壳技术，NSIS）| go（Go+WebView2 遗留壳，SFX/ISCC）
     [switch]$SkipWeb,
     [switch]$StageOnly,
     [switch]$IncludeOxigraph   # REQ-321 定案：oxigraph 默认零捆绑（首启运行页一键安装），此开关显式预置
@@ -38,11 +39,13 @@ Push-Location "$repo\backend";           go build -trimpath -ldflags "-s -w" -o 
 Push-Location "$repo\ontology-service";  go build -trimpath -ldflags "-s -w" -o "$staging\bin\ontologyd.exe" ./cmd/ontologyd; Pop-Location
 Push-Location "$repo\runtime-manager";   go build -trimpath -ldflags "-s -w" -o "$staging\bin\runtimed.exe" ./cmd/runtimed; Pop-Location
 
-# ---- 2. 客户端壳（独立 module，GOWORK=off 防 go.work 连坐）----
-Step "编译客户端壳 MultiAgentLab.exe（WebView2）"
-Push-Location "$here\launcher"
-$env:GOWORK = "off"; go build -trimpath -ldflags "-s -w -H windowsgui" -o "$staging\MultiAgentLab.exe" .
-Remove-Item Env:\GOWORK; Pop-Location
+# ---- 2. 客户端壳（tauri=定案壳技术；go=遗留 Go+WebView2 壳）----
+if ($Shell -eq "go") {
+    Step "编译客户端壳 MultiAgentLab.exe（Go+WebView2 遗留壳）"
+    Push-Location "$here\launcher"
+    $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w -H windowsgui" -o "$staging\MultiAgentLab.exe" .
+    Remove-Item Env:\GOWORK; Pop-Location
+}
 
 # ---- 3. 前端（tsc + vite → staging\web\dist）----
 if ($SkipWeb -and (Test-Path "$repo\web\dist\index.html")) {
@@ -92,6 +95,41 @@ if (-not (Test-Path $isl)) {
 }
 
 if ($StageOnly) { Step "StageOnly：staging 组装完成，跳过安装包编译"; exit 0 }
+
+# ---- 7. Tauri 壳打包（-Shell tauri：NSIS per-user，REQ-321 定案壳技术）----
+if ($Shell -eq "tauri") {
+    Step "组装 Tauri 资源（src-tauri\resources\：web-dist/migrations/docs/平台知识；bin\ 外部三服务）"
+    $tsrc = "$repo\apps\desktop\src-tauri"
+    $tres = "$tsrc\resources"
+    foreach ($d in @("resources\web-dist", "resources\migrations\ontology-service", "resources\migrations\runtime-manager",
+                     "resources\docs", "resources\platform-knowledge", "resources\research", "resources\tools\rdf-sidecar", "bin")) {
+        if (Test-Path "$tsrc\$d") { Remove-Item -Recurse -Force "$tsrc\$d" }
+        New-Item -ItemType Directory -Force -Path "$tsrc\$d" | Out-Null
+    }
+    Copy-Item -Recurse -Force "$repo\web\dist" "$tres\web-dist"
+    Copy-Item "$repo\ontology-service\migrations\*.sql" "$tres\migrations\ontology-service\"
+    Copy-Item "$repo\runtime-manager\migrations\*.sql"  "$tres\migrations\runtime-manager\"
+    Copy-Item "$repo\tools\rdf-sidecar\sidecar.py"      "$tres\tools\rdf-sidecar\"
+    Copy-Item -Recurse -Force "$repo\docs"               "$tres\docs"
+    Copy-Item -Recurse -Force "$repo\platform-knowledge" "$tres\platform-knowledge"
+    Copy-Item -Recurse -Force "$repo\research"           "$tres\research"
+    Copy-Item "$staging\bin\backend.exe"    "$tsrc\bin\backend-x86_64-pc-windows-msvc.exe"
+    Copy-Item "$staging\bin\ontologyd.exe"  "$tsrc\bin\ontologyd-x86_64-pc-windows-msvc.exe"
+    Copy-Item "$staging\bin\runtimed.exe"   "$tsrc\bin\runtimed-x86_64-pc-windows-msvc.exe"
+
+    Step "tauri build（NSIS per-user 安装包，首次编译 Rust 依赖需较长时间）"
+    Push-Location "$repo\apps\desktop"
+    # npx 的 stderr notice 会触发 PS5.1 ErrorActionPreference=Stop 误判，经 cmd 层合并流
+    cmd /c "npx tauri build --bundles nsis 2>&1"
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "tauri build 失败（exit $LASTEXITCODE）" }
+    Pop-Location
+    $nsis = Get-ChildItem "$tsrc\target\release\bundle\nsis\*setup.exe" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $nsis) { throw "Tauri NSIS 产物缺失（检查 tauri build 输出）" }
+    Copy-Item $nsis.FullName "$dist\" -Force
+    Step "完成：$($nsis.FullName)（$([math]::Round($nsis.Length/1MB,1)) MB）"
+    exit 0
+}
 
 # ---- 7. 打包 setup.exe：ISCC（Inno Setup）优先，未安装则走 7-Zip SFX 兜底（零外部工具链）----
 $iscc = $env:ISCC
