@@ -101,8 +101,14 @@ if ($Shell -eq "tauri") {
     Step "组装 Tauri 资源（src-tauri\resources\：web-dist/migrations/docs/平台知识；bin\ 外部三服务）"
     $tsrc = "$repo\apps\desktop\src-tauri"
     $tres = "$tsrc\resources"
-    foreach ($d in @("resources\web-dist", "resources\migrations\ontology-service", "resources\migrations\runtime-manager",
-                     "resources\docs", "resources\platform-knowledge", "resources\research", "resources\tools\rdf-sidecar", "bin")) {
+    # 整目录资源（web-dist/docs/platform-knowledge/research）不预建目录：Copy-Item -Recurse 的目标目录
+    # 已存在时会把源目录整个拷进去（web-dist\dist\ 双层嵌套 → WEB_DIST 指向处无 index.html，/ 404），
+    # 目标缺席时才是「拷贝并改名」语义
+    foreach ($d in @("resources\web-dist", "resources\docs", "resources\platform-knowledge", "resources\research")) {
+        if (Test-Path "$tsrc\$d") { Remove-Item -Recurse -Force "$tsrc\$d" }
+    }
+    foreach ($d in @("resources\migrations\ontology-service", "resources\migrations\runtime-manager",
+                     "resources\tools\rdf-sidecar", "bin")) {
         if (Test-Path "$tsrc\$d") { Remove-Item -Recurse -Force "$tsrc\$d" }
         New-Item -ItemType Directory -Force -Path "$tsrc\$d" | Out-Null
     }
@@ -116,6 +122,14 @@ if ($Shell -eq "tauri") {
     Copy-Item "$staging\bin\backend.exe"    "$tsrc\bin\backend-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\ontologyd.exe"  "$tsrc\bin\ontologyd-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\runtimed.exe"   "$tsrc\bin\runtimed-x86_64-pc-windows-msvc.exe"
+
+    # Tauri CLI 自举（node_modules 不入库：CI/新机首次构建时 npx tauri 无可执行文件）；
+    # package-lock.json 在库，npm ci 可复现
+    if (-not (Test-Path "$repo\apps\desktop\node_modules\@tauri-apps\cli\package.json")) {
+        Step "安装 Tauri CLI（apps/desktop npm ci）"
+        Push-Location "$repo\apps\desktop"; npm ci --no-audit --no-fund; Pop-Location
+        if ($LASTEXITCODE -ne 0) { throw "apps/desktop npm ci 失败（exit $LASTEXITCODE）" }
+    }
 
     Step "tauri build（NSIS per-user 安装包，首次编译 Rust 依赖需较长时间）"
     Push-Location "$repo\apps\desktop"

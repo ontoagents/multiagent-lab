@@ -5,7 +5,8 @@
 # 发布面：public 仓（ontoagents/multiagent-lab）——工作流随 main 同步到 origin（开发主仓）时全部 job 自动跳过，防双跑；
 #         public 仓 main 同步本提交后、手动打 v* tag 即出包。
 # 边界：安装包未签名（macOS ad-hoc=Gatekeeper 首次右键→打开；Windows 无证书=SmartScreen 提示），沿 REQ-321/324 本地构建同口径；
-#       构建脚本 build.ps1/build.sh 零改动（版本号硬编码 1.0.0 保持不动，产物文件名由本工作流重命名注入真实版本）。
+#       版本注入不改构建脚本（版本号硬编码 1.0.0 保持不动，产物文件名由本工作流重命名注入真实版本）；
+#       Tauri CLI 依赖由 build.ps1 自举（apps/desktop node_modules 不入库，脚本内 npm ci——CI 首跑修复）。
 name: client-release
 
 on:
@@ -42,7 +43,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          # web 前端 + apps/desktop Tauri CLI（build.ps1 对后者 npm ci 自举）
+          cache-dependency-path: |
+            web/package-lock.json
+            apps/desktop/package-lock.json
       - name: 解析版本号（tag v1.2.3 → 1.2.3）
         id: ver
         shell: bash
