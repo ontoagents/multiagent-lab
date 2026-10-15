@@ -1,6 +1,7 @@
 # 77 · spec_json 形态取舍考古与 OWL 导入有损优化分析
 
 > 日期：2026-10-13 ｜ 状态：**分析落档 v1.1→已拍板「优化方案立项」→P1+P2 四件套同日交付（REQ-318/M120，见 03 §2.38：sidecar unprojected 收集+axioms-raw artifact+导出拼接还原+详情分区+双形态口径卡）；表达力续批（基数/属性特征档）留本档 D-O22 节奏待领取**
+> **事实修正注（2026-10-15，REQ-328 立项轮，纪律 6 以实现为准）**：本文多处「运行与查询完全无损——FetchTTL 直取 original 原文装引擎」「owlrl 推理检查作用于完整语义」的口径**与实现不符**：运行平面 `FetchTTL → GET /api/ontologies/{id}/export?format=turtle` 恒从 spec_json **重导出**（ontology-service rest.go exportOntology turtle 分支无 original 分支；runtime-manager manager.go FetchTTL 注释「original turtle 直接回原文」陈旧），REQ-255② owlrl 检查同样消费 spec 重导出 TTL——即**导入投影丢弃的内容在运行/查询/推理检查面同样不可见**；original 仅可经 artifacts/versions 端点手动下载，无自动化消费路径。此外本文的丢失盘点未覆盖「识别失败」类（裸 RDF 形态——无 TBox 声明/无 NamedIndividual 的文件投影 0/0/0 且 lossy=false 零警告静默全空，2026-10-15 fastq ABox 案例实锤）。治本立项 **REQ-328**（03 §2.41：导入用法推断归一化+余量全量账本对账恒等式+运行未编辑直挂 original 全图）。
 > 触发：开发者指令「分析当前项目为什么要用 spec_json 这种 owl 导入有损格式，是否可以优化」
 > 归宿：拍板后按合并式策略将采纳项并入 04 号方案设计档（§2 模型边界域），本档删除留指针（62 号先例）。
 > 关联：04 号 §2（spec_json 多形态资产现状）/ 65 号（oo 全栈对照）/ 66 号（九能力对照：③推理面「我们是检查不是物化」）/ REQ-69（导入细则）/ REQ-235（导入保真度，M62）/ D-O22（表达力升级：M77 数据属性/M78 公理/M80 进化）/ REQ-268/269 / REQ-316（权威本体库——有损痛感的未来来源）。
