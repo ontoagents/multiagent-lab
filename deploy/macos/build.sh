@@ -1,75 +1,152 @@
 #!/usr/bin/env bash
-# MultiAgentLab macOS 桌面客户端构建（REQ-324/M127）
+# MultiAgentLab macOS 桌面客户端构建（REQ-324/M127；壳技术切换轮 2026-10-15 增 Tauri 壳路径）
 #
-# 用法: deploy/macos/build.sh [-SkipWeb] [-SkipDmg] [-StageOnly]
-#   默认       前端构建 + 三服务/编排器编译 + 组装 .app + ad-hoc 签名 + DMG
-#   -SkipWeb   跳过前端构建（复用既有 web/dist）
-#   -StageOnly 跳过全部编译（复用 build/bin 与 web/dist，仅重新组装/签名/DMG）
-#   -SkipDmg   只出 .app 不打 DMG
+# 用法: deploy/macos/build.sh [-Shell tauri|go] [-SkipWeb] [-SkipDmg] [-StageOnly]
+#   -Shell tauri  Tauri 2 壳（定案壳技术，对齐 build.ps1 默认）：组 apps/desktop 资源 →
+#                 npx tauri build（.app）→ ad-hoc 签名 → hdiutil DMG。产物单架构（本机 triple），
+#                 universal 挂 CI 迁移轮（Rust 双架构+lipo，见 18 号迭代行诚实边界）。
+#   -Shell go     Go+AppleScriptObjC 遗留壳（REQ-324 首交付形态；client-release.yml workflow 沿用）
+#   默认 -Shell tauri；-SkipWeb 跳过前端构建；-StageOnly 只组装不打包；-SkipDmg 只出 .app
 #
-# 产物: deploy/macos/dist/MultiAgentLab.app + dist/MultiAgentLab_<版本>.dmg
-# 工具面: go + node（与 run-dev.sh 一致）——窗口壳为 AppleScriptObjC（系统 osascript），
-# 零 cgo/零 Xcode CLT 依赖（正身机 CLT 损坏不影响构建/交付/运行）。
+# 产物: dist/MultiAgentLab.app + dist/MultiAgentLab_<版本>.dmg（两种壳同名落位）
+#
+# 工具面:
+#   go 壳   = go + node（零 Xcode CLT 依赖，正身机 CLT 损坏不影响）
+#   tauri 壳 = go + node + Rust（rustup stable）+ 链接驱动——
+#             CLT 完好机器走系统 clang；CLT 损坏机器自动回落 zig cc（MLAB_ZIG_WRAPPER 可覆盖
+#             wrapper 路径，wrapper 内 -isysroot 指向残存 SDK）——见 20 号 S9 边界注。
 set -euo pipefail
 cd "$(dirname "$0")"
 MACOS_DIR="$PWD"
 REPO="$(cd "$MACOS_DIR/../.." && pwd)"
 VERSION="1.0.0"
 
-SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0
-for a in "$@"; do
-  case "$a" in
-    -SkipWeb) SKIP_WEB=1 ;;
-    -StageOnly) STAGE_ONLY=1 ;;
-    -SkipDmg) SKIP_DMG=1 ;;
-    *) echo "未知参数: $a (支持 -SkipWeb/-SkipDmg/-StageOnly)"; exit 1 ;;
+SHELL_KIND="tauri"; SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -Shell) SHELL_KIND="$2"; shift 2 ;;
+    -SkipWeb) SKIP_WEB=1; shift ;;
+    -StageOnly) STAGE_ONLY=1; shift ;;
+    -SkipDmg) SKIP_DMG=1; shift ;;
+    *) echo "未知参数: $1 (支持 -Shell tauri|go / -SkipWeb / -SkipDmg / -StageOnly)"; exit 1 ;;
   esac
 done
+[ "$SHELL_KIND" = "tauri" ] || [ "$SHELL_KIND" = "go" ] || { echo "-Shell 只支持 tauri|go"; exit 1; }
 
 cd "$REPO"
+
 if [ "$STAGE_ONLY" != "1" ]; then
   if [ "$SKIP_WEB" != "1" ]; then
     echo "[build] 前端构建..."
     (cd web && npm install --no-audit --no-fund && npm run build)
   fi
-  echo "[build] 三服务 + 编排器编译..."
+  echo "[build] 三服务编译（$(uname -m)）..."
   mkdir -p "$MACOS_DIR/build/bin"
   (cd backend && go build -trimpath -o "$MACOS_DIR/build/bin/backend" ./cmd/backend)
   (cd ontology-service && go build -trimpath -o "$MACOS_DIR/build/bin/ontologyd" ./cmd/ontologyd)
   (cd runtime-manager && go build -trimpath -o "$MACOS_DIR/build/bin/runtimed" ./cmd/runtimed)
-  (cd "$MACOS_DIR/launcher" && go build -trimpath -ldflags "-s -w" -o "$MACOS_DIR/build/bin/mlabd" .)
 fi
 
-echo "[build] 组装 MultiAgentLab.app..."
-APP="$MACOS_DIR/dist/MultiAgentLab.app"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$MACOS_DIR/Info.plist" "$APP/Contents/Info.plist"
-cp "$MACOS_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"  # REQ-321/324 待办销账：应用图标（品牌三节点网络）
-RES="$APP/Contents/Resources"
-mkdir -p "$RES/bin" "$RES/shell" "$RES/migrations" "$RES/web" "$RES/tools/rdf-sidecar"
-cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \
-   "$MACOS_DIR/build/bin/runtimed" "$MACOS_DIR/build/bin/mlabd" "$RES/bin/"
-cp "$MACOS_DIR/launcher.sh" "$APP/Contents/MacOS/MultiAgentLab"
-cp "$MACOS_DIR/shell/window.applescript" "$RES/shell/window.applescript"
-chmod +x "$APP/Contents/MacOS/MultiAgentLab" "$RES/bin/"*
-cp -R "$REPO/web/dist" "$RES/web/dist"
-cp -R "$REPO/ontology-service/migrations" "$RES/migrations/ontology-service"
-cp -R "$REPO/runtime-manager/migrations" "$RES/migrations/runtime-manager"
-cp -R "$REPO/docs" "$RES/docs"
-cp -R "$REPO/research" "$RES/research"
-cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
-cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
-cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
+if [ "$SHELL_KIND" = "go" ]; then
+  # ---- 遗留壳（REQ-324 首交付形态：ASOC + WKWebView，零编译器依赖）----
+  if [ "$STAGE_ONLY" != "1" ]; then
+    echo "[build] 编排器 mlabd 编译..."
+    (cd "$MACOS_DIR/launcher" && go build -trimpath -ldflags "-s -w" -o "$MACOS_DIR/build/bin/mlabd" .)
+  fi
 
-echo "[build] ad-hoc 签名..."
-codesign --force --deep --sign - "$APP" 2>/dev/null || echo "[build] 警告: ad-hoc 签名失败（本机直接运行通常不受影响）"
+  echo "[build] 组装 MultiAgentLab.app（go/ASOC 壳）..."
+  APP="$MACOS_DIR/dist/MultiAgentLab.app"
+  rm -rf "$APP"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  cp "$MACOS_DIR/Info.plist" "$APP/Contents/Info.plist"
+  RES="$APP/Contents/Resources"
+  mkdir -p "$RES/bin" "$RES/shell" "$RES/migrations" "$RES/web" "$RES/tools/rdf-sidecar"
+  cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \
+     "$MACOS_DIR/build/bin/runtimed" "$MACOS_DIR/build/bin/mlabd" "$RES/bin/"
+  cp "$MACOS_DIR/launcher.sh" "$APP/Contents/MacOS/MultiAgentLab"
+  cp "$MACOS_DIR/shell/window.applescript" "$RES/shell/window.applescript"
+  chmod +x "$APP/Contents/MacOS/MultiAgentLab" "$RES/bin/"*
+  cp -R "$REPO/web/dist" "$RES/web/dist"
+  cp -R "$REPO/ontology-service/migrations" "$RES/migrations/ontology-service"
+  cp -R "$REPO/runtime-manager/migrations" "$RES/migrations/runtime-manager"
+  cp -R "$REPO/docs" "$RES/docs"
+  cp -R "$REPO/research" "$RES/research"
+  cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
+  cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
+  cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
 
-if [ "$SKIP_DMG" != "1" ]; then
+  echo "[build] ad-hoc 签名..."
+  codesign --force --deep --sign - "$APP" 2>/dev/null || echo "[build] 警告: ad-hoc 签名失败（本机直接运行通常不受影响）"
+else
+  # ---- Tauri 2 壳（定案壳技术，对齐 deploy/windows/build.ps1 -Shell tauri 资源布局）----
+  if [ -n "${GOARCH:-}" ] && [ "$GOARCH" != "$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" ]; then
+    echo "[build] 错误: tauri 壳本轮仅支持本机架构（GOARCH=$GOARCH 交叉编译挂 CI 迁移轮）"; exit 1
+  fi
+  TSRC="$REPO/apps/desktop/src-tauri"
+  TRES="$TSRC/resources"
+  echo "[build] 组装 Tauri 资源（src-tauri/resources + bin/<triple>）..."
+  rm -rf "$TRES" "$TSRC/bin"
+  mkdir -p "$TRES/migrations/ontology-service" "$TRES/migrations/runtime-manager" \
+           "$TRES/tools/rdf-sidecar" "$TSRC/bin"
+  cp -R "$REPO/web/dist" "$TRES/web-dist"
+  cp "$REPO/ontology-service/migrations/"*.sql "$TRES/migrations/ontology-service/"
+  cp "$REPO/runtime-manager/migrations/"*.sql "$TRES/migrations/runtime-manager/"
+  cp "$REPO/tools/rdf-sidecar/sidecar.py" "$TRES/tools/rdf-sidecar/"
+  cp -R "$REPO/docs" "$TRES/docs"
+  cp -R "$REPO/platform-knowledge" "$TRES/platform-knowledge"
+  cp -R "$REPO/research" "$TRES/research"
+  TRIPLE="$(rustc -vV 2>/dev/null | awk '/^host/{print $2}')"
+  [ -n "$TRIPLE" ] || TRIPLE="$(uname -m)-apple-darwin"
+  for svc in backend ontologyd runtimed; do
+    [ -f "$MACOS_DIR/build/bin/$svc" ] || { echo "[build] 错误: 缺 ${svc}（-StageOnly 需先全量构建）"; exit 1; }
+    cp "$MACOS_DIR/build/bin/$svc" "$TSRC/bin/$svc-$TRIPLE"
+  done
+
+  if [ "$STAGE_ONLY" != "1" ]; then
+    echo "[build] tauri build（.app；首次编译 Rust 依赖需较长时间）..."
+    # 链接驱动：CLT 完好走系统 clang；CLT 损坏（本机）自动回落「rust-lld 直链 + zig cc 编译 C」——
+    # zig 0.13 自带 Mach-O 链接器不支持 -exported_symbols_list（proc-macro 必需），故链接必须走 ld64.lld
+    if ! clang --version >/dev/null 2>&1; then
+      ZW="${MLAB_ZIG_WRAPPER:-$HOME/tools/zig-cc-wrapper.sh}"
+      LLD="$HOME/tools/ld64.lld"
+      RUSTL="$(ls "$HOME/.rustup/toolchains/"stable-*/lib/rustlib/*/bin/rust-lld 2>/dev/null | head -1 || true)"
+      SDK="/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk"
+      if [ ! -x "$ZW" ] || [ -z "$RUSTL" ] || [ ! -d "$SDK" ]; then
+        echo "[build] 错误: CLT 不可用且 zig wrapper（${ZW}）/rust-lld（${RUSTL}）/SDK（${SDK}）任一缺失"; exit 1
+      fi
+      ln -sf "$RUSTL" "$LLD"
+      TRIPLE="$(rustc -vV 2>/dev/null | awk '/^host/{print $2}')"
+      mkdir -p "$TSRC/.cargo"
+      cat > "$TSRC/.cargo/config.toml" <<EOF
+# 本文件由 deploy/macos/build.sh 生成（机器相关，gitignored）：CLT 损坏机的链接降级面
+[target.$TRIPLE]
+linker = "$LLD"
+rustflags = ["-C", "linker-flavor=ld64.lld", "-C", "link-arg=-syslibroot", "-C", "link-arg=$SDK"]
+EOF
+      echo "[build] CLT 不可用 → 链接=rust-lld（${LLD}）+ C 编译=zig cc（${ZW}）"
+      export CC="$ZW"
+      export CXX="$ZW"
+      # CLT 掏空无 ar/ranlib（cc-rs 打静态库需要）→ zig 内置 llvm-ar/ranlib shim
+      export PATH="$HOME/tools/bin:$PATH"
+      export AR="$HOME/tools/bin/ar"
+      export RANLIB="$HOME/tools/bin/ranlib"
+    fi
+    (cd "$REPO/apps/desktop" && npm install --no-audit --no-fund >/dev/null 2>&1 || true)
+    (cd "$REPO/apps/desktop" && npx tauri build --bundles app)
+    BUILT="$(ls -d "$TSRC/target/release/bundle/macos/MultiAgentLab.app" 2>/dev/null || true)"
+    [ -n "$BUILT" ] || { echo "[build] 错误: tauri 产物缺失"; exit 1; }
+    mkdir -p "$MACOS_DIR/dist"
+    rm -rf "$MACOS_DIR/dist/MultiAgentLab.app"
+    cp -R "$BUILT" "$MACOS_DIR/dist/MultiAgentLab.app"
+    codesign --force --deep --sign - "$MACOS_DIR/dist/MultiAgentLab.app" 2>/dev/null || true
+  fi
+fi
+
+if [ "$SKIP_DMG" != "1" ] && [ "$STAGE_ONLY" != "1" ]; then
   echo "[build] 打 DMG..."
-  hdiutil create -volname MultiAgentLab -srcfolder "$APP" -ov -format UDZO \
+  hdiutil create -volname MultiAgentLab -srcfolder "$MACOS_DIR/dist/MultiAgentLab.app" -ov -format UDZO \
     "$MACOS_DIR/dist/MultiAgentLab_${VERSION}.dmg" >/dev/null
 fi
 
-echo "[build] 完成:"
-du -sh "$APP" "$MACOS_DIR/dist"/* 2>/dev/null | sed 's/^/  /'
+echo "[build] 完成（shell=${SHELL_KIND}）:"
+du -sh "$MACOS_DIR/dist"/MultiAgentLab.app "$MACOS_DIR/dist"/*.dmg 2>/dev/null | sed 's/^/  /' || true

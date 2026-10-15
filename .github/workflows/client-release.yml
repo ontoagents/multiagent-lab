@@ -98,22 +98,23 @@ jobs:
       - name: 构建前端
         working-directory: web
         run: npm ci && npm run build
-      # 三阶段组装通用二进制（零 build.sh 改动，全复用其自带形态开关 -SkipWeb/-SkipDmg/-StageOnly）：
+      # 三阶段组装通用二进制（全复用其自带形态开关 -SkipWeb/-SkipDmg/-StageOnly）：
       # ① GOARCH=arm64 编译+组装（跳过 DMG），留存四服务瘦二进制
       # ② GOARCH=amd64 纯 Go 交叉编译+组装
       # ③ lipo 合并通用二进制 → -StageOnly 重组装 .app + ad-hoc 签名 + DMG
+      # -Shell go：macOS 产物沿 REQ-324 ASOC 壳（universal 已打通；tauri 壳本轮单架构，CI 迁移另行）
       - name: 构建 macOS 通用二进制 .app + DMG（Apple Silicon + Intel）
         shell: bash
         env:
           VER: ${{ steps.ver.outputs.version }}
         run: |
-          GOARCH=arm64 bash deploy/macos/build.sh -SkipWeb -SkipDmg
+          GOARCH=arm64 bash deploy/macos/build.sh -Shell go -SkipWeb -SkipDmg
           mkdir -p /tmp/thin-arm64 && cp deploy/macos/build/bin/* /tmp/thin-arm64/
-          GOARCH=amd64 bash deploy/macos/build.sh -SkipWeb -SkipDmg
+          GOARCH=amd64 bash deploy/macos/build.sh -Shell go -SkipWeb -SkipDmg
           for b in backend ontologyd runtimed mlabd; do
             lipo -create "/tmp/thin-arm64/$b" "deploy/macos/build/bin/$b" -output "deploy/macos/build/bin/$b"
           done
-          bash deploy/macos/build.sh -StageOnly
+          bash deploy/macos/build.sh -Shell go -StageOnly
           mv deploy/macos/dist/MultiAgentLab_*.dmg "deploy/macos/dist/MultiAgentLab_${VER}_macos_universal.dmg"
       - uses: actions/upload-artifact@v4
         with:

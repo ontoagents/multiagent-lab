@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "tauri": "tauri",
-    "build": "tauri build --bundles nsis"
+    "build": "tauri build --bundles nsis",
+    "build:macos": "tauri build --bundles app"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
