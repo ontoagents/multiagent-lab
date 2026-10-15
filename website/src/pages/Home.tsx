@@ -1,7 +1,11 @@
 import {
   ApartmentOutlined,
   CloudServerOutlined,
+  DatabaseOutlined,
+  DesktopOutlined,
+  ExperimentOutlined,
   GithubOutlined,
+  ReadOutlined,
   RocketOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -14,6 +18,33 @@ import { MODULES, REPO_URL, SEEDS } from '../content'
 // 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / platform-knowledge/
 // 01_整体设计/00_整体设计.md（摘编口径，深入阅读走模块页导读档，避免双源）。
 // ---------------------------------------------------------------------------
+
+const SCENES: { icon: React.ReactNode; title: string; desc: string; link: { href: string; text: string } }[] = [
+  {
+    icon: <DesktopOutlined />,
+    title: '个人 AI 工作台自托管',
+    desc: '下载桌面安装包开箱即用：智能体、本体与知识库全套服务内置托管，SQLite 单文件存储，数据完全留在本机。',
+    link: { href: '#/download', text: '获取安装包' },
+  },
+  {
+    icon: <DatabaseOutlined />,
+    title: '领域知识工程',
+    desc: '六条构建路径把文档、对话与经验沉淀为可治理的本体资产：质量门禁、版本 diff、进化候选受控生长。',
+    link: { href: '#/module/ontology', text: '看本体工程' },
+  },
+  {
+    icon: <ExperimentOutlined />,
+    title: '智能体工程实验田',
+    desc: '配置驱动装配、SSE 全事件流可观测、质量门禁与评估任务集——把 idea 推进为可复现的智能体方案。',
+    link: { href: '#/implementation', text: '看关键实现' },
+  },
+  {
+    icon: <ReadOutlined />,
+    title: '教学与团队演示',
+    desc: '内置学习中心与 5 个示例本体（组织 / 缺陷 / 失效分析 / 基因 / 医学），在线 demo 免安装即可演示完整闭环。',
+    link: { href: '#/demo', text: '在线演示' },
+  },
+]
 
 const CORES: { title: string; desc: string; points: string[] }[] = [
   {
@@ -69,20 +100,37 @@ export default function HomePage() {
             内置学习中心与示例本体，能力边界诚实标注。
           </p>
           <div className="hero-actions">
-            <Button type="primary" size="large" href="#/demo">
+            <Button type="primary" size="large" href="#/download">
+              下载客户端 ↓
+            </Button>
+            <Button size="large" href="#/demo">
               在线演示 →
             </Button>
             <Button size="large" icon={<GithubOutlined />} href={REPO_URL} target="_blank" rel="noreferrer">
               GitHub 仓库
-            </Button>
-            <Button type="text" size="large" href="#quickstart">
-              快速开始 ↓
             </Button>
           </div>
         </div>
       </section>
 
       <div className="page-inner">
+        {/* 使用场景 */}
+        <section className="sec">
+          <h2>使用场景</h2>
+          <div className="scene-grid">
+            {SCENES.map((s) => (
+              <div className="scene-card" key={s.title}>
+                <span className="scene-icon">{s.icon}</span>
+                <div className="scene-title">{s.title}</div>
+                <p className="scene-desc">{s.desc}</p>
+                <a className="scene-link" href={s.link.href}>
+                  {s.link.text} →
+                </a>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* 双核心 */}
         <section className="sec">
           <h2>双核心</h2>

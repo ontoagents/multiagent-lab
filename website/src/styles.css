@@ -172,4 +172,96 @@ main { flex: 1; }
   .hero h1 { font-size: 32px; }
   .hero-sub { display: block; margin: 6px 0 0; }
   .brand-sub { display: none; }
+  .topnav-nav { overflow-x: auto; }
+}
+
+/* ===== 使用场景（首页） ===== */
+.scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.scene-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 20px 22px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.scene-card:hover { border-color: var(--c-brand); transform: translateY(-1px); }
+.scene-icon {
+  width: 38px; height: 38px; border-radius: 10px; font-size: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--c-brand); background: rgba(79, 70, 229, 0.08);
+}
+.scene-title { font-size: 15px; font-weight: 700; }
+.scene-desc { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.75; flex: 1; }
+.scene-link { font-size: 13px; color: var(--c-brand); text-decoration: none; font-weight: 600; }
+.scene-link:hover { text-decoration: underline; }
+
+/* ===== 图示容器（架构/实现页 SVG） ===== */
+.diag-card {
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+  padding: 20px 18px; overflow-x: auto;
+}
+.diag-note { margin: 12px 2px 0; font-size: 13px; color: var(--c-ink-2); line-height: 1.8; }
+.diag-note code {
+  background: #f2f4fb; border: 1px solid var(--c-line); border-radius: 4px;
+  padding: 1px 5px; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+.diag-note a { color: var(--c-brand); text-decoration: none; }
+
+/* ===== 架构页 ===== */
+.arch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.arch-card {
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+  padding: 20px 22px; display: flex; flex-direction: column;
+}
+.arch-name { font-size: 15px; font-weight: 800; }
+.arch-port { font-size: 12px; color: var(--c-brand); font-weight: 600; margin: 3px 0 8px; }
+.arch-desc { margin: 0 0 10px; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.75; }
+.arch-card ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; }
+.arch-card li { font-size: 12.5px; color: var(--c-ink-2); line-height: 1.65; }
+.arch-table-body table { margin: 0; }
+.deploy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.deploy-card {
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+  padding: 18px 20px; display: flex; flex-direction: column; gap: 6px;
+}
+.deploy-title { font-size: 14px; font-weight: 700; }
+.deploy-desc { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.7; flex: 1; }
+.deploy-link { font-size: 13px; color: var(--c-brand); text-decoration: none; font-weight: 600; }
+
+/* ===== 关键实现页 ===== */
+.impl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.impl-card {
+  display: flex; gap: 14px; padding: 20px 22px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+}
+.impl-index {
+  flex: none; font-size: 22px; font-weight: 800; line-height: 1;
+  color: rgba(79, 70, 229, 0.25); font-variant-numeric: tabular-nums;
+}
+.impl-title { font-size: 14.5px; font-weight: 700; margin-bottom: 6px; }
+.impl-desc { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.75; }
+
+/* ===== 下载页 ===== */
+.dl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dl-card {
+  background: #fff; border: 1px solid var(--c-line); border-radius: 12px;
+  padding: 22px 24px; display: flex; flex-direction: column; gap: 10px;
+}
+.dl-head { display: flex; align-items: center; gap: 12px; }
+.dl-icon {
+  flex: none; width: 44px; height: 44px; border-radius: 11px; font-size: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; background: linear-gradient(135deg, #7c6cf5 0%, #4f46e5 58%, #3f36c9 100%);
+}
+.dl-platform { font-size: 15.5px; font-weight: 800; }
+.dl-file {
+  font-size: 12px; color: var(--c-ink-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+.dl-desc { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.75; flex: 1; }
+.dl-note { margin: 0; font-size: 12px; color: #b45309; line-height: 1.6; }
+.dl-releases-hint { margin-top: 12px; font-size: 13px; color: var(--c-ink-2); }
+.dl-releases-hint a { color: var(--c-brand); text-decoration: none; }
+
+@media (max-width: 800px) {
+  .arch-grid, .impl-grid, .dl-grid { grid-template-columns: 1fr; }
 }

@@ -10,8 +10,11 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 
 // ---------------------------------------------------------------------------
 // 官网壳（REQ-238）：hash 路由（GitHub Pages 子路径静态托管免 404 配置）
-//   #/                首页（项目概览）
+//   #/                首页（项目概览 + 使用场景）
 //   #/module/<key>    模块详细介绍（platform-knowledge 导读页渲染）
+//   #/architecture    整体架构（三平面 + 双代理 SVG 总图）
+//   #/implementation  关键实现（SSE 时序 / 质量门禁 / 伴生本体管线）
+//   #/download        客户端下载（Windows / macOS 安装包 + 源码构建）
 //   #/demo            内置演示数据（种子本体可视化）
 // 右上角 GitHub 仓库链接常驻。
 // ---------------------------------------------------------------------------
@@ -41,6 +44,9 @@ function BrandMark({ size = 20 }: { size?: number }) {
 const NAVS: { hash: string; label: string; match: (h: string) => boolean }[] = [
   { hash: '#/', label: '首页', match: (h) => h === '#/' || h === '' },
   { hash: '#/module/agents', label: '功能模块', match: (h) => h.startsWith('#/module/') },
+  { hash: '#/architecture', label: '整体架构', match: (h) => h.startsWith('#/architecture') },
+  { hash: '#/implementation', label: '关键实现', match: (h) => h.startsWith('#/implementation') },
+  { hash: '#/download', label: '下载', match: (h) => h.startsWith('#/download') },
   { hash: '#/demo', label: '在线演示', match: (h) => h.startsWith('#/demo') },
 ]
 
@@ -121,6 +127,8 @@ export default function App() {
             </a>
             {' · '}
             <a href="#/module/design">整体设计</a>
+            {' · '}
+            <a href="#/download">下载客户端</a>
             {' · '}
             <a href="#/demo">在线演示</a>
           </span>
