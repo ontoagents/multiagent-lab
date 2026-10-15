@@ -40,7 +40,7 @@ const STACK: { layer: string; pick: string }[] = [
 ]
 
 const DEPLOYS = [
-  { title: '桌面安装包（推荐）', desc: 'Windows setup.exe / macOS universal DMG，安装即用，壳自动拉起本地服务。', link: '#/download', linkText: '前往下载 →' },
+  { title: '桌面安装包（推荐）', desc: 'Windows setup.exe / macOS universal DMG，安装即用，壳自动拉起本地服务。', link: '#/deploy', linkText: '前往部署 →' },
   { title: '本地开发', desc: 'git clone 后 ./run-dev.sh（Windows 用 run-dev.ps1）一条命令拉起全栈，浏览器打开 :8080。', link: undefined, linkText: '' },
   { title: 'Docker Compose', desc: 'deploy/ 下 docker compose up -d，服务器起步推荐；含远程访问凭证配置（REQ-209）。', link: undefined, linkText: '' },
   { title: 'Kubernetes（Helm）', desc: 'helm install 一键部署，Ingress / Qdrant 按需启用，适合团队共享部署。', link: undefined, linkText: '' },

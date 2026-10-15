@@ -2,6 +2,7 @@
 // 官网内容单源（REQ-238）：模块介绍 = platform-knowledge/ 各模块 00 导读页（构建期内联，
 // 与平台知识页 ReferencePage 同手法——内容只在 platform-knowledge 维护一处）；
 // 演示数据 = ontology-service/internal/seed/examples/ 种子 spec（后端启动播种同一份）。
+// brief 为站点层速览要点（首屏直观化用），正文事实仍以导读页单源为准。
 // ---------------------------------------------------------------------------
 
 // 模块导读页（?raw 构建期内联）
@@ -32,18 +33,69 @@ export interface ModuleInfo {
   path: string
   title: string
   tagline: string
+  /** 速览要点（站点层维护，首屏直观化；3 条以内短句） */
+  brief: string[]
   md: string
 }
 
 /** 功能模块（目录序=导航序；整体设计放最后，作为深入了解入口） */
 export const MODULES: ModuleInfo[] = [
-  { key: 'agents', path: 'platform-knowledge/02_智能体/00_智能体模块.md', title: '智能体', tagline: '对话 · 多智能体协作 · 知识/技能/本体增强', md: agentsMd },
-  { key: 'ontology', path: 'platform-knowledge/04_本体/00_本体模块.md', title: '本体', tagline: '构建 → 资产 → 运行 → 消费审计 全流程闭环', md: ontologyMd },
-  { key: 'knowledge', path: 'platform-knowledge/05_知识库/00_知识库模块.md', title: '知识库', tagline: 'RAG / GraphRAG 双子模块（KG 自研内置）', md: knowledgeMd },
-  { key: 'projects', path: 'platform-knowledge/03_项目/00_项目模块.md', title: '项目', tagline: '多智能体协作工作空间（目录绑定 / 文件 / Git）', md: projectsMd },
-  { key: 'skills', path: 'platform-knowledge/06_技能/00_技能模块.md', title: '技能', tagline: '智能体能力扩展（提示词 / 工具包装）', md: skillsMd },
-  { key: 'settings', path: 'platform-knowledge/07_设置/00_设置模块.md', title: '设置', tagline: '模型连接 · 连接器 · 运行环境 · 使用统计', md: settingsMd },
-  { key: 'design', path: 'platform-knowledge/01_整体设计/00_整体设计.md', title: '整体设计', tagline: '产品定位 / 架构分层 / 技术栈 / 协议面 / 部署形态', md: designMd },
+  {
+    key: 'agents',
+    path: 'platform-knowledge/02_智能体/00_智能体模块.md',
+    title: '智能体',
+    tagline: '对话 · 多智能体协作 · 知识/技能/本体增强',
+    brief: ['流式对话，工具/子智能体/检索/审批事件全留痕', '多智能体协作：项目空间编排、委派路由、隔离可观测', '五层执行模型：模型/上下文/沙箱/循环/协作全可配'],
+    md: agentsMd,
+  },
+  {
+    key: 'ontology',
+    path: 'platform-knowledge/04_本体/00_本体模块.md',
+    title: '本体',
+    tagline: '构建 → 资产 → 运行 → 消费审计 全流程闭环',
+    brief: ['六条构建路径殊途同归，LLM 生成必过质量门禁', 'spec_json 单一资产：版本 diff、进化候选受控生长', 'Oxigraph / Fuseki 运行平面，MCP facade 供智能体消费'],
+    md: ontologyMd,
+  },
+  {
+    key: 'knowledge',
+    path: 'platform-knowledge/05_知识库/00_知识库模块.md',
+    title: '知识库',
+    tagline: 'RAG / GraphRAG 双子模块（KG 自研内置）',
+    brief: ['RAG：向量检索，Qdrant 主力 / SQLite 兜底可插拔', 'GraphRAG：导入即建 KG，向量命中 → 图一跳扩展', 'LLM Wiki：写时合成互链页面，零 embedding 依赖'],
+    md: knowledgeMd,
+  },
+  {
+    key: 'projects',
+    path: 'platform-knowledge/03_项目/00_项目模块.md',
+    title: '项目',
+    tagline: '多智能体协作工作空间（目录绑定 / 文件 / Git）',
+    brief: ['多智能体协作工作空间，成员编排与委派', '本地目录绑定，文件与 Git 资产纳管', '协作与工作流配置收敛于项目侧'],
+    md: projectsMd,
+  },
+  {
+    key: 'skills',
+    path: 'platform-knowledge/06_技能/00_技能模块.md',
+    title: '技能',
+    tagline: '智能体能力扩展（提示词 / 工具包装）',
+    brief: ['提示词 + 工具包装为可复用技能', '智能体一键暴露为 MCP Server（/mcp）', 'K8s / SSH / 自定义 MCP 三类外部连接器'],
+    md: skillsMd,
+  },
+  {
+    key: 'settings',
+    path: 'platform-knowledge/07_设置/00_设置模块.md',
+    title: '设置',
+    tagline: '模型连接 · 连接器 · 运行环境 · 使用统计',
+    brief: ['模型连接双协议多厂商，Key 本地加密', '连接器凭据托管，agent 级授权白名单', '沙箱后端选择与 run 级用量统计'],
+    md: settingsMd,
+  },
+  {
+    key: 'design',
+    path: 'platform-knowledge/01_整体设计/00_整体设计.md',
+    title: '整体设计',
+    tagline: '产品定位 / 架构分层 / 技术栈 / 协议面 / 部署形态',
+    brief: ['产品定位与三平面 + 双代理架构', '技术栈总表与 REST+SSE / MCP 协议面', '设计原则四条：开源优先 / 可插拔 / 诚实降级 / 低侵入'],
+    md: designMd,
+  },
 ]
 
 /** 剥 frontmatter（DocViewerModal 同款正则） */

@@ -25,7 +25,7 @@ const TOUR: { title: string; desc: string; href: string }[] = [
   { title: '能做什么', desc: '六大模块：智能体 / 本体 / 知识库 / 连接器 / 消费审计 / 学习中心', href: '#/module/agents' },
   { title: '系统长什么样', desc: '三平面 + 双代理拓扑，一张总图看清服务边界与端口', href: '#/architecture' },
   { title: '如何工作', desc: '五层执行模型 + 质量门禁机制，附论文与开源依据', href: '#/principles' },
-  { title: '立即上手', desc: '桌面安装包开箱即用，或在线 demo 零安装体验', href: '#/download' },
+  { title: '立即上手', desc: '安装包 / 服务器 / 本地三种运行方式任选', href: '#/deploy' },
 ]
 
 const SCENES: { icon: React.ReactNode; title: string; desc: string; link: { href: string; text: string } }[] = [
@@ -33,7 +33,7 @@ const SCENES: { icon: React.ReactNode; title: string; desc: string; link: { href
     icon: <DesktopOutlined />,
     title: '个人 AI 工作台自托管',
     desc: '下载桌面安装包开箱即用：智能体、本体与知识库全套服务内置托管，SQLite 单文件存储，数据完全留在本机。',
-    link: { href: '#/download', text: '获取安装包' },
+    link: { href: '#/deploy', text: '获取安装包' },
   },
   {
     icon: <DatabaseOutlined />,
@@ -109,8 +109,8 @@ export default function HomePage() {
             内置学习中心与示例本体，能力边界诚实标注。
           </p>
           <div className="hero-actions">
-            <Button type="primary" size="large" href="#/download">
-              下载客户端 ↓
+            <Button type="primary" size="large" href="#/deploy">
+              部署运行 ↓
             </Button>
             <Button size="large" href="#/demo">
               在线演示 →

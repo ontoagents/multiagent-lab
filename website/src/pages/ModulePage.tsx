@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
-import { LinkOutlined } from '@ant-design/icons'
+import { CheckCircleFilled, LinkOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MODULES, REPO_URL, resolveMdLink, stripFrontmatter, type ModuleInfo } from '../content'
 
 // ---------------------------------------------------------------------------
-// 模块详细介绍页（REQ-238）：内容 = platform-knowledge/<模块>/00_导读页.md 构建期内联
-// （单源：内容只在平台知识目录维护，站点随构建自动跟随）。导读页内的相对 md 互引
+// 模块详细介绍页（REQ-238）：首屏 = 标题 + 速览要点（站点层 brief 数据，直观化）；
+// 正文 = platform-knowledge/<模块>/00_导读页.md 构建期内联（单源：内容只在平台知识
+// 目录维护，站点随构建自动跟随），下移为"深入了解"区。导读页内的相对 md 互引
 // 解析为 GitHub 源文档链接（静态站不落盘全部文档，深入阅读回到仓库）。
 // ---------------------------------------------------------------------------
 
@@ -27,11 +28,27 @@ export default function ModulePage({ info }: { info: ModuleInfo }) {
         </nav>
         <h1>{info.title}</h1>
         <p className="module-tagline">{info.tagline}</p>
-        <div className="module-source">
-          <a href={sourceUrl} target="_blank" rel="noreferrer">
-            <LinkOutlined /> 在 GitHub 查看源文档（platform-knowledge/{info.path.split('/').pop()}）
-          </a>
-        </div>
+
+        {/* 速览：30 秒看懂本模块 */}
+        <section className="module-brief" aria-label="模块速览">
+          <span className="eyebrow">Quick Glance</span>
+          <ul>
+            {info.brief.map((b) => (
+              <li key={b}>
+                <CheckCircleFilled className="brief-check" />
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="module-source">
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <LinkOutlined /> 在 GitHub 查看源文档（platform-knowledge/{info.path.split('/').pop()}）
+            </a>
+          </div>
+        </section>
+
+        {/* 详细文档（导读页单源全文，下移） */}
+        <div className="module-detail-head">深入了解 · 完整导读文档</div>
         <article className="md-body md-cards-on">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

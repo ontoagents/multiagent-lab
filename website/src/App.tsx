@@ -6,7 +6,7 @@ import ModulePage from './pages/ModulePage'
 import ArchitecturePage from './pages/Architecture'
 import ImplementationPage from './pages/Implementation'
 import PrinciplesPage from './pages/Principles'
-import DownloadPage from './pages/Download'
+import DeployPage from './pages/Deploy'
 import { MODULES, REPO_SLUG, REPO_URL } from './content'
 
 // 演示页懒加载：three.js/react-force-graph 体量大（主包 ~3MB→首屏 ~1MB），首访演示页才拉取
@@ -19,7 +19,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 //   #/architecture    整体架构（三平面 + 双代理 SVG 总图）
 //   #/implementation  关键实现（SSE 时序 / 质量门禁 / 伴生本体管线）
 //   #/principles      实现原理（五层视角 / 本体与知识机制 / 论文与开源依据）
-//   #/download        客户端下载（Windows / macOS 安装包 + 源码构建）
+//   #/deploy          部署运行（桌面客户端 / 服务端部署 web 访问 / 本地运行）
 //   #/demo            内置演示数据（种子本体可视化）
 // 右上角 GitHub 仓库链接常驻。
 // ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ const NAVS: { hash: string; label: string; match: (h: string) => boolean }[] = [
   { hash: '#/architecture', label: '整体架构', match: (h) => h.startsWith('#/architecture') },
   { hash: '#/implementation', label: '关键实现', match: (h) => h.startsWith('#/implementation') },
   { hash: '#/principles', label: '实现原理', match: (h) => h.startsWith('#/principles') },
-  { hash: '#/download', label: '下载', match: (h) => h.startsWith('#/download') },
+  { hash: '#/deploy', label: '部署运行', match: (h) => h.startsWith('#/deploy') },
   { hash: '#/demo', label: '在线演示', match: (h) => h.startsWith('#/demo') },
 ]
 
@@ -65,7 +65,7 @@ function Body({ route }: { route: string }) {
   if (route.startsWith('#/architecture')) return <ArchitecturePage />
   if (route.startsWith('#/implementation')) return <ImplementationPage />
   if (route.startsWith('#/principles')) return <PrinciplesPage />
-  if (route.startsWith('#/download')) return <DownloadPage />
+  if (route.startsWith('#/deploy')) return <DeployPage />
   if (route.startsWith('#/demo'))
     return (
       <Suspense
@@ -140,7 +140,7 @@ export default function App() {
             {' · '}
             <a href="#/principles">实现原理</a>
             {' · '}
-            <a href="#/download">下载客户端</a>
+            <a href="#/deploy">部署运行</a>
             {' · '}
             <a href="#/demo">在线演示</a>
           </span>
