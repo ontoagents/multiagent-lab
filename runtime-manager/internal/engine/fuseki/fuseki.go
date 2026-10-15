@@ -9,6 +9,7 @@ package fuseki
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -36,10 +37,15 @@ type Runtime struct {
 const PinnedVersion = "6.2.0"
 
 // ReleaseURLs 发行包下载候选 URL（依次尝试；教育网/云厂商镜像实测快官方源两个数量级，
-// 首选北大/华为云；downloads 仅保留当前版本、archive 为全历史归档兜底；
-// tar.gz 含 fuseki-server 脚本与 fuseki-server.jar）。
+// 首选北大/华为云；downloads 仅保留当前版本、archive 为全历史归档兜底）。
+// 包形态按平台：unix 取 tar.gz（fuseki-server 脚本+jar），windows 取 zip
+// （fuseki-server.bat+jar，REQ-325——官方发行 zip 与 tar.gz 同源同内容）。
 func ReleaseURLs() []string {
-	name := "apache-jena-fuseki-" + PinnedVersion + ".tar.gz"
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	name := "apache-jena-fuseki-" + PinnedVersion + ext
 	return []string{
 		"https://mirrors.pku.edu.cn/apache/jena/binaries/" + name,
 		"https://mirrors.huaweicloud.com/apache/jena/binaries/" + name,
@@ -120,15 +126,80 @@ func ExtractServerFiles(tarPath, destDir string) error {
 	return nil
 }
 
+// ExtractServerFilesZip 从已下载的 apache-jena-fuseki zip 发行包提取运行必需的两件
+// （fuseki-server.bat 启动脚本 + fuseki-server.jar）到 destDir——Windows 形态（REQ-325，
+// 官方 zip 与 tar.gz 同源同内容）。只按 base 名匹配这两件（天然免疫包内目录前缀差异）；
+// 拒绝 ".." 路径条目（防解包穿越）。java 为运行时依赖而非安装依赖，安装不要求 JDK。
+func ExtractServerFilesZip(zipPath, destDir string) error {
+	f, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("zip 解压失败（非 zip 发行包？）: %w", err)
+	}
+	defer f.Close()
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	want := map[string]bool{"fuseki-server.bat": false, "fuseki-server.jar": false}
+	for _, hf := range f.File {
+		if hf.FileInfo().IsDir() {
+			continue
+		}
+		name := filepath.Base(hf.Name)
+		if _, isTarget := want[name]; !isTarget {
+			continue // 非目标文件
+		}
+		if want[name] {
+			continue // 已提取（重名取首见）
+		}
+		if strings.Contains(hf.Name, "..") {
+			return fmt.Errorf("发行包含可疑路径条目，已中止: %s", hf.Name)
+		}
+		dst := filepath.Join(destDir, name)
+		if err := copyZipEntry(hf, dst); err != nil {
+			return fmt.Errorf("提取 %s 失败: %w", name, err)
+		}
+		want[name] = true
+	}
+	missing := []string{}
+	for k, ok := range want {
+		if !ok {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("发行包缺少运行文件: %s（pin %s 的包形态可能已变化）", strings.Join(missing, ","), PinnedVersion)
+	}
+	return nil
+}
+
+func copyZipEntry(hf *zip.File, dst string) error {
+	rc, err := hf.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	out, err := os.OpenFile(dst+".download", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, rc)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dst + ".download")
+		return err
+	}
+	return os.Rename(dst+".download", dst)
+}
+
 // DownloadFunc 下载函数形态（manager.downloadTo 同签名，解耦下载机制便于单测）。
 type DownloadFunc func(ctx context.Context, url, target string, minBytes int64) error
 
-// Install 一键安装：依次尝试 urls 下载发行包到临时文件 → 提取两件到 destDir → 清理。
+// Install 一键安装：依次尝试 urls 下载发行包到临时文件 → 按包形态提取两件到 destDir → 清理
+// （REQ-325：windows 走 zip 形态不再拒绝；提取器按 URL 扩展名分派，unix tar.gz 路径不变）。
 func Install(ctx context.Context, destDir string, urls []string, download DownloadFunc) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("fuseki 一键安装暂不支持 windows（fuseki-server 为 shell 脚本）：请从 https://jena.apache.org/download/ 下载 zip 发行包手动配置 FUSEKI_BIN")
-	}
-	tmp := filepath.Join(os.TempDir(), "apache-jena-fuseki-"+PinnedVersion+".tar.gz.download")
+	tmp := filepath.Join(os.TempDir(), "apache-jena-fuseki-"+PinnedVersion+".download")
 	defer os.Remove(tmp)
 	var lastErr error
 	for _, url := range urls {
@@ -136,10 +207,10 @@ func Install(ctx context.Context, destDir string, urls []string, download Downlo
 			lastErr = err
 			continue
 		}
-		if err := ExtractServerFiles(tmp, destDir); err != nil {
-			return err
+		if strings.HasSuffix(strings.ToLower(url), ".zip") {
+			return ExtractServerFilesZip(tmp, destDir)
 		}
-		return nil
+		return ExtractServerFiles(tmp, destDir)
 	}
 	return fmt.Errorf("全部下载源失败: %w", lastErr)
 }
@@ -150,8 +221,9 @@ func New(binary, javaBin, dataDir, logDir string) *Runtime {
 	return &Runtime{Binary: binary, JavaBin: javaBin, DataDir: dataDir, LogDir: logDir}
 }
 
-// candidatePaths fuseki-server 候选序（REQ-307）：显式配置 → PATH → data/bin（一键安装落点，
-// 装后即命中、无需重启 runtimed）。与 oxigraph 适配器搜索语义一致。
+// candidatePaths fuseki-server 候选序（REQ-307，REQ-325 扩 .bat）：显式配置 → PATH →
+// data/bin（一键安装落点，装后即命中、无需重启 runtimed；windows 落 fuseki-server.bat）。
+// 与 oxigraph 适配器搜索语义一致。
 func (r *Runtime) candidatePaths() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -166,7 +238,11 @@ func (r *Runtime) candidatePaths() []string {
 	if p, err := exec.LookPath("fuseki-server"); err == nil {
 		add(p)
 	}
+	if p, err := exec.LookPath("fuseki-server.bat"); err == nil {
+		add(p)
+	}
 	add("data/bin/fuseki-server")
+	add("data/bin/fuseki-server.bat")
 	return out
 }
 
@@ -176,7 +252,7 @@ func (r *Runtime) resolveBinary() (string, error) {
 	if bin, ok := engine.FindExecutable(cands); ok {
 		return bin, nil
 	}
-	return "", fmt.Errorf("未找到 fuseki-server（已探测 %s）: 可在本体运行页「一键下载安装」（官方发行包 pin %s，写入 data/bin 即时生效，运行需 JDK 17+），或从 https://jena.apache.org/download/ 下载 apache-jena-fuseki 解压后设置 FUSEKI_BIN 指向其 fuseki-server 脚本",
+	return "", fmt.Errorf("未找到 fuseki-server（已探测 %s）: 可在本体运行页「一键下载安装」（官方发行包 pin %s，写入 data/bin 即时生效，运行需 JDK 17+），或从 https://jena.apache.org/download/ 下载 apache-jena-fuseki 后设置 FUSEKI_BIN 指向其 fuseki-server 脚本（windows 为 fuseki-server.bat）",
 		strings.Join(cands, " → "), PinnedVersion)
 }
 
@@ -220,12 +296,15 @@ func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning, union b
 	b.WriteString("    fuseki:endpoint [ fuseki:operation fuseki:query ; ] ;\n")
 	b.WriteString("    fuseki:endpoint [ fuseki:operation fuseki:update ; ] ;\n")
 	b.WriteString("    fuseki:dataset <#dataset> ;\n    .\n\n")
+	// 路径统一正斜杠（REQ-325）：Windows 盘符路径的反斜杠是非法 Turtle 转义（\M 等 fatal），
+	// TDB2/Java 两侧都接受正斜杠。
+	loc := filepath.ToSlash(dbDir)
 	if reasoning {
 		// 推理模式：InfModel 包 TDB2 默认图（数据装入默认图，见函数头注释）
 		b.WriteString("<#dataset> rdf:type ja:RDFDataset ;\n")
 		b.WriteString("    ja:defaultGraph <#infModel> ;\n    .\n\n")
 		b.WriteString("<#baseModel> rdf:type tdb:GraphTDB ;\n")
-		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", dbDir)
+		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", loc)
 		b.WriteString("    .\n\n")
 		b.WriteString("<#infModel> rdf:type ja:InfModel ;\n")
 		b.WriteString("    ja:baseModel <#baseModel> ;\n")
@@ -236,17 +315,27 @@ func reasoningConfig(datasetName, dbDir, rulesFileURL string, reasoning, union b
 		// regular 无推理（REQ-320）：数据集级 union——命名图并集作默认图视图（与 Oxigraph
 		// --union-default-graph 同语义；数据全在命名图，无「盖掉裸默认图」问题）
 		b.WriteString("<#dataset> rdf:type tdb:DatasetTDB2 ;\n")
-		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", dbDir)
+		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", loc)
 		b.WriteString("    tdb:unionDefaultGraph true ;\n")
 		b.WriteString("    .\n")
 	} else {
 		// 无推理：纯 TDB2 数据集。数据在默认图（见函数头注释），不开 union——
 		// unionDefaultGraph 使默认图=命名图并集，反而盖掉裸默认图里的数据。
 		b.WriteString("<#dataset> rdf:type tdb:DatasetTDB2 ;\n")
-		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", dbDir)
+		fmt.Fprintf(&b, "    tdb:location \"%s\" ;\n", loc)
 		b.WriteString("    .\n")
 	}
 	return b.String()
+}
+
+// fileURLFromPath 绝对路径 → file: URL（REQ-325：windows 盘符路径须三斜杠 file:///D:/...，
+// unix 绝对路径保持 file:///... 两斜杠+根斜杠形态）。
+func fileURLFromPath(p string) string {
+	s := filepath.ToSlash(p)
+	if strings.HasPrefix(s, "/") {
+		return "file://" + s
+	}
+	return "file:///" + s
 }
 
 // Start 装载并启动（无推理基线；带推理用 StartWithReasoning）。
@@ -308,7 +397,7 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 		if err != nil {
 			return nil, err
 		}
-		rulesURL = "file://" + rf
+		rulesURL = fileURLFromPath(rf)
 	}
 	cfgPath := filepath.Join(dir, "config.ttl")
 	perGraph := !companionMode && !reasoning // 推理形态保持默认图（图级 union 静默忽略勘误，见 reasoningConfig 注）
@@ -338,19 +427,21 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 		_ = os.Remove(f)
 	}
 
-	// serve：fuseki-server --config config.ttl --port（Fuseki 6.x 无 --host 参数，默认监听 localhost）
-	cmd := exec.Command(bin, "--config", cfgPath, "--port", fmt.Sprint(port))
-	cmd.Env = append(os.Environ(), fmt.Sprintf("JAVA=%s", java), fmt.Sprintf("FUSEKI_HOME=%s", filepath.Dir(bin)))
-	procgroup.SetPgid(cmd)
-	stderr, err := cmd.StderrPipe()
+	// serve：unix 走 fuseki-server 启动脚本；windows 直启 java -jar fuseki-server.jar
+	// （REQ-325——shell 脚本 Windows 不可执行，.bat 经 cmd.exe 转义有坑；
+	// fuseki-server.jar 为带 Main-Class 的 fat jar，发行脚本本体即 java -jar 包装）
+	serveCmd := serveCommand(bin, java, filepath.Join(filepath.Dir(bin), "fuseki-server.jar"), cfgPath, port)
+	serveCmd.Env = append(os.Environ(), fmt.Sprintf("JAVA=%s", java), fmt.Sprintf("FUSEKI_HOME=%s", filepath.Dir(bin)))
+	procgroup.SetPgid(serveCmd)
+	stderr, err := serveCmd.StderrPipe()
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, err := serveCmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := serveCmd.Start(); err != nil {
 		return nil, fmt.Errorf("fuseki-server 启动失败: %w", err)
 	}
 	logPath := filepath.Join(r.LogDir, profileID+".log")
@@ -359,18 +450,27 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 
 	// Fuseki 6.x dataset 端点为 /ds/（POST SPARQL 即查询；GET /$/ping 做健康探测）
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/ds/", port)
-	p := engine.NewProcess(endpoint, cmd.Process.Pid, func() error {
-		_ = procgroup.Kill(cmd.Process.Pid, true)
+	p := engine.NewProcess(endpoint, serveCmd.Process.Pid, func() error {
+		_ = procgroup.Kill(serveCmd.Process.Pid, true)
 		done := make(chan struct{})
-		go func() { _, _ = cmd.Process.Wait(); close(done) }()
+		go func() { _, _ = serveCmd.Process.Wait(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(8 * time.Second): // JVM 退出较慢，宽限 8s
-			_ = procgroup.Kill(cmd.Process.Pid, false)
+			_ = procgroup.Kill(serveCmd.Process.Pid, false)
 		}
 		return nil
 	})
 	return p, nil
+}
+
+// serveCommand 组装 serve 启动命令（REQ-325）：unix 走 fuseki-server 脚本；
+// windows 直启 java -jar fat jar（绕开 shell 脚本不可执行与 .bat/cmd 转义两坑）。
+func serveCommand(bin, java, jar, cfgPath string, port int) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command(java, "-jar", jar, "--config", cfgPath, "--port", fmt.Sprint(port))
+	}
+	return exec.Command(bin, "--config", cfgPath, "--port", fmt.Sprint(port))
 }
 
 // HealthCheck SPARQL ping（Fuseki 就绪标志：/$/ping 200 或 query 端点可应答）。
@@ -415,7 +515,11 @@ func extractRulesFile(java, fusekiDir, destDir string) (string, error) {
 	}
 	jarTool := filepath.Join(javaHome(java), "bin", "jar")
 	if _, err := os.Stat(jarTool); err != nil {
-		jarTool = "jar"
+		if _, err2 := os.Stat(jarTool + ".exe"); err2 == nil {
+			jarTool = jarTool + ".exe" // windows JDK 布局（REQ-325）
+		} else {
+			jarTool = "jar"
+		}
 	}
 	jarCmd := exec.Command(jarTool, "xf", jar, "etc/owl-fb.rules")
 	jarCmd.Dir = destDir
@@ -432,9 +536,17 @@ func extractRulesFile(java, fusekiDir, destDir string) (string, error) {
 	return dst, nil
 }
 
-// javaHome 从 java 可执行路径推导 JAVA_HOME（<home>/bin/java → <home>）；PATH 上的 java 则留空。
+// javaHome 从 java 可执行路径推导 JAVA_HOME（<home>/bin/java[.exe] → <home>）；
+// 裸名（PATH 上的 java）或路径不存在则留空（REQ-325 兼容 java.exe）。
 func javaHome(javaBin string) string {
-	if abs, err := filepath.Abs(javaBin); err == nil && filepath.Base(abs) == "java" {
+	abs, err := filepath.Abs(javaBin)
+	if err != nil {
+		return ""
+	}
+	if st, err := os.Stat(abs); err != nil || st.IsDir() {
+		return "" // 裸名/无效路径不猜（防以 CWD 拼出伪 JAVA_HOME）
+	}
+	if strings.TrimSuffix(filepath.Base(abs), ".exe") == "java" {
 		return filepath.Dir(filepath.Dir(abs))
 	}
 	return ""

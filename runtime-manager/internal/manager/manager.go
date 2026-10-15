@@ -69,7 +69,7 @@ func (m *Manager) engineFor(name string) (engine.Runtime, error) {
 func engineHint(name string) string {
 	switch name {
 	case "fuseki":
-		return "请下载 apache-jena-fuseki 并设置 FUSEKI_BIN 指向 fuseki-server 脚本（JDK 17+），重启 runtimed"
+		return "可在本体运行页一键下载安装（官方发行包写入 data/bin 即时生效；运行需 JDK 17+），或从 https://jena.apache.org/download/ 下载 apache-jena-fuseki 后设置 FUSEKI_BIN 指向 fuseki-server 脚本（windows 为 fuseki-server.bat）"
 	case "oxigraph":
 		return "请在本体运行页一键安装（写入 data/bin 即时生效），或安装 oxigraph_server 并加入 PATH（或设置 OXIGRAPH_BIN）后重启 runtimed"
 	}
@@ -153,8 +153,9 @@ func (m *Manager) installFuseki(ctx context.Context) error {
 }
 
 // InstallFromFile 安装使用方自行下载的发行包（REQ-307 手动路径，开发者定案「文件太大不用预下载，
-// 给出下载方式由使用方自己下载」）：仅 fuseki——上传 apache-jena-fuseki tar.gz，服务端只做解包落位
-// （浏览器下载自带断点续传，慢网络用户彻底绕开服务端下载瓶颈）；装后即时生效无需重启 runtimed。
+// 给出下载方式由使用方自己下载」）：仅 fuseki——上传 apache-jena-fuseki tar.gz / zip（REQ-325：
+// windows 用户从 jena.apache.org 自然下到 zip），服务端只做解包落位（浏览器下载自带断点续传，
+// 慢网络用户彻底绕开服务端下载瓶颈）；装后即时生效无需重启 runtimed。
 func (m *Manager) InstallFromFile(name string, r *http.Request) ([]string, error) {
 	if name != "fuseki" {
 		return nil, fmt.Errorf("引擎 %q 暂不支持上传文件安装（当前仅 fuseki）", name)
@@ -168,10 +169,15 @@ func (m *Manager) InstallFromFile(name string, r *http.Request) ([]string, error
 	}
 	defer f.Close()
 	lname := strings.ToLower(hdr.Filename)
-	if !strings.HasSuffix(lname, ".tar.gz") && !strings.HasSuffix(lname, ".tgz") {
-		return nil, fmt.Errorf("请上传 apache-jena-fuseki 的 tar.gz 发行包（收到 %s）", hdr.Filename)
+	isZip := strings.HasSuffix(lname, ".zip")
+	if !isZip && !strings.HasSuffix(lname, ".tar.gz") && !strings.HasSuffix(lname, ".tgz") {
+		return nil, fmt.Errorf("请上传 apache-jena-fuseki 的 tar.gz 或 zip 发行包（收到 %s）", hdr.Filename)
 	}
-	tmp, err := os.CreateTemp("", "fuseki-upload-*.tar.gz")
+	ext := ".tar.gz"
+	if isZip {
+		ext = ".zip"
+	}
+	tmp, err := os.CreateTemp("", "fuseki-upload-*"+ext)
 	if err != nil {
 		return nil, err
 	}
@@ -186,13 +192,22 @@ func (m *Manager) InstallFromFile(name string, r *http.Request) ([]string, error
 	if n < 1<<20 {
 		return nil, fmt.Errorf("文件过小（%d 字节），不是有效的 apache-jena-fuseki 发行包", n)
 	}
-	if err := fuseki.ExtractServerFiles(tmp.Name(), m.InstallBinDir); err != nil {
-		return nil, err
-	}
-	return []string{
+	extract := fuseki.ExtractServerFiles
+	installed := []string{
 		filepath.Join(m.InstallBinDir, "fuseki-server"),
 		filepath.Join(m.InstallBinDir, "fuseki-server.jar"),
-	}, nil
+	}
+	if isZip {
+		extract = fuseki.ExtractServerFilesZip
+		installed = []string{
+			filepath.Join(m.InstallBinDir, "fuseki-server.bat"),
+			filepath.Join(m.InstallBinDir, "fuseki-server.jar"),
+		}
+	}
+	if err := extract(tmp.Name(), m.InstallBinDir); err != nil {
+		return nil, err
+	}
+	return installed, nil
 }
 
 // installOxigraph 下载官方 release（GOOS/GOARCH 映射资产，pin PinnedVersion）流式落盘：
@@ -659,11 +674,14 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 	}
 	switch m.Store.GetConfig().ExecutionMethod {
 	case "docker":
+		// docker 不可用的运行期降级对所有引擎生效（REQ-325 顺修：原实现降级 break 仅包住
+		// oxigraph 分支，fuseki 等其他引擎在「默认 docker + 未装 docker」的 fresh 环境恒报错
+		// ——D-O20 v0.73「未安装 docker 时启动期降级进程内 native」本意即全引擎兜底）
+		if !oxigraph.DockerAvailable() {
+			log.Printf("[manager] 方案 %s：执行方式配置为 docker 但 docker 不可用，降级进程内 native（REQ-236④）", p.ID)
+			break
+		}
 		if ox, ok := eng.(*oxigraph.Runtime); ok {
-			if !oxigraph.DockerAvailable() {
-				log.Printf("[manager] 方案 %s：执行方式配置为 docker 但 docker 不可用，降级进程内 native（REQ-236④）", p.ID)
-				break
-			}
 			return ox.DockerStartOpts(ctx, p.ID, port, ttls, opts)
 		}
 		return nil, fmt.Errorf("执行方式 docker 当前仅支持 oxigraph 引擎（fuseki docker 化随需求推进）")

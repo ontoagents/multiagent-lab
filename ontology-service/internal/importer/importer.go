@@ -16,7 +16,9 @@ import (
 )
 
 // triplesRe sidecar export stderr 的三元组计数标记（REQ-293① 装载对账数据源）。
-var triplesRe = regexp.MustCompile(`(?m)^TRIPLES (\d+)$`)
+// \r? 容忍 windows CRLF（REQ-325 真机实锤：python stderr 为 \r\n，(?m)$ 不含 \r 前——
+// 计数恒丢 → X-Onto-Triples 头恒缺 → 装载对账硬闸在 windows 全线 skipped）。
+var triplesRe = regexp.MustCompile(`(?m)^TRIPLES (\d+)\r?$`)
 
 // Format 支持的形态格式。
 const (

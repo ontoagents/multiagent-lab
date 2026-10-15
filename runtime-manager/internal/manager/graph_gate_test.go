@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
 )
 
@@ -231,5 +232,32 @@ func TestStartUnknownCountGateSkipped(t *testing.T) {
 	}
 	if ls["ont_raw"]["gate"] != "skipped" {
 		t.Fatalf("期望 gate=skipped，得到 %v", ls["ont_raw"]["gate"])
+	}
+}
+
+// TestStartDockerUnavailableDegradesNative REQ-325 顺修：默认执行方式 docker + docker 不可用
+// 时，非 oxigraph 引擎（fuseki）也应降级进程内 native——原实现降级 break 仅包住 oxigraph 分支，
+// fresh 环境（迁移默认 docker、无 docker）fuseki 方案恒报「docker 仅支持 oxigraph」无法首启。
+func TestStartDockerUnavailableDegradesNative(t *testing.T) {
+	if oxigraph.DockerAvailable() {
+		t.Skip("本机 docker 可用，降级路径不可达（降级语义由无 docker 环境承载）")
+	}
+	f := startFixtureSetup(t, map[string]int{"ont_a": 4})
+	// 恢复迁移默认 docker（startFixtureSetup 为走 GraphIsolation 路由显式切了 native）
+	if err := f.m.Store.SetConfig(store.RuntimeConfig{ExecutionMethod: "docker"}); err != nil {
+		t.Fatal(err)
+	}
+	p := &store.Profile{ID: "rt_dlg", Name: "fuseki 降级方案", Engine: "fuseki", OntologyIDs: []string{"ont_a"}, Config: "{}"}
+	if err := f.m.Store.Create(p); err != nil {
+		t.Fatal(err)
+	}
+	// 同一 stub 桩以 fuseki 名补注册（startFixtureSetup 只注册了 oxigraph 名）
+	f.m.RegisterEngine("fuseki", f.m.Engines["oxigraph"])
+	if err := f.m.Start(context.Background(), p.ID); err != nil {
+		t.Fatalf("docker 不可用时 fuseki 应降级 native 启动: %v", err)
+	}
+	got, _ := f.m.Store.Get(p.ID)
+	if got.Status != "running" {
+		t.Fatalf("期望 running，得到 %s（%s）", got.Status, got.LastError)
 	}
 }
