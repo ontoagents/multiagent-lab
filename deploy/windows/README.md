@@ -43,7 +43,10 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 
 - 程序：`%LOCALAPPDATA%\Programs\MultiAgentLab`；数据：`%LOCALAPPDATA%\eino-lab\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
 - 备份/迁移：停服后复制 `eino-lab\`（换机连 `eino-lab\.secret` 一起带走，否则模型连接密钥无法解密）。
-- 端口：8080 / 8091 / 8090 固定，oxigraph 子进程 9201+；被占用时启动会明确报错。
+- 端口：默认 8080 / 8091 / 8090（oxigraph 子进程 9201+）。**端口被占用时分級处理**：平台自身残留服务自动回收；
+  其他程序占用则不误杀，弹窗透明诊断（端口/PID/进程名/路径）并给处置建议（停占用进程，含 WSL2 内实例提示；
+  或在安装目录新建 **launcher.json** 换端口共存：`{"backend_port":18080,"ontology_port":18091,"runtime_port":18090}`，
+  改动对服务监听/服务间互访/壳窗口全链生效）。已在运行的客户端窗口：再次双击快捷方式只会唤起既有窗口（单实例语义）。
 - 服务环境变量与 `run-dev.sh` 一一同构（全量清单见 `platform-knowledge/01_整体设计/16_部署与运行.md` §7）；
   安装态差异：`KB_VECTOR_BACKEND=sqlite`（单机零依赖默认，需 Qdrant 时在 launcher `buildServices` 覆盖）。
 
