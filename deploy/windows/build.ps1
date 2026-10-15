@@ -56,21 +56,17 @@ if ($SkipWeb -and (Test-Path "$repo\web\dist\index.html")) {
 }
 Copy-Item -Recurse -Force "$repo\web\dist" "$staging\web\dist"
 
-# ---- 4. oxigraph Windows 引擎（REQ-321 定案：默认零捆绑，首启运行页一键安装；-IncludeOxigraph 显式预置）----
+# ---- 4. oxigraph Windows 引擎（REQ-321 零捆绑口径 2026-10-15 反转：安装包内置，首启由壳种子到数据根 bin；-IncludeOxigraph 开关保留已无差异）----
 $oxi = "$staging\bin\oxigraph.exe"
-if ($IncludeOxigraph -and -not (Test-Path $oxi)) {
+if (-not (Test-Path $oxi)) {
     $cached = "$cache\oxigraph.exe"
     if (-not (Test-Path $cached)) {
-        Step "抓取 oxigraph v0.5.11 windows 资产"
+        Step "抓取 oxigraph v0.5.11 windows 资产（内置）"
         Invoke-WebRequest -UseBasicParsing `
             -Uri "https://github.com/oxigraph/oxigraph/releases/download/v0.5.11/oxigraph_v0.5.11_x86_64_windows_msvc.exe" `
             -OutFile $cached
     }
     Copy-Item $cached $oxi
-} elseif (Test-Path $oxi) {
-    Copy-Item $oxi "$cache\oxigraph.exe" -Force
-    Remove-Item $oxi
-    Step "oxigraph 不随包（REQ-321 零捆绑），已移出 staging（缓存保留）"
 }
 
 # ---- 5. 迁移脚本 / sidecar / 内容目录 / README ----
@@ -122,6 +118,7 @@ if ($Shell -eq "tauri") {
     Copy-Item "$staging\bin\backend.exe"    "$tsrc\bin\backend-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\ontologyd.exe"  "$tsrc\bin\ontologyd-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\runtimed.exe"   "$tsrc\bin\runtimed-x86_64-pc-windows-msvc.exe"
+    Copy-Item "$staging\bin\oxigraph.exe"   "$tsrc\bin\oxigraph-x86_64-pc-windows-msvc.exe"
 
     # Tauri CLI 自举（node_modules 不入库：CI/新机首次构建时 npx tauri 无可执行文件）；
     # package-lock.json 在库，npm ci 可复现

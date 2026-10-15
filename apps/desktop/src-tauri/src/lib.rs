@@ -507,6 +507,16 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(&d);
             }
 
+            // 内置 oxigraph 引擎种子（REQ-321 零捆绑口径 2026-10-15 反转：安装包内置引擎）：
+            // 首启把壳同目录的随包副本复制到数据根 bin（与一键安装同位——ENGINE_INSTALL_DIR/
+            // 一键更新/候选序逻辑零改动）；已存在不覆盖（不回滚用户一键更新或手动放置的版本）。
+            let oxi_src = svc_path(&exe_dir, "oxigraph");
+            let oxi_name = if cfg!(windows) { "oxigraph.exe" } else { "oxigraph" };
+            let oxi_dst = data_dir.join("bin").join(oxi_name);
+            if oxi_src.exists() && !oxi_dst.exists() {
+                let _ = std::fs::copy(&oxi_src, &oxi_dst);
+            }
+
             #[cfg(windows)]
             let job = job_handle();
             #[cfg(windows)]

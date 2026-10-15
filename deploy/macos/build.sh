@@ -45,6 +45,32 @@ if [ "$STAGE_ONLY" != "1" ]; then
   (cd backend && go build -trimpath -o "$MACOS_DIR/build/bin/backend" ./cmd/backend)
   (cd ontology-service && go build -trimpath -o "$MACOS_DIR/build/bin/ontologyd" ./cmd/ontologyd)
   (cd runtime-manager && go build -trimpath -o "$MACOS_DIR/build/bin/runtimed" ./cmd/runtimed)
+  # ---- oxigraph 引擎内置（REQ-321 零捆绑口径 2026-10-15 反转）----
+  # 官方 release v0.5.11 双架构下载 + lipo 合成 universal（Intel/Apple Silicon 一包双跑）；
+  # 单架构下载或 lipo 不可用（CLT 损坏机）回落本机可达架构；全败则不内置（首启一键安装兜底）。
+  OXI_BIN="$MACOS_DIR/build/bin/oxigraph"
+  if [ ! -x "$OXI_BIN" ]; then
+    OXI_BASE="https://github.com/oxigraph/oxigraph/releases/download/v0.5.11"
+    OXI_TMP="$(mktemp -d)"
+    fetch_oxi() {  # $1=aarch64|x86_64 → echo 解包出的 oxigraph_server 路径（失败返非零）
+      curl -fsSL -o "$OXI_TMP/$1.tgz" "$OXI_BASE/oxigraph_v0.5.11_${1}_apple.tar.gz" || return 1
+      mkdir -p "$OXI_TMP/$1" && tar -xzf "$OXI_TMP/$1.tgz" -C "$OXI_TMP/$1" || return 1
+      find "$OXI_TMP/$1" -type f -name oxigraph_server | head -1
+    }
+    A64="$(fetch_oxi aarch64 || true)"
+    X64="$(fetch_oxi x86_64 || true)"
+    if [ -n "$A64" ] && [ -n "$X64" ] && lipo -create -output "$OXI_BIN" "$A64" "$X64" 2>/dev/null; then
+      echo "[build] oxigraph universal（aarch64+x86_64）内置就绪"
+    elif [ -n "$A64" ] && cp "$A64" "$OXI_BIN"; then
+      echo "[build] oxigraph 仅 aarch64 内置（x86_64 下载/lipo 失败，Intel 机首启一键安装兜底）"
+    elif [ -n "$X64" ] && cp "$X64" "$OXI_BIN"; then
+      echo "[build] oxigraph 仅 x86_64 内置"
+    else
+      echo "[build] 警告: oxigraph 下载失败，安装包不含内置引擎（首启运行页一键安装兜底）"
+    fi
+    rm -rf "$OXI_TMP"
+  fi
+  [ -f "$OXI_BIN" ] && chmod +x "$OXI_BIN"
 fi
 
 if [ "$SHELL_KIND" = "go" ]; then
@@ -63,6 +89,7 @@ if [ "$SHELL_KIND" = "go" ]; then
   mkdir -p "$RES/bin" "$RES/shell" "$RES/migrations" "$RES/web" "$RES/tools/rdf-sidecar"
   cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \
      "$MACOS_DIR/build/bin/runtimed" "$MACOS_DIR/build/bin/mlabd" "$RES/bin/"
+  [ -f "$MACOS_DIR/build/bin/oxigraph" ] && cp "$MACOS_DIR/build/bin/oxigraph" "$RES/bin/"
   cp "$MACOS_DIR/launcher.sh" "$APP/Contents/MacOS/MultiAgentLab"
   cp "$MACOS_DIR/shell/window.applescript" "$RES/shell/window.applescript"
   chmod +x "$APP/Contents/MacOS/MultiAgentLab" "$RES/bin/"*
@@ -97,8 +124,8 @@ else
   cp -R "$REPO/research" "$TRES/research"
   TRIPLE="$(rustc -vV 2>/dev/null | awk '/^host/{print $2}')"
   [ -n "$TRIPLE" ] || TRIPLE="$(uname -m)-apple-darwin"
-  for svc in backend ontologyd runtimed; do
-    [ -f "$MACOS_DIR/build/bin/$svc" ] || { echo "[build] 错误: 缺 ${svc}（-StageOnly 需先全量构建）"; exit 1; }
+  for svc in backend ontologyd runtimed oxigraph; do
+    [ -f "$MACOS_DIR/build/bin/$svc" ] || { echo "[build] 错误: 缺 ${svc}（-StageOnly 需先全量构建；oxigraph 由全量构建期官方 release 下载内置）"; exit 1; }
     cp "$MACOS_DIR/build/bin/$svc" "$TSRC/bin/$svc-$TRIPLE"
   done
 

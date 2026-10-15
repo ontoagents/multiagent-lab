@@ -202,6 +202,18 @@ func buildServices(root, dataDir string) []service {
 			},
 		},
 	}
+	// 内置 oxigraph 种子（REQ-321 零捆绑口径 2026-10-15 反转：安装包内置引擎）：随包副本
+	// （与 mlabd 同目录，build.sh 落 Resources/bin）首启复制到 dataDir/bin（一键安装同位）；
+	// 已存在不覆盖（不回滚用户一键更新或手动放置的版本）。
+	if exe, err := os.Executable(); err == nil {
+		src := filepath.Join(filepath.Dir(exe), "oxigraph")
+		dst := filepath.Join(dataDir, "bin", "oxigraph")
+		if fileExists(src) && !fileExists(dst) {
+			if b, err := os.ReadFile(src); err == nil {
+				_ = os.WriteFile(dst, b, 0o755)
+			}
+		}
+	}
 	// REQ-146/307：oxigraph/fuseki 不随包分发（首启运行页一键安装落 dataDir/bin），
 	// 此处存在即显式注入 env（即时命中，无需重启编排器）。
 	if p := filepath.Join(dataDir, "bin", "oxigraph"); fileExists(p) {

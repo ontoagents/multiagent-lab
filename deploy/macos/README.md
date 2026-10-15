@@ -10,7 +10,7 @@
 | `dist/MultiAgentLab.app` | 应用 bundle（拖入「应用程序」即完成安装）；双击 → 拉起三服务 → 打开平台窗口 |
 | `dist/MultiAgentLab_1.0.0.dmg` | 分发镜像（hdiutil UDZO 压缩） |
 | 安装后体积 | 见构建输出实测（三服务二进制 + web/dist + docs/platform-knowledge/research 资源随包） |
-| 数据目录 | `~/Library/Application Support/multiagent-lab/`（独立于程序目录，删除/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（对齐 REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `multiagent-lab/bin`，即时生效） |
+| 数据目录 | `~/Library/Application Support/multiagent-lab/`（独立于程序目录，删除/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 内置随包**（REQ-321 零捆绑口径 2026-10-15 反转；build.sh 下载官方 v0.5.11 双架构 lipo universal）：壳/编排器首启把随包副本种子到 `multiagent-lab/bin`（已存在不覆盖），运行页引擎即装即用；后续版本更新仍走「一键安装」 |
 
 ## 构建
 

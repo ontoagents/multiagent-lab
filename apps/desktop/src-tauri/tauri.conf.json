@@ -24,8 +24,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/icon.ico"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
     "resources": {
       "resources/web-dist": "web-dist",
       "resources/migrations": "migrations",
@@ -34,11 +38,18 @@
       "resources/research": "research",
       "resources/tools": "tools"
     },
-    "externalBin": ["bin/backend", "bin/ontologyd", "bin/runtimed"],
+    "externalBin": [
+      "bin/backend",
+      "bin/ontologyd",
+      "bin/runtimed",
+      "bin/oxigraph"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese"],
+        "languages": [
+          "SimpChinese"
+        ],
         "displayLanguageSelector": false
       }
     }
