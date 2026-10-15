@@ -1,0 +1,140 @@
+# REQ-327：客户端安装包打包自动化（GitHub Actions）
+# 产物：MultiAgentLab_<版本>_setup.exe（Windows，Inno Setup 安装向导）
+#       MultiAgentLab_<版本>_macos_universal.dmg（macOS，Apple Silicon + Intel 通用二进制，一包双跑）
+# 触发：推 v* tag（双平台构建并发 GitHub Release）；手动 workflow_dispatch（仅出 artifact 试跑，不发版）
+# 发布面：public 仓（ontoagents/multiagent-lab）——工作流随 main 同步到 origin（开发主仓）时全部 job 自动跳过，防双跑；
+#         public 仓 main 同步本提交后、手动打 v* tag 即出包。
+# 边界：安装包未签名（macOS ad-hoc=Gatekeeper 首次右键→打开；Windows 无证书=SmartScreen 提示），沿 REQ-321/324 本地构建同口径；
+#       构建脚本 build.ps1/build.sh 零改动（版本号硬编码 1.0.0 保持不动，产物文件名由本工作流重命名注入真实版本）。
+name: client-release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.2.3；仅 dispatch 试跑时用于产物命名，无需 v 前缀）'
+        required: false
+        default: '0.0.0-dev'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    # 发布面在 public 仓：origin（开发主仓）上跳过（防两端双跑/私有仓 Actions 计费）
+    if: github.repository == 'ontoagents/multiagent-lab'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: '**/*.go.sum'   # go.work 多模块（backend/ontology-service/runtime-manager/launcher/setup 各有 go.sum）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: 解析版本号（tag v1.2.3 → 1.2.3）
+        id: ver
+        shell: bash
+        env:
+          RAW: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+      # 预构建 web/dist，构建脚本以 -SkipWeb 复用（npm ci 可复现，优于脚本内 npm install）
+      - name: 构建前端
+        working-directory: web
+        run: npm ci && npm run build
+      # ISCC 落默认安装路径即被 build.ps1 自动发现（程序文件(x86)\Inno Setup 6）；未装则脚本自动走 Go 自解压 SFX 兜底
+      - name: 安装 Inno Setup
+        run: choco install innosetup -y --no-progress
+      # 三服务+launcher 壳纯 Go 编译（syso 图标/清单已入 git 零额外步骤）；oxigraph 默认零捆绑（首启一键安装）
+      - name: 构建 Windows 安装包
+        run: powershell -ExecutionPolicy Bypass -File deploy/windows/build.ps1 -SkipWeb
+      - name: 重命名产物（注入真实版本号）
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: mv deploy/windows/dist/MultiAgentLab_*_setup.exe "deploy/windows/dist/MultiAgentLab_${VER}_setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: deploy/windows/dist/MultiAgentLab_*_setup.exe
+          if-no-files-found: error
+
+  macos:
+    # 发布面在 public 仓：origin（开发主仓）上跳过
+    if: github.repository == 'ontoagents/multiagent-lab'
+    # Apple Silicon runner；Intel 半边由 Go 交叉编译产出（四服务+mlabd 纯 Go 零 cgo，跨架构直出无需 Intel 机器，
+    # 亦规避 macos-13 Intel 云 runner 退役风险）
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: '**/*.go.sum'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: 解析版本号
+        id: ver
+        shell: bash
+        env:
+          RAW: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+      - name: 构建前端
+        working-directory: web
+        run: npm ci && npm run build
+      # 三阶段组装通用二进制（零 build.sh 改动，全复用其自带形态开关 -SkipWeb/-SkipDmg/-StageOnly）：
+      # ① GOARCH=arm64 编译+组装（跳过 DMG），留存四服务瘦二进制
+      # ② GOARCH=amd64 纯 Go 交叉编译+组装
+      # ③ lipo 合并通用二进制 → -StageOnly 重组装 .app + ad-hoc 签名 + DMG
+      - name: 构建 macOS 通用二进制 .app + DMG（Apple Silicon + Intel）
+        shell: bash
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          GOARCH=arm64 bash deploy/macos/build.sh -SkipWeb -SkipDmg
+          mkdir -p /tmp/thin-arm64 && cp deploy/macos/build/bin/* /tmp/thin-arm64/
+          GOARCH=amd64 bash deploy/macos/build.sh -SkipWeb -SkipDmg
+          for b in backend ontologyd runtimed mlabd; do
+            lipo -create "/tmp/thin-arm64/$b" "deploy/macos/build/bin/$b" -output "deploy/macos/build/bin/$b"
+          done
+          bash deploy/macos/build.sh -StageOnly
+          mv deploy/macos/dist/MultiAgentLab_*.dmg "deploy/macos/dist/MultiAgentLab_${VER}_macos_universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: deploy/macos/dist/MultiAgentLab_*_macos_universal.dmg
+          if-no-files-found: error
+
+  release:
+    # 仅 tag 触发时发版（dispatch 试跑只留 artifact 供手动下载）
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'ontoagents/multiagent-lab'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write          # 创建 Release 并上传安装包附件
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
