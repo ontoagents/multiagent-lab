@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
-	"strconv"
+	
 	"strings"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
@@ -419,37 +419,17 @@ func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Repor
 	return &res.Spec, rep, nil
 }
 
-// ExportTTL spec_json → Turtle（sidecar export，导出即校验）。
-func ExportTTL(sc *Sidecar, ontologyID string, sp *pkgspec.Spec) (string, error) {
-	ttl, _, err := ExportTTLCount(sc, ontologyID, sp)
+// ExportTTL spec_json → Turtle（Go 原生直出，REQ-321 迭代：导出链路脱离 python）。
+func ExportTTL(ontologyID string, sp *pkgspec.Spec) (string, error) {
+	ttl, _, err := ExportTTLCount(ontologyID, sp)
 	return ttl, err
 }
 
-// ExportTTLCount 同 ExportTTL，另回三元组精确计数（REQ-293①：sidecar rdflib 回读时 len(g)，
-// 供运行平面装载计数硬闸对账；sidecar 未回计数标记时返回 -1=未知，调用方跳过对账）。
-func ExportTTLCount(sc *Sidecar, ontologyID string, sp *pkgspec.Spec) (string, int, error) {
-	if sc == nil || sc.Python == "" || sc.Script == "" {
-		return "", -1, fmt.Errorf("sidecar 未配置（SIDECAR_PYTHON / SIDECAR_SCRIPT）")
-	}
-	bts, err := json.Marshal(sp)
-	if err != nil {
-		return "", -1, err
-	}
-	cmd := exec.Command(sc.Python, sc.Script, "export", "--ontology-id", ontologyID)
-	cmd.Stdin = bytes.NewReader(bts)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		return "", -1, fmt.Errorf("sidecar export: %w; stderr: %s", err, strings.TrimSpace(errb.String()))
-	}
-	n := -1
-	if m := triplesRe.FindStringSubmatch(errb.String()); m != nil {
-		if v, perr := strconv.Atoi(m[1]); perr == nil {
-			n = v
-		}
-	}
-	return out.String(), n, nil
+// ExportTTLCount 同 ExportTTL，另回三元组精确计数（REQ-293① 装载计数硬闸对账数据源）。
+// 导出走 TTLGoExport（sidecar.py export 的字节级一致 Go 移植，对拍测试锁定），python 不再是
+// 导出依赖——sidecar 消费面收窄为导入解析与 owlrl 推理检查两个。
+func ExportTTLCount(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
+	return TTLGoExport(ontologyID, sp)
 }
 
 func (r *Report) warn(s string) { r.Warnings = append(r.Warnings, s) }

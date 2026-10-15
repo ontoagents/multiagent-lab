@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,18 +19,18 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 )
 
-// fakeSidecarScript 生成假 sidecar 脚本：parse 输出带 unprojected 的固定 JSON；export 输出固定 TTL。
+// fakeSidecarScript 生成假 sidecar 桩脚本（python，跨平台——原 /bin/sh 硬编码 Unix-only）：
+// parse 输出带 unprojected 的固定 JSON；export 输出固定 TTL。
 func fakeSidecarScript(t *testing.T, dir string) string {
 	t.Helper()
 	p := filepath.Join(dir, "fake-sidecar.py")
-	script := "#!/bin/sh\n" +
-		`if [ "$1" = "parse" ]; then cat <<'JSON'
-{"spec":{"name":"公理透测","concepts":[{"name":"药物"}],"relations":[],"instances":[]},"warnings":["匿名父类丢弃"],"lossy":true,"unprojected":["<http://ex.org/Drug> rdfs:subClassOf [ ] .","<http://ex.org/hasPart> a <http://www.w3.org/2002/07/owl#TransitiveProperty> ."]}
-JSON
-else
-echo '<http://ex.org/Drug> a <http://www.w3.org/2002/07/owl#Class> .'
-fi
-`
+	script := "# fake sidecar stub（测试基建，非被测行为）\n" +
+		"import sys\n" +
+		"cmd = sys.argv[1] if len(sys.argv) > 1 else \"\"\n" +
+		"if cmd == \"parse\":\n" +
+		"    sys.stdout.write('{\"spec\":{\"name\":\"axiom-stub\",\"concepts\":[{\"name\":\"Drug\"}],\"relations\":[],\"instances\":[]},\"warnings\":[],\"lossy\":false,\"unprojected\":[\"<http://ex.org/Drug> rdfs:subClassOf [ ] .\",\"<http://ex.org/hasPart> a <http://www.w3.org/2002/07/owl#TransitiveProperty> .\"]}')\n" +
+		"else:\n" +
+		"    sys.stdout.write('<http://ex.org/Drug> a <http://www.w3.org/2002/07/owl#Class> .')\n"
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -38,13 +39,20 @@ fi
 
 func newAxiomTestServer(t *testing.T) *Server {
 	t.Helper()
+	py := "python"
+	if _, err := exec.LookPath(py); err != nil {
+		py = "python3"
+		if _, err := exec.LookPath(py); err != nil {
+			t.Skip("系统无 python（桩脚本运行前置，非被测行为）")
+		}
+	}
 	st, err := repo.Open(filepath.Join(t.TempDir(), "axiom_test.db"), "../../migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	sc := &importer.Sidecar{Python: "/bin/sh", Script: fakeSidecarScript(t, t.TempDir())}
-	// /bin/sh script parse --format turtle → argv[1]=parse ✓
+	sc := &importer.Sidecar{Python: py, Script: fakeSidecarScript(t, t.TempDir())}
+	// python 桩：argv[1]=parse ✓
 	return New(st, sc, llmcreate.New("http://127.0.0.1:1"))
 }
 

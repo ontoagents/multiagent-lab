@@ -374,7 +374,7 @@ func (s *Server) qualityCheck(w http.ResponseWriter, r *http.Request) {
 		} else if c, _, gerr := s.Store.GetArtifact(req.OntologyID, "owl_rdfxml"); gerr == nil && c != "" {
 			ttl, src, rdfFmt = c, "original_owl_rdfxml", "owl_rdfxml"
 		} else {
-			ttl, terr = importer.ExportTTL(s.Sidecar, req.OntologyID, sp)
+			ttl, terr = importer.ExportTTL(req.OntologyID, sp)
 		}
 		if terr == nil {
 			res, rerr := s.reasonCheck(ttl, rdfFmt)
@@ -1054,7 +1054,7 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		ttl, triples, err := importer.ExportTTLCount(s.Sidecar, id, &sp)
+		ttl, triples, err := importer.ExportTTLCount(id, &sp)
 		if err != nil {
 			writeErr(w, err)
 			return

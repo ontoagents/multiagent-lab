@@ -54,7 +54,7 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 
 - 单机单实例；不支持开机自启/系统托盘/自动更新（跨端方案 R-X9/X10，后续按需）。
 - WebView2 Runtime 需系统预装（Win11 自带；缺失时壳自动回退默认浏览器并提示安装）。
-- 本体 TTL/OWL 导入导出需系统 Python3+rdflib（未装自动降级，其余功能不受影响）。
+- 本体 TTL/OWL **导入**需系统 Python3+rdflib（未装自动降级并提示）；**导出与引擎启动已脱离 python**（REQ-321 迭代：Go 原生 TTL 导出，与 sidecar 输出字节级一致）。owlrl 推理检查（质量报告可选档）仍需 python。
 - Docker 沙箱执行需自行安装 Docker Desktop；Qdrant 向量库不在包内（默认 SQLite 向量后端）。
 - SFX 兜底安装包的安装向导为英文/简洁形态（中文向导走 Inno Setup 路径）；卸载完成提示为英文。
 - 壳窗口图标为系统默认（应用图标 P2）；oxigraph 由用户首启一键下载（Apache-2.0/MIT，源 https://github.com/oxigraph/oxigraph）。

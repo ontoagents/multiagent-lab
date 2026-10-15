@@ -432,7 +432,8 @@ def export(argv) -> int:
         if it.get("concept"):
             L[-1] += f' ;\n    rdf:type <{cu(it["concept"])}>'
         L[-1] += f' ;\n    rdfs:label "{esc(it["name"])}"'
-        for k, v in (it.get("attributes") or {}).items():
+        # 键序统一 sorted（与 Go 导出器 ttlexport.go 对拍口径一致：消除 dict 插入序不确定）
+        for k, v in sorted((it.get("attributes") or {}).items()):
             L[-1] += f' ;\n    <{au(k)}> "{esc(v)}"'
         for ir in it.get("relations", []):
             L[-1] += f' ;\n    <{ru(ir["rel"])}> <{iu(ir["target"])}>'

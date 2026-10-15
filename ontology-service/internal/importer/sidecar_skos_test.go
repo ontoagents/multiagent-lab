@@ -185,7 +185,7 @@ func TestSidecarDatatypeExportRoundTrip(t *testing.T) {
 		},
 		Instances: []pkgspec.Instance{{Name: "pod1", Concept: "Pod", Attributes: map[string]any{"副本数": "3"}}},
 	}
-	ttl, err := ExportTTL(sc, "rt", sp)
+	ttl, err := ExportTTL("rt", sp)
 	if err != nil {
 		t.Fatalf("导出失败: %v", err)
 	}
