@@ -1,4 +1,4 @@
-# eino-lab Helm values
+# multiagent-lab Helm values
 # 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 docs/13 §4）
 
 image:
@@ -8,7 +8,7 @@ image:
 ingress:
   enabled: false
   className: nginx
-  host: eino-lab.local
+  host: multiagent-lab.local
 
 qdrant:
   enabled: false        # 知识库向量检索需要时开启（backend env 同步指向）
@@ -18,40 +18,40 @@ qdrant:
 # ---- 三服务公共模板 ----
 components:
   - name: backend
-    image: eino-lab/backend
+    image: multiagent-lab/backend
     tag: latest
     port: 8080
     storage: 2Gi
     env:
       - name: BUILD_SVC_URL
-        value: http://eino-lab-ontology-service:8091
+        value: http://multiagent-lab-ontology-service:8091
       - name: RUNTIME_MGR_URL
-        value: http://eino-lab-runtime-manager:8090
+        value: http://multiagent-lab-runtime-manager:8090
       - name: SEMANTICA_WORKER_URL
-        value: http://eino-lab-semantica-worker:8093
+        value: http://multiagent-lab-semantica-worker:8093
       # - name: KB_VECTOR_BACKEND
       #   value: qdrant
       # - name: QDRANT_URL
-      #   value: http://eino-lab-qdrant:6333
+      #   value: http://multiagent-lab-qdrant:6333
       # Docker 沙箱（进阶，默认关）：需 DinD/宿主 sock，见 docs/13 §4
   - name: ontology-service
-    image: eino-lab/ontology-service
+    image: multiagent-lab/ontology-service
     tag: latest
     port: 8091
     storage: 1Gi
     env:
       - name: PLATFORM_URL
-        value: http://eino-lab-backend:8080
+        value: http://multiagent-lab-backend:8080
   - name: runtime-manager
-    image: eino-lab/runtime-manager
+    image: multiagent-lab/runtime-manager
     tag: latest
     port: 8090
     storage: 2Gi
     env:
       - name: BUILD_SVC_URL
-        value: http://eino-lab-ontology-service:8091
+        value: http://multiagent-lab-ontology-service:8091
   - name: semantica-worker
-    image: eino-lab/semantica-worker
+    image: multiagent-lab/semantica-worker
     tag: latest
     port: 8093
     storage: 5Gi

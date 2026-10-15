@@ -3,9 +3,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "eino-lab.name" (dict "Release" $.Release "component" .name) }}
+  name: {{ include "multiagent-lab.name" (dict "Release" $.Release "component" .name) }}
   labels:
-    {{- include "eino-lab.labels" (dict "Release" $.Release "component" .name) | nindent 4 }}
+    {{- include "multiagent-lab.labels" (dict "Release" $.Release "component" .name) | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce

@@ -6,7 +6,7 @@
 //   - 端口被占用时的分级处理：自身残留服务按 PID/exe 名回收 → 无法回收时透明诊断
 //     （谁占的、PID、完整路径）+ 处置建议（停实例 / 检查 WSL2 / launcher.json 换端口）；
 //   - 单实例：已有客户端窗口时聚焦唤起而非报错；
-//   - 数据根：data.location（安装器写）→ %LOCALAPPDATA%\eino-lab → 安装目录 data\；
+//   - 数据根：data.location（安装器写）→ %LOCALAPPDATA%\multiagent-lab → 安装目录 data\；
 //   - Job Object（KILL_ON_JOB_CLOSE）关窗整树回收；PID 留痕 + -stop 兜底停服；
 //   - WebView2 缺失回退默认浏览器。
 //
@@ -83,7 +83,9 @@ func exeDir() string {
 }
 
 // dataRoot 数据根：安装器把所选数据根写入 <安装目录>\data.location（数据随安装目录走——
-// C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\eino-lab 兜底。
+// C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\multiagent-lab 兜底。
+// 曾用名一次性迁移：旧版数据根 %LOCALAPPDATA%\eino-lab 存在且新目录不存在时整体改名（改名失败
+// ——如目录被占用——则继续用旧目录，不丢数据）。
 func dataRoot(root string) string {
 	if b, err := os.ReadFile(filepath.Join(root, "data.location")); err == nil {
 		if p := strings.TrimSpace(string(b)); p != "" {
@@ -91,9 +93,21 @@ func dataRoot(root string) string {
 		}
 	}
 	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		return filepath.Join(localAppData, "eino-lab")
+		cur := filepath.Join(localAppData, "multiagent-lab")
+		legacy := filepath.Join(localAppData, "eino-lab")
+		if dirExists(legacy) && !dirExists(cur) {
+			if err := os.Rename(legacy, cur); err != nil {
+				return legacy // 占用/权限导致改名失败：沿用旧目录，不丢数据
+			}
+		}
+		return cur
 	}
 	return filepath.Join(root, "data")
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // run 常规入口：单实例聚焦 → 清理残留 → 拉起三服务 → 等主平台就绪 → 窗口/驻留 → 退出回收。

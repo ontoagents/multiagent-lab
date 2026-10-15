@@ -9,7 +9,7 @@
 | --- | --- |
 | `dist/MultiAgentLab_1.0.0_setup.exe`（约 36 MB） | 自解压安装包（Go 引导器 + 附加 zip）；双击 → 控制台解压安装到 `%LOCALAPPDATA%\Programs\MultiAgentLab` + 开始菜单/桌面快捷方式 + HKCU 卸载注册项（「应用与功能」可见）。`MLAB_SILENT=1` 环境变量静默（冒烟自动化用） |
 | 安装后目录（约 93 MB） | `MultiAgentLab.exe`（壳）、`bin\`（backend/ontologyd/runtimed）、`web\dist`、`migrations\`、`docs\ + platform-knowledge\ + research\`（平台知识随包）、`tools\rdf-sidecar\`、`README.txt` |
-| 数据目录 | `%LOCALAPPDATA%\eino-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `eino-lab\bin`，即时生效）；构建期 `-IncludeOxigraph` 可显式预置 |
+| 数据目录 | `%LOCALAPPDATA%\multiagent-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `multiagent-lab\bin`，即时生效）；构建期 `-IncludeOxigraph` 可显式预置 |
 
 ## 构建
 
@@ -41,8 +41,8 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 
 ## 目录与数据
 
-- 程序：`%LOCALAPPDATA%\Programs\MultiAgentLab`；数据：`%LOCALAPPDATA%\eino-lab\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
-- 备份/迁移：停服后复制 `eino-lab\`（换机连 `eino-lab\.secret` 一起带走，否则模型连接密钥无法解密）。
+- 程序：`%LOCALAPPDATA%\Programs\MultiAgentLab`；数据：`%LOCALAPPDATA%\multiagent-lab\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
+- 备份/迁移：停服后复制 `multiagent-lab\`（换机连 `multiagent-lab\.secret` 一起带走，否则模型连接密钥无法解密）。
 - 端口：默认 8080 / 8091 / 8090（oxigraph 子进程 9201+）。**端口被占用时分級处理**：平台自身残留服务自动回收；
   其他程序占用则不误杀，弹窗透明诊断（端口/PID/进程名/路径）并给处置建议（停占用进程，含 WSL2 内实例提示；
   或在安装目录新建 **launcher.json** 换端口共存：`{"backend_port":18080,"ontology_port":18091,"runtime_port":18090}`，

@@ -63,7 +63,16 @@ fn data_root(exe_dir: &std::path::Path) -> PathBuf {
         }
     }
     if let Some(lad) = std::env::var_os("LOCALAPPDATA") {
-        return PathBuf::from(lad).join("eino-lab");
+        // 曾用名一次性迁移：eino-lab → multiagent-lab（旧目录存在且新目录不存在时整体改名；
+        // 改名失败——如目录被占用——则继续用旧目录，不丢数据）
+        let cur = PathBuf::from(&lad).join("multiagent-lab");
+        let legacy = PathBuf::from(&lad).join("eino-lab");
+        if legacy.is_dir() && !cur.is_dir() {
+            if std::fs::rename(&legacy, &cur).is_err() {
+                return legacy;
+            }
+        }
+        return cur;
     }
     exe_dir.join("data")
 }

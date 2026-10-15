@@ -1,6 +1,6 @@
 # REQ-321 卸载核心（PowerShell：整本解析后执行，删自身目录安全）。
 # 语义：停服 → 快捷方式/注册项移除 → 删安装目录。
-# 数据根 %LOCALAPPDATA%\eino-lab 独立于程序目录（REQ-321 定案），卸载不触碰——天然保留。
+# 数据根 %LOCALAPPDATA%\multiagent-lab 独立于程序目录（REQ-321 定案），卸载不触碰——天然保留。
 param(
     [Parameter(Mandatory = $true)][string]$Target
 )
@@ -60,4 +60,4 @@ Add-Content -Path '$log' -Value ("[{0}] finisher done TARGET=$Target" -f (Get-Da
 "@ | Set-Content -Path $fin -Encoding UTF8
 Start-Process powershell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $fin -WindowStyle Hidden
 Log "finisher spawned"
-Write-Host "Uninstall complete. Data kept at: $env:LOCALAPPDATA\eino-lab (delete manually to purge)."
+Write-Host "Uninstall complete. Data kept at: $env:LOCALAPPDATA\multiagent-lab (delete manually to purge)."

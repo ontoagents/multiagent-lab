@@ -10,7 +10,7 @@
 | `dist/MultiAgentLab.app` | 应用 bundle（拖入「应用程序」即完成安装）；双击 → 拉起三服务 → 打开平台窗口 |
 | `dist/MultiAgentLab_1.0.0.dmg` | 分发镜像（hdiutil UDZO 压缩） |
 | 安装后体积 | 见构建输出实测（三服务二进制 + web/dist + docs/platform-knowledge/research 资源随包） |
-| 数据目录 | `~/Library/Application Support/eino-lab/`（独立于程序目录，删除/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（对齐 REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `eino-lab/bin`，即时生效） |
+| 数据目录 | `~/Library/Application Support/multiagent-lab/`（独立于程序目录，删除/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 不随包**（对齐 REQ-321 零捆绑定案）：首启在「本体-运行」页一键下载安装（落 `multiagent-lab/bin`，即时生效） |
 
 ## 构建
 
@@ -37,7 +37,7 @@ deploy/macos/build.sh -SkipDmg     # 只出 .app
 | --- | --- | --- |
 | 窗口壳 | jchv/go-webview2（Go 内嵌 WebView2） | osascript + AppleScriptObjC + WKWebView（零 cgo） |
 | 进程回收 | Job Object（KILL_ON_JOB_CLOSE） | Setpgid 进程组 + SIGTERM→SIGKILL 阶梯 + ppid 监视 |
-| 数据根 | `%LOCALAPPDATA%\eino-lab` | `~/Library/Application Support/eino-lab`（`MLAB_DATA_ROOT` 可覆盖，冒烟隔离用） |
+| 数据根 | `%LOCALAPPDATA%\multiagent-lab` | `~/Library/Application Support/multiagent-lab`（`MLAB_DATA_ROOT` 可覆盖，冒烟隔离用） |
 | 安装包 | NSIS/SFX per-user | .app + DMG（拖入「应用程序」） |
 | 残留回收 | PID 留痕 + 进程名兜底 | **仅 PID 留痕**（不按进程名杀——避免误伤 run-dev.sh 开发实例，端口占用时明确报错） |
 | Python sidecar | 零捆绑诚实降级 | 同左 + 自动探测含 rdflib 的 python3（沿 run-dev.sh 候选序，`SIDECAR_PYTHON` 优先） |

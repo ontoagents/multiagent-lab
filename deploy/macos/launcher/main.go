@@ -3,7 +3,7 @@
 // 与 deploy/windows/launcher（REQ-321/M123）同构的 macOS 对称实现，职责：
 //   - 编排三服务启动：ontologyd :8091 → runtimed :8090 → backend :8080，
 //     环境变量与 run-dev.sh / Windows launcher 一一同构（见 16_部署与运行.md §7）；
-//   - 数据根独立于程序目录：~/Library/Application Support/eino-lab（MLAB_DATA_ROOT 可覆盖，冒烟隔离用）；
+//   - 数据根独立于程序目录：~/Library/Application Support/multiagent-lab（MLAB_DATA_ROOT 可覆盖，冒烟隔离用）；
 //   - 退出回收 = 进程组 SIGTERM→SIGKILL 阶梯（Windows 为 Job Object）；并监视父进程：
 //     本进程由 .app 壳脚本派生，壳（osascript 窗口）退出后本进程 getppid() 归 1，
 //     立即回收整棵服务树——等价 Windows「关窗即整树回收」；-headless 冒烟模式关闭该监视；
@@ -86,8 +86,9 @@ func appRoot() string {
 	return dir
 }
 
-// dataRoot 数据根：~/Library/Application Support/eino-lab（对齐 Windows %LOCALAPPDATA%\eino-lab
+// dataRoot 数据根：~/Library/Application Support/multiagent-lab（对齐 Windows %LOCALAPPDATA%\multiagent-lab
 // 定案：独立于程序目录，删除/升级程序不触碰数据）；MLAB_DATA_ROOT 供冒烟/多实例隔离覆盖。
+// 曾用名一次性迁移：eino-lab → multiagent-lab（旧目录存在且新目录不存在时整体改名；失败沿用旧目录）。
 func dataRoot() string {
 	if v := os.Getenv("MLAB_DATA_ROOT"); v != "" {
 		return v
@@ -96,7 +97,16 @@ func dataRoot() string {
 	if err != nil {
 		return appRoot()
 	}
-	return filepath.Join(home, "Library", "Application Support", "eino-lab")
+	cur := filepath.Join(home, "Library", "Application Support", "multiagent-lab")
+	legacy := filepath.Join(home, "Library", "Application Support", "eino-lab")
+	if st, err := os.Stat(legacy); err == nil && st.IsDir() {
+		if _, err := os.Stat(cur); err != nil {
+			if err := os.Rename(legacy, cur); err == nil {
+				return cur
+			}
+		}
+	}
+	return cur
 }
 
 // run 编排入口：建目录 → 回收残留 → 拉起三服务（进程组）→ 等主平台就绪 →

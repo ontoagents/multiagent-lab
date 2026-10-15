@@ -4,7 +4,7 @@
 首次启动自动拉起三个本地服务（ontology-service :8091 / runtime-manager :8090 / 主平台 :8080），
 就绪后自动打开平台窗口；关闭窗口（或 Cmd+Q）即停止全部服务。
 
-数据目录：~/Library/Application Support/eino-lab/
+数据目录：~/Library/Application Support/multiagent-lab/
   （SQLite 三库、项目文件、引擎数据、日志、一键安装的引擎；删除本客户端不会触碰该目录。）
 
 停止服务（兜底）：终端执行

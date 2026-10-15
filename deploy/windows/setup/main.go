@@ -8,7 +8,7 @@
 //   - Console（-y 或 MLAB_SILENT=1，冒烟自动化）：同 install() 核心，进度走 stdout，无窗口。
 //
 // 数据根：安装器把所选安装目录下的 data\ 写入 <安装目录>\data.location，launcher 启动时读取
-// （数据随安装目录走——C 盘紧张机器可选装其他盘；未写则 launcher 兜底 %LOCALAPPDATA%\eino-lab）。
+// （数据随安装目录走——C 盘紧张机器可选装其他盘；未写则 launcher 兜底 %LOCALAPPDATA%\multiagent-lab）。
 package main
 
 import (

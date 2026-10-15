@@ -5,7 +5,7 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}-qdrant
   labels:
-    {{- include "eino-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 4 }}
+    {{- include "multiagent-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -17,7 +17,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "eino-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 8 }}
+        {{- include "multiagent-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 8 }}
     spec:
       containers:
         - name: qdrant
@@ -37,7 +37,7 @@ kind: Service
 metadata:
   name: {{ .Release.Name }}-qdrant
   labels:
-    {{- include "eino-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 4 }}
+    {{- include "multiagent-lab.labels" (dict "Release" .Release "component" "qdrant") | nindent 4 }}
 spec:
   type: ClusterIP
   selector:

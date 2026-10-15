@@ -1,8 +1,8 @@
-# eino-lab 服务器单机部署（Docker Compose）
+# multiagent-lab 服务器单机部署（Docker Compose）
 # 用法：cd deploy && docker compose up -d --build
 #       需要知识库向量检索：docker compose --profile qdrant up -d
 # 文档：docs/13_部署与运行.md
-name: eino-lab
+name: multiagent-lab
 
 services:
   backend:
@@ -16,7 +16,7 @@ services:
       RUNTIME_MGR_URL: http://runtime-manager:8090
       SEMANTICA_WORKER_URL: http://semantica-worker:8093
       # Docker 沙箱（进阶，默认关）：需挂载 /var/run/docker.sock 并改写回连地址
-      # SANDBOX_IMAGE: eino-lab/agentd:latest
+      # SANDBOX_IMAGE: multiagent-lab/agentd:latest
       # PLATFORM_URL_EXTERNAL: http://<宿主IP>:8080
     volumes:
       - platform-data:/app/data
