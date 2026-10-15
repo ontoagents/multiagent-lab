@@ -21,20 +21,21 @@ import { useUI, type PageKey } from '../store/ui'
 // REQ-326①：全局导航自顶部横排（TopNav，已退役）迁左侧可收缩侧边栏——
 // web/客户端同一 SPA（REQ-321/324 WebView 直载 127.0.0.1:8080），客户端窗口可缩，
 // 顶部横排导航不可收缩、窄窗退化最重；左置后全站收敛「左全局导航（可收）+ 模块内容区」。
-//   展开态：品牌区 + 六模块（图标 + 名称 + 一句话定位）；
+//   展开态：品牌区 + 六模块（图标 + 名称；REQ-326 迭代三：一句话定位小字退役——
+//     开发者反馈「模块名下小字描述太杂乱」，模块定位语义由 17 号 IA 档与各模块首屏承载）；
 //   收起态：48px 图标列（沿 CollapsedRail 基建形态，Tooltip 右置）；
 //   底部工具区：主题切换 + 设置（VS Code 齿轮惯例，原顶栏右端入口迁此）；
 //   窄窗自适应：<1080px 强制收起（transient 不写记忆，宽窗恢复用户偏好）。
 //   REQ-111 五项导航组织语义不变（六入口 + 设置同一批），仅承载形态演进。
 // ---------------------------------------------------------------------------
 
-const PAGES: { key: PageKey; label: string; icon: ReactNode; desc: string }[] = [
-  { key: 'agents', label: '智能体', icon: <RobotOutlined />, desc: '对话 · 多智能体协作 · 知识技能本体增强' },
-  { key: 'projects', label: '项目', icon: <ProjectOutlined />, desc: '项目工作区 · 本地目录 · 成员协作' },
-  { key: 'ontology', label: '本体', icon: <ApartmentOutlined />, desc: '构建 → 资产 → 运行 → 消费审计闭环' },
-  { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined />, desc: 'RAG · GraphRAG · LLM Wiki' },
-  { key: 'skills', label: '技能', icon: <ThunderboltOutlined />, desc: '配置级能力包 · 工具白名单' },
-  { key: 'reference', label: '平台知识', icon: <BookOutlined />, desc: '调研 · 开发 · 产品设计文档库' },
+const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
+  { key: 'agents', label: '智能体', icon: <RobotOutlined /> },
+  { key: 'projects', label: '项目', icon: <ProjectOutlined /> },
+  { key: 'ontology', label: '本体', icon: <ApartmentOutlined /> },
+  { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
+  { key: 'skills', label: '技能', icon: <ThunderboltOutlined /> },
+  { key: 'reference', label: '平台知识', icon: <BookOutlined /> },
 ]
 
 const COLLAPSE_KEY = 'eino.globalnav.collapsed'
@@ -149,7 +150,6 @@ export default function GlobalNav() {
               {!collapsed && (
                 <span className="gn-item-text">
                   <span className="gn-item-label">{p.label}</span>
-                  <span className="gn-item-desc">{p.desc}</span>
                 </span>
               )}
             </button>

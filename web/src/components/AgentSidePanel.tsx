@@ -38,11 +38,13 @@ const providerOfConn = (c: ModelConnection) => {
   return i > 0 ? c.name.slice(0, i) : c.name
 }
 
-/** REQ-189：侧板宽度三常量与 localStorage 键（拖拽 clamp 320~720，记忆 eino.agentpanel.width） */
+/** REQ-189：侧板宽度三常量与 localStorage 键（拖拽 clamp 320~720，记忆 eino.agentpanel.width）
+ *  REQ-326 迭代三：默认展开宽度 560→320（最窄档）——开发者反馈「新建智能体默认展开太宽
+ *  挤占对话区」；已有宽度记忆的用户偏好不受影响，拖拽与双击复位（DEFAULT）照常 */
 const PANEL_WIDTH_KEY = 'eino.agentpanel.width'
-const DEFAULT_PANEL_WIDTH = 560
 const MIN_PANEL_WIDTH = 320
 const MAX_PANEL_WIDTH = 720
+const DEFAULT_PANEL_WIDTH = MIN_PANEL_WIDTH
 // REQ-21705/M48: activity bar shu-tiao width (collapsed rail)
 const PANEL_BAR_WIDTH = 44
 
@@ -338,7 +340,9 @@ export default function AgentSidePanel({
               }
             }}
           >
-            {collapsed ? <DoubleRightOutlined /> : <DoubleLeftOutlined />}
+            {/* REQ-326 迭代三：图标方向修复——侧板居右，展开=内容向左铺开（«）、收起=向右收拢（»），
+                原两态图标恰好反向（开发者反馈「展开、收缩按钮是反的」） */}
+            {collapsed ? <DoubleLeftOutlined /> : <DoubleRightOutlined />}
           </button>
         </Tooltip>
       </div>

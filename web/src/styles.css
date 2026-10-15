@@ -38,10 +38,11 @@ body { font-size: 14px; background: var(--c-bg); }
 .app-body { flex: 1; display: flex; min-height: 0; min-width: 0; }
 
 /* ---- 全局导航（REQ-326①）：左侧可收缩侧边栏 ----
-   展开态 208px（品牌 + 六模块带一句话定位）；收起态 48px 图标列（CollapsedRail 同款形态）；
+   展开态 184px（品牌 + 六模块图标+名称；REQ-326 迭代三：一句话定位小字退役，
+   宽度自 208 收窄至容纳全部文字的最小值）；收起态 48px 图标列（CollapsedRail 同款形态）；
    底部工具区（主题 + 设置）；视觉分层：--c-panel 底色 + 发丝右边框，与模块左栏（--c-bg-soft）区分 */
 .global-nav {
-  width: 208px; flex: none; display: flex; flex-direction: column; gap: 2px;
+  width: 184px; flex: none; display: flex; flex-direction: column; gap: 2px;
   padding: 10px 8px 8px; overflow: hidden; overflow-y: auto;
   background: var(--c-panel); border-right: 1px solid var(--c-line);
 }
@@ -73,10 +74,6 @@ body { font-size: 14px; background: var(--c-bg); }
 .gn-item.active { background: var(--c-active-soft); color: var(--c-brand); font-weight: 600; }
 .gn-item-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .gn-item-label { overflow: hidden; text-overflow: ellipsis; }
-.gn-item-desc {
-  font-size: 11px; font-weight: 400; color: var(--c-ink-3);
-  overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
-}
 .gn-foot {
   margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-line);
   display: flex; flex-direction: column; gap: 2px; flex: none;
@@ -187,30 +184,31 @@ body { font-size: 14px; background: var(--c-bg); }
 .side-node.active .side-node-row { background: var(--c-active-soft); }
 .side-node.active .side-node-row:hover { background: #e2e5f5; }
 .side-node-head {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
   height: 34px; padding: 0 4px 0 8px; border: 0; background: none;
   border-radius: 9px; cursor: pointer; text-align: left; color: var(--c-ink); font-family: inherit;
 }
 .side-node-chev { width: 10px; display: inline-flex; justify-content: center; flex: none; font-size: 10px; color: var(--c-ink-3); }
 .side-node-dot {
-  width: 20px; height: 20px; border-radius: 7px; flex: none;
+  width: 18px; height: 18px; border-radius: 6px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 12px; color: var(--c-brand); background: var(--c-icon-soft); border: 1px solid #dbdefa;
 }
 .side-node.active .side-node-dot { background: var(--c-brand); border-color: var(--c-brand); color: var(--c-panel); }
 .side-node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+/* REQ-326 迭代三：会话数徽标轻量化（背景 pill→裸数字）——开发者反馈「会话数挤压智能体名」，
+   名称之外的行内占用收敛（间距 8→6 / 头像点 20→18 / 徽标裸数字 / 操作钮 22px 紧凑） */
 .side-node-count {
-  flex: none; font-size: 11px; color: var(--c-ink-3); background: #e9ebf2;
-  border-radius: 999px; padding: 0 6px; min-width: 18px; text-align: center; line-height: 17px;
+  flex: none; font-size: 11px; color: var(--c-ink-3); line-height: 17px; padding: 0 2px;
 }
-.side-node.active .side-node-count { background: #dfe2fb; color: var(--c-brand); }
+.side-node.active .side-node-count { color: var(--c-brand); }
 .side-node-ops { display: inline-flex; align-items: center; flex: none; padding-right: 4px; }
-.side-node-ops .ant-btn { color: var(--c-ink-3); }
+.side-node-ops .ant-btn { color: var(--c-ink-3); width: 22px; min-width: 22px; padding: 0; }
 .sidebar .side-node-row .side-node-ops .ant-btn:hover { color: var(--c-brand); background: #e3e6f5; }
 
 /* 子树：左侧缩进导轨对齐头像点，行高/间距统一（覆盖 X Conversations 默认内边距；选择器多带一层类名以稳超 antd 运行时样式） */
 .side-node-children {
-  margin: 2px 0 6px 26px; padding-left: 8px;
+  margin: 2px 0 6px 24px; padding-left: 8px;
   border-left: 1px solid #e2e5ef;
 }
 .side-node-empty { font-size: 12px; color: var(--c-ink-3); padding: 6px 8px; }

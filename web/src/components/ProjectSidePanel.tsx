@@ -235,7 +235,8 @@ export default function ProjectSidePanel({
               }
             }}
           >
-            {collapsed ? <DoubleRightOutlined /> : <DoubleLeftOutlined />}
+            {/* REQ-326 迭代三：图标方向修复（与 AgentSidePanel 同批）——侧板居右，展开=向左铺开（«）、收起=向右收拢（»） */}
+            {collapsed ? <DoubleLeftOutlined /> : <DoubleRightOutlined />}
           </button>
         </Tooltip>
       </div>

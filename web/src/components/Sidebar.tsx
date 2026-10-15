@@ -29,7 +29,7 @@ interface TreeNode {
 
 /**
  * 左栏树（原型 06 §3.1 / §3.2）：
- * - mode=agent：智能体节点（头像点 + 对话数徽标 + 常驻「＋新对话」「⚙配置」），其下挂该智能体的对话；
+ * - mode=agent：智能体节点（头像点 + 会话数轻量数字 + 常驻「＋新对话」「⚙配置」），其下挂该智能体的对话；
  * - mode=project：项目节点同样结构，其下挂项目对话；
  * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）。
  */
@@ -207,7 +207,8 @@ export default function Sidebar({
                   <span className="side-node-dot">{isAgent ? <AgentLogo backend={n.backend} logoUrl={n.logo} size={16} /> : <ProjectOutlined />}</span>
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {n.builtin && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>内置</Tag>}
-                  <span className="side-node-count">{n.convs.length}</span>
+                  {/* REQ-326 迭代三：会话数轻量裸数字（0 不显示）——减少名称之外的行内空间占用 */}
+                  {n.convs.length > 0 && <span className="side-node-count" title={`${n.convs.length} 个对话`}>{n.convs.length}</span>}
                 </button>
                 <span className="side-node-ops">
                   <Button type="text" size="small" icon={<PlusOutlined />} title={n.builtin ? '与平台助手开始对话' : '新建对话'} onClick={() => onNewConversation(n.key)} />
