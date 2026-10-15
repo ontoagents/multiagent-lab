@@ -116,21 +116,23 @@ export default function GlobalNav() {
             <span className="brand-sub">智能体构建平台</span>
           </span>
         )}
+        {/* REQ-326 迭代：收起钮自「导航区满宽行」收编为品牌行右侧轻量图标钮（低对比 hover 显现，
+            桌面惯例——框架操作不占导航项位）；收起态顶部同位展开钮（rail 首位，Tooltip 承载语义） */}
+        {!narrow &&
+          (collapsed ? (
+            <Tooltip title="展开导航" placement="right" mouseEnterDelay={0.3}>
+              <button type="button" className="gn-fold-btn" aria-label="展开导航" onClick={toggle}>
+                <MenuUnfoldOutlined />
+              </button>
+            </Tooltip>
+          ) : (
+            <Tooltip title="收起导航" placement="top" mouseEnterDelay={0.3}>
+              <button type="button" className="gn-fold-btn" aria-label="收起导航" onClick={toggle}>
+                <MenuFoldOutlined />
+              </button>
+            </Tooltip>
+          ))}
       </div>
-
-      {!narrow && (
-        <Tooltip title={collapsed ? '展开导航' : '收起导航'} placement="right" mouseEnterDelay={0.3}>
-          <button
-            type="button"
-            className="gn-item gn-fold"
-            aria-label={collapsed ? '展开导航' : '收起导航'}
-            onClick={toggle}
-          >
-            <span className="gn-item-icon">{collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</span>
-            {!collapsed && <span className="gn-item-text">收起导航</span>}
-          </button>
-        </Tooltip>
-      )}
 
       <nav className="gn-nav" aria-label="主导航">
         {PAGES.map((p) => {

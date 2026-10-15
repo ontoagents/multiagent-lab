@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- MultiAgentLab 应用图标：品牌渐变圆角方牌 + 三节点网络（与平台 brand-mark 同源设计） -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c6cf5"/>
+      <stop offset="0.58" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#3f36c9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#g)"/>
+  <g stroke="#ffffff" stroke-width="56" stroke-linecap="round" fill="none">
+    <path d="M512 300 L292 668"/>
+    <path d="M512 300 L732 668"/>
+    <path d="M338 704 L686 704"/>
+  </g>
+  <circle cx="512" cy="240" r="98" fill="#ffffff"/>
+  <circle cx="252" cy="724" r="84" fill="#ffffff" opacity="0.92"/>
+  <circle cx="772" cy="724" r="84" fill="#ffffff" opacity="0.92"/>
+</svg>

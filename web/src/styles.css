@@ -46,9 +46,19 @@ body { font-size: 14px; background: var(--c-bg); }
   background: var(--c-panel); border-right: 1px solid var(--c-line);
 }
 .global-nav.collapsed { width: 48px; padding: 10px 4px 8px; align-items: center; }
-.gn-brand { display: flex; align-items: center; gap: 8px; padding: 2px 6px 10px; min-height: 34px; flex: none; }
-.global-nav.collapsed .gn-brand { padding: 2px 0 10px; justify-content: center; }
-.gn-fold { margin-bottom: 2px; flex: none; }
+.gn-brand { display: flex; align-items: center; gap: 8px; padding: 2px 6px 10px; min-height: 34px; flex: none; min-width: 0; }
+.global-nav.collapsed .gn-brand { padding: 2px 0 10px; justify-content: center; flex-direction: column; gap: 6px; }
+.gn-brand .brand-text { flex: 1; min-width: 0; }
+/* REQ-326 迭代：收起/展开钮——品牌行右侧轻量图标钮（低对比，hover 显现品牌色；
+   收起态居顶部同位），不再占导航区满宽行 */
+.gn-fold-btn {
+  width: 26px; height: 26px; flex: none; border: 0; border-radius: 7px; background: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--c-ink-3); font-size: 13px; cursor: pointer;
+  transition: background .16s ease, color .16s ease, opacity .16s ease;
+}
+.global-nav.collapsed .gn-fold-btn { width: 32px; height: 32px; font-size: 15px; }
+.gn-fold-btn:hover { background: var(--c-hover-soft); color: var(--c-brand); }
 .gn-nav { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .gn-item {
   display: flex; align-items: center; gap: 9px; width: 100%;

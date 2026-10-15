@@ -45,6 +45,7 @@ APP="$MACOS_DIR/dist/MultiAgentLab.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$MACOS_DIR/Info.plist" "$APP/Contents/Info.plist"
+cp "$MACOS_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"  # REQ-321/324 待办销账：应用图标（品牌三节点网络）
 RES="$APP/Contents/Resources"
 mkdir -p "$RES/bin" "$RES/shell" "$RES/migrations" "$RES/web" "$RES/tools/rdf-sidecar"
 cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \

@@ -1,10 +1,24 @@
 {
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": [
+        "icons/icon_256.png",
+        "icons/icon_64.png",
+        "icons/icon_48.png",
+        "icons/icon_32.png",
+        "icons/icon_16.png"
+      ]
+    }
+  },
   "RT_MANIFEST": {
     "#1": {
       "0409": {
-        "identity": { "name": "MultiAgentLab.Setup", "version": "1.0.0.0" },
+        "identity": {
+          "name": "MultiAgentLab.Setup",
+          "version": "1.0.0.0"
+        },
         "description": "智能体构建平台 安装向导",
-        "minimum-os": "win10.0",
+        "minimum-os": "win10",
         "execution-level": "asInvoker",
         "dpi-awareness": "per monitor v2"
       }
