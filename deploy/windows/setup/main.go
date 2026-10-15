@@ -190,6 +190,7 @@ func checkDiskSpace(dir string, need int64) string {
 // ---- GUI：WebView2 窗口 + 内置 HTTP 向导 ----
 
 func runGUI(defDir string) {
+	setProcessDpiAware() // 高缩放屏清晰渲染前提（必须在建窗前声明；同 launcher/dpi.go）
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		failSilent("无法启动内置向导服务: " + err.Error())
@@ -288,13 +289,15 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func newHomeWindow() webview2.WebView {
+	dpi := systemDPI()
+	ww, wh := scaleSize(496, 400, dpi) // 逻辑 496×400 @96 → 125% 屏 = 620×500 物理
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "智能体构建平台 安装向导",
-			Width:  620,
-			Height: 500,
+			Width:  uint(ww),
+			Height: uint(wh),
 			Center: true,
 		},
 	})

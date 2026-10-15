@@ -296,13 +296,16 @@ func stopServices(dataDir string) int {
 
 // runShell WebView2 桌面窗口；运行时缺失时回退系统默认浏览器（诚实降级）。
 func runShell(url string) int {
+	setProcessDpiAware() // 高缩放屏清晰渲染的前提（必须在建窗前声明；125% 屏上不声明则整窗位图拉伸模糊）
+	dpi := systemDPI()
+	ww, wh := scaleSize(1152, 720, dpi) // 逻辑 1152×720 @96 → 125% 屏 = 1440×900 物理
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  appName,
-			Width:  1440,
-			Height: 900,
+			Width:  uint(ww),
+			Height: uint(wh),
 			Center: true,
 		},
 	})
@@ -413,8 +416,7 @@ func openInBrowser(url string) {
 }
 
 var (
-	user32          = windows.NewLazySystemDLL("user32.dll")
-	procMessageBoxW = user32.NewProc("MessageBoxW")
+	procMessageBoxW = user32.NewProc("MessageBoxW") // user32 声明在 dpi.go
 )
 
 func msgBox(title, text string) {

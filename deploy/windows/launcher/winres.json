@@ -1,0 +1,13 @@
+{
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": { "name": "MultiAgentLab.Launcher", "version": "1.0.0.0" },
+        "description": "智能体构建平台 客户端壳",
+        "minimum-os": "win10.0",
+        "execution-level": "asInvoker",
+        "dpi-awareness": "per monitor v2"
+      }
+    }
+  }
+}
