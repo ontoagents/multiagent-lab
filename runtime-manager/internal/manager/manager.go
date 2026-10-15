@@ -503,7 +503,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	// REQ-320②：对账口径与装载方式联动——伴生方案/推理 fuseki 走默认图计数（legacy 语义），
 	// regular per-graph 方案逐本体按独立命名图计数（不再数并集）。
 	companionMode := companionProfileName(p.Name)
-	perGraphGate := !companionMode && !(p.Engine == "fuseki" && profileReasoning(p.Config))
+	reasoningGate := p.Engine == "fuseki" && profileReasoning(p.Config) // REQ-329：推理形态等值闸改下限闸（见 gate 处注释）
+	perGraphGate := !companionMode && !reasoningGate
 	proc, err := m.startEngine(ctx, eng, p, port, ttls)
 	if err != nil {
 		_ = m.Store.SetStatus(id, "error", err.Error(), "")
@@ -551,7 +552,14 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 					loadedStatus[oid]["gate"] = "skipped"
 					break
 				}
-				if got != src {
+				// REQ-329：推理形态（fuseki InfModel OWL_FB）在引擎侧物化推断三元组，默认图计数
+				// 恒 ≥ 源计数（真机实锤 源1342/引擎3595），等值对账结构性失配。改下限闸：got < src
+				// 仍失配中止（截断/部分装载的硬闸语义保留）；≥ 判 pass 并留痕推断增量。
+				mismatch := got != src
+				if mismatch && reasoningGate {
+					mismatch = got < src
+				}
+				if mismatch {
 					proc.Stop()
 					m.mu.Lock()
 					delete(m.procs, id)
@@ -564,6 +572,9 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 					loadedStatus[oid] = map[string]any{}
 				}
 				loadedStatus[oid]["gate"] = "pass"
+				if reasoningGate && got != src {
+					loadedStatus[oid]["engine_triples"] = got // 推断物化后引擎侧实际计数，如实留痕
+				}
 			}
 			// REQ-293③ 装载态升级 v2：行数一致性 + 装载 generation 号 + 装载时间
 			for _, oid := range p.OntologyIDs {

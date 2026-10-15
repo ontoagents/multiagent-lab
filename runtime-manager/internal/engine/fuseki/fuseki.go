@@ -364,6 +364,12 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 	if err != nil {
 		return nil, err
 	}
+	// 候选序兜底候选 data/bin/fuseki-server 是相对路径（runtimed cwd=仓库根时命中）；下游
+	// extractRulesFile 会以 jarCmd.Dir 换子进程 cwd、config 的 file: URL 与 FUSEKI_HOME 亦依赖
+	// 绝对路径——统一在此绝对化（REQ-329：真机实锤相对路径在子进程 cwd 下 NoSuchFileException）。
+	if abs, aerr := filepath.Abs(bin); aerr == nil {
+		bin = abs
+	}
 	java := r.JavaBin
 	if java == "" {
 		java = "java"
@@ -373,6 +379,11 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 	}
 
 	dir := filepath.Join(r.DataDir, profileID)
+	// 同步绝对化：规则文件落点与 file: URL（fileURLFromPath 对相对路径会拼出锚在文件系统根的
+	// 错误 URL）、tdb:location、FUSEKI_HOME 全部依赖绝对路径（REQ-329）。
+	if abs, aerr := filepath.Abs(dir); aerr == nil {
+		dir = abs
+	}
 	_ = os.RemoveAll(dir) // 幂等：重建数据目录（显式重载语义，REQ-87）
 	dbDir := filepath.Join(dir, "tdb")
 	loadDir := filepath.Join(dir, "load")
@@ -508,6 +519,15 @@ func (r *Runtime) HealthCheck(ctx context.Context, endpoint string) error {
 // Jena 6.x 内置 urn:x-jena:* 规则 URL 处理器已移除，故显式解压后以 file: URL 引用。
 // JDK 自带 jar 工具（<javaHome>/bin/jar）；找不到时回退 PATH 上的 jar。
 func extractRulesFile(java, fusekiDir, destDir string) (string, error) {
+	// 入参自防御绝对化（REQ-329）：本函数以 jarCmd.Dir 换子进程 cwd，相对路径会在子进程 cwd 下
+	// 解析（真机实锤 NoSuchFileException: data/bin/fuseki-server.jar）；返回值经 fileURLFromPath
+	// 进 config.ttl，也必须绝对。
+	if abs, err := filepath.Abs(fusekiDir); err == nil {
+		fusekiDir = abs
+	}
+	if abs, err := filepath.Abs(destDir); err == nil {
+		destDir = abs
+	}
 	jar := filepath.Join(fusekiDir, "fuseki-server.jar")
 	dst := filepath.Join(destDir, "owl-fb.rules")
 	if _, err := os.Stat(dst); err == nil {
