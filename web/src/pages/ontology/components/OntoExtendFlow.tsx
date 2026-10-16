@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Select, Space, Spin, Steps, Tag, Typography } from 'antd'
+import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
@@ -155,152 +156,182 @@ export default function OntoExtendFlow() {
         title="OntoExtend 流程——ODP 模式推荐 + LOV 词表扩展现有本体（部分可用，M-O14 P2②）"
         description="不新建本体：选取人工精选的设计模式（ODP）与 LOV 词表术语生成扩展片段，经导入审查（冲突检测/改名）与质量门禁后并入目标本体新版本。"
       />
+      {/* REQ-337/M137：三步页化——Steps 可点跳步，每步独立子页+上一步/下一步导航 */}
       <Steps
         size="small"
         current={step}
+        onChange={setStep}
         items={[{ title: '选目标本体' }, { title: 'ODP + 词表' }, { title: '审查入库' }]}
         style={{ marginBottom: 12 }}
       />
 
-      <div className="onto-sec">
-        <span className="onto-sec-title">① 目标本体（扩展并入对象）</span>
-      </div>
-      {ontosErr ? (
-        <LoadErrorAlert title="本体列表加载失败" message={ontosErr} onRetry={() => api.listOntologies().then((ls: any) => setOntos(Array.isArray(ls) ? ls : []))} style={{ marginBottom: 8 }} />
-      ) : (
-        <Select
-          showSearch
-          optionFilterProp="label"
-          style={{ width: 320 }}
-          placeholder="选择要扩展的本体"
-          value={targetId}
-          onChange={(v) => {
-            setTargetId(v)
-            setPreview(null)
-            setAppliedVersion(null)
-            setStep(v ? 1 : 0)
-          }}
-          options={ontos.map((o) => ({ value: o.id, label: o.name }))}
-          notFoundContent={ontos.length === 0 ? '暂无本体' : undefined}
-        />
-      )}
-
-      <div className="onto-sec">
-        <span className="onto-sec-title">
-          ② ODP 精选推荐（人工精选 12 模式）
-          <Button size="small" type="text" onClick={loadOdps} style={{ marginLeft: 6 }}>刷新</Button>
-        </span>
-      </div>
-      {odpsLoading ? (
-        <Spin size="small" />
-      ) : odpsErr ? (
-        <LoadErrorAlert title="ODP 加载失败" message={odpsErr} onRetry={loadOdps} />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
-          {odps.map((o) => (
-            <Card
-              key={o.id}
-              size="small"
-              hoverable
-              onClick={() => {
-                setOdpId(o.id)
+      {step === 0 && (
+        <>
+          <div className="onto-sec" style={{ marginTop: 0 }}>
+            <span className="onto-sec-title">① 目标本体（扩展并入对象）</span>
+          </div>
+          {ontosErr ? (
+            <LoadErrorAlert title="本体列表加载失败" message={ontosErr} onRetry={() => api.listOntologies().then((ls: any) => setOntos(Array.isArray(ls) ? ls : []))} style={{ marginBottom: 8 }} />
+          ) : (
+            <Select
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 320 }}
+              placeholder="选择要扩展的本体"
+              value={targetId}
+              onChange={(v) => {
+                setTargetId(v)
                 setPreview(null)
-                if (targetId) setStep(1)
+                setAppliedVersion(null)
+                if (v && step === 0) setStep(1)
               }}
-              style={{ borderColor: odpId === o.id ? 'var(--ant-color-primary, #4f46e5)' : undefined }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 13 }}>
-                {o.name} {odpId === o.id && <Tag color="processing" style={{ marginInlineStart: 4 }}>已选</Tag>}
-              </div>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>{o.description}</Typography.Paragraph>
-              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                {o.spec.concepts?.length ?? 0} 概念 · {o.spec.relations?.length ?? 0} 关系 ｜ 出处：{o.source}
-              </Typography.Text>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <div className="onto-sec">
-        <span className="onto-sec-title">③ LOV 词表卡片（可选补充术语）</span>
-      </div>
-      <Space.Compact style={{ width: 'min(520px, 100%)', marginBottom: 6 }}>
-        <Input
-          placeholder="检索 LOV 词表术语（如 prov、time）——上游不可达时优雅降级"
-          value={lovQuery}
-          onChange={(e) => setLovQuery(e.target.value)}
-          onPressEnter={searchLov}
-          allowClear
-        />
-        <Button onClick={searchLov} loading={lovLoading}>检索</Button>
-      </Space.Compact>
-      {lovErr && <LoadErrorAlert title="LOV 检索失败" message={lovErr} onRetry={searchLov} style={{ marginBottom: 6 }} />}
-      {lovHits.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, maxHeight: 180, overflowY: 'auto' }}>
-          {lovHits.map((h) => (
-            <Checkbox
-              key={h.uri}
-              checked={!!lovPicked[h.uri]}
-              onChange={(e) =>
-                setLovPicked((cur) => {
-                  const next = { ...cur }
-                  if (e.target.checked) next[h.uri] = h
-                  else delete next[h.uri]
-                  return next
-                })
-              }
-            >
-              <span style={{ fontSize: 12 }}>{h.label}</span>
-              <Typography.Text type="secondary" style={{ fontSize: 11, marginInlineStart: 6 }}>{h.uri}</Typography.Text>
-            </Checkbox>
-          ))}
-        </div>
-      )}
-      {Object.keys(lovPicked).length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          已选术语：{Object.values(lovPicked).map((t) => <Tag key={t.uri} color="geekblue">{t.label}</Tag>)}
-        </div>
-      )}
-
-      <div className="onto-sec">
-        <span className="onto-sec-title">④ 生成草稿并审查入库</span>
-      </div>
-      <Space wrap style={{ marginBottom: 8 }}>
-        <Button type="primary" disabled={!targetId || !odp} loading={previewLoading} onClick={doPreview}>
-          生成扩展草稿并审查预览
-        </Button>
-        {preview && (
-          <Button type="primary" ghost loading={applying} onClick={doApply}>
-            应用入库（新版本）
-          </Button>
-        )}
-      </Space>
-      {applyErr && <LoadErrorAlert title="OntoExtend 操作失败" message={applyErr} onRetry={() => setApplyErr(null)} style={{ marginBottom: 8 }} />}
-      {preview && (
-        <Card size="small" style={{ marginBottom: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>审查报告（strategy=merge，REQ-157 底座）</div>
-          <Space size={16} wrap>
-            <Tag color="green">新增概念 {addedConcepts}</Tag>
-            <Tag color="geekblue">新增关系 {addedRelations}</Tag>
-            <Tag color={conflictCount > 0 ? 'orange' : 'default'}>冲突/改名 {conflictCount}</Tag>
-          </Space>
-          {conflictCount > 0 && (
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6 }}>
-              存在撞名冲突/改名项——应用后按 merge 策略自动改名并入（前缀避让），详情见资产栏版本 diff。
-            </Typography.Paragraph>
+              options={ontos.map((o) => ({ value: o.id, label: o.name }))}
+              notFoundContent={ontos.length === 0 ? '暂无本体' : undefined}
+            />
           )}
-        </Card>
+          {!targetId && (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择目标本体——OntoExtend 对既有本体做增量扩展，不新建" />
+          )}
+          <Space style={{ marginTop: 12 }}>
+            <Button type="primary" disabled={!targetId} onClick={() => setStep(1)}>
+              下一步：选择扩展模式 <RightOutlined />
+            </Button>
+          </Space>
+        </>
       )}
-      {appliedVersion !== null && (
-        <Alert
-          type="success"
-          showIcon
-          title={`已并入目标本体新版本（v${appliedVersion}）——strict 质量门禁通过`}
-          description={<DoneCTA ontologyId={targetId ?? ''} detail="扩展完成" />}
-        />
+
+      {step === 1 && (
+        <>
+          <div className="onto-sec" style={{ marginTop: 0 }}>
+            <span className="onto-sec-title">
+              ② ODP 精选推荐（人工精选 12 模式）
+              <Button size="small" type="text" onClick={loadOdps} style={{ marginLeft: 6 }}>刷新</Button>
+            </span>
+          </div>
+          {odpsLoading ? (
+            <Spin size="small" />
+          ) : odpsErr ? (
+            <LoadErrorAlert title="ODP 加载失败" message={odpsErr} onRetry={loadOdps} />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+              {odps.map((o) => (
+                <Card
+                  key={o.id}
+                  size="small"
+                  hoverable
+                  onClick={() => {
+                    setOdpId(o.id)
+                    setPreview(null)
+                  }}
+                  style={{ borderColor: odpId === o.id ? 'var(--ant-color-primary, #4f46e5)' : undefined }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    {o.name} {odpId === o.id && <Tag color="processing" style={{ marginInlineStart: 4 }}>已选</Tag>}
+                  </div>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>{o.description}</Typography.Paragraph>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {o.spec.concepts?.length ?? 0} 概念 · {o.spec.relations?.length ?? 0} 关系 ｜ 出处：{o.source}
+                  </Typography.Text>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          <div className="onto-sec">
+            <span className="onto-sec-title">③ LOV 词表卡片（可选补充术语）</span>
+          </div>
+          <Space.Compact style={{ width: 'min(520px, 100%)', marginBottom: 6 }}>
+            <Input
+              placeholder="检索 LOV 词表术语（如 prov、time）——上游不可达时优雅降级"
+              value={lovQuery}
+              onChange={(e) => setLovQuery(e.target.value)}
+              onPressEnter={searchLov}
+              allowClear
+            />
+            <Button onClick={searchLov} loading={lovLoading}>检索</Button>
+          </Space.Compact>
+          {lovErr && <LoadErrorAlert title="LOV 检索失败" message={lovErr} onRetry={searchLov} style={{ marginBottom: 6 }} />}
+          {lovHits.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, maxHeight: 180, overflowY: 'auto' }}>
+              {lovHits.map((h) => (
+                <Checkbox
+                  key={h.uri}
+                  checked={!!lovPicked[h.uri]}
+                  onChange={(e) =>
+                    setLovPicked((cur) => {
+                      const next = { ...cur }
+                      if (e.target.checked) next[h.uri] = h
+                      else delete next[h.uri]
+                      return next
+                    })
+                  }
+                >
+                  <span style={{ fontSize: 12 }}>{h.label}</span>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, marginInlineStart: 6 }}>{h.uri}</Typography.Text>
+                </Checkbox>
+              ))}
+            </div>
+          )}
+          {Object.keys(lovPicked).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              已选术语：{Object.values(lovPicked).map((t) => <Tag key={t.uri} color="geekblue">{t.label}</Tag>)}
+            </div>
+          )}
+
+          <Space wrap style={{ marginTop: 12 }}>
+            <Button onClick={() => setStep(0)} icon={<LeftOutlined />}>
+              上一步
+            </Button>
+            <Button type="primary" disabled={!targetId || !odp} loading={previewLoading} onClick={doPreview}>
+              生成扩展草稿并审查 <RightOutlined />
+            </Button>
+            {!odp && <Typography.Text type="secondary" style={{ fontSize: 12 }}>请先选择一个 ODP 模式</Typography.Text>}
+          </Space>
+        </>
       )}
-      {!targetId && (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择目标本体——OntoExtend 对既有本体做增量扩展，不新建" />
+
+      {step === 2 && (
+        <>
+          <div className="onto-sec" style={{ marginTop: 0 }}>
+            <span className="onto-sec-title">④ 审查入库（strategy=merge，REQ-157 底座）</span>
+          </div>
+          {applyErr && <LoadErrorAlert title="OntoExtend 操作失败" message={applyErr} onRetry={() => setApplyErr(null)} style={{ marginBottom: 8 }} />}
+          {preview ? (
+            <>
+              <Card size="small" style={{ marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>审查报告</div>
+                <Space size={16} wrap>
+                  <Tag color="green">新增概念 {addedConcepts}</Tag>
+                  <Tag color="geekblue">新增关系 {addedRelations}</Tag>
+                  <Tag color={conflictCount > 0 ? 'orange' : 'default'}>冲突/改名 {conflictCount}</Tag>
+                </Space>
+                {conflictCount > 0 && (
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6 }}>
+                    存在撞名冲突/改名项——应用后按 merge 策略自动改名并入（前缀避让），详情见资产栏版本 diff。
+                  </Typography.Paragraph>
+                )}
+              </Card>
+              <Space wrap style={{ marginBottom: 8 }}>
+                <Button onClick={() => setStep(1)} icon={<LeftOutlined />}>
+                  上一步（调整模式/词表）
+                </Button>
+                <Button type="primary" ghost loading={applying} onClick={doApply}>
+                  应用入库（新版本）
+                </Button>
+              </Space>
+            </>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成审查预览——回上一步点「生成扩展草稿并审查」" />
+          )}
+          {appliedVersion !== null && (
+            <Alert
+              type="success"
+              showIcon
+              title={`已并入目标本体新版本（v${appliedVersion}）——strict 质量门禁通过`}
+              description={<DoneCTA ontologyId={targetId ?? ''} detail="扩展完成" />}
+            />
+          )}
+        </>
       )}
     </Card>
   )

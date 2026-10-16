@@ -154,6 +154,35 @@ body { font-size: 14px; background: var(--c-bg); }
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none;
 }
 
+/* ---- REQ-337/M137：构建路径切换器 + 路径选择页卡片网格 ----
+   六路径页面化后各页共用的顶栏切换器（页签语言沿 module-tabs，紧凑版）；
+   成熟度角标=8px 圆点（ok=绿 / partial=橙 / guide=青）。 */
+.build-path-tabs {
+  display: flex; align-items: center; gap: 2px; flex: none; min-width: 0;
+  padding: 0 16px 8px; overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--c-line);
+}
+.build-path-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: none;
+  color: var(--c-ink-2); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  white-space: nowrap; transition: background .18s ease, color .18s ease;
+}
+.build-path-tab:hover { background: var(--c-bg-soft); color: var(--c-ink); }
+.build-path-tab.active { background: var(--c-active-soft); color: var(--c-brand); font-weight: 600; }
+.build-path-tab-icon { display: inline-flex; font-size: 14px; opacity: .92; }
+.build-path-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.build-path-dot.state-ok { background: var(--ant-color-success, #52c41a); }
+.build-path-dot.state-partial { background: var(--ant-color-warning, #faad14); }
+.build-path-dot.state-guide { background: var(--ant-color-info, #1677ff); }
+.build-path-body { flex: 1; min-height: 0; min-width: 0; }
+.build-path-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;
+}
+.build-path-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.build-path-card-icon { display: inline-flex; font-size: 16px; color: var(--c-brand); }
+.build-path-card-title { font-weight: 600; font-size: 13.5px; flex: 1; min-width: 0; }
+
 /* ---- 左右分栏（可拖拽调宽）：所有「左列表 + 右主区」工作台共用 ----
    antd Splitter 面板默认 overflow:auto，会与各栏内部滚动冲突，改为 hidden 交由子栏自行滚动；
    拖拽条常驻发丝线用设计令牌，悬停/拖拽沿用 antd 的品牌色强调（由 colorPrimary 派生） */

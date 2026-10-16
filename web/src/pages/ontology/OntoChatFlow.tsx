@@ -1,11 +1,15 @@
 // OntoChatFlow 对话式多轮本体引导（REQ-103 模式 A）。
 // 交互流：cq（领域描述+CQ）→ domain（逐轮补全，模型归纳+引导）→ 生成草稿（校验循环后端内聚）
 // → 预览确认入库（REQ-82 门控）或回复修改意见进入 refine。会话留痕可切换/删除。
+// REQ-337/M137：五阶段视图分离——story/cq/draft 阶段视图拆至 components/ontochat/
+// （StoryPanel/CQConfirmCards/DraftConfirmPanel），本文件保留编排（会话列表/对话区/输入区/job 轮询）。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
-import QualityReportCard, { qualityFindingsText } from './components/QualityReportCard'
-import { Alert, Button, Card, Checkbox, Collapse, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
-import { ApartmentOutlined, CommentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { StoryPanel, StoryTemplateChips } from './components/ontochat/StoryPanel'
+import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow } from './components/ontochat/CQConfirmCards'
+import DraftConfirmPanel from './components/ontochat/DraftConfirmPanel'
+import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
+import { ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
@@ -40,8 +44,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [job, setJob] = useState<OntoChatJob | null>(null)
   const [promptsOpen, setPromptsOpen] = useState(false)
   const [prompts, setPrompts] = useState<OntoChatPrompt[] | null>(null)
-  const [cqDraft, setCqDraft] = useState<{ text: string; origin?: string; checked: boolean }[] | null>(null)
-  const [clusterDraft, setClusterDraft] = useState<{ label: string; rows: { text: string; checked: boolean }[] }[] | null>(null)
+  const [cqDraft, setCqDraft] = useState<CqDraftRow[] | null>(null)
+  const [clusterDraft, setClusterDraft] = useState<ClusterDraftGroup[] | null>(null)
   const [analyzeOpen, setAnalyzeOpen] = useState(false)
   const [analyzeMax, setAnalyzeMax] = useState<number | null>(null)
   const [storyTpl, setStoryTpl] = useState<{ label: string; text: string }[] | null>(null)
@@ -598,151 +602,47 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 <div ref={listEndRef} />
               </div>
 
-              {/* 用户故事卡（REQ-275：访谈制品 + 精修 + 完成入口） */}
+              {/* 用户故事卡（REQ-275：访谈制品 + 精修 + 完成入口）——story 阶段视图（REQ-337 分离） */}
               {storyActive && draftStory && (
-                <Card size="small" style={{ marginTop: 10 }} title="用户故事（访谈制品，可精修）" data-testid="story-card">
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: 10,
-                      background: 'var(--ant-color-bg-layout, #f5f5f5)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      maxHeight: 260,
-                      overflowY: 'auto',
-                    }}
-                  >
-                    {draftStory}
-                  </pre>
-                  <Space style={{ marginTop: 8 }}>
-                    <Button size="small" onClick={backStory}>
-                      上一步（重答末问）
-                    </Button>
-                    <Button size="small" type="primary" icon={<SolutionOutlined />} loading={turning} onClick={finishStory} data-testid="story-finish-btn">
-                      完成并抽取 CQ
-                    </Button>
-                  </Space>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
-                    直接在下方输入框回复修改意见即可精修；完成后进入能力问题抽取（候选经确认卡写回，生成草稿回写 spec.CQ）。
-                  </Typography.Paragraph>
-                </Card>
+                <StoryPanel draftStory={draftStory} turning={turning} onBack={backStory} onFinish={finishStory} />
               )}
 
-              {/* CQ 聚类结果卡（REQ-273：人工确认步——聚类仅供参考分组） */}
+              {/* CQ 聚类结果卡（REQ-273：人工确认步——聚类仅供参考分组）——cq 阶段视图（REQ-337 分离） */}
               {clusterDraft && !isDone && (
-                <Card size="small" style={{ marginTop: 10 }} title="CQ 主题聚类（人工确认后应用）">
-                  <Collapse
-                    size="small"
-                    defaultActiveKey={clusterDraft.map((_, i) => String(i))}
-                    items={clusterDraft.map((cl, i) => ({
-                      key: String(i),
-                      label: `${cl.label}（${cl.rows.filter((r) => r.checked).length}/${cl.rows.length}）`,
-                      children: cl.rows.map((row, j) => (
-                        <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-                          <Checkbox
-                            checked={row.checked}
-                            onChange={(e) =>
-                              setClusterDraft(
-                                clusterDraft.map((c2, k) =>
-                                  k === i ? { ...c2, rows: c2.rows.map((r2, m) => (m === j ? { ...r2, checked: e.target.checked } : r2)) } : c2,
-                                ),
-                              )
-                            }
-                          />
-                          <Typography.Text style={{ fontSize: 13, flex: 1 }}>{row.text}</Typography.Text>
-                        </div>
-                      )),
-                    }))}
-                  />
-                  <Space style={{ marginTop: 8 }}>
-                    <Button size="small" type="primary" loading={turning} onClick={applyClusters}>
-                      应用去重结果（写回 {clusterDraft.reduce((n, cl) => n + cl.rows.filter((r) => r.checked && r.text.trim()).length, 0)} 条）
-                    </Button>
-                    <Button size="small" onClick={() => setClusterDraft(null)}>
-                      放弃
-                    </Button>
-                  </Space>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
-                    诚实边界：聚类仅供参考分组、不能单独支撑完整分析——写回后生成草稿仍以全部勾选问题为能力问题依据（spec.CQ 可追溯）。
-                  </Typography.Paragraph>
-                </Card>
+                <ClusterConfirmCard
+                  clusterDraft={clusterDraft}
+                  turning={turning}
+                  onChange={setClusterDraft}
+                  onApply={applyClusters}
+                  onDiscard={() => setClusterDraft(null)}
+                />
               )}
 
-              {/* CQ 候选确认卡（REQ-272：analyze 人工确认步） */}
+              {/* CQ 候选确认卡（REQ-272：analyze 人工确认步）——cq 阶段视图（REQ-337 分离） */}
               {cqDraft && !isDone && (
-                <Card
-                  size="small"
-                  style={{ marginTop: 10 }}
-                  title={`能力问题候选确认（勾选 ${cqDraft.filter((c) => c.checked && c.text.trim()).length}/${cqDraft.length}）`}
-                >
-                  {cqDraft.map((row, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-                      <Checkbox
-                        checked={row.checked}
-                        onChange={(e) => setCqDraft(cqDraft.map((r2, j2) => (j2 === i ? { ...r2, checked: e.target.checked } : r2)))}
-                      />
-                      <Input
-                        size="small"
-                        value={row.text}
-                        onChange={(e) => setCqDraft(cqDraft.map((r2, j2) => (j2 === i ? { ...r2, text: e.target.value } : r2)))}
-                        style={{ flex: 1 }}
-                      />
-                      {row.origin && <Tag style={{ margin: 0, fontSize: 11 }}>{row.origin}</Tag>}
-                      <Button size="small" type="text" icon={<DeleteOutlined />} aria-label="删除候选" onClick={() => setCqDraft(cqDraft.filter((_, j2) => j2 !== i))} />
-                    </div>
-                  ))}
-                  <Space style={{ marginTop: 4 }} size={8}>
-                    <Button size="small" onClick={() => setCqDraft([...cqDraft, { text: '', checked: true }])}>
-                      手动添加
-                    </Button>
-                    <Button
-                      size="small"
-                      type="primary"
-                      loading={turning}
-                      disabled={cqDraft.filter((c) => c.checked && c.text.trim()).length === 0}
-                      onClick={confirmCQs}
-                    >
-                      确认写入 {cqDraft.filter((c) => c.checked && c.text.trim()).length} 条
-                    </Button>
-                  </Space>
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
-                    确认后生成草稿将据此补充建模，并回写 spec.CQ 入本体资产（可追溯）。
-                  </Typography.Paragraph>
-                </Card>
+                <CqCandidateCard
+                  cqDraft={cqDraft}
+                  turning={turning}
+                  onChange={setCqDraft}
+                  onConfirm={confirmCQs}
+                  onAdd={() => setCqDraft([...cqDraft, { text: '', checked: true }])}
+                />
               )}
 
-              {/* 草稿预览 + 入库（REQ-82 门控：必须经用户确认） */}
+              {/* 草稿预览 + 入库（REQ-82 门控：必须经用户确认）——draft 阶段视图（REQ-337 分离） */}
               {draft && !isDone && (
-                <Card size="small" style={{ marginTop: 10 }} title="草稿预览（确认后入库）">
-                  <Space size={6} wrap>
-                    <Tag color="blue" style={{ margin: 0 }}>概念 {draft.concepts?.length ?? 0}</Tag>
-                    <Tag color="geekblue" style={{ margin: 0 }}>关系 {draft.relations?.length ?? 0}</Tag>
-                    <Tag color="purple" style={{ margin: 0 }}>实例 {draft.instances?.length ?? 0}</Tag>
-                  </Space>
-                  {draftWarning && <Alert type="warning" showIcon style={{ marginTop: 8 }} title={draftWarning} />}
-                  {/* REQ-312/M116：草稿质量报告卡（与 AI 创建共用）；「按报告优化」=报告 findings 作为修正意见走 refine 管道 */}
-                  {draftQuality && (
-                    <div style={{ marginTop: 8 }}>
-                      <QualityReportCard
-                        report={draftQuality}
-                        optimizing={turning}
-                        onOptimize={() => {
-                          const ftext = qualityFindingsText(draftQuality)
-                          if (!ftext) return
-                          void send('请重点修复上次生成发现的质量问题：\n' + ftext, '请重点修复上次生成发现的质量问题：\n' + ftext)
-                        }}
-                      />
-                    </div>
-                  )}
-                  <Space style={{ marginTop: 10 }} size={8}>
-                    <Input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="本体名称" style={{ width: 240 }} />
-                    <Button type="primary" icon={<ThunderboltOutlined />} loading={turning} onClick={saveDraft}>
-                      创建并保存
-                    </Button>
-                  </Space>
-                </Card>
+                <DraftConfirmPanel
+                  draft={draft}
+                  draftWarning={draftWarning}
+                  draftQuality={draftQuality}
+                  saveName={saveName}
+                  turning={turning}
+                  onSaveName={setSaveName}
+                  onSave={saveDraft}
+                  onOptimize={(ftext) => {
+                    void send('请重点修复上次生成发现的质量问题：\n' + ftext, '请重点修复上次生成发现的质量问题：\n' + ftext)
+                  }}
+                />
               )}
               {isDone && active.ontology_id && (
                 <Alert
@@ -754,21 +654,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 />
               )}
 
-              {/* 引导卡 chips（REQ-275：访谈阶段 P3 模板点击填入；模板是辅助非必填） */}
+              {/* 引导卡 chips（REQ-275：访谈阶段 P3 模板点击填入；模板是辅助非必填）——story 阶段视图 */}
               {storyActive && storyTpl && !draftStory && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {storyTpl.map((t) => (
-                    <Button
-                      key={t.label}
-                      size="small"
-                      icon={<CommentOutlined />}
-                      onClick={() => setInput(t.text)}
-                      title={t.text.replace(/\*\*/g, '').replace(/\*/g, '')}
-                    >
-                      {t.label}
-                    </Button>
-                  ))}
-                </div>
+                <StoryTemplateChips templates={storyTpl} onPick={setInput} />
               )}
 
               {/* 输入区 */}

@@ -34,6 +34,12 @@ const STRATEGY_HINT: Record<string, string> = {
   hybrid: '策略 C：混合——KG 作初稿 + LLM 校验补全 definition / 缺失关系',
 }
 
+const STRATEGY_NAME: Record<string, string> = {
+  'chunk-llm': 'A · chunk→LLM',
+  'kg-direct': 'B · KG→直转',
+  hybrid: 'C · 混合',
+}
+
 function KbBuildFlow() {
   const { showToast } = useUI()
   const [step, setStep] = useState(0)
@@ -249,17 +255,34 @@ function KbBuildFlow() {
       {step === 1 && selected && (
         <>
           <div className="onto-sec" style={{ marginTop: 0 }}>
-            <span className="onto-sec-title">抽取策略（04 §3.7）</span>
+            <span className="onto-sec-title">抽取策略（04 §3.7；REQ-337 三策略卡片化）</span>
           </div>
-          <Segmented
-            value={strategy}
-            onChange={(v) => setStrategy(v as typeof strategy)}
-            options={[
-              { value: 'chunk-llm', label: 'A · chunk→LLM' },
-              { value: 'kg-direct', label: 'B · KG→直转', disabled: !selected.kg_ready },
-              { value: 'hybrid', label: 'C · 混合', disabled: !selected.kg_ready },
-            ]}
-          />
+          {/* REQ-337/M137：三策略页化——A/B/C 卡片选择（含可用性与口径说明，替代 Segmented） */}
+          <div className="build-path-grid" data-testid="kb-strategy-cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+            {(['chunk-llm', 'kg-direct', 'hybrid'] as const).map((sk) => {
+              const disabled = sk !== 'chunk-llm' && !selected.kg_ready
+              return (
+                <Card
+                  key={sk}
+                  size="small"
+                  hoverable={!disabled}
+                  onClick={() => !disabled && setStrategy(sk)}
+                  style={{
+                    borderColor: strategy === sk ? 'var(--ant-color-primary, #4f46e5)' : undefined,
+                    opacity: disabled ? 0.55 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                  }}
+                  data-testid={`kb-strategy-${sk}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{STRATEGY_NAME[sk]}</span>
+                    {disabled && <Tag style={{ margin: 0, fontSize: 10 }}>需先构建 KG</Tag>}
+                  </div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{STRATEGY_HINT[sk]}</Typography.Text>
+                </Card>
+              )
+            })}
+          </div>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
             {STRATEGY_HINT[strategy]}
             {!selected.kg_ready && strategy !== 'chunk-llm' && '（当前 KB 无 KG，先回上一步构建）'}
