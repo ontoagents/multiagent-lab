@@ -435,3 +435,34 @@ a.ref-row .ref-name { color: var(--c-brand); }
 @media (max-width: 800px) {
   .arch-grid, .impl-grid, .dl-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== 开源生态页 ===== */
+.eco-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.eco-stat { padding: 18px 20px; background: #fff; border: 1px solid var(--c-line); border-radius: 14px; }
+.eco-stat-num { font-size: 26px; font-weight: 800; color: var(--c-ink); line-height: 1.2; }
+.eco-stat-label { margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--c-ink); }
+.eco-stat-sub { margin-top: 2px; font-size: 11.5px; color: var(--c-ink-3); }
+.eco-svg { display: block; width: 100%; height: auto; }
+.eco-group { margin-top: 26px; }
+.eco-group-head { margin-bottom: 10px; }
+.eco-group-head h3 { margin: 0; font-size: 16px; color: var(--c-ink); }
+.eco-group-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--c-ink-3); }
+.eco-table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--c-line); border-radius: 14px; }
+.eco-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.eco-table th {
+  padding: 11px 14px; text-align: left; white-space: nowrap;
+  font-size: 11.5px; font-weight: 700; color: var(--c-ink-3); background: #fafbfc;
+  border-bottom: 1px solid var(--c-line);
+}
+.eco-table td { padding: 11px 14px; border-bottom: 1px solid #f1f3f6; color: var(--c-ink-2); vertical-align: top; line-height: 1.65; }
+.eco-table tr:last-child td { border-bottom: none; }
+.eco-name { font-weight: 700; color: var(--c-ink); }
+.eco-vocab {
+  display: flex; flex-direction: column; gap: 10px; padding: 18px 20px;
+  background: #fff; border: 1px solid var(--c-line); border-radius: 14px;
+}
+.eco-vocab-item { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--c-ink-2); line-height: 1.7; }
+.eco-vocab-item .ant-tag { margin-inline-end: 0; flex: none; }
+@media (max-width: 960px) {
+  .eco-stats { grid-template-columns: repeat(2, 1fr); }
+}

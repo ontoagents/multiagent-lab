@@ -191,6 +191,7 @@ const INSPIRED: { name: string; takeaway: string }[] = [
 const GUIDES: { title: string; desc: string; hash: string }[] = [
   { title: '整体架构', desc: '三平面 + 双代理拓扑总图', hash: '#/architecture' },
   { title: '关键实现', desc: 'SSE 时序 / 质量门禁 / 伴生管线三张图', hash: '#/implementation' },
+  { title: '开源生态', desc: '全量项目关联图谱与七类关键特征对比', hash: '#/ecosystem' },
   { title: '平台知识体系', desc: '模块导读与领域事实源', hash: '#/module/design' },
 ]
 
