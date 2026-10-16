@@ -8,7 +8,8 @@ export const PATHS: { key: Exclude<BuildPath, 'home'>; label: string; state: 'ok
   { key: 'ontochat', label: 'OntoChat 流程', state: 'ok', desc: '对话式 CQ 引导 → 逐轮补全 → 草稿入库（REQ-103 模式 A）' },
   { key: 'kb', label: '由知识库构建', state: 'partial', desc: 'KB chunk→LLM / KG→直转 / 混合三策略独立流程页（O13，D-O14/REQ-108）' },
   { key: 'kg', label: 'KG 消费流程', state: 'guide', desc: '入口卡跳转「消费与审计」栏（D-O15 自研 KG，原 semantica 流程改造）' },
-  { key: 'ontoextend', label: 'OntoExtend 流程', state: 'partial', desc: 'ODP 模式推荐 + LOV 词表扩展 → 审查入库（M-O14 P2②）' },
+  // REQ-339/M139：升格「演化路径」——生产最重场景（已交付本体的增量演化比新建更高频，80 号 G3/U3）
+  { key: 'ontoextend', label: 'OntoExtend 流程', state: 'ok', desc: '演化路径：对已交付本体做 ODP 模式扩展与词表补全（M-O14 P2②）' },
   { key: 'catalog', label: '权威本体库', state: 'ok', desc: '查询并引入业界权威本体（W3C/ETSI/DCMI），运行与拓展零门槛（REQ-316）' },
 ]
 
@@ -17,7 +18,7 @@ export const STATE_TAG: Record<Exclude<BuildPath, 'home'>, { color: string; text
   ontochat: { color: 'green', text: '可用' },
   kb: { color: 'orange', text: '部分可用' },
   kg: { color: 'cyan', text: '引导' },
-  ontoextend: { color: 'gold', text: '部分可用' },
+  ontoextend: { color: 'green', text: '演化路径' },
   catalog: { color: 'green', text: '可用' },
 }
 

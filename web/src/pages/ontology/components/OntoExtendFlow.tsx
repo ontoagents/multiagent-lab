@@ -28,6 +28,9 @@ interface MergePreviewData {
   conflicts?: unknown[]
 }
 
+/** REQ-339：资产详情「演化」动作 handoff 键（携本体 id 跳转本页，消费后置空）。 */
+export const ASSET_EXTEND_KEY = 'eino.onto.asset.extend'
+
 export default function OntoExtendFlow() {
   const [ontos, setOntos] = useState<OntoItem[]>([])
   const [ontosErr, setOntosErr] = useState<string | null>(null)
@@ -57,6 +60,18 @@ export default function OntoExtendFlow() {
       .listOntologies()
       .then((ls: any) => setOntos(Array.isArray(ls) ? ls : ls?.ontologies ?? ls?.items ?? []))
       .catch((e: any) => setOntosErr(e?.message ?? '本体列表加载失败'))
+  }, [])
+
+  // REQ-339：资产详情「演化」动作携 id 直达——预选目标本体并进 ODP 步（消费后置空）
+  useEffect(() => {
+    const id = localStorage.getItem(ASSET_EXTEND_KEY)
+    if (id) {
+      localStorage.removeItem(ASSET_EXTEND_KEY)
+      setTargetId(id)
+      setPreview(null)
+      setAppliedVersion(null)
+      setStep(1)
+    }
   }, [])
 
   const loadOdps = useCallback(() => {
@@ -153,8 +168,8 @@ export default function OntoExtendFlow() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        title="OntoExtend 流程——ODP 模式推荐 + LOV 词表扩展现有本体（部分可用，M-O14 P2②）"
-        description="不新建本体：选取人工精选的设计模式（ODP）与 LOV 词表术语生成扩展片段，经导入审查（冲突检测/改名）与质量门禁后并入目标本体新版本。"
+        title="OntoExtend 流程——演化路径：对已交付本体做 ODP 模式扩展与词表补全（REQ-339）"
+        description="不新建本体：选取人工精选的设计模式（ODP）与 LOV 词表术语生成扩展片段，经导入审查（冲突检测/改名）与质量门禁后并入目标本体新版本。生产环境中已交付本体的增量演化比新建更高频；也可从「本体资产」详情页点「演化」携本体直达。"
       />
       {/* REQ-337/M137：三步页化——Steps 可点跳步，每步独立子页+上一步/下一步导航 */}
       <Steps

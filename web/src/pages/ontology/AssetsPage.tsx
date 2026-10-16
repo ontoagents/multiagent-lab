@@ -10,8 +10,10 @@ import {
   ImportOutlined,
   LeftOutlined,
   RightOutlined,
+  RocketOutlined,
 } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
+import { ONTO_SIDEBAR_KEY } from './OntologyModule'
 import type { QualityReport } from '../../api/client'
 import { companionApi } from '../../api/companion'
 import type { Agent, Ontology, OntologyReferences, RuntimeProfile, Spec } from '../../api/types'
@@ -643,6 +645,22 @@ export default function AssetsPage() {
             {!isCompActive && (
             <Button size="small" icon={<ImportOutlined />} onClick={() => setMergeOpen(true)}>
               导入合并
+            </Button>
+            )}
+            {/* REQ-339：演化动作——携本体 id 跳转 OntoExtend 流程（ODP 扩展/词表补全，buildPath 透传） */}
+            {!isCompActive && (
+            <Button
+              size="small"
+              icon={<RocketOutlined />}
+              data-testid="asset-evolve-btn"
+              onClick={() => {
+                localStorage.setItem('eino.onto.buildPath', 'ontoextend')
+                localStorage.setItem('eino.onto.asset.extend', active.id)
+                localStorage.setItem(ONTO_SIDEBAR_KEY, 'build')
+                window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+              }}
+            >
+              演化
             </Button>
             )}
             <Popconfirm
