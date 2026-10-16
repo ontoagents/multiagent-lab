@@ -97,7 +97,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontology/vocabularies/search", s.vocabSearch)
 	m.HandleFunc("GET /api/ontology/ontoextend/odps", s.ontoextendListODPs)
 	m.HandleFunc("POST /api/ontology/ontoextend/draft", s.ontoextendDraft)
-	m.HandleFunc("POST /api/ontology/cqrag/draft", s.cqragDraft) // REQ-343：CQ 驱动增量扩展（论文三段式 RAG，新能力承载不复用 ontoextend API 名）
+	m.HandleFunc("POST /api/ontology/cqrag/draft", s.cqragDraft)
+	m.HandleFunc("POST /api/ontology/nl2sparql", s.nl2sparql) // REQ-333/M133：NL2SPARQL 受控生成 // REQ-343：CQ 驱动增量扩展（论文三段式 RAG，新能力承载不复用 ontoextend API 名）
 
 	// 方案生命周期（REQ-155 阶段二/M-O15：Terraform 式 plan/apply，monitor=plan 只读形态）
 	m.HandleFunc("GET /api/ontology/lifecycle/plan", s.lifecyclePlan)

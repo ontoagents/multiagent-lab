@@ -318,6 +318,7 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req *http.Request
+	var queryText string
 	if r.Method == http.MethodGet {
 		q := r.URL.Query().Get("query")
 		if strings.TrimSpace(q) == "" {
@@ -328,6 +329,7 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "工作台仅允许只读 SELECT（与 facade 同口径）: " + verr.Error()})
 			return
 		}
+		queryText = q
 		req, err = http.NewRequestWithContext(r.Context(), "GET", ep+"?query="+url.QueryEscape(q), nil)
 	} else {
 		body, err2 := io.ReadAll(io.LimitReader(r.Body, 8<<20))
@@ -339,6 +341,7 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "工作台仅允许只读 SELECT（与 facade 同口径）: " + verr.Error()})
 			return
 		}
+		queryText = string(body)
 		req, err = http.NewRequestWithContext(r.Context(), "POST", ep, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/sparql-query")
 	}
@@ -351,17 +354,53 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 		accept = "application/sparql-results+json"
 	}
 	req.Header.Set("Accept", accept)
+	// REQ-333/M133：NL2SPARQL 透视——前端生成链执行时携 X-Onto-NL（自然语言原问题）与
+	// X-Onto-Ontology；代理记录 trace_log（REQ-94 翻译对照语义），header 不转发引擎。
+	nlQuestion := r.Header.Get("X-Onto-NL")
+	nlOntology := r.Header.Get("X-Onto-Ontology")
+	start := time.Now()
 	resp, err := sparqlHTTP.Do(req)
 	if err != nil {
+		if nlQuestion != "" {
+			_ = s.Store.SaveTrace(&store.Trace{Tool: "nl2sparql", ProfileID: id, OntologyID: nlOntology,
+				Sparql: queryText, TookMS: time.Since(start).Milliseconds(), Ok: false, Error: err.Error(), NL: nlQuestion})
+		}
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "引擎请求失败: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
+	if nlQuestion == "" {
+		// 手写查询路径维持纯流式透传（零缓冲零透视，REQ-92 既有语义）
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+	// NL 链路：缓冲响应提结果数（生成链 LIMIT ≤200 行级小结果），记透视后原样回写
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	resultCount := -1
+	var probe struct {
+		Results struct {
+			Bindings []json.RawMessage `json:"bindings"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(body, &probe) == nil {
+		resultCount = len(probe.Results.Bindings)
+	}
+	trErr := ""
+	if resp.StatusCode >= 400 {
+		trErr = fmt.Sprintf("引擎返回 %s", resp.Status)
+	}
+	_ = s.Store.SaveTrace(&store.Trace{Tool: "nl2sparql", ProfileID: id, OntologyID: nlOntology,
+		Sparql: queryText, TookMS: time.Since(start).Milliseconds(), ResultCount: resultCount,
+		Ok: resp.StatusCode < 400, Error: trErr, NL: nlQuestion})
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	_, _ = w.Write(body)
 }
 
 var sparqlHTTP = &http.Client{Timeout: 30 * time.Second}

@@ -55,6 +55,8 @@ export default function TraceTable({ profiles }: { profiles: RuntimeProfile[] })
   const columns: ColumnsType<TraceEntry> = [
     { title: '时间', dataIndex: 'ts', width: 170 },
     { title: '工具', dataIndex: 'tool', width: 150, render: (v) => <Typography.Text code style={{ fontSize: 12 }}>{String(v)}</Typography.Text> },
+    // REQ-333：NL2SPARQL 翻译对照（自然语言原问题；手写查询/工具链路径为空不占位）
+    { title: '自然语言', dataIndex: 'nl', width: 220, ellipsis: true, render: (v: string) => (v ? <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> : null) },
     { title: '本体', dataIndex: 'ontology_id', width: 160, ellipsis: true },
     { title: '耗时', dataIndex: 'took_ms', width: 90, render: (v) => `${v} ms` },
     { title: '结果数', dataIndex: 'result_count', width: 80 },

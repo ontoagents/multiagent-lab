@@ -859,6 +859,7 @@ export interface TraceEntry {
   result_count: number
   ok: boolean
   error?: string
+  nl?: string // REQ-333：自然语言原问题（NL2SPARQL 翻译对照）
 }
 
 export interface TraceResponse {

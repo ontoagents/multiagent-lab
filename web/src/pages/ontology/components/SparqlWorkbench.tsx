@@ -4,8 +4,8 @@ import { EditorView, keymap } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
 import { sparql } from 'codemirror-lang-sparql'
-import { Alert, Button, Select, Space, Table, Tag, Typography } from 'antd'
-import { ClearOutlined, CaretRightOutlined, DownloadOutlined, UndoOutlined } from '@ant-design/icons'
+import { Alert, Button, Input, Select, Space, Table, Tag, Typography } from 'antd'
+import { ClearOutlined, CaretRightOutlined, DownloadOutlined, RobotOutlined, UndoOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ function toCsv(vars: string[], rows: Record<string, string>[]): string {
   return '\ufeff' + head + '\n' + body
 }
 
-export default function SparqlWorkbench({ profileId, persistenceId }: { profileId: string; persistenceId: string }) {
+export default function SparqlWorkbench({ profileId, persistenceId, ontologyId }: { profileId: string; persistenceId: string; ontologyId?: string }) {
   const [query, setQuery] = useState<string>(() => {
     try {
       return localStorage.getItem(persistenceId) || DEFAULT_SPARQL
@@ -119,11 +119,16 @@ export default function SparqlWorkbench({ profileId, persistenceId }: { profileI
   const [running, setRunning] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [result, setResult] = useState<QueryResult | null>(null)
+  // REQ-333/M133：NL2SPARQL 受控生成——NL 问题→LLM 生成 SELECT（白名单修复环）→填编辑器自动执行（携 NL 落透视）
+  const [nlQuestion, setNlQuestion] = useState('')
+  const [nlBusy, setNlBusy] = useState(false)
+  const [nlErr, setNlErr] = useState<string | null>(null)
+  const [nlRound, setNlRound] = useState<number | null>(null)
   const queryRef = useRef(query)
   queryRef.current = query
-  const runRef = useRef<() => void>(() => {})
+  const runRef = useRef<(nl?: string) => void>(() => {})
 
-  const run = async () => {
+  const run = async (nl?: string) => {
     const q = queryRef.current
     const form = detectQueryForm(q)
     if (form === 'update') {
@@ -139,6 +144,7 @@ export default function SparqlWorkbench({ profileId, persistenceId }: { profileI
         profileId,
         q,
         form === 'graph' ? 'text/turtle' : undefined,
+        nl,
       )
       const ms = Math.round(performance.now() - t0)
       if (form === 'ask' && typeof json?.boolean === 'boolean') {
@@ -162,6 +168,25 @@ export default function SparqlWorkbench({ profileId, persistenceId }: { profileI
     }
   }
   runRef.current = run
+
+  // REQ-333：生成（白名单修复环在后端）→ 填编辑器 → 自动执行（携 NL 原文，runtime-manager 落翻译对照透视）
+  const generate = async () => {
+    const q = nlQuestion.trim()
+    if (!q || !ontologyId) return
+    setNlBusy(true)
+    setNlErr(null)
+    setNlRound(null)
+    try {
+      const r = await api.nl2Sparql(ontologyId, q)
+      setQuery(r.query)
+      setNlRound(r.rounds)
+      setTimeout(() => runRef.current(q), 100) // 等 query state 落地后自动执行
+    } catch (e: any) {
+      setNlErr(e?.message ?? '生成失败')
+    } finally {
+      setNlBusy(false)
+    }
+  }
 
   const extensions = useMemo(
     () => [
@@ -195,8 +220,34 @@ export default function SparqlWorkbench({ profileId, persistenceId }: { profileI
 
   return (
     <div className="onto-sparql-workbench">
+      {/* REQ-333/M133：自然语言查询入口（受控生成——SELECT-only 白名单双闸，执行落翻译对照透视） */}
+      {ontologyId && (
+        <div style={{ marginBottom: 10 }} data-testid="nl2sparql-row">
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              placeholder="用自然语言提问，自动生成只读 SPARQL（如：哪些概念没有任何实例？）"
+              value={nlQuestion}
+              onChange={(e) => setNlQuestion(e.target.value)}
+              onPressEnter={generate}
+              allowClear
+              data-testid="nl2sparql-input"
+            />
+            <Button type="primary" icon={<RobotOutlined />} loading={nlBusy} disabled={nlBusy || !nlQuestion.trim()} onClick={generate} data-testid="nl2sparql-btn">
+              生成查询
+            </Button>
+          </Space.Compact>
+          {nlErr && (
+            <Alert type="warning" showIcon closable style={{ marginTop: 6 }} title={nlErr} description="生成失败不虚构结果——可改写问题重试，或直接在下方编辑器手写 SPARQL（复杂查询建议人工路径）。" onClose={() => setNlErr(null)} />
+          )}
+          {nlRound !== null && !nlErr && (
+            <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              已生成并自动执行（白名单校验通过，{nlRound === 1 ? '首轮通过' : `经 ${nlRound - 1} 轮修复`}）；执行已落「翻译透视」（NL→SPARQL 对照，REQ-94）。
+            </Typography.Text>
+          )}
+        </div>
+      )}
       <div className="onto-sparql-toolbar">
-        <Button type="primary" icon={<CaretRightOutlined />} loading={running} onClick={run}>
+        <Button type="primary" icon={<CaretRightOutlined />} loading={running} onClick={() => run()}>
           运行查询
         </Button>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>

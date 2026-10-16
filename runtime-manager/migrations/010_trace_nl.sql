@@ -1,0 +1,2 @@
+-- REQ-333/M133：NL2SPARQL 受控生成——透视记录承载 NL→SPARQL 翻译对照（REQ-94 翻译透视语义）。
+ALTER TABLE trace_log ADD COLUMN nl TEXT NOT NULL DEFAULT '';

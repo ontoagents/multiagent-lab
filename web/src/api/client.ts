@@ -126,12 +126,12 @@ async function reqText(url: string): Promise<string> {
 }
 
 /** SPARQL 工作台请求：Accept 默认 JSON 结果；失败解析 {error} 或透传引擎原文片段 */
-async function reqSparql(url: string, query: string, accept?: string): Promise<{ raw: string; json: any }> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/sparql-query', Accept: accept ?? 'application/sparql-results+json' },
-    body: query,
-  })
+async function reqSparql(url: string, query: string, accept?: string, nl?: string): Promise<{ raw: string; json: any }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/sparql-query', Accept: accept ?? 'application/sparql-results+json' }
+  if (nl) {
+    headers['X-Onto-NL'] = nl // REQ-333：NL 原文随执行落透视（runtime-manager trace_log 翻译对照）
+  }
+  const res = await fetch(url, { method: 'POST', headers, body: query })
   const text = await res.text()
   let json: any = null
   try {
@@ -632,8 +632,14 @@ export const api = {
   /** 翻译透视（最近 N 条，含失败留痕；limit≤200） */
   listTraces: (profileId: string, limit = 50) => req<TraceResponse>(`/api/runtime-profiles/${profileId}/trace?limit=${limit}`),
   /** SPARQL 工作台：POST application/sparql-query；非 running → 409；状态码/错误透传引擎；accept 可覆盖（CONSTRUCT/DESCRIBE 传 text/turtle） */
-  runSparql: (profileId: string, query: string, accept?: string) =>
-    reqSparql(`/api/runtime-profiles/${profileId}/sparql`, query, accept),
+  runSparql: (profileId: string, query: string, accept?: string, nl?: string) =>
+    reqSparql(`/api/runtime-profiles/${profileId}/sparql`, query, accept, nl),
+  /** REQ-333/M133：NL2SPARQL 受控生成（LLM+只读白名单修复环 ≤2 轮；执行由前端携 NL 走工作台代理落透视） */
+  nl2Sparql: (ontologyId: string, question: string) =>
+    req<{ ontology_id: string; question: string; query: string; rounds: number; history?: string[] }>('/api/ontology/nl2sparql', {
+      method: 'POST',
+      body: JSON.stringify({ ontology_id: ontologyId, question }),
+    }),
   /**
    * SPARQL 工作台端点 URL（REQ-92，Yasgui 自行发起请求，不经 req 封装）。
    * 运行平面反代支持 GET ?query= 与 POST application/sparql-query；非 running → 409。

@@ -265,6 +265,7 @@ type Trace struct {
 	ResultCount int    `json:"result_count"`
 	Ok          bool   `json:"ok"`
 	Error       string `json:"error,omitempty"`
+	NL          string `json:"nl,omitempty"` // REQ-333：自然语言原问题（NL2SPARQL 翻译对照；非该链路为空）
 }
 
 // SaveTrace 追加一条透视记录。
@@ -273,8 +274,8 @@ func (s *Store) SaveTrace(t *Trace) error {
 	if t.Ok {
 		ok = 1
 	}
-	_, err := s.db.Exec(`INSERT INTO trace_log(tool,profile_id,ontology_id,sparql,took_ms,result_count,ok,error)
-		VALUES(?,?,?,?,?,?,?,?)`, t.Tool, t.ProfileID, t.OntologyID, t.Sparql, t.TookMS, t.ResultCount, ok, t.Error)
+	_, err := s.db.Exec(`INSERT INTO trace_log(tool,profile_id,ontology_id,sparql,took_ms,result_count,ok,error,nl)
+		VALUES(?,?,?,?,?,?,?,?,?)`, t.Tool, t.ProfileID, t.OntologyID, t.Sparql, t.TookMS, t.ResultCount, ok, t.Error, t.NL)
 	return err
 }
 
@@ -283,7 +284,7 @@ func (s *Store) ListTraces(profileID string, limit int) ([]*Trace, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`SELECT id,ts,tool,profile_id,ontology_id,sparql,took_ms,result_count,ok,error
+	rows, err := s.db.Query(`SELECT id,ts,tool,profile_id,ontology_id,sparql,took_ms,result_count,ok,error,nl
 		FROM trace_log WHERE profile_id=? ORDER BY id DESC LIMIT ?`, profileID, limit)
 	if err != nil {
 		return nil, err
@@ -292,14 +293,17 @@ func (s *Store) ListTraces(profileID string, limit int) ([]*Trace, error) {
 	out := []*Trace{}
 	for rows.Next() {
 		var t Trace
-		var errText *string
+		var errText, nl *string
 		var ok int
-		if err := rows.Scan(&t.ID, &t.TS, &t.Tool, &t.ProfileID, &t.OntologyID, &t.Sparql, &t.TookMS, &t.ResultCount, &ok, &errText); err != nil {
+		if err := rows.Scan(&t.ID, &t.TS, &t.Tool, &t.ProfileID, &t.OntologyID, &t.Sparql, &t.TookMS, &t.ResultCount, &ok, &errText, &nl); err != nil {
 			return nil, err
 		}
 		t.Ok = ok == 1
 		if errText != nil {
 			t.Error = *errText
+		}
+		if nl != nil {
+			t.NL = *nl
 		}
 		out = append(out, &t)
 	}

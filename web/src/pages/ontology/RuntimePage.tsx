@@ -1112,7 +1112,7 @@ function QueryMountPane({ profile, profilesErr }: { profile: RuntimeProfile; pro
               端点 <Typography.Text code style={{ fontSize: 12 }}>{api.sparqlEndpointUrl(profile.id)}</Typography.Text>
             </Typography.Text>
           </div>
-          <SparqlWorkbench profileId={profile.id} persistenceId={`onto-detail-${profile.id}`} />
+          <SparqlWorkbench profileId={profile.id} persistenceId={`onto-detail-${profile.id}`} ontologyId={profile.ontology_ids?.[0]} />
         </>
       ) : (
         <Alert
