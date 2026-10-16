@@ -55,6 +55,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	chatSvc.Community = &kg.Summarizer{Store: st, Box: box} // KB-5③：全局问答社区摘要源（connID 按库经接口参数传入）
 	ontoBuildSvc := ontobuild.NewService(st, box, kbSvc)
 	ontoBuildSvc.BuildPlaneURL = onto.BuildURL // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
+	ontoBuildSvc.OnStage = buildflowTracePoster(onto.BuildURL) // REQ-340 A2：kb-extract 段留痕聚合到构建平面（fire-and-forget）
 	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, ResearchRoot: researchRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器

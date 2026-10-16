@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontobuild"
@@ -249,11 +252,11 @@ func (s *Server) selectableForOntologyBuild(w http.ResponseWriter, r *http.Reque
 // 关系推导不做规则臆断（诚实注记指向 REQ-82 LLM 加工）。返回映射报告与草稿骨架，不入库。
 func (s *Server) buildFromStructured(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Filename           string      `json:"filename"`
-		Content            string      `json:"content"`
-		TargetOntologyID   string      `json:"target_ontology_id,omitempty"`
-		Mode               string      `json:"mode,omitempty"` // REQ-256：instance（默认）| template（概念层级批量生成）
-		HierarchyColumns   []string    `json:"hierarchy_columns,omitempty"` // REQ-256：显式层级列（按序=粗→细）
+		Filename         string   `json:"filename"`
+		Content          string   `json:"content"`
+		TargetOntologyID string   `json:"target_ontology_id,omitempty"`
+		Mode             string   `json:"mode,omitempty"`              // REQ-256：instance（默认）| template（概念层级批量生成）
+		HierarchyColumns []string `json:"hierarchy_columns,omitempty"` // REQ-256：显式层级列（按序=粗→细）
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -378,3 +381,42 @@ func (s *Server) kgToSpecJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ = json.Marshal
+
+// buildflowTracePoster REQ-340 A2：kb-extract 构建管线段留痕 → 构建平面聚合口
+// （POST /api/buildflow/traces）。fire-and-forget（2s 超时、失败静默）——留痕是观测件，
+// 不阻断构建主链路；REQ-328 对账持久化在构建平面 Tracer 单点接管，三路径一处覆盖。
+func buildflowTracePoster(base string) func(stage, note string, durationMS int64, errStr string) {
+	return func(stage, note string, durationMS int64, errStr string) {
+		status := "ok"
+		if errStr != "" {
+			status = "fail"
+			if note != "" {
+				note += "：" + errStr
+			} else {
+				note = errStr
+			}
+		}
+		started := time.Now().UTC().Add(-time.Duration(durationMS) * time.Millisecond)
+		body, err := json.Marshal([]map[string]any{{
+			"pipeline": "kb-extract", "stage": stage, "status": status,
+			"started_at":  started.Format(time.RFC3339Nano),
+			"duration_ms": durationMS, "note": note,
+		}})
+		if err != nil {
+			return
+		}
+		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(base, "/")+"/api/buildflow/traces", bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			resp, err := (&http.Client{}).Do(req.WithContext(ctx))
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+	}
+}

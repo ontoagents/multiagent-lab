@@ -37,6 +37,18 @@ type Service struct {
 	KB    *kb.Service
 	// BuildPlaneURL 构建平面基址（REQ-267/M76 统一质量快评用；api 层装配时与反代同源赋值 BUILD_SVC_URL）
 	BuildPlaneURL string
+	// OnStage REQ-340 A2：构建管线段留痕回调（stage=source|extract|draft|gate，note=人话摘要，
+	// durationMS=段耗时，errStr 非空=该段失败）。nil=不留痕（零行为变更）；api 层装配为
+	// fire-and-forget POST 构建平面 /api/buildflow/traces——kb-extract 跨服务段的聚合口。
+	OnStage func(stage, note string, durationMS int64, errStr string)
+}
+
+// emit 段留痕（OnStage 未装配时旁路）。
+func (s *Service) emit(stage, note string, started time.Time, errStr string) {
+	if s.OnStage == nil {
+		return
+	}
+	s.OnStage(stage, note, time.Since(started).Milliseconds(), errStr)
 }
 
 // NewService 构造。
@@ -257,6 +269,8 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 		cqMode = "auto"
 	}
 	res := &BuildResult{KBID: kbID, KBName: k.Name, Strategy: strategy, CQMode: cqMode, CQs: []string{}}
+	// REQ-340 A2：段计时起点（source=KB 语料就绪 / extract=策略抽取 / draft=spec 装配 / gate=质量快评）
+	sourceStart, extractStart, draftStart, gateStart := time.Now(), time.Now(), time.Now(), time.Now()
 
 	chunks, err := s.Store.ListKnowledgeChunksByKB(kbID)
 	if err != nil {
@@ -268,20 +282,25 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 	corpus, truncated := buildCorpus(chunks, maxLLMChunks, maxLLMChars)
 	res.ChunksUsed = len(chunks)
 	res.Truncated = truncated
+	// REQ-340 A2：段留痕 source（KB 语料就绪即来源段完成）
+	s.emit("source", fmt.Sprintf("KB「%s」strategy=%s chunks=%d（截断=%v）", k.Name, strategy, res.ChunksUsed, truncated), sourceStart, "")
 
 	switch strategy {
 	case "chunk-llm": // 策略 A：chunk 池 → LLM
 		spec, cqs, rounds, werr := s.llmExtract(ctx, k, corpus, cqMode, customCQs, connID, nil)
 		if werr != "" {
+			s.emit("extract", "LLM 抽取失败", extractStart, werr)
 			return nil, &store.HTTPError{Status: 502, Msg: werr}
 		}
 		res.Spec, res.CQs, res.Rounds, res.Warnings = spec, cqs, rounds, nil
 	case "kg-direct", "hybrid": // 策略 B / C
 		kg, err := s.KB.GraphragKG(ctx, kbID)
 		if err != nil {
+			s.emit("extract", "KG 读取失败", extractStart, err.Error())
 			return nil, &store.HTTPError{Status: 500, Msg: "KG 读取失败（自存表异常）: " + err.Error()}
 		}
 		if len(kg.Entities) == 0 {
+			s.emit("extract", "KG 为空", extractStart, "no entities")
 			return nil, &store.HTTPError{Status: 400, Msg: "该知识库尚无 KG（graphrag 模式导入后自动抽取；也可先 POST /api/kg/{id}/rebuild 显式重建）"}
 		}
 		res.Method = kg.Method
@@ -300,6 +319,11 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 	default:
 		return nil, &store.HTTPError{Status: 400, Msg: "strategy 须为 chunk-llm | kg-direct | hybrid"}
 	}
+	// REQ-340 A2：段留痕 extract+draft（抽取与草稿在本策略块内一体完成）
+	s.emit("extract", fmt.Sprintf("strategy=%s rounds=%d", strategy, res.Rounds), extractStart, "")
+	if res.Spec != nil {
+		s.emit("draft", fmt.Sprintf("概念 %d · 关系 %d · 实例 %d", len(res.Spec.Concepts), len(res.Spec.Relations), len(res.Spec.Instances)), draftStart, "")
+	}
 
 	res.Report = ValidateBuildSpec(res.Spec)
 	// REQ-267/M76：草稿统一经构建平面 quality/check 快评（save=false 零副作用）——与全平台同一把 qualitygate 尺；
@@ -308,6 +332,7 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 	if res.Quality.Degraded {
 		res.Warnings = append(res.Warnings, "统一质量快评不可达（构建平面离线），草稿仅本地结构校验兜底")
 	}
+	s.emit("gate", fmt.Sprintf("overall=%.1f err=%d warn=%d degraded=%v", res.Quality.Overall, res.Quality.ErrorCount, res.Quality.WarningCount, res.Quality.Degraded), gateStart, "")
 	// 生成物非法且走过 LLM：回喂错误做一轮修复（与 REQ-82 校验循环语义一致，上限 1 轮防失控）
 	if !res.Report.OK && (strategy == "chunk-llm" || (strategy == "hybrid" && res.Rounds > 0)) {
 		errJSON, _ := json.Marshal(res.Report.Errors)

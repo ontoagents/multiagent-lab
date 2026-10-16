@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/buildflow"
+
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 )
@@ -60,25 +62,61 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
 	go func() {
-		res, err := s.LLM.DraftWithCQ(context.Background(), req.Description, req.ExtraHint, req.CapabilityQuestions,
-			func(round int, msg string) { // REQ-295③：实测轮次进度透出（「第 N/M 轮…」，永不虚构百分比）
+		// REQ-340 A2：管线段留痕（source→extract/draft→gate；审查=前端确认卡、入库=通用 create+saveSpec，不在本端点）
+		desc := req.Description
+		perr := buildflow.Run(context.Background(), "ai-draft",
+			buildflow.Segment{Stage: buildflow.StageSource, Run: func(context.Context) (string, error) {
+				note := desc
+				if len(note) > 60 {
+					note = note[:60] + "…"
+				}
+				if len(req.CapabilityQuestions) > 0 {
+					note += fmt.Sprintf(" · CQ×%d", len(req.CapabilityQuestions))
+				}
+				return note, nil
+			}},
+			buildflow.Segment{Stage: buildflow.StageExtract, Skip: true}, // 抽取与草稿在 llmcreate 生成-校验循环内聚
+			buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
+				res, err := s.LLM.DraftWithCQ(ctx, desc, req.ExtraHint, req.CapabilityQuestions,
+					func(round int, msg string) { // REQ-295③：实测轮次进度透出（「第 N/M 轮…」，永不虚构百分比）
+						draftJobsMu.Lock()
+						job.Progress = msg
+						draftJobsMu.Unlock()
+					}) // REQ-248/242：CQ 回写+质量透出
+				if err != nil {
+					return "", err
+				}
+				// spec 结构体 → map（与同步端点 JSON 形态一致）
+				b, _ := json.Marshal(res.Spec)
+				var specMap map[string]any
+				_ = json.Unmarshal(b, &specMap)
 				draftJobsMu.Lock()
-				job.Progress = msg
+				job.Result = &draftResult{Spec: specMap, Rounds: res.Rounds, Quality: res.Quality}
 				draftJobsMu.Unlock()
-			}) // REQ-248/242：CQ 回写+质量透出
+				return fmt.Sprintf("rounds=%d", res.Rounds), nil
+			}},
+			buildflow.Segment{Stage: buildflow.StageGate, Run: func(ctx context.Context) (string, error) {
+				draftJobsMu.Lock()
+				q := job.Result
+				draftJobsMu.Unlock()
+				if q == nil || q.Quality == nil {
+					return "质量报告不可用（跳过）", nil
+				}
+				return fmt.Sprintf("overall=%.1f err=%d warn=%d", q.Quality.Score.Overall, q.Quality.ErrorCount, q.Quality.WarningCount), nil
+			}},
+		)
 		draftJobsMu.Lock()
-		defer draftJobsMu.Unlock()
-		if err != nil {
+		if job.Result == nil {
 			job.Status = "failed"
-			job.Error = err.Error()
-			return
+			if perr != nil {
+				job.Error = perr.Error() // 既有语义保留：失败原因透出到 job（前端 toast）
+			} else {
+				job.Error = "生成失败"
+			}
+		} else {
+			job.Status = "done"
 		}
-		job.Status = "done"
-		// spec 结构体 → map（与同步端点 JSON 形态一致）
-		b, _ := json.Marshal(res.Spec)
-		var specMap map[string]any
-		_ = json.Unmarshal(b, &specMap)
-		job.Result = &draftResult{Spec: specMap, Rounds: res.Rounds, Quality: res.Quality}
+		draftJobsMu.Unlock()
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }
