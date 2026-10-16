@@ -113,6 +113,7 @@ type EventQuery struct {
 	TypePrefix string // REQ-281：类型前缀过滤（companion. → LIKE 'companion.%'；转义 %/_）
 	Limit      int    // ≤0 = 不限
 	Offset     int    // ≥0，配 Limit 分页
+	Order      string // REQ-330①：desc=最新优先（收尾轮询增量取数——升序+LIMIT 恒取最老窗，伴生存量>50 的会话新事件恒在窗外=轮询盲区）
 }
 
 // ListEventsQ 过滤版事件查询（升序不变；返回命中总数供分页——limit 生效时 out 可能是总数的前窗）。
@@ -135,7 +136,12 @@ func (s *Store) ListEventsQ(convID string, q EventQuery) ([]*RunEvent, int, erro
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM run_event WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	sqlq := `SELECT id,conversation_id,run_id,type,data,created_at,COALESCE(schema_version,1) FROM run_event WHERE ` + strings.Join(where, " AND ") + ` ORDER BY created_at, id`
+	sqlq := `SELECT id,conversation_id,run_id,type,data,created_at,COALESCE(schema_version,1) FROM run_event WHERE ` + strings.Join(where, " AND ")
+	if q.Order == "desc" { // REQ-330①：最新优先（取数方自行 reverse 回时序；默认升序不变）
+		sqlq += ` ORDER BY created_at DESC, id DESC`
+	} else {
+		sqlq += ` ORDER BY created_at, id`
+	}
 	if q.Limit > 0 {
 		sqlq += fmt.Sprintf(" LIMIT %d OFFSET %d", q.Limit, max(q.Offset, 0))
 	}

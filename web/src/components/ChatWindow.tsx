@@ -320,7 +320,13 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
         }
       }
       const ev: ChatItem = { kind: 'event', evType: event, eventText: desc.text, evData: payload }
-      next.splice(next.length - 1, 0, ev)
+      if (event === 'run.finished') {
+        // REQ-330⑤：完成卡排在流式助手消息之后（回放按时间戳本就合并到答案下方——live 对齐回放位，
+        // 治「完成卡插答案上方、自动滚动钉尾时在视口外，切会话才可见」）
+        next.push(ev)
+      } else {
+        next.splice(next.length - 1, 0, ev) // run.started 卡在答案之前（回放同位）
+      }
       return next
     }
     case 'run.interrupted': {
@@ -403,68 +409,104 @@ function ChatChip({ on, disabled, icon, label, title, onClick }: {
   )
 }
 
-/** REQ-323：归组后的伴生沉淀过程块（连续 companion.* 事件收进一个可折叠组） */
-interface CompanionEventGroup {
-  kind: '__companion_group'
-  events: any[]
-  firstIdx: number // 首事件在 displayItems 中的下标（renderEventCard 全局序，供 extracting 判定等）
+/** REQ-330④：回放态伴生管线摘要行（REQ-323 的可折叠归组块退役——live 过程由悬浮胶囊承载，
+ *  回放只留一行轻量摘要；全量过程卡归「调用轨迹」伴生分类与 AgentCompanionManage） */
+interface CompanionSummaryItem {
+  kind: '__companion_summary'
+  n: number
+  cand: number
+  ingested: number
+  failed: boolean
   subDepth: number
 }
 
-/** REQ-323：连续 companion.* 沉淀过程事件归组（轮询增量与历史回放都成组）；其余事件照原样透传 */
-function groupCompanionPhases(items: any[]): any[] {
+const isCompanionPipelineEv = (it: any) =>
+  it.kind === 'event' && typeof it.evType === 'string' && it.evType.startsWith('companion.') && it.evType !== 'companion.hit'
+
+function makeCompanionSummary(events: any[]): CompanionSummaryItem {
+  const terminal = events.find((e) => e.evType === 'companion.extract' && (e.evData?.phase === 'done' || e.evData?.phase === 'error'))
+  const cand = events.reduce((s, e) => s + (e.evType === 'companion.candidates' ? Number(e.evData?.count ?? 0) : 0), 0)
+  return {
+    kind: '__companion_summary',
+    n: events.length,
+    cand,
+    ingested: Number(terminal?.evData?.auto_ingested ?? 0),
+    failed: terminal?.evData?.phase === 'error',
+    subDepth: events[0]?.subDepth ?? 0,
+  }
+}
+
+/** REQ-330④：回放流中连续伴生管线事件折为一行摘要（占首事件位；companion.hit 不在此列） */
+function summarizeCompanionPhases(items: any[]): any[] {
   const out: any[] = []
   let buf: any[] = []
-  let firstIdx = 0
-  const flush = () => {
-    if (!buf.length) return
-    out.push({ kind: '__companion_group', events: buf, firstIdx, subDepth: buf[0]?.subDepth ?? 0 })
-    buf = []
-  }
-  items.forEach((it, i) => {
-    if (it.kind === 'event' && typeof it.evType === 'string' && it.evType.startsWith('companion.')) {
-      if (!buf.length) firstIdx = i
+  for (const it of items) {
+    if (isCompanionPipelineEv(it)) {
       buf.push(it)
-    } else {
-      flush()
-      out.push(it)
+      continue
     }
-  })
-  flush()
+    if (buf.length) {
+      out.push(makeCompanionSummary(buf))
+      buf = []
+    }
+    out.push(it)
+  }
+  if (buf.length) out.push(makeCompanionSummary(buf))
   return out
 }
 
-/** REQ-323：伴生沉淀过程卡归组块——处理中（轮询活跃且未到终态）展开逐卡可见，
- *  完成（done/error 到达或轮询终止）自动收起为单行摘要；点击头部可随时手动展开/收起（手动优先于自动态） */
-function CompanionGroupBlock({ group, live, renderEvent }: {
-  group: CompanionEventGroup
-  live: boolean
-  renderEvent: (it: any, i: number) => ReactNode
-}) {
-  const events = group.events
+/** REQ-330②：伴生沉淀悬浮胶囊（聊天流右上角，与 chat-stop 同列对齐；旁路过程与本职工作事件解耦）。
+ *  处理中=展开态胶囊增量摘要（候选 N · 自动入图 M 随事件到达递增）；终态定格 6s 后淡出为小徽标；
+ *  点击随时展开/收起明细面板（管线过程卡逐张回看，候选卡自带的明细展开一并可用）。 */
+function CompanionCapsule({ events, renderEvent }: { events: any[]; renderEvent: (it: any, i: number) => ReactNode }) {
   const terminal = events.find((e) => e.evType === 'companion.extract' && (e.evData?.phase === 'done' || e.evData?.phase === 'error'))
-  const processing = live && !terminal
-  const [userOpen, setUserOpen] = useState<boolean | null>(null)
-  const wasProcessingRef = useRef(processing)
-  useEffect(() => {
-    if (wasProcessingRef.current && !processing) setUserOpen(null) // 完成瞬间自动收起（清除手动覆盖，回到自动态=收起）
-    wasProcessingRef.current = processing
-  }, [processing])
-  const open = userOpen ?? processing
-  const candTotal = events.reduce((s, e) => s + (e.evType === 'companion.candidates' ? Number(e.evData?.count ?? 0) : 0), 0)
-  const autoIngested = Number(terminal?.evData?.auto_ingested ?? 0)
   const failed = terminal?.evData?.phase === 'error'
-  const label = `🧩 伴生沉淀${failed ? '失败' : ''} · ${events.length} 条过程卡${candTotal > 0 ? ` · 候选 ${candTotal} 条` : ''}${
-    autoIngested > 0 ? ` · 自动入图 ${autoIngested} 条` : ''}`
+  const processing = !terminal
+  const [expanded, setExpanded] = useState(false)
+  const [minimized, setMinimized] = useState(false)
+  useEffect(() => {
+    if (!terminal) {
+      setMinimized(false)
+      return
+    }
+    const t = window.setTimeout(() => setMinimized(true), 6000) // 终态定格 6s 后淡出为小徽标
+    return () => window.clearTimeout(t)
+  }, [terminal])
+  const cand = events.reduce((s, e) => s + (e.evType === 'companion.candidates' ? Number(e.evData?.count ?? 0) : 0), 0)
+  const ingested = Number(terminal?.evData?.auto_ingested ?? 0)
+  const statTxt = `${cand > 0 ? `候选 ${cand}` : ''}${cand > 0 && ingested > 0 ? ' · ' : ''}${ingested > 0 ? `自动入图 ${ingested}` : ''}`
+  const label = processing
+    ? `伴生沉淀 · 处理中${statTxt ? ` · ${statTxt}` : ''}`
+    : failed
+      ? `伴生沉淀失败${statTxt ? ` · ${statTxt}` : ''}`
+      : `伴生沉淀完成${statTxt ? ` · ${statTxt}` : ''}`
   return (
-    <div className={`event-card src-onto companion-group${open ? ' open' : ''}`} style={({ '--sub-depth': group.subDepth } as CSSProperties)}>
-      <div className="companion-group-head" data-testid="companion-group-head" onClick={() => setUserOpen(!open)} title={open ? '收起伴生沉淀过程' : '展开伴生沉淀过程卡'}>
-        <span className={`companion-group-caret${open ? ' open' : ''}`}>▸</span>
-        {processing && <LoadingOutlined spin style={{ marginRight: 6, color: 'var(--ant-color-primary, #4f46e5)' }} />}
-        <span className="companion-group-title">{label}</span>
-        <span className={`companion-group-state${processing ? ' live' : ''}${failed ? ' bad' : ''}`}>{processing ? '处理中 · 展开跟随' : failed ? '失败 · 已收起' : '已完成 · 已收起'}</span>
-      </div>
-      {open && events.map((e, j) => renderEvent(e, group.firstIdx + j))}
+    <div className={`companion-capsule${minimized && !expanded ? ' mini' : ''}${failed ? ' failed' : ''}`} data-testid="companion-capsule">
+      <button
+        type="button"
+        className="companion-capsule-pill"
+        data-testid="companion-capsule-pill"
+        onClick={() => setExpanded((o) => !o)}
+        title={expanded ? '收起伴生沉淀明细' : '展开伴生沉淀明细'}
+      >
+        {processing ? (
+          <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />
+        ) : (
+          <span className={`companion-capsule-mark${failed ? ' bad' : ''}`}>{failed ? '✕' : '✓'}</span>
+        )}
+        {!minimized && <span className="companion-capsule-label">{label}</span>}
+      </button>
+      {expanded && (
+        <div className="companion-capsule-panel" data-testid="companion-capsule-panel">
+          <div className="companion-capsule-head">
+            <span className="companion-capsule-title">{label}</span>
+            <button type="button" className="companion-capsule-close" onClick={() => { setExpanded(false); setMinimized(true) }} aria-label="收起">✕</button>
+          </div>
+          <div className="companion-capsule-body">
+            {events.map((e, i) => renderEvent(e, i))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -617,43 +659,53 @@ export default function ChatWindow({
   // REQ-282 B2：固定 2s×60（120s 硬顶）改指数退避 2s→5s→10s + 10 分钟硬顶——
   // 思考模型抽取动辄数分钟，预算调大后终态卡不再被轮询上限饿死（历史回放仍兜底自愈）。
   const companionPollRef = useRef<{ timer: number; cancel: () => void } | null>(null)
-  // REQ-323：伴生沉淀归组的「处理中」态（轮询活跃）——归组块据此展开/自动收起
-  const [companionLive, setCompanionLive] = useState(false)
+  // REQ-330②：伴生管线过程事件（extract/candidates/decision/ingest/reject）进右上角悬浮胶囊，
+  // 不再入聊天流（与本职工作事件解耦；companion.hit 保留流内=对当前回答的归因增强）
+  const [capsuleEvents, setCapsuleEvents] = useState<ChatItem[]>([])
   const stopCompanionPoll = () => {
     if (companionPollRef.current) {
       companionPollRef.current.cancel()
       window.clearTimeout(companionPollRef.current.timer)
       companionPollRef.current = null
     }
-    setCompanionLive(false)
   }
   const startCompanionPoll = (convId: string) => {
     stopCompanionPoll()
-    setCompanionLive(true)
+    setCapsuleEvents([]) // 新一轮沉淀活动=新胶囊（终态徽标随会话切换/新活动重置）
     let waited = 0
     let emptyAfterDone = 0
     let sawDone = false
     let cancelled = false
+    // REQ-330①：done 终结闸基线——仅计「本次收尾之后产生」的 done/error，防上一轮抽取的在途终态提前自灭轮询
+    let baselineTs = ''
+    try {
+      void api.listEvents(convId, { type_prefix: 'companion.', limit: 1, order: 'desc' }).then((newest) => {
+        baselineTs = newest[0]?.created_at ?? ''
+      }).catch(() => { /* 取不到基线=不设闸 */ })
+    } catch { /* 同上 */ }
     const tick = async () => {
       if (cancelled) return
       let freshCount = 0
       try {
-        const evs = await api.listEvents(convId, { type_prefix: 'companion.', limit: 50 })
-        const fresh = evs.filter((e) => !seenEventsRef.current.has(e.id))
+        // REQ-330①：增量取数改 desc 取最新窗（升序+limit 恒取最老 50 条，伴生存量>50 的会话新事件恒在窗外=轮询盲区）；
+        // reverse 回时序后沿用 seenEvents 去重
+        const evs = await api.listEvents(convId, { type_prefix: 'companion.', limit: 50, order: 'desc' })
+        const fresh = evs.filter((e) => !seenEventsRef.current.has(e.id)).reverse()
         freshCount = fresh.length
         for (const e of fresh) {
           seenEventsRef.current.add(e.id)
           let d: any = {}
           try { d = e.data ? JSON.parse(e.data) : {} } catch { /* 忽略坏数据 */ }
-          if (e.type === 'companion.extract' && (d?.phase === 'done' || d?.phase === 'error')) sawDone = true
+          if (e.type === 'companion.extract' && (d?.phase === 'done' || d?.phase === 'error') && (!baselineTs || String(e.created_at ?? '') > baselineTs)) sawDone = true
           const desc = describeEvent(e.type, d)
-          setItems((prev) => [...prev, { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d, evKey: `ce-${e.id}` }])
+          const item: ChatItem = { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d, evKey: `ce-${e.id}` }
+          if (e.type === 'companion.hit') setItems((prev) => [...prev, item]) // ③：命中归因卡保留聊天流
+          else setCapsuleEvents((prev) => [...prev, item]) // ②：管线过程事件进悬浮胶囊
         }
         emptyAfterDone = sawDone && freshCount === 0 ? emptyAfterDone + 1 : 0
       } catch { /* 网络抖动下一轮重试 */ }
       if (waited >= 600000 || (sawDone && emptyAfterDone >= 2)) {
         companionPollRef.current = null
-        setCompanionLive(false) // REQ-323：轮询自然终止，归组块转入「已完成」
         return
       }
       const delay = waited < 20000 ? 2000 : waited < 120000 ? 5000 : 10000
@@ -675,6 +727,7 @@ export default function ChatWindow({
     setRunning(false)
     let alive = true
     setItems([])
+    setCapsuleEvents([]) // REQ-330②：胶囊随会话切换重置（历史沉淀靠回放摘要行+TraceDrawer 承接）
     if (!conversation) return
     Promise.all([api.listMessages(conversation.id), api.listEvents(conversation.id).catch(() => [] as never[])])
       .then(([msgs, evs]) => {
@@ -1417,8 +1470,9 @@ export default function ChatWindow({
   // levelGated——两开关从未生效；现补过程门控（key=工具与运行状态，off=仅消息结论）。
   // REQ-323：连续 companion.* 沉淀过程卡再归组——处理中展开、完成自动收起（可手动展开），治多窗沉淀卡刷屏；
   // running 透传 groupToolPhases——运行期间最新工具组恒展开（叶级执行细节可见）
+  // REQ-330④：companion 管线事件已不入流（live 归胶囊）——回放态折为轻量摘要行
   const displayItems = useMemo(() => {
-    return groupCompanionPhases(
+    return summarizeCompanionPhases(
       groupToolPhases(
         withSubDepth(
           items.filter((it) => {
@@ -1452,8 +1506,18 @@ export default function ChatWindow({
         if ((it as unknown as { kind: string }).kind === '__tool_phase') {
           return { key: `t${i}`, role: 'event', content: <ToolPhaseBlock group={it as unknown as ToolPhaseGroup} /> }
         }
-        if ((it as unknown as { kind: string }).kind === '__companion_group') {
-          return { key: `cg${i}`, role: 'event', content: <CompanionGroupBlock group={it as unknown as CompanionEventGroup} live={companionLive} renderEvent={renderEventCard} /> }
+        if ((it as unknown as { kind: string }).kind === '__companion_summary') {
+          const s = it as unknown as CompanionSummaryItem
+          const txt = `🧩 伴生沉淀 · ${s.n} 条过程${s.cand > 0 ? ` · 候选 ${s.cand} 条` : ''}${s.ingested > 0 ? ` · 自动入图 ${s.ingested} 条` : ''}${s.failed ? ' · 失败' : ''} · 过程详情见「调用轨迹」`
+          return {
+            key: `cs${i}`,
+            role: 'event',
+            content: (
+              <div className="event-card src-onto companion-summary-line" data-testid="companion-summary-line" style={{ '--sub-depth': s.subDepth } as CSSProperties}>
+                <span>{txt}</span>
+              </div>
+            ),
+          }
         }
         return {
           key: `e${i}`,
@@ -1461,7 +1525,7 @@ export default function ChatWindow({
           content: renderEventCard(it, i),
         }
       }),
-    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, companionLive],
+    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel],
   )
 
   // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问），窗格头统一呈现
@@ -1896,6 +1960,8 @@ export default function ChatWindow({
       </div>
 
       <div className={`msg-list${running ? ' running' : ''}`}>
+        {/* REQ-330②：伴生沉淀悬浮胶囊（右上角；管线过程事件与本职工作事件解耦，旁路呈现独立于显示档） */}
+        {capsuleEvents.length > 0 && <CompanionCapsule events={capsuleEvents} renderEvent={renderEventCard} />}
         {cmp.on ? (
           <>
             {/* 对比开启前/外的对话历史（共享，折叠收纳；对比轮次的各窗格回答也会落库进此历史） */}
