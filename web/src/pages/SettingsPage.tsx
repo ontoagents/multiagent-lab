@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { api } from '../api/client'
 import type { ProviderGroupMeta } from '../api/client'
+import HintIcon from './settings/HintIcon'
 import type { InferenceBackendStatus, ModelConnection, UsageGroupBy, UsageRow } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
@@ -142,7 +143,25 @@ export default function SettingsPage() {
       dataIndex: 'name',
       render: (_, g) => <Typography.Text strong>{g.name}</Typography.Text>,
     },
-    { title: 'Base URL', dataIndex: 'baseUrl', ellipsis: true, render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text> },
+    {
+      // 界面优化批：协议↔接入地址配对展示（组内 distinct 对）——同一供应商多协议时逐对可见，
+      // 不再只显示锚点连接的单条地址
+      title: '协议 / 接入地址',
+      key: 'proto',
+      render: (_, g) => {
+        const pairs = [...new Map(g.members.filter((m) => m.base_url).map((m) => [`${m.protocol}::${m.base_url}`, m])).values()]
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }} data-testid="provider-proto-pairs">
+            {pairs.map((m) => (
+              <div key={`${m.protocol}::${m.base_url}`} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <Tag style={{ margin: 0, fontSize: 11 }} color={m.protocol === 'anthropic' ? 'purple' : 'default'}>{m.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Tag>
+                <Typography.Text code style={{ fontSize: 12 }} ellipsis>{m.base_url}</Typography.Text>
+              </div>
+            ))}
+          </div>
+        )
+      },
+    },
     {
       title: 'API Key',
       key: 'key',
@@ -280,8 +299,9 @@ export default function SettingsPage() {
               { key: 'security', label: '数据与安全' },
             ]}
           />
-          <div className="settings-note">
-            模型连接集中在此维护，智能体配置只做<strong>引用</strong>（chat / embedding 各至多一条默认）。
+          <div className="settings-note" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <HintIcon text="模型连接集中在此维护，智能体配置只做引用（chat / embedding 各至多一条默认）。" />
+            <span>模型连接引用口径</span>
           </div>
         </aside>
       )}
@@ -300,10 +320,10 @@ export default function SettingsPage() {
           ) : category === 'stats' ? (
             <>
               <div className="settings-head">
-                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>使用统计</Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  按模型 / 供应商 / 智能体 / 项目聚合调用次数与 token 消耗；「按供应商」在前端按 Base URL 归并（后端无提供商实体）。支持按时间范围（含首尾）筛选。
-                </Typography.Paragraph>
+                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+                  使用统计
+                  <HintIcon text="按模型 / 供应商 / 智能体 / 项目聚合调用次数与 token 消耗；「按供应商」在前端按接入配置归并。支持按时间范围（含首尾）筛选。" />
+                </Typography.Title>
               </div>
               <div style={{ marginTop: 12 }}>
                 <StatsView />
@@ -312,10 +332,10 @@ export default function SettingsPage() {
           ) : (
             <>
               <div className="settings-head">
-                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>模型管理</Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  提供商按接入配置聚合（同一供应商可多实例，REQ-148）；协议为模型连接属性（REQ-177）。chat / embedding 各设一条默认连接，供智能体「跟随全局默认」引用；API Key 加密存储本地。添加提供商可从厂商预设快速填充。
-                </Typography.Paragraph>
+                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+                  模型管理
+                  <HintIcon text="每个供应商一条（按接入配置聚合，同一供应商可多实例）；供应商内支持多协议，切换协议自动联动接入地址（同商既有地址优先，其次厂商预设）。chat / embedding 各设一条默认连接供智能体「跟随全局默认」引用；API Key 加密存储本地；添加提供商可从厂商预设快速填充。" />
+                </Typography.Title>
               </div>
 
               {!hasChat && (
@@ -350,7 +370,7 @@ export default function SettingsPage() {
                 <div className="tab-footer">
                   <Button type="primary" onClick={() => setProviderModal('new')}>＋ 添加提供商</Button>
                   <Button onClick={() => openModelModal('new')}>＋ 添加模型</Button>
-                  <span className="hint">展开提供商行查看其模型；「自动获取模型」从接入点拉取可用模型并批量创建连接</span>
+                  <HintIcon text="展开提供商行查看其模型；「自动获取模型」从接入点拉取可用模型并批量创建连接" />
                 </div>
               </div>
             </>
@@ -629,7 +649,7 @@ function InferencePanel() {
       />
       <div className="tab-footer">
         <Button loading={probing} onClick={() => { setProbing(true); load(true); setProbing(false) }}>重新探测</Button>
-        <span className="hint">外部 CLI 后端按 PATH 探测（结果缓存 10 分钟）；eino-adk 为平台自研默认（完整能力），外部后端能力降级（技能/MCP 注入为提示，不支持多 Agent 编排）</span>
+        <HintIcon text="外部 CLI 后端按 PATH 探测（结果缓存 10 分钟）；eino-adk 为平台自研默认（完整能力），外部后端能力降级（技能/MCP 注入为提示，不支持多 Agent 编排）" />
       </div>
     </div>
   )
@@ -685,10 +705,10 @@ function SecurityPanel() {
   return (
     <>
       <div className="settings-head">
-        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>数据与安全</Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          全部数据存于本机 SQLite 单文件（密钥 AES-256-GCM 加密）；删除对话/项目会级联删除其下数据，操作前请确认级联范围。API Key 只能整库管理，无单独导出。
-        </Typography.Paragraph>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+          数据与安全
+          <HintIcon text="全部数据存于本机 SQLite 单文件（密钥 AES-256-GCM 加密）；删除对话/项目会级联删除其下数据，操作前请确认级联范围。API Key 只能整库管理，无单独导出。" />
+        </Typography.Title>
       </div>
       <div className="usage-summary" style={{ marginTop: 12 }}>
         {[

@@ -9,6 +9,7 @@
  * 运行中实例不受影响。
  */
 import { useEffect, useState } from 'react'
+import HintIcon from './HintIcon'
 import { Alert, Button, Card, Input, Select, Space, Spin, Tag, Typography } from 'antd'
 import { api } from '../../api/client'
 import type { RuntimeEnvPayload, RuntimeEnvSettings } from '../../api/client'
@@ -96,11 +97,10 @@ export function RuntimeEnvPane() {
   return (
     <>
       <div className="settings-head">
-        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>运行环境 · 智能体沙箱</Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          集中配置沙箱运行方式与 K8s 访问认证（REQ-191）；留空字段跟随平台启动环境（env 兜底，存量部署零影响）。
-          保存后对<strong>新会话 / 新方案启动</strong>生效，运行中实例不受影响；K8s 认证跟随 kubeconfig 标准机制（平台不自建 token 管理）。
-        </Typography.Paragraph>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+          运行环境 · 智能体沙箱
+          <HintIcon text="集中配置沙箱运行方式与 K8s 访问认证（REQ-191）；留空字段跟随平台启动环境（env 兜底，存量部署零影响）。保存后对新会话 / 新方案启动生效，运行中实例不受影响；K8s 认证跟随 kubeconfig 标准机制（平台不自建 token 管理）。" />
+        </Typography.Title>
       </div>
 
       <Card size="small" style={{ marginTop: 12, maxWidth: 720 }}>
@@ -170,10 +170,10 @@ export function RuntimeEnvPane() {
       </Card>
 
       <div className="settings-head" style={{ marginTop: 20 }}>
-        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>本体引擎 · 执行方式</Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          本体运行方案的引擎执行方式（系统级配置，对所有方案生效；REQ-179/M-O16，D-O20）。切换后对下一次方案启动生效。
-        </Typography.Paragraph>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+          本体引擎 · 执行方式
+          <HintIcon text="本体运行方案的引擎执行方式（系统级配置，对所有方案生效；REQ-179/M-O16，D-O20）。切换后对下一次方案启动生效。" />
+        </Typography.Title>
       </div>
       <EngineExecMethodCard />
     </>

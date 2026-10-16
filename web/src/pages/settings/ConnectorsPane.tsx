@@ -9,6 +9,7 @@
  * 本分区只做连接器的生命周期管理与连接测试（REQ-191 先例）。
  */
 import { useCallback, useEffect, useState } from 'react'
+import HintIcon from './HintIcon'
 import { Alert, Button, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import { ApiOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
@@ -219,11 +220,10 @@ export function ConnectorsPane() {
   return (
     <>
       <div className="settings-head">
-        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>连接器（REQ-214）</Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH）× 交付驱动（MCP 直通 / 平台托管插件服务）。
-          凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。工具以 <code>{'{连接器名}__{tool}'}</code> 前缀并入白名单候选。
-        </Typography.Paragraph>
+        <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+          连接器（REQ-214）
+          <HintIcon text="统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH）× 交付驱动（MCP 直通 / 平台托管插件服务）。凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。工具以 {连接器名}__{tool} 前缀并入白名单候选。" />
+        </Typography.Title>
       </div>
       <Space style={{ margin: '12px 0' }}>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCreate}>新建连接器</Button>

@@ -12,6 +12,7 @@ import { api } from '../../api/client'
 import type { ModelConnection } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { groupOf, isAnthropicProtocol, providerOfName, uniqueConnName, type ProviderGroup } from './grouping'
+import { PROVIDER_PRESETS } from '../../api/providerPresets'
 
 const PROTOCOL_OPTIONS = [
   { value: 'openai_compat', label: 'openai_compat · OpenAI 兼容' },
@@ -80,6 +81,29 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
       form.setFieldsValue({ conn_type: 'chat' })
     }
   }, [anthropic, form])
+
+  // 界面优化批：协议切换 → 接入地址联动同步——同供应商组内已有该协议连接则取其地址，
+  // 否则回落厂商预设（PROVIDER_PRESETS 按供应商名模糊匹配）；初始加载/换供应商的预填不重复触发
+  const protocolSyncArmed = useRef(false)
+  useEffect(() => {
+    if (protocol == null) return
+    if (!protocolSyncArmed.current) {
+      protocolSyncArmed.current = true
+      return
+    }
+    const sibling = providerGroup?.members.find((m) => m.protocol === protocol && m.base_url)
+    if (sibling) {
+      form.setFieldsValue({ base_url: sibling.base_url })
+      return
+    }
+    const name = providerGroup?.name ?? ''
+    const head = name.split(' ')[0]
+    const preset = PROVIDER_PRESETS.find(
+      (pr) => (pr.protocol ?? 'openai_compat') === protocol &&
+        ((head && pr.name.includes(head)) || (head && head.length >= 2 && pr.name.toUpperCase().includes(head.toUpperCase())) || name.includes(pr.key)),
+    )
+    if (preset) form.setFieldsValue({ base_url: preset.baseUrl })
+  }, [protocol, providerGroup, form])
 
   const save = async () => {
     let v: any
