@@ -141,6 +141,7 @@ export default function SettingsPage() {
     {
       title: '提供商',
       dataIndex: 'name',
+      width: '15%', // 界面优化批：列宽百分比动态适配（随侧栏拖拽/窗口变化等比伸缩，供应商列不再被挤压；展开表多一列图标列，百分比总和留 7% 量）
       render: (_, g) => <Typography.Text strong>{g.name}</Typography.Text>,
     },
     {
@@ -148,6 +149,7 @@ export default function SettingsPage() {
       // 不再只显示锚点连接的单条地址
       title: '协议 / 接入地址',
       key: 'proto',
+      width: '30%',
       render: (_, g) => {
         const pairs = [...new Map(g.members.filter((m) => m.base_url).map((m) => [`${m.protocol}::${m.base_url}`, m])).values()]
         return (
@@ -165,7 +167,7 @@ export default function SettingsPage() {
     {
       title: 'API Key',
       key: 'key',
-      width: 150,
+      width: '14%',
       render: (_, g) => {
         const withKey = g.members.find((m) => m.has_key)
         return <Typography.Text type={withKey ? 'secondary' : 'warning'} style={{ fontSize: 12 }}>{withKey ? withKey.api_key_hint : '未设置'}</Typography.Text>
@@ -174,7 +176,7 @@ export default function SettingsPage() {
     {
       title: '启用',
       key: 'status',
-      width: 110,
+      width: '9%',
       render: (_, g) => {
         const on = g.members.filter((m) => m.enabled).length
         if (on === g.members.length) return <Tag color="green" style={{ margin: 0 }}>启用</Tag>
@@ -182,11 +184,11 @@ export default function SettingsPage() {
         return <Tag color="orange" style={{ margin: 0 }}>启用 {on}/{g.members.length}</Tag>
       },
     },
-    { title: '模型数', key: 'count', width: 80, align: 'center', render: (_, g) => <Tag style={{ margin: 0 }}>{g.members.length}</Tag> },
+    { title: '模型数', key: 'count', width: '6%', align: 'center', render: (_, g) => <Tag style={{ margin: 0 }}>{g.members.length}</Tag> },
     {
       title: '操作',
       key: 'ops',
-      width: 360,
+      width: '19%',
       render: (_, g) => {
         // 测试代表连接：优先取组内存有 Key 的成员
         const rep = g.members.find((m) => m.has_key) ?? g.anchor
@@ -215,18 +217,18 @@ export default function SettingsPage() {
   // 展开区：一条连接一行（模型名 / 类型 / 默认 / 操作）
   const modelColumns: ColumnsType<ModelConnection> = [
     { title: '模型', dataIndex: 'model_name', render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text> },
-    { title: '类型', dataIndex: 'conn_type', width: 170, render: (t: string, c) => (
+    { title: '类型', dataIndex: 'conn_type', width: '24%', render: (t: string, c) => (
       <Space size={4}>
         {t === 'chat' ? <Tag color="blue" style={{ margin: 0 }}>chat</Tag> : <Tag color="green" style={{ margin: 0 }}>embedding</Tag>}
         {/* REQ-177①：协议为连接属性，混合协议组内逐连接可见 */}
         <Tag style={{ margin: 0 }} color={c.protocol === 'anthropic' ? 'purple' : 'default'}>{c.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Tag>
       </Space>
     ) },
-    { title: '默认', dataIndex: 'is_default', width: 130, render: (_, c) => (c.is_default ? <Tag color="gold" style={{ margin: 0 }}>{c.conn_type} 默认</Tag> : <Typography.Text type="secondary">—</Typography.Text>) },
+    { title: '默认', dataIndex: 'is_default', width: '16%', render: (_, c) => (c.is_default ? <Tag color="gold" style={{ margin: 0 }}>{c.conn_type} 默认</Tag> : <Typography.Text type="secondary">—</Typography.Text>) },
     {
       title: '操作',
       key: 'ops',
-      width: 250,
+      width: '26%',
       render: (_, c) => (
         <Space size={0} wrap>
           <Button type="link" size="small" loading={testing === c.id} onClick={() => test(c)}>测试</Button>
@@ -355,7 +357,7 @@ export default function SettingsPage() {
                   dataSource={groups}
                   pagination={false}
                   size="middle"
-                  scroll={{ x: 960 }}
+                  tableLayout="fixed"
                   expandable={{
                     expandedRowKeys: expandedKeys,
                     onExpandedRowsChange: (keys) => {
