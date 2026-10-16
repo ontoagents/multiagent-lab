@@ -9,9 +9,10 @@
  * - 协议联动（REQ-172）：anthropic 仅 chat（Anthropic 无官方向量接口）。
  */
 import { useEffect, useState } from 'react'
-import { Alert, Button, Divider, Form, Input, Modal, Select, Space, Switch, Tag, Typography } from 'antd'
+import { Alert, Button, Divider, Form, Input, Modal, Select, Space, Switch, Tag } from 'antd'
 import { api } from '../../api/client'
 import { PROVIDER_PRESETS } from '../../api/providerPresets'
+import HintIcon from './HintIcon'
 import type { ProviderPreset } from '../../api/providerPresets'
 import type { ModelConnection } from '../../api/types'
 import { useUI } from '../../store/ui'
@@ -157,18 +158,8 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
       <Form form={form} layout="vertical" requiredMark={false} disabled={busy}>
         {!editGroup && (
           <Form.Item
-            label="从厂商预设快速填充"
+            label={<span>从厂商预设快速填充 <HintIcon text={preset?.console ? `已按预设填充协议与 Base URL，仅需补 API Key 与模型名；Key 申请：${preset.console}` : '选择厂商自动填充协议与 Base URL（预设清单，含 Anthropic 系兼容网关）；也可留空手动填写'} /></span>}
             style={{ marginBottom: 8 }}
-            extra={
-              preset?.console ? (
-                <>
-                  已按预设填充协议与 Base URL，仅需补 API Key 与模型名；Key 申请：
-                  <Typography.Link href={preset.console} target="_blank" rel="noreferrer">{preset.console}</Typography.Link>
-                </>
-              ) : (
-                '选择厂商自动填充协议与 Base URL（REQ-105 预设清单，含 Anthropic 系兼容网关）；也可留空手动填写'
-              )
-            }
           >
             <Select
               showSearch
@@ -184,10 +175,10 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
 
         <Divider plain style={{ margin: '8px 0 12px' }}>基本信息</Divider>
         <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '名称必填' }]} style={{ flex: 1, marginBottom: 12 }} extra={editGroup ? '改名将按「名称·模型名」重生成该提供商下全部连接名' : '作为连接名前缀（名称·模型名）'}>
+          <Form.Item name="name" label={<span>名称 <HintIcon text={editGroup ? '改名将按「名称·模型名」重生成该提供商下全部连接名' : '作为连接名前缀（名称·模型名）'} /></span>} rules={[{ required: true, message: '名称必填' }]} style={{ flex: 1, marginBottom: 12 }}>
             <Input placeholder="DeepSeek 官方" />
           </Form.Item>
-          <Form.Item name="alias" label="显示别名（可选）" style={{ flex: 1, marginBottom: 12 }} extra="仅展示层，不改连接真名（REQ-148）">
+          <Form.Item name="alias" label={<span>显示别名（可选） <HintIcon text="仅展示层，不改连接真名" /></span>} style={{ flex: 1, marginBottom: 12 }}>
             <Input placeholder="如：DeepSeek 工作号" />
           </Form.Item>
         </div>
@@ -198,13 +189,12 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
             <div style={{ display: 'flex', gap: 12 }}>
               <Form.Item
                 name="api_key"
-                label={keyMember ? <span>API Key <Tag color="green" style={{ marginInlineStart: 6 }}>已存 {keyMember.api_key_hint}</Tag></span> : 'API Key'}
-                extra="留空 = 各连接保留已存 Key；填写 = 应用到全部连接"
+                label={keyMember ? <span>API Key <Tag color="green" style={{ marginInlineStart: 6 }}>已存 {keyMember.api_key_hint}</Tag><HintIcon text="留空 = 各连接保留已存 Key；填写 = 应用到全部连接" /></span> : 'API Key'}
                 style={{ flex: 1, marginBottom: 12 }}
               >
                 <Input.Password placeholder="不修改请留空" autoComplete="new-password" />
               </Form.Item>
-              <Form.Item name="enabled" label="启用" valuePropName="checked" extra="应用到全部连接" style={{ width: 140, marginBottom: 12 }}>
+              <Form.Item name="enabled" label={<span>启用 <HintIcon text="应用到该供应商全部连接" /></span>} valuePropName="checked" style={{ width: 140, marginBottom: 12 }}>
                 <Switch checkedChildren="启用" unCheckedChildren="停用" />
               </Form.Item>
             </div>
@@ -221,13 +211,12 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
             <div style={{ display: 'flex', gap: 12 }}>
               <Form.Item
                 name="protocol"
-                label="协议"
-                extra={anthropic ? '兼容官方与 DeepSeek / 智谱 / Kimi 等 Anthropic 端点' : '绝大多数厂商的 OpenAI 兼容端点'}
+                label={<span>协议 <HintIcon text={anthropic ? '兼容官方与 DeepSeek / 智谱 / Kimi 等 Anthropic 端点；切换协议自动联动匹配地址' : '绝大多数厂商的 OpenAI 兼容端点；切换协议自动联动匹配地址'} /></span>}
                 style={{ width: 250, marginBottom: 12 }}
               >
                 <Select options={PROTOCOL_OPTIONS} />
               </Form.Item>
-              <Form.Item name="conn_type" label="类型" style={{ width: 170, marginBottom: 12 }} extra={anthropic ? '仅支持对话模型' : undefined}>
+              <Form.Item name="conn_type" label={<span>类型 {anthropic && <HintIcon text="Anthropic 无向量接口，仅支持对话模型" />}</span>} style={{ width: 170, marginBottom: 12 }}>
                 <Select
                   disabled={anthropic}
                   options={[
@@ -239,17 +228,14 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
             </div>
             <Form.Item
               name="base_url"
-              label={anthropic ? 'Base URL（Anthropic 网关根地址）' : 'Base URL（OpenAI 兼容）'}
+              label={<span>Base URL <HintIcon text={anthropic ? '填网关根地址即可，平台自动拼接 /v1/messages（如 https://api.anthropic.com、https://open.bigmodel.cn/api/anthropic）' : 'OpenAI 兼容接入点；同一供应商可再次添加为独立实例（不同账号/Key）'} /></span>}
               rules={[{ required: true, message: 'Base URL 必填' }]}
-              extra={anthropic
-                ? '填网关根地址即可，平台自动拼接 /v1/messages（如 https://api.anthropic.com、https://open.bigmodel.cn/api/anthropic）'
-                : '同一供应商可再次添加为独立实例（不同账号/Key）'}
               style={{ marginBottom: 12 }}
             >
               <Input placeholder={anthropic ? 'https://api.anthropic.com' : 'https://api.deepseek.com/v1'} />
             </Form.Item>
             <div style={{ display: 'flex', gap: 12 }}>
-              <Form.Item name="api_key" label="API Key" extra="保存后 AES-256-GCM 加密，仅显示掩码" style={{ flex: 1, marginBottom: 12 }}>
+              <Form.Item name="api_key" label={<span>API Key <HintIcon text="保存后 AES-256-GCM 加密，仅显示掩码" /></span>} style={{ flex: 1, marginBottom: 12 }}>
                 <Input.Password placeholder={anthropic ? 'sk-ant-…' : 'sk-…'} autoComplete="new-password" />
               </Form.Item>
               <Form.Item name="enabled" label="启用" valuePropName="checked" style={{ width: 140, marginBottom: 12 }}>
@@ -266,7 +252,7 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
                 title="Anthropic 协议暂仅支持对话模型（无官方向量接口），类型已锁定为 chat"
               />
             )}
-            <Form.Item name="model_name" label="首个模型名" rules={[{ required: true, message: '模型名必填' }]} style={{ marginBottom: 12 }} extra="后端无独立提供商实体，添加提供商将同时创建首个模型连接">
+            <Form.Item name="model_name" label={<span>首个模型名 <HintIcon text="添加提供商将同时创建首个模型连接（后端无独立提供商实体）" /></span>} rules={[{ required: true, message: '模型名必填' }]} style={{ marginBottom: 12 }}>
               <Input placeholder={anthropic ? 'claude-sonnet-4-5' : 'deepseek-chat'} />
             </Form.Item>
           </>

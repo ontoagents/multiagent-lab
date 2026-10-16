@@ -13,7 +13,7 @@ import { ModelModal } from './settings/ModelModal'
 import { ProviderModal } from './settings/ProviderModal'
 import { RuntimeEnvPane } from './settings/RuntimeEnvPane'
 import { ConnectorsPane } from './settings/ConnectorsPane'
-import { groupOf, providerOfName, type ProviderGroup } from './settings/grouping'
+import { isBuiltinVendor, providerOfName, vendorDisplayOf, vendorKeyOf, type ProviderGroup } from './settings/grouping'
 
 type Category = 'models' | 'connectors' | 'stats' | 'inference' | 'runtime' | 'security'
 /** 统计维度：供应商为前端归并（后端无提供商实体），其余直接映射后端 group_by */
@@ -59,16 +59,17 @@ export default function SettingsPage() {
   }
   useEffect(reload, [])
 
-  // 按创建顺序聚合（后端 ORDER BY created_at，id）：组内首个成员即锚点；展示名别名优先、缺省从锚点派生
+  // 供应商归组（界面优化批 2026-10-16）：按厂商聚合——同厂商多协议/多地址连接归同一条供应商行
+  //（不再供应商×协议正交拆行）；锚点=组内首个成员（Key 共享 copy_key_from 沿用）；展示名别名优先。
   const groups = useMemo<ProviderGroup[]>(() => {
     const aliasOf = new Map(groupMetas.map((g) => [g.id, g.alias]))
     const map = new Map<string, ProviderGroup>()
     for (const c of conns) {
-      const key = groupOf(c)
+      const key = vendorKeyOf(c.name)
       let g = map.get(key)
       if (!g) {
         const alias = c.provider_group_id ? aliasOf.get(c.provider_group_id) ?? '' : ''
-        g = { key, id: c.provider_group_id ?? '', alias, name: alias || providerOfName(c.name), baseUrl: c.base_url, protocol: c.protocol, anchor: c, members: [] }
+        g = { key, id: c.provider_group_id ?? '', alias, name: alias || vendorDisplayOf(c.name), baseUrl: c.base_url, protocol: c.protocol, anchor: c, members: [] }
         map.set(key, g)
       }
       g.members.push(c)
@@ -142,7 +143,15 @@ export default function SettingsPage() {
       title: '提供商',
       dataIndex: 'name',
       width: '15%', // 界面优化批：列宽百分比动态适配（随侧栏拖拽/窗口变化等比伸缩，供应商列不再被挤压；展开表多一列图标列，百分比总和留 7% 量）
-      render: (_, g) => <Typography.Text strong>{g.name}</Typography.Text>,
+      render: (_, g) => (
+        <Typography.Text strong>
+          {g.name}
+          {/* 界面优化批：只区分内置/自定义供应商（不再供应商×协议正交拆行） */}
+          <Tag style={{ marginInlineStart: 6 }} color={isBuiltinVendor(g.anchor.name) ? 'geekblue' : 'default'}>
+            {isBuiltinVendor(g.anchor.name) ? '内置' : '自定义'}
+          </Tag>
+        </Typography.Text>
+      ),
     },
     {
       // 界面优化批：协议↔接入地址配对展示（组内 distinct 对）——同一供应商多协议时逐对可见，

@@ -2,6 +2,7 @@
  * 模型管理分组模型与工具函数（自 SettingsPage 抽取，REQ-172 二级配置界面组件化）。
  */
 import type { ModelConnection } from '../../api/types'
+import { PROVIDER_PRESETS } from '../../api/providerPresets'
 
 /**
  * 提供商分组（REQ-148 起分组标识与 BaseURL 解耦）：
@@ -53,4 +54,40 @@ export function protocolLabel(p: string): string {
 /** 协议是否为 anthropic（REQ-172：决定表单联动——BaseURL 口径/类型限制/模型名占位） */
 export function isAnthropicProtocol(p: string | undefined | null): boolean {
   return p === 'anthropic'
+}
+
+/**
+ * 供应商归组（界面优化批 2026-10-16——开发者指令「供应商列表不要把供应商和协议做正交，
+ * 只显示内置的供应商和自定义供应商」）：同一厂商的多协议/多地址连接归入**同一条供应商**，
+ * 协议与接入地址作为组内配对展示（SettingsPage「协议 / 接入地址」列），不再按 (protocol, base_url)
+ * 拆成多条供应商行。
+ * - 厂商键（vendorKey）：连接名「·」前缀的首词小写（DeepSeek 深度求索·x → deepseek）；能匹配到
+ *   厂商预设（PROVIDER_PRESETS 名/键）时用预设 key（内置供应商）；自定义供应商=前缀词本身。
+ * - 内置/自定义：能匹配预设=内置（Tag 内置），否则=自定义。
+ * - 老的 ProviderGroup（provider_group_id 分组，REQ-148）仍用于 Key 共享（copy_key_from 锚点）
+ *   与别名展示——归组键变化仅影响列表聚合粒度，不改数据。
+ */
+
+export function vendorPrefixOf(name: string): string {
+  const base = providerOfName(name).trim()
+  const i = base.indexOf(' ')
+  return i > 0 ? base.slice(0, i) : base
+}
+
+export function vendorKeyOf(name: string): string {
+  const prefix = vendorPrefixOf(name)
+  const lower = prefix.toLowerCase()
+  const hit = PROVIDER_PRESETS.find(
+    (pr) => pr.key.toLowerCase() === lower || pr.name.toLowerCase().includes(lower) && lower.length >= 2,
+  )
+  return hit ? `preset:${hit.key}` : `custom:${lower}`
+}
+
+export function isBuiltinVendor(name: string): boolean {
+  return vendorKeyOf(name).startsWith('preset:')
+}
+
+/** 供应商展示名：组内首个成员的「·」前缀（别名优先逻辑在调用侧处理） */
+export function vendorDisplayOf(name: string): string {
+  return providerOfName(name)
 }

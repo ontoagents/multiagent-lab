@@ -13,6 +13,7 @@ import type { ModelConnection } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { groupOf, isAnthropicProtocol, providerOfName, uniqueConnName, type ProviderGroup } from './grouping'
 import { PROVIDER_PRESETS } from '../../api/providerPresets'
+import HintIcon from './HintIcon'
 
 const PROTOCOL_OPTIONS = [
   { value: 'openai_compat', label: 'openai_compat · OpenAI 兼容' },
@@ -65,14 +66,25 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
   const protocol = Form.useWatch('protocol', form)
   const anthropic = isAnthropicProtocol(protocol)
 
-  // 切换提供商 → 预填目标组锚点协议/接入点（可手改）；初始加载不触发
+  // 切换提供商（界面优化批）：保留当前协议，接入地址按「新供应商+当前协议」联动同步
+  //（新商无该协议连接则顺带切到其锚点协议并取锚点地址——保证协议/地址永远配对）
   useEffect(() => {
     if (!providerKey || providerKey === loadedProvider.current) return
     const g = groups.find((x) => x.key === providerKey)
     if (g) {
-      form.setFieldsValue({ protocol: g.protocol, base_url: g.baseUrl })
+      const cur = form.getFieldValue('protocol') ?? 'openai_compat'
+      const sibling = g.members.find((m) => m.protocol === cur && m.base_url)
+      if (sibling) {
+        form.setFieldsValue({ base_url: sibling.base_url })
+      } else if (!g.members.some((m) => m.protocol === cur)) {
+        const anchor = g.members.find((m) => m.protocol === g.protocol) ?? g.anchor
+        form.setFieldsValue({ protocol: anchor.protocol, base_url: anchor.base_url })
+      } else {
+        syncAddress(g.name, cur)
+      }
     }
     loadedProvider.current = providerKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerKey, groups, form])
 
   // 切到 anthropic 时类型锁定 chat；切回 openai_compat 不代选（保持用户已选值）
@@ -82,28 +94,28 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
     }
   }, [anthropic, form])
 
-  // 界面优化批：协议切换 → 接入地址联动同步——同供应商组内已有该协议连接则取其地址，
-  // 否则回落厂商预设（PROVIDER_PRESETS 按供应商名模糊匹配）；初始加载/换供应商的预填不重复触发
-  const protocolSyncArmed = useRef(false)
-  useEffect(() => {
-    if (protocol == null) return
-    if (!protocolSyncArmed.current) {
-      protocolSyncArmed.current = true
-      return
-    }
-    const sibling = providerGroup?.members.find((m) => m.protocol === protocol && m.base_url)
+  // 界面优化批：供应商/协议任一切换 → 接入地址联动同步（统一 syncAddress）——
+  // 同商组内已有该协议连接取其地址（最准），否则厂商预设（按厂商名模糊匹配 + 协议一致）；
+  // 初始加载不触发（换供应商/换协议均为用户显式切换）。
+  const syncAddress = (vendorName: string, p: string) => {
+    const g = groups.find((x) => x.name === vendorName)
+    const sibling = g?.members.find((m) => m.protocol === p && m.base_url)
     if (sibling) {
       form.setFieldsValue({ base_url: sibling.base_url })
       return
     }
-    const name = providerGroup?.name ?? ''
-    const head = name.split(' ')[0]
+    const head = vendorName.split(' ')[0]
     const preset = PROVIDER_PRESETS.find(
-      (pr) => (pr.protocol ?? 'openai_compat') === protocol &&
-        ((head && pr.name.includes(head)) || (head && head.length >= 2 && pr.name.toUpperCase().includes(head.toUpperCase())) || name.includes(pr.key)),
+      (pr) => (pr.protocol ?? 'openai_compat') === p &&
+        ((head && pr.name.includes(head)) || (head && head.length >= 2 && pr.name.toUpperCase().includes(head.toUpperCase())) || vendorName.includes(pr.key)),
     )
     if (preset) form.setFieldsValue({ base_url: preset.baseUrl })
-  }, [protocol, providerGroup, form])
+  }
+  useEffect(() => {
+    if (protocol == null || !providerGroup) return
+    syncAddress(providerGroup.name, protocol)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [protocol])
 
   const save = async () => {
     let v: any
@@ -185,9 +197,9 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
         )}
         <Form.Item
           name="provider"
-          label="所属提供商"
+          label={<span>所属提供商 <HintIcon text="API Key 由提供商统一管理（移动提供商时自动沿用目标提供商的 Key）。切协议/切供应商时接入地址自动联动。" /></span>}
           rules={[{ required: true, message: '请选择提供商；新提供商请先添加' }]}
-          extra="API Key 由提供商统一管理（移动提供商时自动沿用目标提供商的 Key）"
+         
           style={{ marginBottom: 12 }}
         >
           <Select
@@ -196,10 +208,10 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
           />
         </Form.Item>
         <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="protocol" label="协议" extra="同一供应商下可与其他连接不同协议（REQ-177）" style={{ width: 250, marginBottom: 12 }}>
+          <Form.Item name="protocol" label={<span>协议 <HintIcon text="同一供应商下可与其他连接不同协议；切换协议自动联动匹配的接入地址。" /></span>} style={{ width: 250, marginBottom: 12 }}>
             <Select options={PROTOCOL_OPTIONS} />
           </Form.Item>
-          <Form.Item name="conn_type" label="类型" style={{ width: 170, marginBottom: 12 }} extra={anthropic ? '仅支持对话模型' : undefined}>
+          <Form.Item name="conn_type" label={<span>类型 {anthropic && <HintIcon text="Anthropic 无向量接口，仅支持对话模型" />}</span>} style={{ width: 170, marginBottom: 12 }}>
             <Select
               disabled={anthropic}
               options={[
@@ -211,9 +223,9 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
         </div>
         <Form.Item
           name="base_url"
-          label={anthropic ? 'Base URL（Anthropic 网关根地址）' : 'Base URL（OpenAI 兼容）'}
+          label={<span>Base URL <HintIcon text={anthropic ? '填 Anthropic 网关根地址，平台自动拼接 /v1/messages' : 'OpenAI 兼容接入点；切协议/切供应商时自动联动匹配地址'} /></span>}
           rules={[{ required: true, message: 'Base URL 必填' }]}
-          extra={anthropic ? '填网关根地址，平台自动拼接 /v1/messages' : '各连接可使用不同接入点'}
+         
           style={{ marginBottom: 12 }}
         >
           <Input placeholder={anthropic ? 'https://api.anthropic.com' : 'https://api.deepseek.com/v1'} />
@@ -222,7 +234,7 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
           <Form.Item name="model_name" label="模型名" rules={[{ required: true, message: '模型名必填' }]} style={{ flex: 1, marginBottom: 12 }}>
             <Input placeholder={anthropic ? 'claude-sonnet-4-5' : 'deepseek-chat'} />
           </Form.Item>
-          <Form.Item name="is_default" label="类型默认" valuePropName="checked" extra="chat / embedding 各至多一条" style={{ width: 190, marginBottom: 12 }}>
+          <Form.Item name="is_default" label={<span>类型默认 <HintIcon text="chat / embedding 各至多一条默认连接，供智能体「跟随全局默认」引用" /></span>} valuePropName="checked" style={{ width: 190, marginBottom: 12 }}>
             <Switch checkedChildren="默认" unCheckedChildren="否" />
           </Form.Item>
         </div>
