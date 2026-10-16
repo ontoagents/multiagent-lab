@@ -15,8 +15,8 @@ import AuditPage from './AuditPage'
 
 // ---------------------------------------------------------------------------
 // 本体模块壳（D-O11 / REQ-104）：五栏位
-//   学习中心（默认页）| 本体构建（六路径）| 本体资产（统一管理）| 本体运行（按引擎分组）
-//   | 消费与审计（D-O15/REQ-110 第五栏）
+//   本体构建（六路径，默认页）| 本体资产（统一管理）| 本体运行（按引擎分组）
+//   | 消费与审计（D-O15/REQ-110 第五栏）| 学习中心（方法论，收尾）
 // REQ-216⑨/D-O21 反转：伴生本体第六栏退役（回五栏）——六栏前提「伴生图非仓库资产」
 // 被归属容器化推翻，栏职能被资产详情页「伴生候选」页签+可视化区伴生成长图吸收。
 // 路由沿用 page 状态机：page='ontology' 内部以 sidebarKey 切换；
@@ -29,20 +29,27 @@ import AuditPage from './AuditPage'
 export type SidebarKey = 'learn' | 'build' | 'assets' | 'runtime' | 'audit'
 
 const NAV: { key: SidebarKey; label: string; icon: React.ReactNode; desc: string }[] = [
-  { key: 'learn', label: '学习中心', icon: <BookOutlined />, desc: '七阶段路径 · 方法论 · 任务卡' },
   { key: 'build', label: '本体构建', icon: <ApartmentOutlined />, desc: '六条构建路径' },
   { key: 'assets', label: '本体资产', icon: <DatabaseOutlined />, desc: '已构建本体统一管理 · 伴生候选' },
   { key: 'runtime', label: '本体运行', icon: <CloudServerOutlined />, desc: '按运行方式分组' },
   { key: 'audit', label: '消费与审计', icon: <AuditOutlined />, desc: '消费观测 · 决策审计 · PROV-O 溯源' },
+  { key: 'learn', label: '学习中心', icon: <BookOutlined />, desc: '七阶段路径 · 方法论 · 任务卡' },
 ]
 
-/** 选中页签（模块内持久化，切走再切回不丢位置）；默认页 = 学习中心。
- *  REQ-216：旧 'companion' 值（第六栏）非法化回退默认页。REQ-326②：语义不变（五栏页签）。 */
+/** 选中页签（模块内持久化，切走再切回不丢位置）。
+ *  REQ-216：旧 'companion' 值（第六栏）非法化回退默认页。REQ-326②：语义不变（五栏页签）。
+ *  界面优化批（2026-10-16）：默认页=本体构建（开发者为生产使用定位——工作台前置）；
+ *  存量 'learn' 记忆一次性迁移到 'build'（此后显式选择仍记忆）。 */
 export const ONTO_SIDEBAR_KEY = 'eino.onto.sidebar'
 
 export function readSidebarKey(): SidebarKey {
   const v = localStorage.getItem(ONTO_SIDEBAR_KEY)
-  return v === 'build' || v === 'assets' || v === 'runtime' || v === 'audit' ? v : 'learn'
+  if (v === 'build' || v === 'assets' || v === 'runtime' || v === 'audit') return v
+  if (v === 'learn') {
+    localStorage.setItem(ONTO_SIDEBAR_KEY, 'build')
+    return 'build'
+  }
+  return 'build'
 }
 
 export default function OntologyModule() {

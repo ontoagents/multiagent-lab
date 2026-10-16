@@ -15,7 +15,6 @@ import { api, ApiError } from '../../api/client'
 import type { QualityReport } from '../../api/client'
 import { companionApi } from '../../api/companion'
 import type { Agent, Ontology, OntologyReferences, RuntimeProfile, Spec } from '../../api/types'
-import QualityRadar, { radarDimsOf } from '../../components/QualityRadar'
 import { expressivityOf } from './shared/expressivity'
 import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
@@ -469,249 +468,233 @@ export default function AssetsPage() {
     if (!active) return null // 调用侧已保证 view==='detail' && active；此处兼作 TS 窄化
     return (
     <>
-      <div className="detail-topbar" data-testid="asset-detail-topbar">
-        <Button size="small" icon={<ArrowLeftOutlined />} onClick={backToList}>
-          返回列表
-        </Button>
-        <span className="detail-crumb">
-          本体资产 <span className="detail-crumb-sep">/</span> {active?.name}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span className="detail-nav-pos">
-          {curIdx + 1} / {flatIds.length}
-        </span>
-        <Tooltip title={prevId ? `上一条：${ontos.find((o) => o.id === prevId)?.name ?? ''}` : '已是第一个'}>
-          <Button size="small" icon={<LeftOutlined />} disabled={!prevId} onClick={() => jumpTo(prevId)} />
-        </Tooltip>
-        <Tooltip title={nextId ? `下一条：${ontos.find((o) => o.id === nextId)?.name ?? ''}` : '已是最后一个'}>
-          <Button size="small" icon={<RightOutlined />} disabled={!nextId} onClick={() => jumpTo(nextId)} />
-        </Tooltip>
-      </div>
-          <div className="work-head" style={{ flexWrap: 'wrap', rowGap: 8 }}>
-            <div className="work-head-text" style={{ minWidth: 0, flex: 1 }}>
-              <div className="work-head-title">
-                <Typography.Title level={4} style={{ margin: 0 }}>
-                  {active.name}
-                </Typography.Title>
-                <Tag color="geekblue" style={{ margin: 0 }}>v{active.version ?? '—'}</Tag>
-                {/* REQ-239/M65：发布态徽标（published=命名快照终态；draft=可编辑工作态） */}
-                {active.status === 'published' ? (
-                  <Tooltip title={`已发布命名版本「${active.version_name || `v${active.version}`}」——内容变更将自动回 draft`}>
-                    <Tag color="green" style={{ margin: 0 }}>Published{active.version_name ? ` · ${active.version_name}` : ''}</Tag>
-                  </Tooltip>
-                ) : (
-                  <Tag style={{ margin: 0 }}>Draft</Tag>
-                )}
-                <Tag color={sourceTag(active).color} style={{ margin: 0 }}>{sourceTag(active).text}</Tag>
-                {/* REQ-253④（59 号 P4）：表达性签名徽标（规则映射非推理器） */}
-                {(() => {
-                  const ex = expressivityOf(spec)
-                  return ex.sig ? (
-                    <Tooltip title={`表达性签名（简化 DL 记号）：${ex.feats.join('、')}`}>
-                      <Tag color="cyan" style={{ margin: 0, fontFamily: 'monospace' }} data-testid="expressivity-tag">{ex.sig}</Tag>
-                    </Tooltip>
-                  ) : null
-                })()}
-              </div>
-              {/* REQ-264：描述单行截断（Tooltip 全文）——长描述不再多行挤占头部 */}
-              <Tooltip title={active.description || undefined} placement="topLeft">
-                <p className="work-head-desc" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', margin: '5px 0 4px' }}>
-                  {active.description || '未填写描述'}
-                </p>
+      {/* 界面优化批（2026-10-16）：原 detail-topbar 与 work-head 两段合并压缩——行1=返回+面包屑+名称+徽标（右：位置/上下条），
+          行2=描述·元信息一行（右：动作按钮 small 化）；头部雷达移除（「质量卡」分区已有 186px 大图），关键内容区不再被挤压 */}
+      <div className="work-head" style={{ flexWrap: 'wrap', rowGap: 6, alignItems: 'center' }} data-testid="asset-detail-topbar">
+        <div className="work-head-text" style={{ minWidth: 0, flex: 1 }}>
+          <div className="work-head-title">
+            <Button size="small" icon={<ArrowLeftOutlined />} onClick={backToList} data-testid="asset-back">
+              返回列表
+            </Button>
+            <span className="detail-crumb" style={{ flex: 'none' }}>
+              本体资产 <span className="detail-crumb-sep">/</span>
+            </span>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {active.name}
+            </Typography.Title>
+            <Tag color="geekblue" style={{ margin: 0 }}>v{active.version ?? '—'}</Tag>
+            {/* REQ-239/M65：发布态徽标（published=命名快照终态；draft=可编辑工作态） */}
+            {active.status === 'published' ? (
+              <Tooltip title={`已发布命名版本「${active.version_name || `v${active.version}`}」——内容变更将自动回 draft`}>
+                <Tag color="green" style={{ margin: 0 }}>Published{active.version_name ? ` · ${active.version_name}` : ''}</Tag>
               </Tooltip>
-              {/* 规模与引用元信息行（原标题行内标签迁此，标题行瘦身） */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: 'var(--c-ink-2)' }}>
-                {isCompActive ? (
-                  <>
-                    {/* REQ-285②：伴生型统计行=伴生图计数（spec 恒空，n_concepts 恒 0 是误导） */}
-                    <span>概念 {compGraph?.nodes.filter((n) => n.kind === 'Concept').length ?? 0}</span>
-                    <span>·</span>
-                    <span>事件 {compGraph?.nodes.filter((n) => n.kind === 'Event').length ?? 0}</span>
-                    <span>·</span>
-                    <span>关系 {compGraph?.edges.length ?? 0}</span>
-                    <span>·</span>
-                    <span>待确认候选 {compPending}</span>
-                    <span>·</span>
-                    <Tooltip title={compAgents.length ? `沉淀者（绑定该容器的智能体）：${compAgents.map((a) => a.name).join('、')}` : '无智能体绑定'}>
-                      <span style={{ cursor: 'default' }}>沉淀者 {compAgents.length}</span>
-                    </Tooltip>
-                  </>
-                ) : (
-                  <>
-                    <span>概念 {active.n_concepts ?? 0}</span>
-                    <span>·</span>
-                    <span>关系 {active.n_relations ?? 0}</span>
-                    <span>·</span>
-                    <span>实例 {active.n_instances ?? 0}</span>
-                  </>
-                )}
-                <span>·</span>
-                <Tooltip title="被 N 套运行方案引用（只读；启停操作在「本体运行」栏）">
-                  <span style={{ cursor: 'default' }}>被 {refCount(active)} 套方案引用</span>
+            ) : (
+              <Tag style={{ margin: 0 }}>Draft</Tag>
+            )}
+            <Tag color={sourceTag(active).color} style={{ margin: 0 }}>{sourceTag(active).text}</Tag>
+            {/* REQ-253④（59 号 P4）：表达性签名徽标（规则映射非推理器） */}
+            {(() => {
+              const ex = expressivityOf(spec)
+              return ex.sig ? (
+                <Tooltip title={`表达性签名（简化 DL 记号）：${ex.feats.join('、')}`}>
+                  <Tag color="cyan" style={{ margin: 0, fontFamily: 'monospace' }} data-testid="expressivity-tag">{ex.sig}</Tag>
                 </Tooltip>
-              </div>
-            </div>
-            {/* REQ-264 follow-up：右列=动作按钮在上（与本体名同行顶对齐）+ 能力雷达在按钮下方；
-                描述/元信息在左列，天然位于雷达左侧 */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0, alignSelf: 'flex-start' }}>
-              {!isCompActive && qualityCache[active.id] && (
-                <Tooltip
-                  title={
-                    <span>
-                      能力雷达：{radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats).map(([k, v]) => `${k} ${Math.round(v)}`).join(' / ')}——详情见「质量卡」分区
-                    </span>
-                  }
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default' }} data-testid="asset-radar">
-                    <QualityRadar dims={radarDimsOf(qualityCache[active.id]!.score, qualityCache[active.id]!.stats)} size={92} compact />
-                  </span>
+              ) : null
+            })()}
+            <span style={{ flex: 1 }} />
+            <span className="detail-nav-pos">
+              {curIdx + 1} / {flatIds.length}
+            </span>
+            <Tooltip title={prevId ? `上一条：${ontos.find((o) => o.id === prevId)?.name ?? ''}` : '已是第一个'}>
+              <Button size="small" icon={<LeftOutlined />} disabled={!prevId} onClick={() => jumpTo(prevId)} />
+            </Tooltip>
+            <Tooltip title={nextId ? `下一条：${ontos.find((o) => o.id === nextId)?.name ?? ''}` : '已是最后一个'}>
+              <Button size="small" icon={<RightOutlined />} disabled={!nextId} onClick={() => jumpTo(nextId)} />
+            </Tooltip>
+          </div>
+          {/* 行2：描述（截断）与规模/引用元信息并一行——头部高度收敛 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 0', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            <Tooltip title={active.description || undefined} placement="topLeft">
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 460, color: 'var(--c-ink-2)', fontSize: 13 }}>
+                {active.description || '未填写描述'}
+              </span>
+            </Tooltip>
+            <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+            {isCompActive ? (
+              <>
+                {/* REQ-285②：伴生型统计行=伴生图计数（spec 恒空，n_concepts 恒 0 是误导） */}
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>概念 {compGraph?.nodes.filter((n) => n.kind === 'Concept').length ?? 0}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>事件 {compGraph?.nodes.filter((n) => n.kind === 'Event').length ?? 0}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>关系 {compGraph?.edges.length ?? 0}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>待确认候选 {compPending}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <Tooltip title={compAgents.length ? `沉淀者（绑定该容器的智能体）：${compAgents.map((a) => a.name).join('、')}` : '无智能体绑定'}>
+                  <span style={{ cursor: 'default', fontSize: 12, color: 'var(--c-ink-2)' }}>沉淀者 {compAgents.length}</span>
                 </Tooltip>
-              )}
-              <Space wrap style={{ order: -1 }}>
-              {/* REQ-239/M65：发布（命名快照终态）/ 撤回发布（回 draft）；REQ-285②：伴生容器恒 draft 不发布 */}
-              {!isCompActive && (active.status === 'published' ? (
-                <Popconfirm
-                  icon={null}
-                  title="撤回发布？"
-                  description="本体回 draft 工作态，命名版本随之清除（版本历史保留）。运行方案下次启动装载时将给出 draft 警示。"
-                  okText="撤回发布"
-                  cancelText="取消"
-                  onConfirm={async () => {
-                    try {
-                      await api.unpublishOntology(active.id)
-                      showToast('已撤回发布（draft）')
-                      reloadOntos()
-                    } catch (e: any) {
-                      showToast(e.message, 'err')
-                    }
-                  }}
-                >
-                  <Button icon={<CloudDownloadOutlined />}>撤回发布</Button>
-                </Popconfirm>
-              ) : (
-                <Popconfirm
-                  icon={null}
-                  title={`发布 v${active.version ?? '—'} 为命名版本`}
-                  description={
-                    <Space direction="vertical" style={{ width: 300 }} size={8}>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        发布即快照终态：运行向导优先装载已发布版本；后续编辑将自动回 draft，历史快照可恢复为新版本。
-                      </Typography.Text>
-                      <Input
-                        value={publishName}
-                        onChange={(e) => setPublishName(e.target.value)}
-                        placeholder={`命名（可选，默认 v${active.version ?? '—'}，如 v${active.version ?? '1'}-k8s-baseline）`}
-                      />
-                    </Space>
-                  }
-                  okText="发布"
-                  cancelText="取消"
-                  onOpenChange={(o) => {
-                    if (o) setPublishName('')
-                  }}
-                  onConfirm={async () => {
-                    if (!active) return
-                    try {
-                      const o = await api.publishOntology(active.id, publishName.trim())
-                      showToast(`已发布${o.version_name ? ` · ${o.version_name}` : ''}`)
-                      reloadOntos()
-                    } catch (e: any) {
-                      showToast(e.message, 'err')
-                    }
-                  }}
-                >
-                  <Button type="primary" ghost icon={<CloudUploadOutlined />}>发布</Button>
-                </Popconfirm>
-              ))}
-              {!isCompActive && (
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>概念 {active.n_concepts ?? 0}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>关系 {active.n_relations ?? 0}</span>
+                <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+                <span style={{ fontSize: 12, color: 'var(--c-ink-2)' }}>实例 {active.n_instances ?? 0}</span>
+              </>
+            )}
+            <span style={{ color: 'var(--c-ink-3)' }}>·</span>
+            <Tooltip title="被 N 套运行方案引用（只读；启停操作在「本体运行」栏）">
+              <span style={{ cursor: 'default', fontSize: 12, color: 'var(--c-ink-2)' }}>被 {refCount(active)} 套方案引用</span>
+            </Tooltip>
+            <span style={{ flex: 1 }} />
+            {/* 动作按钮（small 化；雷达见「质量卡」分区 186px 大图） */}
+            <Space size={4} wrap style={{ flex: 'none' }}>
+            {!isCompActive && (active.status === 'published' ? (
               <Popconfirm
                 icon={null}
-                title="Fork 为新本体"
+                title="撤回发布？"
+                description="本体回 draft 工作态，命名版本随之清除（版本历史保留）。运行方案下次启动装载时将给出 draft 警示。"
+                okText="撤回发布"
+                cancelText="取消"
+                onConfirm={async () => {
+                  try {
+                    await api.unpublishOntology(active.id)
+                    showToast('已撤回发布（draft）')
+                    reloadOntos()
+                  } catch (e: any) {
+                    showToast(e.message, 'err')
+                  }
+                }}
+              >
+                <Button size="small" icon={<CloudDownloadOutlined />}>撤回发布</Button>
+              </Popconfirm>
+            ) : (
+              <Popconfirm
+                icon={null}
+                title={`发布 v${active.version ?? '—'} 为命名版本`}
                 description={
                   <Space direction="vertical" style={{ width: 300 }} size={8}>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      复制该本体的全部 Spec 与产物为新本体（forked_from 记录来源，版本重置为 1）。
+                      发布即快照终态：运行向导优先装载已发布版本；后续编辑将自动回 draft，历史快照可恢复为新版本。
                     </Typography.Text>
                     <Input
-                      value={forkName}
-                      onChange={(e) => setForkName(e.target.value)}
-                      placeholder={`新名称（可选，默认「${active.name} 副本」）`}
+                      value={publishName}
+                      onChange={(e) => setPublishName(e.target.value)}
+                      placeholder={`命名（可选，默认 v${active.version ?? '—'}，如 v${active.version ?? '1'}-k8s-baseline）`}
                     />
                   </Space>
                 }
-                okText="Fork"
+                okText="发布"
                 cancelText="取消"
-                okButtonProps={{ loading: forkBusy }}
                 onOpenChange={(o) => {
-                  if (o) {
-                    setForkName('')
-                    setForkErr(null)
+                  if (o) setPublishName('')
+                }}
+                onConfirm={async () => {
+                  if (!active) return
+                  try {
+                    const o = await api.publishOntology(active.id, publishName.trim())
+                    showToast(`已发布${o.version_name ? ` · ${o.version_name}` : ''}`)
+                    reloadOntos()
+                  } catch (e: any) {
+                    showToast(e.message, 'err')
                   }
                 }}
-                onConfirm={doFork}
               >
-                <Button icon={<BranchesOutlined />}>Fork 本体</Button>
+                <Button size="small" type="primary" ghost icon={<CloudUploadOutlined />}>发布</Button>
               </Popconfirm>
-              )}
-              {/* REQ-301 口径修订：重命名对伴生型恢复（name 为表级展示属性，改名不影响绑定/伴生子图；
-                  宿主方案名保持创建时快照）——导入合并维持伴生隐藏（spec 恒空壳） */}
-              <Button icon={<EditOutlined />} onClick={() => setRenameOpen(true)}>
-                重命名
-              </Button>
-              {!isCompActive && (
-              <Button icon={<ImportOutlined />} onClick={() => setMergeOpen(true)}>
-                导入合并
-              </Button>
-              )}
-              <Popconfirm
-                title={`删除本体「${active.name}」？`}
-                description={
-                  <Space direction="vertical" size={4} style={{ maxWidth: 320 }}>
-                    <span style={{ fontSize: 12 }}>级联删除其 Spec、产物与引用；已启动的运行方案不受影响（REQ-87）。</span>
-                    {delRunning.length > 0 && (
-                      <span style={{ fontSize: 12, color: '#cf1322' }}>
-                        被 {delRunning.length} 个运行中方案挂载（{delRunning.map((p) => p.name || p.id).join('、')}）——须先停止再删除。
-                      </span>
-                    )}
-                    {(delRefs?.companion_agents.length ?? 0) > 0 && (
-                      <span style={{ fontSize: 12, color: '#cf1322' }}>
-                        被 {delRefs!.companion_agents.length} 个智能体绑定为伴生归属——须先解绑/换绑。
-                      </span>
-                    )}
-                    {delStopped.length > 0 && (
-                      <span style={{ fontSize: 12, color: '#d46b08' }}>
-                        仍被 {delStopped.length} 个未运行方案配置引用，删除后这些方案启动将失败。
-                      </span>
-                    )}
-                    {(delRefs?.kb_vocabs.length ?? 0) > 0 && (
-                      <span style={{ fontSize: 12, color: '#d46b08' }}>
-                        仍被 {delRefs!.kb_vocabs.length} 个知识库用作约束词表，删除后其 KG 约束抽取将降级为自由抽取。
-                      </span>
-                    )}
-                  </Space>
+            ))}
+            {!isCompActive && (
+            <Popconfirm
+              icon={null}
+              title="Fork 为新本体"
+              description={
+                <Space direction="vertical" style={{ width: 300 }} size={8}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    复制该本体的全部 Spec 与产物为新本体（forked_from 记录来源，版本重置为 1）。
+                  </Typography.Text>
+                  <Input
+                    value={forkName}
+                    onChange={(e) => setForkName(e.target.value)}
+                    placeholder={`新名称（可选，默认「${active.name} 副本」）`}
+                  />
+                </Space>
+              }
+              okText="Fork"
+              cancelText="取消"
+              okButtonProps={{ loading: forkBusy }}
+              onOpenChange={(o) => {
+                if (o) {
+                  setForkName('')
+                  setForkErr(null)
                 }
-                okText="删除"
-                okButtonProps={{ danger: true, disabled: delBlocking }}
-                cancelText="取消"
-                onOpenChange={(o) => {
-                  if (o && active) {
-                    api
-                      .ontologyReferences(active.id)
-                      .then(setDelRefs)
-                      .catch(() => setDelRefs(null))
-                  } else {
-                    setDelRefs(null)
-                  }
-                }}
-                onConfirm={removeActive}
-              >
-                <Button danger icon={<DeleteOutlined />}>
-                  删除
-                </Button>
-              </Popconfirm>
-              </Space>
-            </div>
+              }}
+              onConfirm={doFork}
+            >
+              <Button size="small" icon={<BranchesOutlined />}>Fork 本体</Button>
+            </Popconfirm>
+            )}
+            {/* REQ-301 口径修订：重命名对伴生型恢复（name 为表级展示属性，改名不影响绑定/伴生子图；
+                宿主方案名保持创建时快照）——导入合并维持伴生隐藏（spec 恒空壳） */}
+            <Button size="small" icon={<EditOutlined />} onClick={() => setRenameOpen(true)}>
+              重命名
+            </Button>
+            {!isCompActive && (
+            <Button size="small" icon={<ImportOutlined />} onClick={() => setMergeOpen(true)}>
+              导入合并
+            </Button>
+            )}
+            <Popconfirm
+              title={`删除本体「${active.name}」？`}
+              description={
+                <Space direction="vertical" size={4} style={{ maxWidth: 320 }}>
+                  <span style={{ fontSize: 12 }}>级联删除其 Spec、产物与引用；已启动的运行方案不受影响（REQ-87）。</span>
+                  {delRunning.length > 0 && (
+                    <span style={{ fontSize: 12, color: '#cf1322' }}>
+                      被 {delRunning.length} 个运行中方案挂载（{delRunning.map((p) => p.name || p.id).join('、')}）——须先停止再删除。
+                    </span>
+                  )}
+                  {(delRefs?.companion_agents.length ?? 0) > 0 && (
+                    <span style={{ fontSize: 12, color: '#cf1322' }}>
+                      被 {delRefs!.companion_agents.length} 个智能体绑定为伴生归属——须先解绑/换绑。
+                    </span>
+                  )}
+                  {delStopped.length > 0 && (
+                    <span style={{ fontSize: 12, color: '#d46b08' }}>
+                      仍被 {delStopped.length} 个未运行方案配置引用，删除后这些方案启动将失败。
+                    </span>
+                  )}
+                  {(delRefs?.kb_vocabs.length ?? 0) > 0 && (
+                    <span style={{ fontSize: 12, color: '#d46b08' }}>
+                      仍被 {delRefs!.kb_vocabs.length} 个知识库用作约束词表，删除后其 KG 约束抽取将降级为自由抽取。
+                    </span>
+                  )}
+                </Space>
+              }
+              okText="删除"
+              okButtonProps={{ danger: true, disabled: delBlocking }}
+              cancelText="取消"
+              onOpenChange={(o) => {
+                if (o && active) {
+                  api
+                    .ontologyReferences(active.id)
+                    .then(setDelRefs)
+                    .catch(() => setDelRefs(null))
+                } else {
+                  setDelRefs(null)
+                }
+              }}
+              onConfirm={removeActive}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+            </Space>
           </div>
+        </div>
+      </div>
 
           {mergeOpen && active && (
             <ImportMergeWizard

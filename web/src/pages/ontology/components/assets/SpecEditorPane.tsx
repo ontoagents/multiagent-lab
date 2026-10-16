@@ -295,16 +295,28 @@ export default function SpecEditorPane({
             />
           )}
           {(!large || forceEditor) && (
-            <div style={{ marginTop: 10 }}>
-              <JsonEditor
-                value={specText}
-                onChange={setSpecText}
-                readOnly={large}
-                lint={!large}
-                height="480px"
-                placeholder='{ "name": "…", "concepts": [], "relations": [], "instances": [] }'
-              />
-            </div>
+            // 界面优化批（2026-10-16）：spec_json 全文默认收起（开发者反馈「详情页 spec_json 内容不用默认展示」）——
+            // 折叠头显行数，展开才懒挂载编辑器；保存/校验链路不变（展开后与原行为一致）
+            <Collapse
+              size="small"
+              style={{ marginTop: 10 }}
+              items={[
+                {
+                  key: 'spec-json',
+                  label: `spec_json 全文 · ${specText ? specText.split('\n').length : 0} 行 —— 展开查看 / 编辑`,
+                  children: (
+                    <JsonEditor
+                      value={specText}
+                      onChange={setSpecText}
+                      readOnly={large}
+                      lint={!large}
+                      height="480px"
+                      placeholder='{ "name": "…", "concepts": [], "relations": [], "instances": [] }'
+                    />
+                  ),
+                },
+              ]}
+            />
           )}
           {validationErrors.length > 0 && (
             <>
