@@ -17,7 +17,7 @@
 
 </div>
 
-单机可部署的**智能体构建平台**（Go + CloudWeGo Eino/ADK + React + SQLite），以双核心组织能力：
+单机可部署的**智能体构建平台**（Go + CloudWeGo Eino/ADK + React + SQLite），围绕双核心组织能力：
 
 - **智能体工程** —— 对话式智能体工作台，执行过程完全可观测，支持多智能体协作与知识 / 技能 / 本体增强。
 - **本体工程** —— 本体（知识图谱）全生命周期：构建 → 资产管理 → 运行引擎 → 消费与审计。
@@ -26,34 +26,41 @@
 
 ## 目录
 
-- [✨ 核心能力](#-核心能力)
+- [✨ 项目亮点](#-项目亮点)
 - [🚀 快速开始](#-快速开始)
-- [💻 开发模式](#-开发模式)
+- [💻 开发模式](#-开发模式前端热更新)
 - [🧱 技术栈](#-技术栈)
 - [🗂 目录结构](#-目录结构)
 - [📚 文档索引](#-文档索引)
-- [🧭 Roadmap](#-roadmap)
+- [🧭 发展前景](#-发展前景)
+- [🙏 开源项目与论文](#-开源项目与论文)
 - [❓ 常见问题](#-常见问题)
 - [🤝 参与贡献](#-参与贡献)
 - [📜 许可证](#-许可证)
 
-## ✨ 核心能力
+## ✨ 项目亮点
 
-| 领域 | 说明 |
-| --- | --- |
-| 对话工作台 | SSE 流式回复（Markdown 渲染）；执行过程完全可观测——工具调用 / 深度思考 / 子智能体委派 / 知识召回 / 本体查询以来源着色的事件卡呈现（可展开 JSON、调试原始事件、导出重放）；输入框内嵌配置开关与模型快捷切换 |
-| 对比模式 | 2~4 窗格同问不同配置横向对照（模型 / 知识库 / 本体 / 技能 / 温度 / 提示词覆盖） |
-| 多智能体协作 | 项目编排多 Agent（AgentAsTool / Transfer），委派过程时间线可见 |
-| 知识增强 | 文档上传 → 切分 → 向量化 → 检索召回（Qdrant 可选，SQLite fallback）；GraphRAG 子模块覆盖图谱浏览、多跳检索、抽取治理与社区摘要全局问答 |
-| 技能系统 | 技能包（提示词指令 + 工具白名单 + 资源）注入 Agent，支持注入预览与会话级启停 |
-| 本体构建 | 多条构建路径（自定义、OntoChat 引导、OntoExtend、由知识库构建、CSV 灌装等）；LLM 生成必过质量门禁并自修复 |
-| 本体资产与运行 | 多形态资产管理、版本 diff、源码视图、SPARQL 工作台、三维浏览 + WebVOWL 对照；Oxigraph / Fuseki 引擎方案管理、引擎一键安装；MCP facade 暴露 `onto_*` / `sparql_query` 工具 |
-| 伴生本体 | 动态薄本体：对话收尾旁路抽取知识候选，人工确认后并入会话图与检索源 |
-| 消费与审计 | 本体消费侧观测台（TTL / 文本双源 KG 检索）+ 决策审计全程留痕 |
-| 模型管理 | 多供应商多模型连接（OpenAI 兼容 / Anthropic 双协议）、连接测试、自动发现、厂商预设、按维度 token 用量统计 |
-| 开放集成 | Agent 对外 MCP 服务化——任意 MCP 客户端（Claude Desktop / Cursor 等）经 `/mcp` 端点直连对话 |
-| 可插拔执行 | 进程内装配（默认）/ Docker 沙箱（每 Agent 独立容器）/ K8s Pod 后端，同一接口扩展 |
-| 平台知识 | 产品设计 / 技术原理 / 模块导读随应用内置、页内即读 |
+### 智能体工程：过程可观测的对话工作台
+
+- **执行过程全程可见** —— SSE 流式回复之上，工具调用、深度思考、子智能体委派、知识召回、本体查询以来源着色的事件卡逐帧呈现；可展开 JSON、调试原始事件、导出并重放——每一次回答都有据可查。
+- **多智能体协作** —— 项目编排多个 Agent（Agent-as-Tool / Transfer），委派时间线可见；2~4 窗格对比模式支持同问不同配置（模型 / 知识库 / 本体 / 技能 / 温度 / 提示词覆盖）横向对照。
+- **知识·技能·本体三路增强** —— 文档上传 → 切分 → 向量化 → 检索召回，GraphRAG 子模块覆盖图谱浏览、多跳检索与社区摘要问答；技能包注入带预览与会话级启停；**伴生本体**在对话收尾自动抽取知识候选，人工确认后并入图谱与检索源——智能体越用越「懂」你的领域。
+- **开放集成** —— 每个 Agent 本身就是一个 MCP Server（`/mcp` 端点），Claude Desktop / Cursor 等任意 MCP 客户端可直连对话；执行后端同接口可插拔：进程内装配（默认）/ Docker 沙箱（每 Agent 独立容器）/ Kubernetes Pod。
+
+### 本体工程：从构建到审计的全生命周期
+
+- **多条构建路径，AI 生成必过质量门禁** —— 自定义建模、OntoChat 对话式引导、CQ 驱动演化、由知识库构建、CSV 灌装等多路径并存；LLM 生成内容经质量门禁评分与自修复后才能入库。
+- **论文级方法内化** —— OntoChat 论文的「CQ 抽取 → 净化 → 分析 → 测试」四步与 OntoExtend 论文的「检索 → 生成 → 集成」三段式均已按论文实现并经真机回归；**能力问题（CQ）从一次性产物升级为可重跑的回归基准**——会话级测试站、快筛 + SPARQL 精判双轨、术语 / 属性层三级覆盖量化。
+- **多形态资产管理** —— 版本快照与 diff 对照、源码视图、SPARQL 工作台、三维力导向图 + WebVOWL 语义对照视图、导入合并审查向导、发布状态机；导入的有损转换如实出报告。
+- **运行平面** —— Oxigraph / Fuseki 双引擎方案管理（含 OWL 推理开关）、引擎一键安装、装载对账硬闸（源 / 引擎三元组计数比对，失配即中止）、多本体 per-graph 装载隔离。
+- **消费与审计** —— TTL / 文本双源 KG 检索观测台 + 决策审计全程留痕——本体不只是建模产物，更是可消费、可追责的运行资产。
+
+### 工程化与产品形态
+
+- **单机可部署、一切本地** —— 一条命令启动（`run-dev.sh`），不引入 Python 运行时依赖；数据、密钥、知识、本体全部留在本机。
+- **桌面客户端** —— Windows / macOS 安装包（Tauri 2 壳）：系统托盘、单实例、服务整树回收、引擎与 sidecar 首启一键安装。
+- **平台知识随包内置** —— 产品设计、技术原理、模块导读、调研依据页内即读；能力边界诚实标注（如 KG 增强检索为轻量实现）。
+- **质量资产随仓维护** —— 回归冒烟清单 + headless UI 冒烟套件入库，每个交付轮次可验证、可回放。
 
 ## 🚀 快速开始
 
@@ -120,7 +127,7 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 | [docs/02_智能体_技术方案设计.md](docs/02_智能体_技术方案设计.md) | 技术方案（架构 / API / SSE 协议 / §12 里程碑状态） |
 | [docs/03_本体_需求文档.md](docs/03_本体_需求文档.md) · [docs/04_本体_方案设计.md](docs/04_本体_方案设计.md) | 本体模块需求与方案 |
 | [docs/11_知识库_需求文档.md](docs/11_知识库_需求文档.md) · [docs/12_知识库_方案设计.md](docs/12_知识库_方案设计.md) | 知识库模块需求与方案 |
-| [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md) | 开源项目与论文台账 |
+| [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md) | 开源项目与论文台账（本项目全部外部参考的全局登记） |
 | [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) | REQ 编号唯一分配权威 |
 | [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) | 回归冒烟清单 |
 | [platform-knowledge/](platform-knowledge/README.md) | 模块导读（产品设计 / 技术原理 / 调研，按模块组织） |
@@ -128,7 +135,96 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 | [platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md](platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md) | Claude Desktop / Cursor 直连配置 |
 | [AGENTS.md](AGENTS.md) | AI 编码助手项目引导 |
 
-Roadmap 与需求状态以 **docs/02 §12** 与 **docs/18** 为准——本 README 有意不重复维护状态细节。
+方向性概览见下节[发展前景](#-发展前景)；需求状态细节以 **docs/02 §12** 与 **docs/18** 为准——本 README 有意不重复维护状态。
+
+## 🧭 发展前景
+
+项目已从教学演示演进为**可生产使用的工程化产品**：单机可部署、双平台桌面安装包、质量门禁与回归冒烟体系完备。后续沿双核心推进，方向性概览如下（具体需求行、优先级与交付状态以 docs/02 §12 与 docs/18 为准，部分方向为触发驱动）：
+
+| 方向 | 演进内容 |
+| --- | --- |
+| **本体可信与零丢失** | 导入 / 运行 / 导出全链路零丢失对账：导入归一化与捕获率哨兵、未投影三元组全量余量账本、未编辑本体运行时直挂原文（已立项）；变更影响分析、双时序版本化、确定性身份键与构建产出证据分级（已立项，触发驱动） |
+| **本体质量评估体系** | CQ 回归基准已落地（会话级测试站、快筛 + SPARQL 精判双轨、覆盖量化）；下一步向**资产级分层评估**演进——借鉴 CQ4OE 基准的术语 / 属性 / 公理 / 层级 / CQ 覆盖多维指标体系 |
+| **知识图谱与检索增强** | KG 社区检测升级（Louvain）与多跳证据收集；「pre-filter → ranking」混合检索形态；伴生本体时间维度与智能体记忆纵深 |
+| **智能体运行时** | 长任务跨会话推进与成本护栏；工作流编排（sequential / parallel / loop，触发驱动）；沙箱执行纵深（gVisor / Kata 强隔离备选、K8s 调度） |
+| **交付形态与生态** | 桌面端持续打磨（CI 自动打包、自动更新等）；MCP facade 工具面扩展；权威本体库目录扩充与在线词表检索 |
+
+## 🙏 开源项目与论文
+
+AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各自许可证使用；方法论借鉴遵循「**借鉴思想、自研实现**」。本节为面向检索的精选清单，完整台账（含关联需求号、评估结论与落选留档）见 [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md)。
+
+### 直接集成的开源项目
+
+| 项目 | 许可 | 在项目中的用途 |
+| --- | --- | --- |
+| [CloudWeGo Eino / Eino ADK](https://github.com/cloudwego/eino) | Apache-2.0 | 智能体编排主骨架：ReAct 智能体、多智能体（Agent-as-Tool / Transfer）、流式对话 |
+| [CloudWeGo Hertz](https://github.com/cloudwego/hertz) | Apache-2.0 | HTTP 框架：REST API、SSE 流式、前端静态资源托管 |
+| [eino-ext](https://github.com/cloudwego/eino-ext) | Apache-2.0 | Eino 生态组件：OpenAI / Claude 模型通道、embedding、MCP 工具消费 |
+| [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) | MIT | MCP 服务化基座：Agent `/mcp` 端点与本体 `onto_*` facade |
+| [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | MIT | 纯 Go SQLite 驱动（零 CGO，单机零外部依赖） |
+| [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) | MIT | spec_json 结构校验 |
+| [rdflib](https://github.com/RDFLib/rdflib) | BSD-3 | Python sidecar（`tools/rdf-sidecar`）：OWL/RDF 解析、TTL 导出与回读校验 |
+| [pySHACL](https://github.com/RDFLib/pySHACL) | Apache-2.0 | SHACL 约束校验（sidecar 可选组件，质量门禁业务约束层） |
+| [Oxigraph](https://github.com/oxigraph/oxigraph) | MIT / Apache-2.0 | 默认 SPARQL 1.1 存储引擎（单二进制，运行平面托管拉起） |
+| [Apache Jena Fuseki](https://github.com/apache/jena) | Apache-2.0 | 带 OWL 推理开关的 SPARQL 服务（运行平面可选引擎） |
+| [ReactFlow](https://github.com/xyflow/xyflow) | MIT | 本体结构视图画布（spec_json 直渲） |
+| [3d-force-graph](https://github.com/vasturiano/3d-force-graph) · [react-force-graph-3d](https://github.com/vasturiano/react-force-graph-3d) | MIT | 本体三维力导向浏览 |
+| [WebVOWL](https://github.com/VisualDataWeb/WebVOWL) | MIT | 本体 TBox 标准可视化对照视图 |
+| [CodeMirror 6](https://github.com/codemirror/dev)（[@uiw/react-codemirror](https://github.com/uiwjs/react-codemirror)） | MIT | spec / JSON / SPARQL 编辑器（语法高亮、行内校验、文本对照） |
+| [react-diff-viewer-continued](https://github.com/afzalsayed96/react-diff-viewer-continued) | MIT | 版本 diff 分栏对照 |
+| [Ant Design](https://github.com/ant-design/ant-design) · [Ant Design X](https://github.com/ant-design/x) | MIT | 前端组件库与 AI 对话组件 |
+| [Tauri 2](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Windows / macOS 桌面客户端壳（系统托盘、单实例） |
+| [gonum](https://github.com/gonum/gonum) | BSD-3 | 规划集成：KG 社区检测（Louvain） |
+
+### 引导使用的本体工具链
+
+「引导执行」构建路径会指导用户在平台外使用这些成熟工具，产物可回流导入：
+
+| 工具 | 许可 | 用途 |
+| --- | --- | --- |
+| [Protégé](https://github.com/protegeproject/protege) / [WebProtégé](https://github.com/protegeproject/webprotege) | BSD / Apache-2.0 | 业界标准本体建模器（桌面 / 在线协作），导出 OWL/TTL 回流导入 |
+| [ROBOT](https://github.com/ontodev/robot) | Apache-2.0 | 命令行本体处理：模板批量生成 / merge / subset |
+| [OOPS!](https://oops.linkeddata.es) | Apache-2.0 | 本体建模陷阱扫描（34 类常见错误），质量门禁对照维度 |
+| [ELK](https://github.com/liveontologies/elk-reasoner) / [HermiT](https://github.com/phillord/hermit-reasoner) | LGPL | OWL 推理器（ELK 快 / HermiT 全量），逻辑一致性校验 |
+
+### 借鉴方法论与实现（借鉴思想，自研实现）
+
+| 项目 / 来源 | 链接 | 借鉴情况 |
+| --- | --- | --- |
+| **OntoChat** | [GitHub](https://github.com/King-s-Knowledge-Graph-Lab/OntoChat) · [论文](https://arxiv.org/abs/2403.05921) | 对话式本体构建路径蓝本：用户故事 → CQ → 聚类 → 测试工作流与提示词模板；CQ 抽取 / 净化 / 分析已按论文分步实现，覆盖测试站落地为 CQ 回归基准 |
+| **OntoExtend** | [GitHub](https://github.com/dersuchendee/OntoExtend) · [论文](https://arxiv.org/abs/2607.17963) | CQ 驱动本体扩展三段式（Retriever → Extender → Integrator）与检索口径（本体元素级序列化 + 句向量 top-k）；已按论文实现 CQ 驱动演化路径 |
+| **CQ4OE**（OEG-UPM） | [GitHub](https://github.com/oeg-upm/cq4oe-benchmark) · [论文](https://arxiv.org/abs/2609.26029) | LLM 本体生成评估基准方法论：CQ 覆盖三级度量、多方法术语对齐 pipeline——资产级质量分层评估蓝本 |
+| ontology-on-snowflake（Snowflake-Labs） | [GitHub](https://github.com/Snowflake-Labs/ontology-on-snowflake) | Flattened GraphRAG 概念画像预计算 → 伴生检索「概念画像检索单元」的直接依据；其基准四档数据与画像文档结构为设计输入 |
+| HelixDB · Helix Foundry | [helix-db](https://github.com/HelixDB/helix-db) · [helix-foundry](https://github.com/HelixDB/helix-foundry) | 「pre-filter → ranking」混合检索形态、base+overlay+audit 三层编辑与证据分级借鉴（不引入引擎——非 RDF 生态，与 spec→TTL→SPARQL 主线不符） |
+| semantica | [GitHub](https://github.com/semantica-agi/semantica) | 三层架构、GraphRAG 混合检索思路、PROV-O 决策溯源叙事——消费与审计面自研轻量实现的对照样本（不接入运行时） |
+| Open Ontologies | [GitHub](https://github.com/fabio-rovai/open-ontologies) | 判词纪律、生命周期治理（plan / apply / drift）、双时序等机制深研，沉淀为调研档与自研借鉴清单（双轨集成已退役） |
+| OpenBKN | [GitHub](https://github.com/openbkn-ai/bkn-foundry) | 企业级本体平台（对标 Palantir Foundry）对照参考：知识包化、本体检索、受管演进步骤化等设计层借鉴 |
+| Graphiti / Zep | [GitHub](https://github.com/getzep/graphiti) | 智能体时序知识图谱记忆标杆：时间感知边、增量演化、混合检索——伴生本体二期参照 |
+| OWLAPY | [GitHub](https://github.com/dice-group/owlapy) | Python LLM 本体构建框架：生成-校验循环与提示词设计参考 |
+| Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | 同定位本体学习站：渐进式领域路径、示例本体库、成就激励等学习中心设计对照 |
+| LangChain / LlamaIndex | [LangChain](https://github.com/langchain-ai/langchain) · [LlamaIndex](https://github.com/run-llama/llama_index) | 跨生态对照：作外部 MCP client 消费同一 facade，验证开放集成 |
+
+### 论文与标准
+
+| 论文 / 标准 | 链接 | 支撑点 |
+| --- | --- | --- |
+| OntoChat: a Framework for Conversational Ontology Engineering using Language Models（ESWC 2024） | [arXiv 2403.05921](https://arxiv.org/abs/2403.05921) | 对话式本体工程四步工作流（用户故事 → CQ → 聚类 → 测试）与从业者调查 |
+| Improving Ontology Requirements Engineering with OntoChat and Participatory Prompting | [arXiv 2408.15256](https://arxiv.org/abs/2408.15256) | 参与式提示协议（用户故事引导提示策略） |
+| OntoChat Assistant for User Story Generation in Ontology Engineering | [ACM DL 10.1145/3810943](https://doi.org/10.1145/3810943) | 经设计验证的用户故事提示引导框架 |
+| OntoExtend: A Framework for Requirement-driven and Scalable Ontology Extension with LLMs | [arXiv 2607.17963](https://arxiv.org/abs/2607.17963) | 需求驱动扩展三段式、检索口径实验与三重评估体系 |
+| Ontology extension by online clustering with LLM agents（Frontiers in Big Data 2024） | [DOI 10.3389/fdata.2024.1463543](https://doi.org/10.3389/fdata.2024.1463543) | 零样本流式本体扩展路线参考 |
+| CQ4OE: A Benchmark for Assessing LLM-assisted Ontology Generation | [arXiv 2609.26029](https://arxiv.org/abs/2609.26029) | CQ 对齐评估基准：多维指标体系与 CQ 覆盖三级度量 |
+| MASEO: Multi-Agent System for Explainable Ontology Generation（LLMs4KG 2026） | [PDF](https://dgarijo.com/papers/maseo-camera-ready.pdf) | 四阶段多智能体生成管线（生成 → 语法 → 一致性 → 陷阱检查），构建管线编排参考 |
+| LLMs for Ontology Engineering: A Systematic Literature Review（Semantic Web Journal） | [DOI 10.1177/22104968261465514](https://doi.org/10.1177/22104968261465514) | LLM 三角色（engineer / expert / evaluator）系统综述 |
+| IDEA2: Expert-in-the-loop Competency Question Elicitation | [arXiv 2604.01344](https://arxiv.org/abs/2604.01344) | 半自动 CQ 引出工作流与 provenance 追踪 |
+| NeOn Methodology（Suárez-Figueroa et al., Springer 2012） | —— | 本体工程生命周期场景化方法论，七阶段构建模型的源头之一 |
+| Ontology Development 101（Noy & McGuinness, 2001） | [Stanford](https://protege.stanford.edu/publications/ontology_development/ontology101.pdf) | 本体建模入门经典，学习内容包方法论基线教材 |
+| Gruninger & Fox: The Design and Evaluation of Ontologies（TOVE, 1995） | —— | 能力问题（CQ）方法论原始出处 |
+| ReAct: Synergizing Reasoning and Acting in Language Models | [arXiv 2210.03629](https://arxiv.org/abs/2210.03629) | 智能体推理-行动交织范式（Eino ADK 智能体模式的工程范式依据） |
+| From Local to Global: A Graph RAG Approach to Query-Focused Summarization（Microsoft Research） | [arXiv 2404.16130](https://arxiv.org/abs/2404.16130) | GraphRAG 理论源：社区摘要 + 查询聚焦总结 |
+| LLM Wiki: a pattern for building personal knowledge bases using LLMs（A. Karpathy） | [Gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) | 「知识写时编译、持续保鲜」范式——知识库与伴生本体写时积累路线的对照物 |
+| Model Context Protocol（MCP）规范 | [modelcontextprotocol.io](https://modelcontextprotocol.io) | 全线集成协议：工具消费与 Agent / 本体 facade 服务化双向 |
+| RDF 1.1 / OWL 2 / SHACL / SPARQL 1.1 / PROV-O（W3C） | [RDF](https://www.w3.org/TR/rdf11-concepts/) · [OWL 2](https://www.w3.org/TR/owl2-overview/) · [SHACL](https://www.w3.org/TR/shacl/) · [SPARQL 1.1](https://www.w3.org/TR/sparql11-query/) · [PROV-O](https://www.w3.org/TR/prov-o/) | 数据模型、表达力基线、约束校验、查询语言与溯源本体的标准依据 |
 
 ## ❓ 常见问题
 
