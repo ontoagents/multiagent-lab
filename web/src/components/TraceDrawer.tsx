@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Drawer, Input, Segmented, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
+import { Button, Drawer, Input, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { RunEventDTO } from '../api/types'
@@ -57,33 +57,13 @@ export default function TraceDrawer({
   title,
   open,
   onClose,
-  granularity,
-  showReasoning,
-  showRaw,
   debugLevel,
-  debugPersist,
-  toolApproval,
-  running,
-  patch,
-  onShowRaw,
-  onChangeDebugLevel,
-  onPatchConv,
 }: {
   conversationId: string
   title: string
   open: boolean
   onClose: () => void
-  granularity: 'all' | 'key' | 'off'
-  showReasoning: boolean
-  showRaw: boolean
   debugLevel: number
-  debugPersist: boolean
-  toolApproval: string
-  running: boolean
-  patch: (p: { granularity?: 'all' | 'key' | 'off'; showReasoning?: boolean; debugPersist?: boolean }) => void
-  onShowRaw: (v: boolean) => void
-  onChangeDebugLevel: (n: number) => void
-  onPatchConv: (p: { tool_approval: string }) => void
 }) {
   const [events, setEvents] = useState<RunEventDTO[]>([])
   const [loading, setLoading] = useState(false)
@@ -94,6 +74,8 @@ export default function TraceDrawer({
   const [replayRun, setReplayRun] = useState<string | null>(null)
   // REQ-284②：时序条开关（默认开）
   const [showTimeline, setShowTimeline] = useState(true)
+  // REQ-336：原始事件 payload 开关改轨迹局部（外置会话流口径归头部「过程」面板）
+  const [showRaw, setShowRaw] = useState(false)
 
   const load = () => {
     if (!conversationId) return
@@ -126,8 +108,6 @@ export default function TraceDrawer({
     }))
   }, [events])
 
-  const hasDebugRecorded = events.some((e) => e.type === 'model.step')
-
   // 过滤链：运行 → 类型组 → 关键字 → 展示级别门控（与回放同口径）。
   // 注意：类型过滤会滤掉 delta（组外），列表随之收窄；时序条始终基于全量事件（概览不随过滤缩放）。
   const filteredRuns = useMemo(() => {
@@ -157,88 +137,20 @@ export default function TraceDrawer({
       onClose={onClose}
       destroyOnHidden
       extra={
-        <Space size={6}>
+        // REQ-336：轨迹页只留轨迹——显示/治理设置归位（显示档+采集档=头部「过程」面板、
+        // 审批覆盖=头部⋮会话设置）；原始 JSON 与时序条为轨迹局部视图开关，收进工具栏。
+        <Space size={10}>
+          <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            原始 JSON <Switch size="small" checked={showRaw} onChange={setShowRaw} />
+          </span>
+          <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            时序条 <Switch size="small" checked={showTimeline} onChange={setShowTimeline} />
+          </span>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>刷新</Button>
         </Space>
       }
     >
-      {/* 显示设置（REQ-217④ 收编自头部） */}
-      <Typography.Text strong style={{ fontSize: 12 }}>显示设置（同时作用于会话流过程卡）</Typography.Text>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '6px 0 12px' }}>
-        <div>
-          <div style={{ marginBottom: 4 }}><Typography.Text style={{ fontSize: 12 }}>过程事件粒度</Typography.Text></div>
-          <Segmented
-            size="small"
-            value={granularity}
-            onChange={(v) => patch({ granularity: v as 'all' | 'key' | 'off' })}
-            options={[{ value: 'all', label: '全部' }, { value: 'key', label: '关键' }, { value: 'off', label: '精简' }]}
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-            关键=工具调用与运行状态；精简=仅消息与结论
-          </Typography.Text>
-        </div>
-        <Space size={24} wrap>
-          <span>
-            <Typography.Text style={{ fontSize: 12 }}>深度思考过程 </Typography.Text>
-            <Switch size="small" checked={showReasoning} onChange={(v) => patch({ showReasoning: v })} />
-          </span>
-          <span>
-            <Typography.Text style={{ fontSize: 12 }}>原始事件 JSON </Typography.Text>
-            <Switch size="small" checked={showRaw} onChange={onShowRaw} />
-          </span>
-          <span>
-            <Typography.Text style={{ fontSize: 12 }}>时序条 </Typography.Text>
-            <Switch size="small" checked={showTimeline} onChange={setShowTimeline} />
-          </span>
-        </Space>
-      </div>
-
-      {/* 运行治理（行为配置归会话配置面） */}
-      <Typography.Text strong style={{ fontSize: 12 }}>运行治理</Typography.Text>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '6px 0 12px' }}>
-        <div>
-          <Typography.Text style={{ fontSize: 12 }}>观测级别（仅影响之后的运行）</Typography.Text>
-          <Select
-            size="small"
-            style={{ width: '100%', marginTop: 4 }}
-            value={String(debugLevel)}
-            disabled={running}
-            onChange={(v) => onChangeDebugLevel(Number(v))}
-            options={[
-              { value: '0', label: '简洁（默认）' },
-              { value: '1', label: '详细 · 装配快照/分步用量/工具耗时' },
-              { value: '2', label: '调试 · 另附模型输入全文/工具 schema' },
-            ]}
-          />
-        </div>
-        <span>
-          <Typography.Text style={{ fontSize: 12 }}>调试事件入库 </Typography.Text>
-          <Switch size="small" checked={debugPersist} onChange={(v) => patch({ debugPersist: v })} />
-          <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-            开启后调试档细节随运行落库，供轨迹面板与回放查看（级别≥详细时产生）
-          </Typography.Text>
-          {debugLevel >= 1 && !debugPersist && (
-            <Alert type="warning" showIcon style={{ marginTop: 6 }} title="当前级别≥详细，但入库关闭：调试细节不会留存到历史（REQ-149）" />
-          )}
-        </span>
-        <div>
-          <Typography.Text style={{ fontSize: 12 }}>工具调用审批（会话级覆盖）</Typography.Text>
-          <Select
-            size="small"
-            style={{ width: '100%', marginTop: 4 }}
-            value={toolApproval}
-            onChange={(v) => onPatchConv({ tool_approval: v })}
-            options={[
-              { value: '', label: '跟随智能体配置（侧板 Harness 页签）' },
-              { value: 'on', label: '本对话强制开启审批' },
-              { value: 'off', label: '本对话关闭审批' },
-            ]}
-          />
-        </div>
-        {!hasDebugRecorded && (
-          <Alert type="info" showIcon title="历史运行未见模型步骤事件（未开调试事件入库）——该类行不可用为诚实标注，非缺陷" />
-        )}
-      </div>
+      {/* REQ-336：原「显示设置/运行治理」两区退役（与头部过程面板/会话设置重合），轨迹页只呈现轨迹 */}
 
       {/* 过滤 */}
       <Typography.Text strong style={{ fontSize: 12 }}>过滤</Typography.Text>

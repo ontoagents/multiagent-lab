@@ -105,7 +105,6 @@ export default function AgentsPage() {
                 agents={agents}
                 projects={[]}
                 onConversationUpdated={reload}
-                sidePanelOpen={sidePanelOpen}
                 onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
               />
             ) : (
