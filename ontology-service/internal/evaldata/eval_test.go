@@ -37,6 +37,7 @@ type evalResult struct {
 	Relations int     `json:"relations"`
 	StructOK  bool    `json:"struct_ok"`
 	Issues    string  `json:"issues,omitempty"`
+	CQCount   int     `json:"cq_count"`           // REQ-344/OC-5：CQ 质量信号维度（spec.CQ 条数；0=无 CQ——REQ-255/274 遗留的「种子无 CQ」已随种子补 CQ 解除）
 }
 
 // structCheck 结构轻量断言（进化「诊断」信号①）。
@@ -73,7 +74,7 @@ func evalSpec(t *testing.T, id, source, channel string, specJSON []byte) evalRes
 	rep := qualitygate.Check(&sp, qualitygate.DefaultConfig())
 	sort.Strings(issues)
 	return evalResult{ID: id, Source: source, Channel: channel, Overall: rep.Score.Overall, Concepts: len(sp.Concepts),
-		Relations: len(sp.Relations), StructOK: ok, Issues: strings.Join(issues, "; ")}
+		Relations: len(sp.Relations), StructOK: ok, Issues: strings.Join(issues, "; "), CQCount: len(sp.CQ)}
 }
 
 func TestOntoEval(t *testing.T) {
@@ -157,7 +158,7 @@ func TestOntoEval(t *testing.T) {
 		}
 		return results[i].ID < results[j].ID
 	})
-	t.Logf("%-28s %-6s %8s %6s %6s  %s", "ID", "来源", "Overall", "概念", "关系", "结构/问题")
+	t.Logf("%-28s %-6s %8s %6s %6s %5s  %s", "ID", "来源", "Overall", "概念", "关系", "CQ数", "结构/问题")
 	failCount := 0
 	for _, r := range results {
 		status := "✓"
@@ -165,7 +166,7 @@ func TestOntoEval(t *testing.T) {
 			status = "✗ " + r.Issues
 			failCount++
 		}
-		t.Logf("%-28s %-6s %8.2f %6d %6d  %s", r.ID, r.Source, r.Overall, r.Concepts, r.Relations, status)
+		t.Logf("%-28s %-6s %8.2f %6d %6d %5d  %s", r.ID, r.Source, r.Overall, r.Concepts, r.Relations, r.CQCount, status)
 	}
 	// 硬断言：全部对象结构校验必须通过（结构信号）；质量分只报告不做硬门禁（阈值校准后续轮）
 	if failCount > 0 {

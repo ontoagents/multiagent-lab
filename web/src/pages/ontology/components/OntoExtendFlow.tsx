@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Empty, Input, InputNumber, Segmented, Select, Space, Spin, Steps, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Checkbox, Empty, Input, InputNumber, Segmented, Select, Space, Spin, Steps, Table, Tag, Tooltip, Typography } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
@@ -43,6 +43,14 @@ interface RagJobData {
   removed?: string[]
   retrieval: { elements_indexed: number; top_k: number; profile: string; cq_total: number; cq_ok: number; cq_failed: number; elements_used: number }
   quality?: { score?: { overall: number }; error_count: number; warning_count: number }
+  /** REQ-344/OE-5：CQ 质量预检信号（可答性/原子性/具体性；信号非闸门） */
+  precheck?: {
+    items: { cq: string; answerable: boolean; atomic: boolean; specific: boolean; note?: string }[]
+    not_answerable: number
+    not_atomic: number
+    not_specific: number
+    note?: string
+  }
 }
 
 /** REQ-339：资产详情「演化」动作 handoff 键（携本体 id 跳转本页，消费后置空）。 */
@@ -467,6 +475,13 @@ export default function OntoExtendFlow() {
                     {ragData.retrieval.cq_failed > 0 ? `（失败 ${ragData.retrieval.cq_failed} 已标记）` : ''}
                   </Tag>
                   {ragData.removed?.length ? <Tag color="default">去重剔除 {ragData.removed.length}</Tag> : null}
+                  {ragData.precheck && (
+                    <Tooltip title={ragData.precheck.items.filter((i) => !i.answerable || !i.atomic || !i.specific).map((i) => `${i.cq}：${i.note ?? '质量信号未过'}`).join('；') || '全部 CQ 预检通过'}>
+                      <Tag color={ragData.precheck.not_answerable + ragData.precheck.not_atomic + ragData.precheck.not_specific > 0 ? 'orange' : 'green'} data-testid="cqrag-precheck-tag">
+                        预检 不可答 {ragData.precheck.not_answerable} / 非原子 {ragData.precheck.not_atomic} / 不具体 {ragData.precheck.not_specific}
+                      </Tag>
+                    </Tooltip>
+                  )}
                   {ragData.quality && (
                     <Tag color={ragData.quality.error_count > 0 ? 'red' : 'green'}>质量 err {ragData.quality.error_count} / warn {ragData.quality.warning_count}</Tag>
                   )}

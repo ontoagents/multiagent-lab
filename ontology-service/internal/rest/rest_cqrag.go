@@ -28,7 +28,8 @@ type cqragDraftResult struct {
 	DraftSpec map[string]any            `json:"draft_spec,omitempty"` // 合并去重后的片段（map 形态与 draftResult.Spec 同构）
 	Removed   []string                  `json:"removed,omitempty"`    // 去重剔除清单（Integrator）
 	Retrieval cqragRetrievalInfo        `json:"retrieval"`
-	Quality   *qualitygate.Report       `json:"quality,omitempty"` // 合并片段质量报告（预览；strict 强制在 merge/apply）
+	Quality   *qualitygate.Report       `json:"quality,omitempty"`  // 合并片段质量报告（预览；strict 强制在 merge/apply）
+	Precheck  *ontorag.PrecheckReport   `json:"precheck,omitempty"` // REQ-344/OE-5：CQ 质量预检信号（非闸门）
 }
 
 // cqragRetrievalInfo 检索元数据（对标论文 cq_processing_log/generation_runs 口径的 v1 最小集；
@@ -51,10 +52,11 @@ func (s *Server) cqragDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		OntologyID string   `json:"ontology_id"`
-		CQs        []string `json:"cqs"`     // 缺省用 spec.CQ
-		Profile    string   `json:"profile"` // structure | restriction；缺省 structure
-		TopK       int      `json:"top_k"`   // 缺省 20（论文默认）
+		OntologyID   string   `json:"ontology_id"`
+		CQs          []string `json:"cqs"`           // 缺省用 spec.CQ
+		Profile      string   `json:"profile"`       // structure | restriction；缺省 structure
+		TopK         int      `json:"top_k"`         // 缺省 20（论文默认）
+		SkipPrecheck bool     `json:"skip_precheck"` // REQ-344/OE-5：跳过 CQ 质量预检（默认执行；信号非闸门）
 	}
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.OntologyID) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ontology_id 必填"})
@@ -95,13 +97,13 @@ func (s *Server) cqragDraft(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
-	go s.runCQRAGDraft(job, oid, target, cqs, profile, topK)
+	go s.runCQRAGDraft(job, oid, target, cqs, profile, topK, req.SkipPrecheck)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
 }
 
 // runCQRAGDraft 后台执行三段式：索引检索 → 逐 CQ 生成（两阶段校验）→ 去重合并 → 检索日志落 artifact。
 // 段留痕经 buildflow（cq-rag-draft 实例）；审查/入库由前端走通用 merge 端点（REQ-157，版本快照）。
-func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, cqs []string, profile string, topK int) {
+func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, cqs []string, profile string, topK int, skipPrecheck bool) {
 	started := time.Now()
 	setProgress := func(msg string) {
 		draftJobsMu.Lock()
@@ -114,6 +116,7 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 		fragments []*ontorag.GenerateResult
 		merged    *ontorag.FragmentSpec
 		removed   []string
+		precheck  *ontorag.PrecheckReport
 	)
 	perr := buildflow.Run(context.Background(), "cq-rag-draft",
 		buildflow.Segment{Stage: buildflow.StageSource, Run: func(context.Context) (string, error) {
@@ -129,6 +132,20 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 			}
 			elements, vectors = els, vecs
 			return fmt.Sprintf("元素 %d 个向量化（概念/关系/数据属性）", len(els)), nil
+		}},
+		// REQ-344/OE-5：CQ 质量预检（可答性/原子性/具体性——N9 信号「框架不能补救坏需求」；
+		// 信号非闸门：低分 CQ 警告透出仍继续，工程师决策）。拍 draft 段（Retriever 之后、生成之前）。
+		buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
+			if skipPrecheck {
+				return "预检已跳过（skip_precheck）", nil
+			}
+			setProgress("CQ 质量预检中（可答性/原子性/具体性）")
+			if rep := ontorag.Precheck(ctx, s.LLM, target, cqs, setProgress); rep != nil {
+				precheck = rep
+				return fmt.Sprintf("CQ 预检：不可答 %d / 非原子 %d / 不具体 %d（共 %d 条；信号非闸门）",
+					rep.NotAnswerable, rep.NotAtomic, rep.NotSpecific, len(rep.Items)), nil
+			}
+			return "CQ 预检降级（输出不合法）——无信号继续", nil
 		}},
 		// Extender：逐 CQ 检索 top-k + 生成片段 + 两阶段校验（失败标记不静默入库）
 		buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
@@ -175,7 +192,7 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 				len(cleaned.Concepts), len(cleaned.Relations), len(cleaned.DataProperties), len(cleaned.Axioms), len(rm),
 				rep.ErrorCount, rep.WarningCount)
 			draftJobsMu.Lock()
-			job.RAG = &cqragDraftResult{Fragments: fragments, Removed: removed, Retrieval: cqragRetrievalInfo{
+			job.RAG = &cqragDraftResult{Fragments: fragments, Removed: removed, Precheck: precheck, Retrieval: cqragRetrievalInfo{
 				ElementsIndexed: len(elements), TopK: topK, Profile: profile,
 				CQTotal: len(cqs), CQOK: okN, CQFailed: failN,
 				ElementsUsed: countUsed(fragments), DurationMS: time.Since(started).Milliseconds(),
