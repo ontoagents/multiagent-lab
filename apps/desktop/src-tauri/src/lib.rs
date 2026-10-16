@@ -1,7 +1,8 @@
 // MultiAgentLab 桌面客户端（Tauri 2 壳，REQ-321/M123 壳技术切换交付；macOS 侧切换 2026-10-15）。
 //
 // 职责（对齐 10 号 §8 apps/desktop 与 18 号 REQ-321 定案）：
-//   - 窗口系统 WebView（Win=WebView2 / macOS=WKWebView）直载 http://127.0.0.1:8080（backend 托管 SPA，免 CORS）；
+//   - 窗口系统 WebView（Win=WebView2 / macOS=WKWebView）直载本实例 backend 实际地址
+//     （默认 http://127.0.0.1:8180，REQ-332；backend 托管 SPA，免 CORS）；
 //   - 三服务编排：ontologyd → runtimed → backend（env 与 run-dev.sh 同构；launcher.json 端口可配；
 //     数据根机制与 Go launcher 双向兼容：Windows=data.location→%LOCALAPPDATA%\eino-lab；
 //     macOS=data.location→MLAB_DATA_ROOT→~/Library/Application Support/eino-lab）；
@@ -10,10 +11,11 @@
 //     Windows=Job Object（KILL_ON_JOB_CLOSE，随进程退出生效）；macOS=Setpgid 进程组 + SIGTERM→SIGKILL
 //     阶梯（退出钩子）+ sh 兽护子进程（壳被 kill -9 后 ≤2s 轮询感知整树回收——Job Object 等价）；
 //   - backend 就绪前窗口隐藏，就绪后展示（60s 兜底展示错误页）；
-//   - **端口预检 + 自动顺延（共享路径，双平台）**：端口被占（如本机 WSL 开发栈占 :8090）时自动
-//     顺延到空闲端口（+100 起逐个探测）拉起本壳自己的完整服务集——窗口加载的永远是本实例 UI，
-//     防串台语义不变（绝不渲染 run-dev 等他方实例，macOS 切换轮缺陷顺修）；顺延也找不到空闲
-//     端口时窗口才落本地占位页明示占用态（兜底，实际难触发）。
+//   - **端口分工与兜底顺延（REQ-332，共享路径，双平台）**：默认端口段 8180/8191/8190 与
+//     run-dev.sh 开发栈（8080/8090/8091）开箱即确定性分工——两栈可并行互不干扰（数据根本就隔离）；
+//     默认段（或 launcher.json 显式值）仍被占时自动顺延（+100 起逐个探测）拉起本壳自己的完整
+//     服务集——窗口加载的永远是本实例 UI，防串台语义不变（绝不渲染 run-dev 等他方实例，macOS
+//     切换轮缺陷顺修）；顺延也找不到空闲端口时窗口才落本地占位页明示占用态（兜底，实际难触发）。
 //
 // 诚实边界：macOS 强杀回收系 sh 兽护 2s 轮询（非系统级 Job Object 强保真）；--stop 无进程名兜底
 // （防误伤开发实例）；launcher.json 换端口双平台同口径。
@@ -50,7 +52,10 @@ struct Ports {
 
 impl Ports {
     fn load(exe_dir: &std::path::Path) -> Self {
-        let mut p = Ports { backend: 8080, ontology: 8091, runtime: 8090 };
+        // 默认端口段 8180/8191/8190（REQ-332）：与 run-dev.sh 开发栈（8080/8091/8090）开箱即
+        // 确定性分工，常态不再依赖被占探测；+100 段与 v3.29 顺延实测落位一致零新认知成本。
+        // launcher.json 三键显式配置优先（受让语义不变：显式值被占同样自动顺延防串台）。
+        let mut p = Ports { backend: 8180, ontology: 8191, runtime: 8190 };
         if let Ok(b) = std::fs::read_to_string(exe_dir.join("launcher.json")) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&b) {
                 if let Some(n) = v["backend_port"].as_u64() { p.backend = n as u16; }
@@ -58,10 +63,10 @@ impl Ports {
                 if let Some(n) = v["runtime_port"].as_u64() { p.runtime = n as u16; }
             }
         }
-        // 端口被占自动顺延（+100 起逐个探测）：任一端口被外部进程占用（如本机 WSL 开发栈 runtimed
-        // 占 :8090）时换到空闲端口拉起本壳自己的完整服务集——窗口加载的永远是本实例 UI，防串台语义
-        // 不变（绝不渲染他方实例）；占位页仅剩「顺延也找不到空闲端口」的兜底。launcher.json 显式
-        // 配置同样受让。跨端口去重：后选端口排除已选，避免两服务落到同一顺延位。
+        // 端口被占自动顺延（+100 起逐个探测）退为兜底：默认段已被第三方（或显式配置回 8080 系）
+        // 占用时换到空闲端口拉起本壳自己的完整服务集——窗口加载的永远是本实例 UI，防串台语义
+        // 不变（绝不渲染他方实例）；占位页仅剩「顺延也找不到空闲端口」的兜底。跨端口去重：
+        // 后选端口排除已选，避免两服务落到同一顺延位。
         p.backend = free_port_shift(p.backend, &[]);
         p.ontology = free_port_shift(p.ontology, &[p.backend]);
         p.runtime = free_port_shift(p.runtime, &[p.backend, p.ontology]);
@@ -563,8 +568,8 @@ pub fn run() {
             if busy {
                 let msg = format!(
                     "<h2 style='font-family:sans-serif'>端口被占用，平台服务未启动</h2>\
-                     <p style='font-family:sans-serif'>端口 {} / {} / {} 已被其他实例占用（可能是手动启动的开发实例）。\
-                     请先停止占用端口的服务后重启本客户端。</p>",
+                     <p style='font-family:sans-serif'>端口 {} / {} / {} 已被其他程序或实例占用（顺延 10 档也无空闲位）。\
+                     请先停止占用端口的服务，或在安装目录用 launcher.json 换端口后重启本客户端。</p>",
                     ports.backend, ports.ontology, ports.runtime
                 );
                 if let Some(win) = handle.get_webview_window("main") {

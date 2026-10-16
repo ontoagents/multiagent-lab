@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File deploy/windows/build.ps1 -StageOnly # �
 ## 安装与卸载
 
 - **安装**：双击 setup.exe（SFX：双击即装；Inno：中文向导）→ `MLAB_SILENT=1` 环境变量可静默（冒烟自动化用）。
-- **启动**：开始菜单/桌面「智能体构建平台」→ 壳自动按序拉起 ontologyd(:8091)→runtimed(:8090)→backend(:8080)，就绪后打开 WebView2 窗口；关闭窗口即整树回收（Job Object）。
+- **启动**：开始菜单/桌面「智能体构建平台」→ 壳自动按序拉起 ontologyd(:8191)→runtimed(:8190)→backend(:8180)（REQ-332 默认段，与终端开发栈 run-dev.sh 的 8080/8091/8090 开箱即分工、两栈可并行），就绪后打开 WebView2 窗口；关闭窗口即整树回收（Job Object）。
 - **停止**：开始菜单「停止平台服务」（= `MultiAgentLab.exe -stop`）。
 - **卸载**：「应用与功能」或开始菜单卸载项 → 停服 → 删快捷方式/注册项 → 删程序文件；**`data\` 目录有意保留**（用户数据），彻底清理请手动删除安装目录。
 
@@ -43,10 +43,13 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 
 - 程序：`%LOCALAPPDATA%\Programs\MultiAgentLab`；数据：`%LOCALAPPDATA%\multiagent-lab\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
 - 备份/迁移：停服后复制 `multiagent-lab\`（换机连 `multiagent-lab\.secret` 一起带走，否则模型连接密钥无法解密）。
-- 端口：默认 8080 / 8091 / 8090（oxigraph 子进程 9201+）。**端口被占用时分級处理**：平台自身残留服务自动回收；
-  其他程序占用则不误杀，弹窗透明诊断（端口/PID/进程名/路径）并给处置建议（停占用进程，含 WSL2 内实例提示；
-  或在安装目录新建 **launcher.json** 换端口共存：`{"backend_port":18080,"ontology_port":18091,"runtime_port":18090}`，
-  改动对服务监听/服务间互访/壳窗口全链生效）。已在运行的客户端窗口：再次双击快捷方式只会唤起既有窗口（单实例语义）。
+- 端口：默认 **8180 / 8191 / 8190**（REQ-332；oxigraph 子进程 9201+；开发栈 run-dev.sh 用 8080/8091/8090，两栈并行互不干扰——数据根本就隔离）。
+  **端口被占用的出路**：Tauri 壳（默认形态）对被占端口自动顺延（+100 起逐档探测）拉起本壳自己的服务集，防串台语义不变；
+  遗留 Go 壳则分级处理——平台自身残留服务自动回收，其他程序占用不误杀，弹窗透明诊断（端口/PID/进程名/路径）并给处置建议
+  （停占用进程，含 WSL2 内实例提示）；个性化换口在安装目录新建 **launcher.json**：
+  `{"backend_port":18080,"ontology_port":18091,"runtime_port":18090}`（三键可省略，缺省 8180/8191/8190；
+  显式值被占仍受让自动顺延——仅 Tauri 壳；覆盖升级保留本文件），改动对服务监听/服务间互访/壳窗口全链生效。
+  已在运行的客户端窗口：再次双击快捷方式只会唤起既有窗口（单实例语义）。
 - 服务环境变量与 `run-dev.sh` 一一同构（全量清单见 `platform-knowledge/01_整体设计/16_部署与运行.md` §7）；
   安装态差异：`KB_VECTOR_BACKEND=sqlite`（单机零依赖默认，需 Qdrant 时在 launcher `buildServices` 覆盖）。
 

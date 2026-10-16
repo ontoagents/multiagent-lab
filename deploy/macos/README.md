@@ -26,7 +26,7 @@ deploy/macos/build.sh -SkipDmg     # 只出 .app
 
 ## 启动与停止
 
-- **启动**：双击 MultiAgentLab.app → `Contents/MacOS/MultiAgentLab`（bundle 脚本）后台拉起编排器 `Resources/bin/mlabd`（按序 ontologyd(:8091)→runtimed(:8090)→backend(:8080)，环境面与 `run-dev.sh` 一一同构）→ `exec osascript shell/window.applescript` 承载 WKWebView 窗口（同一 PID，单 Dock 图标）。
+- **启动**：双击 MultiAgentLab.app → `Contents/MacOS/MultiAgentLab`（bundle 脚本）后台拉起编排器 `Resources/bin/mlabd`（按序 ontologyd(:8191)→runtimed(:8190)→backend(:8180)，REQ-332 默认段，环境面与 `run-dev.sh` 一一同构）→ `exec osascript shell/window.applescript` 承载 WKWebView 窗口（同一 PID，单 Dock 图标）。
 - **关闭窗口 / Cmd+Q**：壳 `applicationWillTerminate` → `mlabd -stop` 整树回收；mlabd 另有 **ppid 监视**兜底（壳被强杀时 `getppid()` 归 1 即自回收）——等价 Windows Job Object「关窗整树回收」。
 - **停止**（终端兜底）：`MultiAgentLab.app/Contents/MacOS/MultiAgentLab -stop`。
 - **无窗口冒烟**：`.../Resources/bin/mlabd -headless`（就绪后打印 `READY` 并驻留，自动化用）。
@@ -49,7 +49,9 @@ deploy/macos/build.sh -SkipDmg     # 只出 .app
 - 菜单栏 App 名与 Dock 名取自 Info.plist（`MultiAgentLab`）；osascript 进程名在活动监视器可见（窗口/Dock/菜单形态不受影响）。
 - 壳若被 `kill -9` 强杀，服务树由 mlabd ppid 监视在 ≤2s 内回收（非系统级 Job Object 强保真）。
 - 本体 TTL/OWL 导入导出需 Python3+rdflib（探测失败自动降级，其余功能不受影响）；Docker 沙箱/Qdrant 需自行安装。
-- 端口 8080/8091/8090 固定，被占用（如开发实例）时启动明确报错不代收。
+- 端口缺省 **8180/8191/8190**（REQ-332：与终端开发栈 run-dev.sh 的 8080/8091/8090 开箱即分工，两栈可并行互不干扰）；
+  被占用时 mlabd 启动明确报错不代收（单机单实例口径，不做自动顺延——顺延兜底在 Tauri 壳默认形态）；
+  个性化换口可在 `MultiAgentLab.app/Contents/MacOS/` 放 launcher.json（mlabd/Go 壳路径不读该文件，换口用 Tauri 壳）。
 
 ## macOS 平台移植注
 

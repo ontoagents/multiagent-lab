@@ -3,7 +3,7 @@
 -- AppleScriptObjC + WKWebView：由 bundle 脚本（Contents/MacOS/MultiAgentLab）exec 本脚本
 -- （同一进程承载 NSApplication，单 Dock 图标）；服务编排由后台 mlabd 承担，本壳职责：
 --   - 等主平台就绪（轮询 /healthz，≤30s；超时弹窗示因 + 兜底 -stop）；
---   - 建窗口（WKWebView 直载 http://127.0.0.1:8080，与 Windows WebView2 壳同构）；
+--   - 建窗口（WKWebView 直载 MLAB_URL，缺省 http://127.0.0.1:8180〔REQ-332 默认段〕，与 Windows WebView2 壳同构）；
 --   - 菜单栏：App 菜单（退出 Cmd+Q）+ 编辑菜单（撤销/重做/剪切/拷贝/粘贴/全选——
 --     无此菜单 WKWebView 文本框 Cmd+C/V 失效）+ 窗口菜单（最小化/关闭）；
 --   - 关窗（红点/Cmd+W）→ applicationShouldTerminate → mlabd -stop 整树回收
@@ -104,7 +104,7 @@ on buildMenus()
 end buildMenus
 
 on waitBackendReady()
-	set urlHealth to envVal("MLAB_HEALTH_URL", (envVal("MLAB_URL", "http://127.0.0.1:8080") & "/healthz"))
+	set urlHealth to envVal("MLAB_HEALTH_URL", (envVal("MLAB_URL", "http://127.0.0.1:8180") & "/healthz"))
 	repeat with i from 1 to 40
 		try
 			do shell script "curl -sf -m 1 " & quoted form of urlHealth
@@ -119,7 +119,7 @@ end waitBackendReady
 on run
 	set gStopping to false
 	set gMlabd to envVal("MLAB_MLABD", "")
-	set urlStr to envVal("MLAB_URL", "http://127.0.0.1:8080")
+	set urlStr to envVal("MLAB_URL", "http://127.0.0.1:8180")
 	logLine("LAUNCH url=" & urlStr)
 
 	set NSAppClass to current application's NSApplication
@@ -141,11 +141,11 @@ on run
 		try
 			set detail to do shell script "cat /tmp/mlab-launcher-last-error.txt 2>/dev/null | tail -8"
 		end try
-		dialogText("主平台未在 30 秒内就绪（端口 8080）。
+		dialogText("主平台未在 30 秒内就绪（端口 8180）。
 
 " & detail & "
 
-如端口被手动启动的开发实例占用，请先停止后重试；诊断可从终端运行 .app 内 Resources/bin/mlabd -headless 查看。")
+如端口被其他实例或程序占用，请先停止后重试；诊断可从终端运行 .app 内 Resources/bin/mlabd -headless 查看。")
 		if gMlabd is not "" then
 			try
 				do shell script quoted form of gMlabd & " -stop"

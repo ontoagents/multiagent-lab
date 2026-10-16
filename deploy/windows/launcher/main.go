@@ -184,7 +184,7 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "ontologyd.exe", exe: p(root, "bin", "ontologyd.exe"), log: "ontology-service.log",
 			env: [][2]string{
-				{"ADDR", ontURL[strings.LastIndex(ontURL, ":"):] /* :8091 */},
+				{"ADDR", ontURL[strings.LastIndex(ontURL, ":"):] /* 缺省 :8191 */},
 				{"DB_PATH", p(dataDir, "ontology.db")},
 				{"MIGRATIONS_DIR", p(root, "migrations", "ontology-service")},
 				{"SIDECAR_SCRIPT", p(root, "tools", "rdf-sidecar", "sidecar.py")},

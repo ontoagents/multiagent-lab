@@ -1,7 +1,8 @@
 // mlabd MultiAgentLab macOS 桌面客户端服务编排器（REQ-324/M127）。
 //
 // 与 deploy/windows/launcher（REQ-321/M123）同构的 macOS 对称实现，职责：
-//   - 编排三服务启动：ontologyd :8091 → runtimed :8090 → backend :8080，
+//   - 编排三服务启动：ontologyd :8191 → runtimed :8190 → backend :8180（REQ-332 默认段，
+//     与 run-dev.sh 开发栈 8080/8091/8090 开箱即分工），
 //     环境变量与 run-dev.sh / Windows launcher 一一同构（见 16_部署与运行.md §7）；
 //   - 数据根独立于程序目录：~/Library/Application Support/multiagent-lab（MLAB_DATA_ROOT 可覆盖，冒烟隔离用）；
 //   - 退出回收 = 进程组 SIGTERM→SIGKILL 阶梯（Windows 为 Job Object）；并监视父进程：
@@ -13,7 +14,8 @@
 // 窗口壳本体 = shell/window.applescript（AppleScriptObjC + WKWebView，零编译器依赖——
 // 构建/运行仅需 go+node，与 run-dev.sh 工具面一致；本项目正身机 Xcode CLT 损坏亦不受影响）。
 //
-// 诚实边界（v1）：单机单实例（端口固定 8080/8091/8090）；SQLite WAL 停服为进程树终止；
+// 诚实边界（v1）：单机单实例——端口取缺省段（REQ-332：8180/8191/8190），被占如实 fail
+// 不做自动顺延（顺延兜底在 Tauri 壳侧，两壳口径差异有意）；SQLite WAL 停服为进程树终止；
 // 壳被强制杀死（kill -9）时依赖本进程 ppid 监视回收，无系统级 Job Object 强保真；
 // 不支持开机自启/托盘/自动更新（沿 Windows 口径 P2）。
 package main
@@ -39,10 +41,17 @@ const ShellVersion = "1.0.0"
 // appName 窗口标题与提示文案用名（Dock/菜单栏显示名取自 Info.plist CFBundleName）。
 const appName = "智能体构建平台"
 
+// 客户端默认端口段（REQ-332）：+100 段与 run-dev.sh 开发栈（8080/8091/8090）默认分工，
+// 两栈可并行互不干扰；单机单实例 v1 口径不变——缺省段被占如实 fail 不顺延。
 const (
-	backendURL = "http://127.0.0.1:8080"
-	healthPath = "/healthz"
+	backendPort  = 8180
+	ontologyPort = 8191
+	runtimePort  = 8190
 )
+
+const healthPath = "/healthz"
+
+var backendURL = fmt.Sprintf("http://127.0.0.1:%d", backendPort)
 
 type service struct {
 	name string // 二进制名（logs 分文件 + 诊断文案用）
@@ -145,7 +154,7 @@ func run(root, dataDir, logDir string, headless bool) int {
 	// 但 backend 必须就绪——窗口壳要承载它。
 	if !waitHealthy(backendURL+healthPath, 20*time.Second) {
 		tail := tailFile(filepath.Join(logDir, "backend.log"), 800)
-		return fail(headless, "主平台未在 20 秒内就绪（端口 8080）。backend.log 末尾：\n"+tail)
+		return fail(headless, fmt.Sprintf("主平台未在 20 秒内就绪（端口 %d）。backend.log 末尾：\n", backendPort)+tail)
 	}
 
 	if headless {
@@ -168,7 +177,7 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "ontologyd", exe: filepath.Join(root, "bin", "ontologyd"), log: "ontology-service.log",
 			env: [][2]string{
-				{"ADDR", ":8091"},
+				{"ADDR", fmt.Sprintf(":%d", ontologyPort)},
 				{"DB_PATH", filepath.Join(dataDir, "ontology.db")},
 				{"MIGRATIONS_DIR", filepath.Join(root, "migrations", "ontology-service")},
 				{"SIDECAR_SCRIPT", filepath.Join(root, "tools", "rdf-sidecar", "sidecar.py")},
@@ -178,10 +187,10 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "runtimed", exe: filepath.Join(root, "bin", "runtimed"), log: "runtime-manager.log",
 			env: [][2]string{
-				{"ADDR", ":8090"},
+				{"ADDR", fmt.Sprintf(":%d", runtimePort)},
 				{"DB_PATH", filepath.Join(dataDir, "runtime.db")},
 				{"MIGRATIONS_DIR", filepath.Join(root, "migrations", "runtime-manager")},
-				{"BUILD_SVC_URL", "http://127.0.0.1:8091"},
+				{"BUILD_SVC_URL", fmt.Sprintf("http://127.0.0.1:%d", ontologyPort)},
 				{"ENGINE_DATA_DIR", filepath.Join(dataDir, "engines")},
 				{"ENGINE_LOG_DIR", filepath.Join(dataDir, "engine_logs")},
 				{"ENGINE_INSTALL_DIR", filepath.Join(dataDir, "bin")},
@@ -190,7 +199,7 @@ func buildServices(root, dataDir string) []service {
 		{
 			name: "backend", exe: filepath.Join(root, "bin", "backend"), log: "backend.log",
 			env: [][2]string{
-				{"ADDR", ":8080"},
+				{"ADDR", fmt.Sprintf(":%d", backendPort)},
 				{"DB_PATH", filepath.Join(dataDir, "platform.db")},
 				{"SECRET_KEY_FILE", filepath.Join(dataDir, ".secret")},
 				{"FILES_ROOT", filepath.Join(dataDir, "projects")},
@@ -308,9 +317,9 @@ func cleanupStale(dataDir string, headless bool) int {
 		removePIDFile(dataDir)
 		time.Sleep(300 * time.Millisecond) // 端口释放窗口
 	}
-	if portBusy(8080) || portBusy(8090) || portBusy(8091) {
-		return fail(headless, "端口 8080/8090/8091 被占用（可能为手动启动的开发实例，run-dev.sh）。\n"+
-			"客户端不代收其他实例的进程——请先停止占用端口的服务后重试。")
+	if portBusy(backendPort) || portBusy(runtimePort) || portBusy(ontologyPort) {
+		return fail(headless, fmt.Sprintf("端口 %d/%d/%d 被占用（可能为另一客户端实例或第三方程序；开发栈 run-dev.sh 默认用 8080/8091/8090 与本客户端分工，不被本检查命中）。\n"+
+			"客户端不代收其他实例的进程——请先停止占用端口的服务后重试。", backendPort, runtimePort, ontologyPort))
 	}
 	return 0
 }

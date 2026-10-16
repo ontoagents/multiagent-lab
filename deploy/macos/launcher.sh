@@ -14,7 +14,8 @@ case "${1:-}" in
     exec "$MLABD" "$@" ;;
 esac
 
-export MLAB_URL="${MLAB_URL:-http://127.0.0.1:8080}"
+# 窗口导航地址与 mlabd 缺省 backend 端口同源（REQ-332 默认段 8180；MLAB_URL 可显式覆盖）
+export MLAB_URL="${MLAB_URL:-http://127.0.0.1:8180}"
 export MLAB_HEALTH_URL="${MLAB_HEALTH_URL:-$MLAB_URL/healthz}"
 export MLAB_MLABD="$MLABD"
 
