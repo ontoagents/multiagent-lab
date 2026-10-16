@@ -1,6 +1,21 @@
+<div align="center">
+
+<img src="web/public/logo.svg" width="110" alt="AgentLab logo" />
+
 # AgentLab
 
+**Build agents. Build their ontologies. All locally.**
+
 [English](README.md) | [简体中文](README.zh-CN.md)
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-native-8A2BE2)
+![Platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-lightgrey)
+
+</div>
 
 **AgentLab** is a single-machine deployable **agent-building platform** built with Go (CloudWeGo Eino/ADK), React and SQLite. It is organized around two cores:
 
@@ -9,7 +24,20 @@
 
 Everything runs locally: data lives in a local SQLite database, model API keys are AES-256-GCM encrypted on disk, and the only external dependency is the LLM provider(s) you configure.
 
-## Key Features
+## Contents
+
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [💻 Development Mode](#-development-mode)
+- [🧱 Tech Stack](#-tech-stack)
+- [🗂 Repository Layout](#-repository-layout)
+- [📚 Documentation](#-documentation)
+- [🧭 Roadmap](#-roadmap)
+- [❓ FAQ](#-faq)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
+
+## ✨ Features
 
 | Area | Highlights |
 | --- | --- |
@@ -27,7 +55,9 @@ Everything runs locally: data lives in a local SQLite database, model API keys a
 | Pluggable execution | In-process assembly (default) / Docker sandbox (one container per agent) / Kubernetes Pod backend behind the same interface |
 | Platform knowledge | Product design / technical principles / module guides shipped with the app and rendered in-place |
 
-## Quick Start
+## 🚀 Quick Start
+
+### Run from source
 
 Linux / macOS:
 
@@ -36,18 +66,29 @@ Linux / macOS:
 # open http://localhost:8080
 ```
 
-First launch automatically initializes the SQLite database (`backend/data/platform.db`) and creates a preset DeepSeek model connection. Then open **Settings → Model Management**, edit **DeepSeek (preset)**, fill in your API key and click **Test Connection** — or add any OpenAI-compatible / Anthropic-compatible connection (custom base_url + model). Keys are stored locally only, never uploaded.
+First launch automatically initializes the SQLite database (`backend/data/platform.db`) and creates a preset DeepSeek model connection.
 
-Desktop installers are also available — the shell starts the local services and opens the platform window: see [deploy/windows/README.md](deploy/windows/README.md) and [deploy/macos/README.md](deploy/macos/README.md). For Docker Compose, Helm and environment variables, see the [deployment guide](platform-knowledge/01_整体设计/16_部署与运行.md).
+### Configure a model (required)
 
-## Development Mode (frontend hot reload)
+Open **Settings → Model Management**, edit **DeepSeek (preset)**, fill in your API key and click **Test Connection** — or add any OpenAI-compatible / Anthropic-compatible connection (custom base_url + model). Keys are stored locally only, never uploaded.
+
+### Desktop installers
+
+The shell starts the local services and opens the platform window:
+
+- Windows — see [deploy/windows/README.md](deploy/windows/README.md)
+- macOS — see [deploy/macos/README.md](deploy/macos/README.md)
+
+For Docker Compose, Helm and environment variables, see the [deployment guide](platform-knowledge/01_整体设计/16_部署与运行.md).
+
+## 💻 Development Mode (frontend hot reload)
 
 ```bash
 cd backend && go run ./cmd/backend   # terminal 1 (:8080)
 cd web && npm run dev               # terminal 2 (:5173, proxies API to :8080)
 ```
 
-## Tech Stack
+## 🧱 Tech Stack
 
 | Layer | Choices |
 | --- | --- |
@@ -55,7 +96,7 @@ cd web && npm run dev               # terminal 2 (:5173, proxies API to :8080)
 | Frontend | React 18 · TypeScript · Vite · Ant Design 6 · Ant Design X · zustand · 3d-force-graph |
 | Protocols | REST + SSE (streaming) · MCP (both consuming and serving) |
 
-## Repository Layout
+## 🗂 Repository Layout
 
 ```
 backend/             Go main platform backend (:8080, also hosts the web UI)
@@ -71,7 +112,7 @@ deploy/              Docker Compose + Helm + desktop build scripts
 tools/ research/ smoke/   Utilities, research notes, smoke-test suites
 ```
 
-## Documentation
+## 📚 Documentation
 
 | Document | Content |
 | --- | --- |
@@ -89,13 +130,42 @@ tools/ research/ smoke/   Utilities, research notes, smoke-test suites
 
 Roadmap and requirement status live in **docs/02 §12** and **docs/18** — they are intentionally not duplicated here.
 
-## FAQ
+## ❓ FAQ
 
-- **Chat fails with a pre-assembly error** — no usable model connection is configured; add your API key in Settings → Model Management.
-- **Change the port** — `./run-dev.sh 9090` or `.\run-dev.ps1 -Port 9090`.
-- **Reset the database** — stop the service and delete `backend/data/` (this wipes all conversations and configuration).
-- **Knowledge retrieval unavailable** — an embedding connection is missing or the index is not ready; the knowledge page shows a status badge and onboarding. DeepSeek has no embedding API, so configure a separate vector service (e.g. SiliconFlow BGE, Qianfan embeddings-v1).
+<details>
+<summary><b>Chat fails with a pre-assembly error</b></summary>
 
-## License
+No usable model connection is configured — add your API key in Settings → Model Management.
+
+</details>
+
+<details>
+<summary><b>Change the port</b></summary>
+
+`./run-dev.sh 9090` or `.\run-dev.ps1 -Port 9090`.
+
+</details>
+
+<details>
+<summary><b>Reset the database</b></summary>
+
+Stop the service and delete `backend/data/` (this wipes all conversations and configuration).
+
+</details>
+
+<details>
+<summary><b>Knowledge retrieval unavailable</b></summary>
+
+An embedding connection is missing or the index is not ready; the knowledge page shows a status badge and onboarding. DeepSeek has no embedding API, so configure a separate vector service (e.g. SiliconFlow BGE, Qianfan embeddings-v1).
+
+</details>
+
+## 🤝 Contributing
+
+- Requirements and design documents in `docs/` are the source of truth; new requirements must be registered in [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) before implementation.
+- Regression checks follow [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md).
+- AI coding assistants should read [AGENTS.md](AGENTS.md) first.
+
+## 📜 License
 
 [Apache-2.0](LICENSE)

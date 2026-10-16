@@ -1,6 +1,21 @@
+<div align="center">
+
+<img src="web/public/logo.svg" width="110" alt="AgentLab logo" />
+
 # AgentLab —— 智能体构建平台
 
+**构建智能体，也构建它们的本体，全部本地运行。**
+
 [English](README.md) | [简体中文](README.zh-CN.md)
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-native-8A2BE2)
+![Platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-lightgrey)
+
+</div>
 
 单机可部署的**智能体构建平台**（Go + CloudWeGo Eino/ADK + React + SQLite），以双核心组织能力：
 
@@ -9,7 +24,20 @@
 
 一切本地运行：数据存于本地 SQLite，模型 API Key 经 AES-256-GCM 加密存盘，除你自行配置的模型服务外无外部依赖。
 
-## 核心能力
+## 目录
+
+- [✨ 核心能力](#-核心能力)
+- [🚀 快速开始](#-快速开始)
+- [💻 开发模式](#-开发模式)
+- [🧱 技术栈](#-技术栈)
+- [🗂 目录结构](#-目录结构)
+- [📚 文档索引](#-文档索引)
+- [🧭 Roadmap](#-roadmap)
+- [❓ 常见问题](#-常见问题)
+- [🤝 参与贡献](#-参与贡献)
+- [📜 许可证](#-许可证)
+
+## ✨ 核心能力
 
 | 领域 | 说明 |
 | --- | --- |
@@ -27,7 +55,9 @@
 | 可插拔执行 | 进程内装配（默认）/ Docker 沙箱（每 Agent 独立容器）/ K8s Pod 后端，同一接口扩展 |
 | 平台知识 | 产品设计 / 技术原理 / 模块导读随应用内置、页内即读 |
 
-## 快速开始
+## 🚀 快速开始
+
+### 源码运行
 
 Linux / macOS：
 
@@ -36,18 +66,29 @@ Linux / macOS：
 # 浏览器访问 http://localhost:8080
 ```
 
-首次启动自动初始化 SQLite 数据库（`backend/data/platform.db`）并预置 DeepSeek 模型连接。打开**设置 → 模型管理**，编辑 **DeepSeek（预置）**，填入 API Key 后点「测试连接」；也可新增任意 OpenAI 兼容 / Anthropic 兼容连接（自定义 base_url + model）。Key 仅存本地，不会上传。
+首次启动自动初始化 SQLite 数据库（`backend/data/platform.db`）并预置 DeepSeek 模型连接。
 
-也可使用桌面安装包——壳自动拉起本地服务并打开平台窗口：见 [deploy/windows/README.md](deploy/windows/README.md) 与 [deploy/macos/README.md](deploy/macos/README.md)。Docker Compose / Helm / 环境变量见[部署指南](platform-knowledge/01_整体设计/16_部署与运行.md)。
+### 配置模型（必做）
 
-## 开发模式（前端热更新）
+打开**设置 → 模型管理**，编辑 **DeepSeek（预置）**，填入 API Key 后点「测试连接」；也可新增任意 OpenAI 兼容 / Anthropic 兼容连接（自定义 base_url + model）。Key 仅存本地，不会上传。
+
+### 桌面安装包
+
+壳自动拉起本地服务并打开平台窗口：
+
+- Windows —— 见 [deploy/windows/README.md](deploy/windows/README.md)
+- macOS —— 见 [deploy/macos/README.md](deploy/macos/README.md)
+
+Docker Compose / Helm / 环境变量见[部署指南](platform-knowledge/01_整体设计/16_部署与运行.md)。
+
+## 💻 开发模式（前端热更新）
 
 ```bash
 cd backend && go run ./cmd/backend   # 终端 1（:8080）
 cd web && npm run dev               # 终端 2（:5173，API 代理到 8080）
 ```
 
-## 技术栈
+## 🧱 技术栈
 
 | 层 | 选型 |
 | --- | --- |
@@ -55,7 +96,7 @@ cd web && npm run dev               # 终端 2（:5173，API 代理到 8080）
 | 前端 | React 18 · TypeScript · Vite · Ant Design 6 · Ant Design X · zustand · 3d-force-graph |
 | 协议 | REST + SSE（流式）· MCP（消费 + 服务化双向） |
 
-## 目录结构
+## 🗂 目录结构
 
 ```
 backend/             Go 主平台后端（:8080，同时托管前端静态资源）
@@ -71,7 +112,7 @@ deploy/              Docker Compose + Helm + 桌面端构建脚本
 tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 ```
 
-## 文档索引
+## 📚 文档索引
 
 | 文档 | 内容 |
 | --- | --- |
@@ -89,13 +130,42 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 
 Roadmap 与需求状态以 **docs/02 §12** 与 **docs/18** 为准——本 README 有意不重复维护状态细节。
 
-## 常见问题
+## ❓ 常见问题
 
-- **对话报「运行前装配失败」**：未配置可用模型连接，去「设置 → 模型管理」填 Key。
-- **换端口**：`./run-dev.sh 9090` 或 `.\run-dev.ps1 -Port 9090`。
-- **数据库重置**：停止服务后删除 `backend/data/` 目录（会清空所有对话与配置）。
-- **知识库检索不可用**：embedding 连接未配置或索引未就绪——知识库页有状态徽标与引导；DeepSeek 不含 embedding，需另配向量服务（如硅基流动 BGE、千帆 embeddings-v1）。
+<details>
+<summary><b>对话报「运行前装配失败」</b></summary>
 
-## 许可证
+未配置可用模型连接——去「设置 → 模型管理」填 Key。
+
+</details>
+
+<details>
+<summary><b>换端口</b></summary>
+
+`./run-dev.sh 9090` 或 `.\run-dev.ps1 -Port 9090`。
+
+</details>
+
+<details>
+<summary><b>数据库重置</b></summary>
+
+停止服务后删除 `backend/data/` 目录（会清空所有对话与配置）。
+
+</details>
+
+<details>
+<summary><b>知识库检索不可用</b></summary>
+
+embedding 连接未配置或索引未就绪——知识库页有状态徽标与引导；DeepSeek 不含 embedding，需另配向量服务（如硅基流动 BGE、千帆 embeddings-v1）。
+
+</details>
+
+## 🤝 参与贡献
+
+- `docs/` 内需求与设计文档为事实源；新需求实施前必须在 [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) 登记编号。
+- 回归验证遵循 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md)。
+- AI 编码助手请先阅读 [AGENTS.md](AGENTS.md)。
+
+## 📜 许可证
 
 [Apache-2.0](LICENSE)
