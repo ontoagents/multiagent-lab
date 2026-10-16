@@ -672,6 +672,12 @@ export interface OntoChatContext {
   story_step?: number // REQ-275：访谈当前步（0 起）
   story_answers?: string[]
   draft_story?: string // REQ-275：用户故事（访谈制品）
+  test_report?: { // REQ-342/OC-2：会话草稿覆盖测试报告（test 站）
+    verdicts: { cq: string; verdict: string; explanation?: string }[]
+    passed: number
+    total: number
+    pass_rate: number
+  }
 }
 
 export interface OntoChatSession {
@@ -726,6 +732,10 @@ export interface OntoChatJob {
     duplicate_count?: number
     clusters?: OntoChatCluster[] // REQ-273：CQ 分析 job 终态簇
     dedup_count?: number
+    merged_groups?: { keep: string; duplicates: string[] }[] // REQ-342/OC-3：paraphrase 去重明细
+    dedup_skipped?: boolean // REQ-342/OC-3：去重步降级（只聚类未去重）
+    purification?: { compound_found: number; split_out: number; named_found: number; abstracted: number } // REQ-342/OC-1：净化统计
+    purification_degraded?: boolean // REQ-342/OC-1：净化轮降级（用抽取原清单）
     verdicts?: OntoChatCQVerdict[] // REQ-274：覆盖测试判定（Yes/No/Unknown）
     passed?: number
     total?: number

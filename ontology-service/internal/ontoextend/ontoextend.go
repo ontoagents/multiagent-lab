@@ -12,10 +12,10 @@ import pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
 // ODP 精选模式（人工精选 12 个高频域；source 记出处便于学习对照）
 type ODP struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Source      string `json:"source"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Source      string        `json:"source"`
 	Spec        *pkgspec.Spec `json:"spec"`
 }
 

@@ -135,11 +135,10 @@ func sidecarRun(t *testing.T, ontologyID string, sp *pkgspec.Spec) (string, int,
 	return out.String(), n, false
 }
 
-
 func TestTTLGoExportParityWithSidecar(t *testing.T) {
 	cases := map[string]*pkgspec.Spec{
-		"rt":                       paritySpec(),
-		"empty":                    {},
+		"rt":                         paritySpec(),
+		"empty":                      {},
 		"onto_261015135935253672200": {Name: "legacy-id", Concepts: []pkgspec.Concept{{Name: "A"}}},
 	}
 	for oid, sp := range cases {

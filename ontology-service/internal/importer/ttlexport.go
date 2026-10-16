@@ -66,10 +66,10 @@ func ttlPyStr(v any) string {
 
 type ttlIRIs struct{ base string }
 
-func (w ttlIRIs) concept(n string) string { return w.base + "concept:" + ttlSanitize(n) }
+func (w ttlIRIs) concept(n string) string  { return w.base + "concept:" + ttlSanitize(n) }
 func (w ttlIRIs) relation(n string) string { return w.base + "relation:" + ttlSanitize(n) }
 func (w ttlIRIs) instance(n string) string { return w.base + "instance:" + ttlSanitize(n) }
-func (w ttlIRIs) attr(k string) string { return w.base + "attr:" + ttlSanitize(k) }
+func (w ttlIRIs) attr(k string) string     { return w.base + "attr:" + ttlSanitize(k) }
 
 // ttlRangeIRI 对齐 sidecar XSD_IRI：短名映射 xsd、http(s) IRI 尖括号原样、未知回落 xsd:string。
 func ttlRangeIRI(rng string) string {

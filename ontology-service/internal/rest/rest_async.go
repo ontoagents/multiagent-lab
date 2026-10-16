@@ -25,9 +25,10 @@ type draftJob struct {
 	Status    string                 `json:"status"`             // running | done | failed
 	Progress  string                 `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
 	Result    *draftResult           `json:"result,omitempty"`
-	CQs       []ontochat.ExtractedCQ `json:"cqs,omitempty"`   // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
-	Dedup     int                    `json:"dedup,omitempty"` // REQ-308：与既有 CQ 重复被滤除条数
-	RAG       *cqragDraftResult      `json:"rag,omitempty"`   // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
+	CQs       []ontochat.ExtractedCQ `json:"cqs,omitempty"`    // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
+	Dedup     int                    `json:"dedup,omitempty"`  // REQ-308：与既有 CQ 重复被滤除条数
+	Purify    *ontochat.PurifyStats  `json:"purify,omitempty"` // REQ-342/OC-1：净化统计（拆分/抽象率）
+	RAG       *cqragDraftResult      `json:"rag,omitempty"`    // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
 	Error     string                 `json:"error,omitempty"`
 	CreatedAt time.Time              `json:"created_at"`
 }
@@ -143,7 +144,7 @@ func (s *Server) aiCQExtract(w http.ResponseWriter, r *http.Request) {
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
 	go func() {
-		cqs, dedup, err := s.OntoChat.ExtractCQsFromMaterial(context.Background(), req.Description, req.Hints, nil,
+		res, err := s.OntoChat.ExtractCQsFromMaterial(context.Background(), req.Description, req.Hints, nil,
 			func(_ int, msg string) {
 				draftJobsMu.Lock()
 				job.Progress = msg
@@ -157,8 +158,9 @@ func (s *Server) aiCQExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		job.Status = "done"
-		job.CQs = cqs
-		job.Dedup = dedup
+		job.CQs = res.CQs
+		job.Dedup = res.Dedup
+		job.Purify = res.Purification
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }

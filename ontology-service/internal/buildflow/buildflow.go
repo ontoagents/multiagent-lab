@@ -22,12 +22,12 @@ import (
 type Stage string
 
 const (
-	StageSource Stage = "source" // 来源：领域描述 / ODP 模式 / KB 语料
+	StageSource  Stage = "source"  // 来源：领域描述 / ODP 模式 / KB 语料
 	StageExtract Stage = "extract" // 抽取：LLM 抽取 / KG 直转 / 片段装配
-	StageDraft  Stage = "draft"  // 草稿：spec_json 形态产出（含校验循环）
-	StageGate   Stage = "gate"   // 质量门禁：qualitygate 15 项（strict 门禁在入库侧另有语义）
-	StageReview Stage = "review" // 审查：人工确认（前端确认卡 / merge preview）
-	StageIngest Stage = "ingest" // 入库：create+saveSpec / merge apply（版本快照）
+	StageDraft   Stage = "draft"   // 草稿：spec_json 形态产出（含校验循环）
+	StageGate    Stage = "gate"    // 质量门禁：qualitygate 15 项（strict 门禁在入库侧另有语义）
+	StageReview  Stage = "review"  // 审查：人工确认（前端确认卡 / merge preview）
+	StageIngest  Stage = "ingest"  // 入库：create+saveSpec / merge apply（版本快照）
 )
 
 // StageOrder 六段全序（实例可只覆盖子集——如 ai-draft 的审查段在前端确认步）。
@@ -64,12 +64,12 @@ func Covers(pipeline string, st Stage) bool {
 
 // SegmentTrace 段边界留痕（REQ-328 对账挂点：一段一记录）。
 type SegmentTrace struct {
-	Pipeline   string    `json:"pipeline"`            // ai-draft | ontoextend-draft | kb-extract
-	Stage      Stage     `json:"stage"`               // source | extract | draft | gate | review | ingest
-	Status     string    `json:"status"`              // ok | fail | skip
-	StartedAt  time.Time `json:"started_at"`          // 段起始（UTC）
-	DurationMS int64     `json:"duration_ms"`         // 段耗时
-	Note       string    `json:"note,omitempty"`      // 段摘要（来源描述/轮次/质量分/错误——人话，短）
+	Pipeline   string    `json:"pipeline"`              // ai-draft | ontoextend-draft | kb-extract
+	Stage      Stage     `json:"stage"`                 // source | extract | draft | gate | review | ingest
+	Status     string    `json:"status"`                // ok | fail | skip
+	StartedAt  time.Time `json:"started_at"`            // 段起始（UTC）
+	DurationMS int64     `json:"duration_ms"`           // 段耗时
+	Note       string    `json:"note,omitempty"`        // 段摘要（来源描述/轮次/质量分/错误——人话，短）
 	OntologyID string    `json:"ontology_id,omitempty"` // 入库段落点（可得时）
 }
 

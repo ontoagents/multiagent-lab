@@ -1,9 +1,8 @@
-// cq.go CQ 抽取与净化（REQ-272/S1，63 号 §1.3 模块 2 + P5 蓝本中文适配）。
-// 流程：领域描述+累积补充信息 → LLM 抽取候选并应用两个净化算子（拆非原子问题/命名实体
-// 抽象）→ 与既有 CQ 精确去重 → 人工确认编辑（analyze 确认步定案保留）→ 写回 Context.CQs
-// → 生成轮 DraftWithCQ 回写 spec.CQ（REQ-248 缺口闭合）。
-// 诚实边界：论文为「抽取→拆分→抽象」分步且全英文评估；v1 两算子合一次调用，中文有效性
-// 以真机验证为准（63 号 §6.3 待验证项）。
+// cq.go CQ 抽取与净化（REQ-272/S1 + REQ-342/OC-1 分步化迭代，63 号 §1.3 模块 2）。
+// 流程（论文四步对齐）：抽取轮（只抽不净化）→ 净化轮（purify.go：拆非原子+命名实体抽象
+// 分步单次调用+拆分/抽象率统计）→ 与既有 CQ 精确去重 → 人工确认编辑（analyze 确认步定案
+// 保留）→ 写回 Context.CQs → 生成轮 DraftWithCQ 回写 spec.CQ（REQ-248 缺口闭合）。
+// 诚实边界：论文全英文评估；净化轮失败降级用抽取原清单（净化是增强不是依赖）。
 package ontochat
 
 import (
@@ -15,21 +14,16 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 )
 
-// cqSchema CQ 抽取输出契约。
-const cqSchema = `{"type":"array","items":{"type":"object","required":["cq"],"properties":{"cq":{"type":"string"},"origin":{"type":"string","enum":["抽取","拆分","抽象"]}}}}`
+// cqSchema CQ 抽取轮输出契约（只抽不净化——净化归净化轮，origin=抽取）。
+const cqSchema = `{"type":"array","items":{"type":"object","required":["cq"],"properties":{"cq":{"type":"string"},"origin":{"type":"string","enum":["抽取"]}}}}`
 
-// cqExtractPrompt CQ 抽取提示词（63 号 P5 蓝本中文适配；两净化算子内联为输出要求）。
+// cqExtractPrompt CQ 抽取轮提示词（63 号 P5 抽取步；拆分/抽象两算子移交净化轮）。
 const cqExtractPrompt = `你是本体需求工程师。请从下方材料中抽取能力问题（Competency Question，CQ）——即未来本体/知识库应当能够回答的问题。
 
-按三步处理（一次性完成，输出净化后的最终清单）：
-1. 抽取：从材料中找出值得建模回答的问题；
-2. 拆非原子问题：复合问题拆成多条单一焦点的问题（例：「青霉素的发现者是谁、能治哪些病？」拆为「药物由哪些人员发现？」「药物可治疗哪些疾病？」）；
-3. 命名实体抽象：把具体专名替换为类概念词，使问题成为可复用的模式（例：「青霉素可治疗哪些疾病？」→「药物可治疗哪些疾病？」）。
-
 要求：
-- 每条 CQ 一句话、单一焦点、以「？」结尾；
-- 数量 3~10 条，覆盖材料中不同的建模关注点（概念、层级、关系、属性、流程、质量评价等）；
-- origin 标注来源：直接抽取=「抽取」；由复合问题拆出=「拆分」；经专名抽象=「抽象」；
+- 覆盖材料中不同的建模关注点（概念、层级、关系、属性、流程、质量评价等）；
+- 每条 CQ 一句话、以「？」结尾；
+- 只抽取，不改写（拆分复合问题与命名实体抽象由后续净化步完成）；
 - 已有能力问题清单中的问题不要重复输出；
 - 只输出 JSON 数组，不要 markdown 代码块或其他文本。
 
@@ -39,27 +33,34 @@ const cqExtractPrompt = `你是本体需求工程师。请从下方材料中抽�
 材料（领域描述与已补充信息）：
 {material}`
 
-// ExtractedCQ 单条抽取候选（origin=抽取|拆分|抽象）。
+// ExtractedCQ 单条抽取候选（origin=抽取|拆分|抽象；拆分/抽象由净化轮标注）。
 type ExtractedCQ struct {
 	CQ     string `json:"cq"`
 	Origin string `json:"origin,omitempty"`
 }
 
-// ExtractCQs 抽取 CQ 候选：解析失败带错误回喂重试 ≤2 轮；与既有 CQ 精确去重。
-// 返回（候选清单, 与既有重复被滤除的条数, error）。
-func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
+// CQExtractResult 抽取+净化两步的完整结果。
+type CQExtractResult struct {
+	CQs                  []ExtractedCQ `json:"cqs"`
+	Dedup                int           `json:"dedup"`                           // 与既有/批内重复被滤除条数
+	Purification         *PurifyStats  `json:"purification,omitempty"`          // 净化统计（降级时 nil）
+	PurificationDegraded bool          `json:"purification_degraded,omitempty"` // 净化轮失败降级用抽取原清单
+}
+
+// ExtractCQs 抽取 CQ 候选：抽取轮（≤2 轮回喂）→ 净化轮（OC-1 分步算子）→ 与既有 CQ 精确去重。
+func (e *Engine) ExtractCQs(ctx context.Context, sess *Session, onProgress ...RoundProgress) (CQExtractResult, error) {
 	return extractCQsCore(ctx, e.LLM, buildCQMaterial(sess), sess.Context.CQs, onProgress...)
 }
 
 // ExtractCQsFromMaterial 无会话 CQ 抽取（REQ-308）：AI 创建路径直接消费「描述+补充材料」——
-// 复用 P5 抽取提示词与两净化算子，材料组装与 OntoChat 会话解耦。
-func (e *Engine) ExtractCQsFromMaterial(ctx context.Context, description string, hints, existing []string, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
+// 复用抽取+净化管线，材料组装与 OntoChat 会话解耦。
+func (e *Engine) ExtractCQsFromMaterial(ctx context.Context, description string, hints, existing []string, onProgress ...RoundProgress) (CQExtractResult, error) {
 	return extractCQsCore(ctx, e.LLM, buildCQMaterialFrom(description, "", hints), existing, onProgress...)
 }
 
-// extractCQsCore 抽取主循环：existing 既有 CQ（prompt 声明勿重复+精确去重双重防线）；
-// 解析失败带错误回喂重试 ≤2 轮。
-func extractCQsCore(ctx context.Context, llm *llmcreate.Creator, material string, existing []string, onProgress ...RoundProgress) ([]ExtractedCQ, int, error) {
+// extractCQsCore 两步主循环：抽取轮 existing 既有 CQ（prompt 声明勿重复+精确去重双重防线）；
+// 解析失败带错误回喂重试 ≤2 轮；净化轮失败降级原清单（degraded 如实标注）。
+func extractCQsCore(ctx context.Context, llm *llmcreate.Creator, material string, existing []string, onProgress ...RoundProgress) (CQExtractResult, error) {
 	notify := func(msg string) {
 		for _, p := range onProgress {
 			if p != nil {
@@ -72,24 +73,41 @@ func extractCQsCore(ctx context.Context, llm *llmcreate.Creator, material string
 		existingStr = joinNumbered(existing)
 	}
 	prompt := strings.Replace(strings.Replace(cqExtractPrompt, "{existing}", existingStr, 1), "{material}", material, 1)
+	var extracted []ExtractedCQ
 	for round := 1; round <= 2; round++ {
 		notify(fmt.Sprintf("第 %d/2 轮：抽取能力问题中", round))
 		raw, _, err := llm.Chat(ctx, prompt, cqSchema)
 		if err != nil {
-			return nil, 0, err
+			return CQExtractResult{}, err
 		}
 		var cqs []ExtractedCQ
 		if perr := json.Unmarshal([]byte(raw), &cqs); perr != nil {
 			if round == 2 {
-				return nil, 0, fmt.Errorf("抽取输出解析失败：%w", perr)
+				return CQExtractResult{}, fmt.Errorf("抽取输出解析失败：%w", perr)
 			}
 			notify("第 1 轮输出不是合法 JSON，回喂重试")
 			prompt = cqExtractPrompt + "\n\n注意：上一次输出不是合法 JSON 数组（" + perr.Error() + "）。请严格只输出 JSON 数组。"
 			continue
 		}
-		return dedupeCQs(existing, cqs)
+		extracted = cqs
+		break
 	}
-	return nil, 0, fmt.Errorf("抽取循环异常退出")
+	if len(extracted) == 0 {
+		return CQExtractResult{}, fmt.Errorf("未抽取到能力问题候选，请补充更多领域信息后重试")
+	}
+	// 净化轮（OC-1 分步算子）：失败降级原清单
+	out := purifyCQs(ctx, llm, extracted, notify)
+	if out.err != nil {
+		// 模型通道级失败：降级原清单（与输出不合法同语义——净化是增强不是依赖）
+		notify("净化轮调用失败，降级使用抽取原清单")
+		out = purifyOutcome{refined: extracted, degraded: true}
+	}
+	res, dup, err := dedupeCQs(existing, out.refined)
+	dedup := dup + out.batchDup
+	if err != nil {
+		return CQExtractResult{Dedup: dedup, Purification: out.stats, PurificationDegraded: out.degraded}, err
+	}
+	return CQExtractResult{CQs: res, Dedup: dedup, Purification: out.stats, PurificationDegraded: out.degraded}, nil
 }
 
 // buildCQMaterial 抽取材料：领域描述 + 逐轮补充信息（story 制品 REQ-275 落地后并入）。

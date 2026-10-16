@@ -4,6 +4,7 @@ package rest
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -42,7 +43,16 @@ func (s *Server) cqSparql(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "spec_json 解析失败: " + err.Error()})
 		return
 	}
-	if len(sp.CQ) == 0 {
+	// REQ-342/OC-2：body.cqs 可选——双轨并轨只翻译存疑项（缺省=全量 spec.CQ 沿既有口径）
+	var body struct {
+		CQs []string `json:"cqs"`
+	}
+	_ = decodeJSON(r, &body)
+	target := sp.CQ
+	if len(body.CQs) > 0 {
+		target = body.CQs
+	}
+	if len(target) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "该本体无 CQ（能力问题）——先在 Spec 编辑「CQ」面板录入"})
 		return
 	}
@@ -57,7 +67,7 @@ func (s *Server) cqSparql(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("可用关系：" + strings.Join(relNames(sp.Relations), "、") + "\n")
 	b.WriteString("模式：直接用「?x a <概念IRI>」取该概念全部实例（导出 TTL 中个体以 rdf:type 挂概念）；对象属性断言为 <实例IRI> <关系IRI> <实例IRI>。\n")
 	b.WriteString("只输出 JSON 数组，每项 {\"cq\":\"原问题\",\"sparql\":\"SELECT ...\"}，不要 markdown 代码块。\n\nCQ 清单：\n")
-	for i, cq := range sp.CQ {
+	for i, cq := range target {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, cq)
 	}
 	reply, _, err := s.LLM.RawChat(r.Context(), b.String())
@@ -93,6 +103,39 @@ func relNames(rs []pkgspec.Relation) []string {
 		out = append(out, r.Name)
 	}
 	return out
+}
+
+// saveCQTestReport PUT /api/ontologies/{id}/cq-test-report（REQ-342/OC-2）：
+// 双轨完整报告落 artifact（快筛段=后端 coverage job 已落；SPARQL 精判段由前端并轨编排后
+// 整体覆盖保存，含三级覆盖量化）。校验 JSON 合法+必填字段；回归基准=报告带 base_version，
+// 版本超前即过期提示重跑。
+func (s *Server) saveCQTestReport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.Store.GetOntology(id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if !json.Valid(body) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "报告须为合法 JSON"})
+		return
+	}
+	var probe struct {
+		Summary *json.RawMessage `json:"summary"`
+	}
+	if json.Unmarshal(body, &probe) != nil || probe.Summary == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "报告缺 summary 段（快筛结果必填——先在覆盖卡完成一次快筛）"})
+		return
+	}
+	if err := s.Store.PutArtifact(id, "cq-test-report", string(body), false); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "size": len(body)})
 }
 
 // qualityConfigGet / qualityConfigPut REQ-156：本体级 strict 门禁开关读写。

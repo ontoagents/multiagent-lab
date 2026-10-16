@@ -6,11 +6,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DoneCTA from './components/DoneCTA'
 import { StoryPanel, StoryTemplateChips } from './components/ontochat/StoryPanel'
-import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow } from './components/ontochat/CQConfirmCards'
+import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow, type CqMergeGroup, type CqPurifyStats } from './components/ontochat/CQConfirmCards'
+import SessionTestCard from './components/ontochat/SessionTestCard'
 import DraftConfirmPanel from './components/ontochat/DraftConfirmPanel'
 import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Steps, Tag, Typography, Upload } from 'antd'
 import type { StepsProps } from 'antd'
-import { ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { SafetyOutlined, ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
@@ -47,6 +48,10 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [prompts, setPrompts] = useState<OntoChatPrompt[] | null>(null)
   const [cqDraft, setCqDraft] = useState<CqDraftRow[] | null>(null)
   const [clusterDraft, setClusterDraft] = useState<ClusterDraftGroup[] | null>(null)
+  const [mergedGroups, setMergedGroups] = useState<CqMergeGroup[] | null>(null) // REQ-342/OC-3：去重明细
+  const [dedupSkipped, setDedupSkipped] = useState(false)
+  const [cqPurify, setCqPurify] = useState<CqPurifyStats | null>(null) // REQ-342/OC-1：净化统计
+  const [cqPurifyDegraded, setCqPurifyDegraded] = useState(false)
   const [analyzeOpen, setAnalyzeOpen] = useState(false)
   const [analyzeMax, setAnalyzeMax] = useState<number | null>(null)
   const [storyTpl, setStoryTpl] = useState<{ label: string; text: string }[] | null>(null)
@@ -91,17 +96,21 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           setActive(s)
           await refreshList()
           if (j.status === 'done' && j.result?.clusters?.length) {
-            // REQ-273：簇结果 → Collapse 勾选卡（人工确认步）
+            // REQ-273：簇结果 → Collapse 勾选卡（人工确认步）；REQ-342/OC-3：去重明细随行
             setClusterDraft(
               (j.result.clusters as OntoChatCluster[]).map((cl) => ({
                 label: cl.label,
                 rows: (cl.cqs ?? []).map((q) => ({ text: q, checked: true })),
               })),
             )
+            setMergedGroups((j.result.merged_groups as CqMergeGroup[]) ?? null)
+            setDedupSkipped(!!j.result.dedup_skipped)
             setAnalyzeOpen(false)
           } else if (j.status === 'done' && j.result?.cqs?.length) {
-            // REQ-272：CQ 候选 → 可编辑确认卡
+            // REQ-272：CQ 候选 → 可编辑确认卡；REQ-342/OC-1：净化统计随行
             setCqDraft(j.result.cqs.map((c: OntoChatExtractedCQ) => ({ text: c.cq, origin: c.origin, checked: true })))
+            setCqPurify((j.result.purification as CqPurifyStats) ?? null)
+            setCqPurifyDegraded(!!j.result.purification_degraded)
           } else if (j.status === 'done' && j.result?.draft) {
             setDraft(j.result.draft)
             setSaveName(j.result.draft.name || '')
@@ -201,6 +210,25 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     try {
       const r = await api.analyzeOntoChatCQs(active.id, analyzeMax ?? 0)
       setAnalyzeOpen(false)
+      if (r.job_id) {
+        jobRef.current = r.job_id
+        setJob({ id: r.job_id, session_id: active.id, status: 'running', created_at: '', updated_at: '' })
+        startJobPoll(r.job_id)
+      }
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      if (!jobRef.current) setTurning(false)
+    }
+  }
+
+  // REQ-342/OC-2：会话草稿覆盖测试（test 站——draft 后即可测试无需先入库；
+  // 异步 job 共用轮询，done 时会话刷新自 context.test_report 渲染报告卡）
+  const runSessionTest = async () => {
+    if (!active) return
+    setTurning(true)
+    try {
+      const r = await api.sessionCoverageTest(active.id)
       if (r.job_id) {
         jobRef.current = r.job_id
         setJob({ id: r.job_id, session_id: active.id, status: 'running', created_at: '', updated_at: '' })
@@ -635,6 +663,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 <ClusterConfirmCard
                   clusterDraft={clusterDraft}
                   turning={turning}
+                  mergedGroups={mergedGroups ?? undefined}
+                  dedupSkipped={dedupSkipped}
                   onChange={setClusterDraft}
                   onApply={applyClusters}
                   onDiscard={() => setClusterDraft(null)}
@@ -646,6 +676,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 <CqCandidateCard
                   cqDraft={cqDraft}
                   turning={turning}
+                  purification={cqPurify}
+                  purifyDegraded={cqPurifyDegraded}
                   onChange={setCqDraft}
                   onConfirm={confirmCQs}
                   onAdd={() => setCqDraft([...cqDraft, { text: '', checked: true }])}
@@ -668,6 +700,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   }}
                 />
               )}
+              {/* 覆盖测试报告卡（REQ-342/OC-2 test 站：会话草稿的逐条判定，刷新/重进可回看） */}
+              {draft && !isDone && active?.context?.test_report && <SessionTestCard report={active.context.test_report} />}
               {isDone && active.ontology_id && (
                 <Alert
                   type="success"
@@ -739,6 +773,21 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   >
                     CQ 分析
                   </Button>
+                  {draft && (
+                    <Button
+                      icon={<SafetyOutlined />}
+                      disabled={turning || !active?.context?.cqs?.length}
+                      title={
+                        active?.context?.cqs?.length
+                          ? '对当前草稿逐条判定能力问题覆盖（每条独立调用防泄漏；成本=N 次模型调用）——test 站，入库前发现建模缺口'
+                          : '先确认能力问题后再测试'
+                      }
+                      onClick={runSessionTest}
+                      data-testid="session-test-btn"
+                    >
+                      覆盖测试
+                    </Button>
+                  )}
                   {(stage === 'domain' || stage === 'draft' || stage === 'refine') && (
                     <Button icon={<ThunderboltOutlined />} disabled={turning} onClick={() => send('生成草稿')}>
                       生成草稿

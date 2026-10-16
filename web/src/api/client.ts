@@ -450,8 +450,12 @@ export const api = {
   setQualityConfig: (id: string, patch: { strict?: boolean; reasoning_check?: boolean }) =>
     req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** REQ-255/H2：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走 profileSparql） */
-  cqSparql: (id: string) =>
-    req<{ ontology_id: string; items: { cq: string; sparql: string }[]; count: number }>(`/api/ontologies/${id}/cq-sparql`, { method: 'POST', body: '{}' }),
+  /** CQ→SPARQL 翻译（REQ-255）；cqs 可选（REQ-342/OC-2 双轨并轨：只翻译存疑项，缺省=全量 spec.CQ） */
+  cqSparql: (id: string, cqs?: string[]) =>
+    req<{ ontology_id: string; items: { cq: string; sparql: string }[]; count: number }>(`/api/ontologies/${id}/cq-sparql`, {
+      method: 'POST',
+      body: JSON.stringify({ cqs: cqs ?? [] }),
+    }),
   // ---- REQ-157/M-O15 导入合并（审查向导）----
   mergePreview: (id: string, body: MergeIngest) =>
     req<MergePreview>(`/api/ontologies/${id}/merge/preview`, { method: 'POST', body: JSON.stringify(body) }),
@@ -727,6 +731,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cqs: cqs ?? [] }),
     }),
+  /** REQ-342/OC-2：会话草稿覆盖测试（test 站——draft 后即可测试无需先入库；结果写回会话 context.test_report） */
+  sessionCoverageTest: (id: string) =>
+    req<{ job_id: string; total: number }>(`/api/ontochat/sessions/${id}/test`, { method: 'POST', body: '{}' }),
+  /** REQ-342/OC-2：双轨完整报告落 artifact（快筛段后端已落；SPARQL 精判段并轨后整体覆盖保存） */
+  saveCQTestReport: (id: string, report: unknown) =>
+    req<{ saved: boolean; size: number }>(`/api/ontologies/${id}/cq-test-report`, { method: 'PUT', body: JSON.stringify(report) }),
   /** REQ-271：生成 job 轮询（1.5s 间隔；done 时 result 含 reply/draft/warning/session） */
   getOntoChatJob: (jobId: string) => req<OntoChatJob>(`/api/ontochat/jobs/${jobId}`),
   /** REQ-271：会话当前活跃任务（无则 job:null；重进会话/刷新后据此恢复轮询） */

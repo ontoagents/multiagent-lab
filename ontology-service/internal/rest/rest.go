@@ -90,6 +90,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontology/quality/report", s.qualityReport)
 	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
 	m.HandleFunc("POST /api/ontologies/{id}/cq-sparql", s.cqSparql)
+	m.HandleFunc("PUT /api/ontologies/{id}/cq-test-report", s.saveCQTestReport) // REQ-342/OC-2：双轨报告持久化
 	m.HandleFunc("POST /api/ontology/toolchain/{tool}", s.toolchain)
 	m.HandleFunc("GET /api/ontology/vocabularies/search", s.vocabSearch)
 	m.HandleFunc("GET /api/ontology/ontoextend/odps", s.ontoextendListODPs)
@@ -142,6 +143,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontochat/sessions/{id}/story-finish", s.ontoChatStoryFinish)
 	m.HandleFunc("GET /api/ontochat/story-templates", s.ontoChatStoryTemplates)
 	m.HandleFunc("POST /api/ontologies/{id}/cq-coverage", s.ontoCoverageTest)
+	m.HandleFunc("POST /api/ontochat/sessions/{id}/test", s.ontoChatSessionTest) // REQ-342/OC-2：会话草稿覆盖测试（test 站）
 	m.HandleFunc("GET /api/ontochat/jobs/{id}", s.getOntoChatJob)
 	m.HandleFunc("GET /api/ontochat/sessions/{id}/job", s.getOntoChatSessionJob)
 	m.HandleFunc("POST /api/ontochat/jobs/{id}/cancel", s.cancelOntoChatJob)

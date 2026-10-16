@@ -13,6 +13,20 @@ export interface CqDraftRow {
   checked: boolean
 }
 
+/** REQ-342/OC-1：净化统计（拆分率/抽象率的分子分母，供人工核验） */
+export interface CqPurifyStats {
+  compound_found: number
+  split_out: number
+  named_found: number
+  abstracted: number
+}
+
+/** REQ-342/OC-3：paraphrase 去重明细（保留哪条、合并了哪些） */
+export interface CqMergeGroup {
+  keep: string
+  duplicates: string[]
+}
+
 export interface ClusterDraftGroup {
   label: string
   rows: { text: string; checked: boolean }[]
@@ -21,18 +35,39 @@ export interface ClusterDraftGroup {
 export function ClusterConfirmCard({
   clusterDraft,
   turning,
+  mergedGroups,
+  dedupSkipped,
   onChange,
   onApply,
   onDiscard,
 }: {
   clusterDraft: ClusterDraftGroup[]
   turning: boolean
+  /** REQ-342/OC-3：paraphrase 去重明细（有合并项时逐组展示保留/合并对照） */
+  mergedGroups?: CqMergeGroup[]
+  dedupSkipped?: boolean
   onChange: (next: ClusterDraftGroup[]) => void
   onApply: () => void
   onDiscard: () => void
 }) {
+  const merged = (mergedGroups ?? []).filter((g) => g.duplicates?.length)
   return (
     <Card size="small" style={{ marginTop: 10 }} title="CQ 主题聚类（人工确认后应用）">
+      {merged.length > 0 && (
+        <div style={{ marginBottom: 8 }} data-testid="cq-merge-detail">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>去重明细（语义等价合并，保留最清晰表述）：</Typography.Text>
+          {merged.map((g, i) => (
+            <div key={i} style={{ fontSize: 12, marginInlineStart: 12 }}>
+              保留「{g.keep}」← 合并 {g.duplicates.join('、')}
+            </div>
+          ))}
+        </div>
+      )}
+      {dedupSkipped && (
+        <Typography.Paragraph type="warning" style={{ fontSize: 12, marginBottom: 8 }}>
+          去重步降级（输出不合法）——本结果只聚类未去重，可人工在下方勾选中剔除重复项。
+        </Typography.Paragraph>
+      )}
       <Collapse
         size="small"
         defaultActiveKey={clusterDraft.map((_, i) => String(i))}
@@ -74,6 +109,8 @@ export function ClusterConfirmCard({
 export function CqCandidateCard({
   cqDraft,
   turning,
+  purification,
+  purifyDegraded,
   onChange,
   onConfirm,
   onAdd,
@@ -81,6 +118,9 @@ export function CqCandidateCard({
 }: {
   cqDraft: CqDraftRow[]
   turning: boolean
+  /** REQ-342/OC-1：净化统计行（识别复合 N 拆出 M / 含专名 K 抽象 L）；降级时提示用原清单 */
+  purification?: CqPurifyStats | null
+  purifyDegraded?: boolean
   onChange: (next: CqDraftRow[]) => void
   onConfirm: () => void
   onAdd: () => void
@@ -89,6 +129,17 @@ export function CqCandidateCard({
   const pickedCount = cqDraft.filter((c) => c.checked && c.text.trim()).length
   return (
     <Card size="small" style={{ marginTop: 10 }} title={`能力问题候选确认（勾选 ${pickedCount}/${cqDraft.length}）`}>
+      {purification && (
+        <div style={{ marginBottom: 8 }} data-testid="cq-purify-stats">
+          <Tag color="geekblue" style={{ fontSize: 11 }}>净化：复合 {purification.compound_found} 条→拆出 {purification.split_out} 条</Tag>
+          <Tag color="cyan" style={{ fontSize: 11 }}>含专名 {purification.named_found} 条→抽象 {purification.abstracted} 条</Tag>
+        </div>
+      )}
+      {purifyDegraded && (
+        <Typography.Paragraph type="warning" style={{ fontSize: 12, marginBottom: 8 }}>
+          净化步降级（输出不合法）——本清单为抽取原稿未净化，可手动编辑后再确认。
+        </Typography.Paragraph>
+      )}
       {cqDraft.map((row, i) => (
         <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
           <Checkbox checked={row.checked} onChange={(e) => onChange(cqDraft.map((r2, j2) => (j2 === i ? { ...r2, checked: e.target.checked } : r2)))} />

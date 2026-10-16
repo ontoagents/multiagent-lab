@@ -23,27 +23,27 @@ var ErrNotFound = errors.New("not found")
 
 // Candidate 进化候选补丁（vN-cK）。
 type Candidate struct {
-	ID          string `json:"id"`
-	OntologyID  string `json:"ontology_id"`
-	Label       string `json:"label"` // v{base}-c{K}
-	BaseVersion int    `json:"base_version"`
-	Layer       string `json:"layer"`   // content | tool | schema
-	Summary     string `json:"summary"` // 归因摘要
-	Evidence    string `json:"evidence"`
-	PatchJSON   string `json:"patch_json"`
-	GateReport  string `json:"gate_report"`
-	Status      string `json:"status"` // proposed | accepted | rejected
-	Round       int    `json:"round"`
-	CreatedAt   string `json:"created_at"`
+	ID          string  `json:"id"`
+	OntologyID  string  `json:"ontology_id"`
+	Label       string  `json:"label"` // v{base}-c{K}
+	BaseVersion int     `json:"base_version"`
+	Layer       string  `json:"layer"`   // content | tool | schema
+	Summary     string  `json:"summary"` // 归因摘要
+	Evidence    string  `json:"evidence"`
+	PatchJSON   string  `json:"patch_json"`
+	GateReport  string  `json:"gate_report"`
+	Status      string  `json:"status"` // proposed | accepted | rejected
+	Round       int     `json:"round"`
+	CreatedAt   string  `json:"created_at"`
 	DecidedAt   *string `json:"decided_at,omitempty"`
 }
 
 // Patch 类型化编辑（补丁形态；应用顺序：remove→add/update，防同名冲突）。
 type Patch struct {
-	AddConcepts    []map[string]any `json:"add_concepts,omitempty"`
-	UpdateConcepts []map[string]any `json:"update_concepts,omitempty"` // 按 name 定位
-	RemoveConcepts []string         `json:"remove_concepts,omitempty"`
-	AddRelations   []map[string]any `json:"add_relations,omitempty"`
+	AddConcepts     []map[string]any `json:"add_concepts,omitempty"`
+	UpdateConcepts  []map[string]any `json:"update_concepts,omitempty"` // 按 name 定位
+	RemoveConcepts  []string         `json:"remove_concepts,omitempty"`
+	AddRelations    []map[string]any `json:"add_relations,omitempty"`
 	RemoveRelations []map[string]any `json:"remove_relations,omitempty"` // name+from+to 定位
 }
 

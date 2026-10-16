@@ -91,17 +91,47 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [profileId, setProfileId] = useState<string | null>(null)
 
-  // ---- REQ-274：CQ 覆盖测试快筛（OntoChat 论文路线；默认关=本按钮显式开启；成本=N 次逐条调用）----
+  // ---- REQ-274 快筛 + REQ-342/OC-2 双轨测试站（口语化快筛+SPARQL 精判并轨+报告持久化+三级覆盖）----
   const [covBusy, setCovBusy] = useState(false)
   const [covProgress, setCovProgress] = useState('')
   const [covResult, setCovResult] = useState<{ verdicts: OntoChatCQVerdict[]; passed: number; total: number; pass_rate: number } | null>(null)
   const [covErr, setCovErr] = useState<string | null>(null)
   const [covCQs, setCovCQs] = useState<string[]>([])
+  const [specShape, setSpecShape] = useState<{ concepts: string[]; relations: string[]; dataProperties: string[] }>({ concepts: [], relations: [], dataProperties: [] })
+  // 双轨精判段（No/Unknown 存疑项 SPARQL 翻译+可选自动执行）与三级覆盖量化
+  const [sparqlTrack, setSparqlTrack] = useState<{ cq: string; sparql: string; ok: boolean; rows: number | null; err?: string }[] | null>(null)
+  const [trackBusy, setTrackBusy] = useState(false)
+  const [trackNote, setTrackNote] = useState<string | null>(null)
+  // 上次持久化报告（artifact cq-test-report——回归基准：版本超前即过期提示重跑）
+  const [lastReport, setLastReport] = useState<{ created_at?: string; base_version?: number; summary?: { passed: number; total: number; pass_rate: number } } | null>(null)
+  const [ontoVersion, setOntoVersion] = useState(0)
   useEffect(() => {
     api
       .getSpec(ontologyId)
-      .then((sp: any) => setCovCQs(Array.isArray(sp?.cq) ? sp.cq.map((c: string) => String(c)) : []))
+      .then((sp: any) => {
+        setCovCQs(Array.isArray(sp?.cq) ? sp.cq.map((c: string) => String(c)) : [])
+        setSpecShape({
+          concepts: (sp?.concepts ?? []).map((c: any) => String(c?.name ?? '')),
+          relations: (sp?.relations ?? []).map((r: any) => String(r?.name ?? '')),
+          dataProperties: (sp?.data_properties ?? []).map((d: any) => String(d?.name ?? '')),
+        })
+      })
       .catch(() => setCovCQs([]))
+    api
+      .getOntology(ontologyId)
+      .then((o) => setOntoVersion(o?.version ?? 0))
+      .catch(() => setOntoVersion(0))
+    // 上次报告（404=从未跑过，静默）
+    api
+      .getArtifactContent(ontologyId, 'cq-test-report')
+      .then((raw: any) => {
+        try {
+          setLastReport(typeof raw === 'string' ? JSON.parse(raw) : raw)
+        } catch {
+          setLastReport(null)
+        }
+      })
+      .catch(() => setLastReport(null))
   }, [ontologyId])
   useEffect(() => {
     api
@@ -117,6 +147,8 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
     setCovBusy(true)
     setCovErr(null)
     setCovProgress('任务排队中…')
+    setSparqlTrack(null)
+    setTrackNote(null)
     try {
       const j = await api.coverageCQTest(ontologyId, cqs)
       const timer = setInterval(async () => {
@@ -141,6 +173,101 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
       setCovErr(e?.message ?? '提交失败')
     }
   }
+
+  // REQ-342/OC-2：双轨并轨——存疑项（No/Unknown）SPARQL 翻译+可选自动执行（需选 running 方案）
+  const runDualTrack = async () => {
+    if (!covResult) return
+    const doubtful = covResult.verdicts.filter((v) => v.verdict !== 'Yes').map((v) => v.cq)
+    if (doubtful.length === 0) {
+      setTrackNote('快筛全部通过——无双轨精判存疑项')
+      return
+    }
+    setTrackBusy(true)
+    setTrackNote(null)
+    try {
+      const r = await api.cqSparql(ontologyId, doubtful)
+      const items = r.items ?? []
+      const out: { cq: string; sparql: string; ok: boolean; rows: number | null; err?: string }[] = items.map((it) => ({ cq: it.cq, sparql: it.sparql, ok: false, rows: null }))
+      setSparqlTrack(out)
+      if (profileId) {
+        for (const row of out) {
+          try {
+            const { json } = await api.runSparql(profileId, row.sparql)
+            row.rows = json?.results?.bindings?.length ?? 0
+            row.ok = (row.rows ?? 0) > 0
+          } catch (e: any) {
+            row.err = e?.message ?? '执行失败'
+          }
+        }
+        setSparqlTrack([...out])
+        await persistDualReport(out)
+      } else {
+        setTrackNote(`已翻译 ${out.length} 条存疑项 SPARQL（上方「CQ 验收（SPARQL）」卡选运行方案后可执行）——报告已保存快筛段`)
+        await persistDualReport(out)
+      }
+    } catch (e: any) {
+      setTrackNote(`SPARQL 精判失败：${e?.message ?? '未知错误'}（快筛段已保存）`)
+    } finally {
+      setTrackBusy(false)
+    }
+  }
+
+  // 三级覆盖量化（81 号 CQ4OE 条件覆盖口径的本体侧映射）+ 术语/属性层覆盖 + 报告持久化
+  const persistDualReport = async (track: { cq: string; ok: boolean; rows: number | null; err?: string }[] | null) => {
+    if (!covResult) return
+    const vs = covResult.verdicts
+    const trackByCq = new Map((track ?? []).map((t) => [t.cq, t]))
+    const sparqlOk = (cq: string) => {
+      const t = trackByCq.get(cq)
+      return t ? t.ok && !t.err : null // null=未精判
+    }
+    const judged = track && track.length > 0
+    let full = 0, atLeastOne = 0
+    for (const v of vs) {
+      const so = sparqlOk(v.cq)
+      const oral = v.verdict === 'Yes'
+      if (judged) {
+        if (oral && so === true) full++
+        if (oral || so === true) atLeastOne++
+      } else if (oral) {
+        atLeastOne++
+      }
+    }
+    const oralRate = covResult.total ? vs.filter((v) => v.verdict === 'Yes').length / covResult.total : 0
+    const sparqlRate = judged && track ? track.filter((t) => t.ok && !t.err).length / track.length : 0
+    const mean = judged ? (oralRate + sparqlRate) / 2 : oralRate
+    // 术语/属性层覆盖：SPARQL 文本引用的 concept:/relation:/attr: IRI（URIPrefix 之后的名称）
+    const sparqlTexts = (sparqlTrack ?? []).map((t) => t.sparql).join('\n')
+    const refd = new Set<string>()
+    for (const m of sparqlTexts.matchAll(/urn:o:[^:]+:(?:concept|relation|attr):([^>\s"']+)/g)) refd.add(m[1])
+    const termCovered = specShape.concepts.filter((c) => refd.has(c)).length
+    const propTotal = specShape.relations.length + specShape.dataProperties.length
+    const propCovered = [...specShape.relations, ...specShape.dataProperties].filter((p) => refd.has(p)).length
+    const report = {
+      created_at: new Date().toISOString(),
+      base_version: ontoVersion,
+      summary: { verdicts: vs, passed: covResult.passed, total: covResult.total, pass_rate: covResult.pass_rate },
+      sparql_track: sparqlTrack ?? undefined,
+      coverage: {
+        full: judged ? full / covResult.total : null, // 双轨全过（Full）
+        at_least_one: atLeastOne / (covResult.total || 1), // 至少一轨通过（AtLeastOne）
+        mean, // 双轨平均（Mean）
+        term_covered: termCovered,
+        term_total: specShape.concepts.length,
+        property_covered: propCovered,
+        property_total: propTotal,
+        judged,
+      },
+    }
+    try {
+      await api.saveCQTestReport(ontologyId, report)
+      setLastReport({ created_at: report.created_at, base_version: report.base_version, summary: { passed: covResult.passed, total: covResult.total, pass_rate: covResult.pass_rate } })
+    } catch {
+      /* 报告持久化失败不阻断呈现 */
+    }
+  }
+
+  const covStale = !!(lastReport?.base_version && ontoVersion && lastReport.base_version < ontoVersion)
 
   const translateCq = () => {
     setCqBusy(true)
@@ -339,15 +466,15 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
           </Card>
 
 
-          {/* REQ-274（63 号 §1.3 模块 4）：CQ 覆盖测试快筛——口语化+逐条独立判定（默认关=本卡显式开启；存疑转上方 SPARQL 精判） */}
+          {/* REQ-274 快筛 + REQ-342/OC-2 覆盖测试站（双轨并轨+报告持久化+三级覆盖——CQ 升级为回归基准） */}
           <Card size="small" className="work-card" data-testid="cq-coverage-card">
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
               <AlertOutlined style={{ color: 'var(--c-brand)' }} />
-              <Typography.Text strong>覆盖测试快筛（口语化判定）</Typography.Text>
+              <Typography.Text strong>覆盖测试站（快筛+SPARQL 精判双轨）</Typography.Text>
               <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 220 }}>
                 {covCQs.length === 0
-                  ? '本体 spec.CQ 为空：请先在构建会话中「抽取 CQ」并确认（生成草稿时回写），再回来快筛。'
-                  : '本体口语化为纯文本后，逐条能力问题独立判定 Yes/No（每条单独调用防泄漏——成本=N 次模型调用）。默认关闭，点「开始快筛」显式执行；判定「No」的存疑项请到上方「CQ 验收（SPARQL）」卡精判。'}
+                  ? '本体 spec.CQ 为空：请先在构建会话中「抽取 CQ」并确认（生成草稿时回写；会话内也可直接对草稿「覆盖测试」），再回来测试。'
+                  : '①快筛：本体口语化后逐条 CQ 独立判定（每条单独调用防泄漏，对「可推断不显式」偏乐观）；②精判：存疑项自动翻译 SPARQL 并对运行方案执行（有结果=通过）；双轨结果统一入报告并落 artifact——本体变更后（版本超前）报告过期提示重跑（回归基准）。'}
               </Typography.Text>
               <Popconfirm
                 title={`将对 ${covCQs.length} 条能力问题各执行 1 次模型调用，确认开始？`}
@@ -359,6 +486,19 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
                 </Button>
               </Popconfirm>
             </div>
+            {lastReport?.summary && (
+              <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--ant-color-text-tertiary, #888)' }} data-testid="cq-report-last">
+                上次报告：{(lastReport.created_at ?? '').slice(0, 19).replace('T', ' ') || '—'} · 通过 {lastReport.summary.passed}/{lastReport.summary.total}
+                （{Math.round((lastReport.summary.pass_rate ?? 0) * 100)}%）
+                {covStale ? (
+                  <Tag color="orange" style={{ marginInlineStart: 8, fontSize: 11 }} data-testid="cq-report-stale">
+                    报告过期——本体已变更至 v{ontoVersion}（报告基于 v{lastReport.base_version}），建议重跑
+                  </Tag>
+                ) : (
+                  <Tag style={{ marginInlineStart: 8, fontSize: 11 }}>基于 v{lastReport.base_version}</Tag>
+                )}
+              </div>
+            )}
             {covProgress && (
               <div style={{ marginBottom: 8 }}>
                 <Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>{covProgress}</Typography.Text>
@@ -367,13 +507,16 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
             {covErr && <Alert type="error" showIcon style={{ marginBottom: 8 }} title={covErr} />}
             {covResult && (
               <>
-                <Space size={6} style={{ marginBottom: 8 }}>
-                  <Tag color="green" data-testid="coverage-pass-tag">通过 {covResult.passed}/{covResult.total}</Tag>
+                <Space size={6} style={{ marginBottom: 8 }} wrap>
+                  <Tag color="green" data-testid="coverage-pass-tag">快筛通过 {covResult.passed}/{covResult.total}</Tag>
                   <Tag color="geekblue">快筛通过率 {Math.round(covResult.pass_rate * 100)}%</Tag>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    快筛为口语化判定（对可推断不显式的需求偏乐观）——「No」项以上方 SPARQL 精判为准。
-                  </Typography.Text>
+                  <Button size="small" loading={trackBusy} disabled={trackBusy} onClick={runDualTrack} data-testid="dual-track-btn">
+                    存疑项 SPARQL 精判（双轨）
+                  </Button>
                 </Space>
+                {trackNote && (
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }} data-testid="dual-track-note">{trackNote}</Typography.Paragraph>
+                )}
                 <Table
                   size="small"
                   rowKey={(r) => r.cq}
@@ -382,7 +525,7 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
                   columns={[
                     { title: '能力问题', dataIndex: 'cq', ellipsis: true },
                     {
-                      title: '判定',
+                      title: '快筛',
                       dataIndex: 'verdict',
                       width: 90,
                       render: (v: string) =>
@@ -393,6 +536,16 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
                         ) : (
                           <Tag icon={<AlertOutlined />}>Unknown</Tag>
                         ),
+                    },
+                    {
+                      title: 'SPARQL 精判',
+                      width: 110,
+                      render: (_: unknown, v: OntoChatCQVerdict) => {
+                        const t = sparqlTrack?.find((x) => x.cq === v.cq)
+                        if (!t) return <Typography.Text type="secondary" style={{ fontSize: 11 }}>未精判</Typography.Text>
+                        if (t.err) return <Tag color="orange">错误</Tag>
+                        return t.ok ? <Tag color="green" icon={<CheckCircleOutlined />}>通过 {t.rows} 行</Tag> : <Tag color="red" icon={<CloseCircleOutlined />}>无结果</Tag>
+                      },
                     },
                     { title: '解释', dataIndex: 'explanation', ellipsis: true },
                   ]}

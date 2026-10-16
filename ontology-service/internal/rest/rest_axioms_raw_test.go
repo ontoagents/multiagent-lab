@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
 )
 
 // fakeSidecarScript 生成假 sidecar 桩脚本（python，跨平台——原 /bin/sh 硬编码 Unix-only）：

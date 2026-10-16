@@ -167,7 +167,6 @@ func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string
 	return nil, fmt.Errorf("生成循环异常退出")
 }
 
-
 // fewShotFor REQ-247/G4：按领域描述关键词挑选最相近种子本体的紧凑片段作 few-shot 范例
 // （种子 5 份内置编译期；关键词命中失败返回空串——范例注入是增强不是依赖）。
 // buildFewShot 生成范例段（截断防 prompt 膨胀；概念取前 4、关系取前 3）。

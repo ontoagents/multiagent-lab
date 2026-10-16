@@ -25,13 +25,16 @@ type Message struct {
 
 // Context 累积上下文（每轮追加，draft 阶段整体喂给生成器）。
 type Context struct {
-	Description string           `json:"description"`          // 领域描述（cq 阶段录入）
-	CQs         []string         `json:"cqs,omitempty"`        // 能力问题列表
-	Hints       []string         `json:"hints,omitempty"`      // 逐轮补全的领域信息
-	DraftSpec   *json.RawMessage `json:"draft_spec,omitempty"` // 最近一次草稿（refine 阶段回喂）
-	StoryStep   int              `json:"story_step,omitempty"`    // REQ-275：访谈当前步（0 起）
-	StoryAnswers []string        `json:"story_answers,omitempty"` // REQ-275：访谈逐问回答
-	DraftStory  string           `json:"draft_story,omitempty"`   // REQ-275：汇总生成的用户故事（精修轮对象）
+	Description  string           `json:"description"`             // 领域描述（cq 阶段录入）
+	CQs          []string         `json:"cqs,omitempty"`           // 能力问题列表
+	Hints        []string         `json:"hints,omitempty"`         // 逐轮补全的领域信息
+	DraftSpec    *json.RawMessage `json:"draft_spec,omitempty"`    // 最近一次草稿（refine 阶段回喂）
+	StoryStep    int              `json:"story_step,omitempty"`    // REQ-275：访谈当前步（0 起）
+	StoryAnswers []string         `json:"story_answers,omitempty"` // REQ-275：访谈逐问回答
+	DraftStory   string           `json:"draft_story,omitempty"`   // REQ-275：汇总生成的用户故事（精修轮对象）
+	// TestReport 覆盖测试报告（REQ-342/OC-2 test 站补位：会话内 draft 后即可测试，无需先入库；
+	// 快筛段=口语化逐条判定。入库后的回归验证走资产质量卡双轨报告 artifact）
+	TestReport *CoverageSummary `json:"test_report,omitempty"`
 }
 
 // Session 会话聚合。
@@ -185,12 +188,12 @@ func (s *Store) Delete(id string) error {
 
 // DraftVersion 草稿快照。
 type DraftVersion struct {
-	Version    int             `json:"version"`
-	Source     string          `json:"source"`          // draft | refine | confirm
-	Round      int             `json:"round"`
-	Materials  []string        `json:"materials,omitempty"` // 文件材料引用清单
-	Spec       json.RawMessage `json:"spec_json"`
-	CreatedAt  string          `json:"created_at"`
+	Version   int             `json:"version"`
+	Source    string          `json:"source"` // draft | refine | confirm
+	Round     int             `json:"round"`
+	Materials []string        `json:"materials,omitempty"` // 文件材料引用清单
+	Spec      json.RawMessage `json:"spec_json"`
+	CreatedAt string          `json:"created_at"`
 }
 
 // materialNames 提取 Hints 中文件材料的引用名（ImportFile 落库形态「[文件导入 name]\n…」）。

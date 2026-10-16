@@ -349,7 +349,7 @@ func (s *Server) runOntoChatCQExtract(jobID string, sess *ontochat.Session) {
 	progress := func(_ int, msg string) {
 		_ = st.UpdateJobProgress(jobID, msg)
 	}
-	cqs, dup, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
+	res, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
 	if err != nil && ctx.Err() != nil {
 		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "已取消能力问题抽取。"}, nil, nil, nil)
 		_ = st.UpdateJobStatus(jobID, "cancelled", "")
@@ -360,14 +360,27 @@ func (s *Server) runOntoChatCQExtract(jobID string, sess *ontochat.Session) {
 		_ = st.UpdateJobStatus(jobID, "error", err.Error())
 		return
 	}
-	result := map[string]any{"cqs": cqs, "duplicate_count": dup}
+	// REQ-342/OC-1：result 增 purification 净化统计（拆分/抽象率核验）与降级标注
+	result := map[string]any{"cqs": res.CQs, "duplicate_count": res.Dedup}
+	if res.Purification != nil {
+		result["purification"] = res.Purification
+	}
+	if res.PurificationDegraded {
+		result["purification_degraded"] = true
+	}
 	bts, _ := json.Marshal(result)
 	_ = st.SetJobResult(jobID, bts)
 	_ = st.UpdateJobStatus(jobID, "done", "")
 	var b strings.Builder
-	fmt.Fprintf(&b, "已抽取能力问题候选 %d 条", len(cqs))
-	if dup > 0 {
-		fmt.Fprintf(&b, "（与已有重复滤除 %d 条）", dup)
+	fmt.Fprintf(&b, "已抽取能力问题候选 %d 条", len(res.CQs))
+	if res.Dedup > 0 {
+		fmt.Fprintf(&b, "（与已有重复滤除 %d 条）", res.Dedup)
+	}
+	if res.Purification != nil {
+		fmt.Fprintf(&b, "；净化：识别复合问题 %d 条拆出 %d 条，含专名 %d 条抽象 %d 条", res.Purification.CompoundFound, res.Purification.SplitOut, res.Purification.NamedFound, res.Purification.Abstracted)
+	}
+	if res.PurificationDegraded {
+		b.WriteString("；净化步降级（输出不合法，已用抽取原清单）")
 	}
 	b.WriteString("。请在确认卡中逐条编辑/勾选后写入会话——确认后生成草稿将据此补充建模，并把能力问题回写进本体资产（spec.CQ 可追溯）。")
 	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil)
@@ -476,7 +489,7 @@ func (s *Server) runOntoChatCQAnalyze(jobID string, sess *ontochat.Session, maxC
 	progress := func(_ int, msg string) {
 		_ = st.UpdateJobProgress(jobID, msg)
 	}
-	clusters, dedup, err := s.OntoChat.AnalyzeCQs(ctx, sess, maxClusters, progress)
+	res, err := s.OntoChat.AnalyzeCQs(ctx, sess, maxClusters, progress)
 	if err != nil && ctx.Err() != nil {
 		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "已取消能力问题分析。"}, nil, nil, nil)
 		_ = st.UpdateJobStatus(jobID, "cancelled", "")
@@ -487,12 +500,22 @@ func (s *Server) runOntoChatCQAnalyze(jobID string, sess *ontochat.Session, maxC
 		_ = st.UpdateJobStatus(jobID, "error", err.Error())
 		return
 	}
-	result := map[string]any{"clusters": clusters, "dedup_count": dedup}
+	// REQ-342/OC-3：result 增 merged_groups 去重明细与降级标注
+	result := map[string]any{"clusters": res.Clusters, "dedup_count": res.Dedup}
+	if len(res.MergedGroups) > 0 {
+		result["merged_groups"] = res.MergedGroups
+	}
+	if res.DedupSkipped {
+		result["dedup_skipped"] = true
+	}
 	bts, _ := json.Marshal(result)
 	_ = st.SetJobResult(jobID, bts)
 	_ = st.UpdateJobStatus(jobID, "done", "")
 	var b strings.Builder
-	fmt.Fprintf(&b, "CQ 分析完成：%d 个主题簇，去重合并 %d 条（语义等价保留最清晰表述）。请在分析卡中确认后应用写回——聚类仅供参考分组，不能单独支撑完整分析。", len(clusters), dedup)
+	fmt.Fprintf(&b, "CQ 分析完成：%d 个主题簇，去重合并 %d 条（语义等价保留最清晰表述，明细见分析卡）。请在分析卡中确认后应用写回——聚类仅供参考分组，不能单独支撑完整分析。", len(res.Clusters), res.Dedup)
+	if res.DedupSkipped {
+		b.WriteString("（去重步降级：只聚类未去重）")
+	}
 	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: b.String()}, nil, nil, nil)
 }
 
@@ -537,11 +560,11 @@ func (s *Server) ontoCoverageTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
-	go s.runOntoCoverageTest(job.ID, &sp, cqs)
+	go s.runOntoCoverageTest(job.ID, oid, &sp, cqs)
 }
 
 // runOntoCoverageTest 后台执行覆盖测试：逐条进度 → TestCoverage → 终态落 job（无会话留痕）。
-func (s *Server) runOntoCoverageTest(jobID string, sp *pkgspec.Spec, cqs []string) {
+func (s *Server) runOntoCoverageTest(jobID, oid string, sp *pkgspec.Spec, cqs []string) {
 	ctx, release := s.registerOntoJobCancel(jobID)
 	defer release()
 	_ = s.ontoChatStore().UpdateJobStatus(jobID, "running", "")
@@ -561,6 +584,99 @@ func (s *Server) runOntoCoverageTest(jobID string, sp *pkgspec.Spec, cqs []strin
 	bts, _ := json.Marshal(sum)
 	_ = s.ontoChatStore().SetJobResult(jobID, bts)
 	_ = s.ontoChatStore().UpdateJobStatus(jobID, "done", "")
+	// REQ-342/OC-2：快筛报告落 artifact cq-test-report（回归基准——报告带 base_version，
+	// 版本超前即过期提示重跑；双轨完整报告由前端并轨后经 PUT cq-test-report 覆盖保存）
+	if rep, merr := json.Marshal(map[string]any{
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+		"base_version": s.ontologyVersion(oid),
+		"summary": sum,
+	}); merr == nil {
+		_ = s.Store.PutArtifact(oid, "cq-test-report", string(rep), false)
+	}
+}
+
+// ontologyVersion 本体当前版本号（artifact 报告过期判定用；读取失败 0=不判定）。
+func (s *Server) ontologyVersion(id string) int {
+	if o, err := s.Store.GetOntology(id); err == nil {
+		return o.Version
+	}
+	return 0
+}
+
+// ontoChatSessionTest POST /api/ontochat/sessions/{id}/test → 202 job（REQ-342/OC-2 test 站）：
+// 会话内草稿覆盖测试——DraftSpec 口语化+逐 CQ 独立判定（无需先入库），结果写回
+// Context.TestReport + assistant 留痕；draft 阶段页面测试卡渲染。与生成轮共用 job 表与会话互斥。
+func (s *Server) ontoChatSessionTest(w http.ResponseWriter, r *http.Request) {
+	if s.LLM == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Stage == "done" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话已结束，如需继续请新建会话"})
+		return
+	}
+	if sess.Context.DraftSpec == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话尚无草稿：请先「生成草稿」再做覆盖测试"})
+		return
+	}
+	var sp pkgspec.Spec
+	if uerr := json.Unmarshal(*sess.Context.DraftSpec, &sp); uerr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "草稿 spec 解析失败: " + uerr.Error()})
+		return
+	}
+	cqs := sess.Context.CQs
+	if len(cqs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话尚无能力问题：请先抽取/确认 CQ（覆盖测试以 CQ 为判定对象）"})
+		return
+	}
+	if active, aerr := st.ActiveJobBySession(sess.ID); aerr == nil && active != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有生成任务进行中，请等待完成或取消后再试"})
+		return
+	}
+	job, err := st.CreateJob(newOntoJobID(), sess.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
+	go s.runOntoChatSessionTest(job.ID, sess, &sp, cqs)
+}
+
+// runOntoChatSessionTest 会话草稿覆盖测试后台执行：逐条判定 → 写回 Context.TestReport + 留痕。
+func (s *Server) runOntoChatSessionTest(jobID string, sess *ontochat.Session, sp *pkgspec.Spec, cqs []string) {
+	st := s.ontoChatStore()
+	ctx, release := s.registerOntoJobCancel(jobID)
+	defer release()
+	_ = st.UpdateJobStatus(jobID, "running", "")
+	progress := func(done, total int, msg string) {
+		_ = st.UpdateJobProgress(jobID, fmt.Sprintf("%s（%d/%d）", msg, done, total))
+	}
+	verdicts, err := s.OntoChat.TestCoverage(ctx, sp, cqs, progress)
+	if err != nil && ctx.Err() != nil {
+		_ = st.UpdateJobStatus(jobID, "cancelled", "")
+		return
+	}
+	if err != nil {
+		_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: "覆盖测试失败：" + err.Error()}, nil, nil, nil)
+		_ = st.UpdateJobStatus(jobID, "error", err.Error())
+		return
+	}
+	sum := ontochat.SummarizeCoverage(verdicts)
+	if uerr := st.UpdateContext(sess.ID, func(c *ontochat.Context) { c.TestReport = &sum }); uerr != nil {
+		_ = st.UpdateJobStatus(jobID, "error", uerr.Error())
+		return
+	}
+	bts, _ := json.Marshal(sum)
+	_ = st.SetJobResult(jobID, bts)
+	_ = st.UpdateJobStatus(jobID, "done", "")
+	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: fmt.Sprintf(
+		"覆盖测试完成：通过 %d/%d（快筛通过率 %.0f%%）。判定「No」的条目指出了草稿尚缺的建模——可据此回复修改意见进入修正轮；入库后可在资产质量卡做 SPARQL 精判并轨。", sum.Passed, sum.Total, sum.PassRate*100)}, nil, nil, nil)
 }
 
 // ontoChatStoryBack POST /api/ontochat/sessions/{id}/story-back → 访气回退一步（REQ-275 不变式③）。
@@ -627,7 +743,7 @@ func (s *Server) runOntoChatStoryFinish(jobID string, sess *ontochat.Session) {
 	progress := func(_ int, msg string) {
 		_ = st.UpdateJobProgress(jobID, msg)
 	}
-	cqs, dup, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
+	res, err := s.OntoChat.ExtractCQs(ctx, sess, progress)
 	if err != nil && ctx.Err() != nil {
 		_ = st.UpdateJobStatus(jobID, "cancelled", "")
 		return
@@ -640,8 +756,14 @@ func (s *Server) runOntoChatStoryFinish(jobID string, sess *ontochat.Session) {
 	// 阶段推进 story→domain（描述与 CQ 已就绪：候选经 REQ-272 确认卡写回后即可「生成草稿」；
 	// 进 domain 而非 cq——cq 是快速模式首轮「录入描述」语义，避免后续输入被当新领域描述）
 	stage := "domain"
-	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: fmt.Sprintf("访谈完成。已从用户故事抽取能力问题候选 %d 条（去重滤除 %d 条），请在确认卡中勾选编辑后写入——确认后可直接「生成草稿」或继续补充领域信息。", len(cqs), dup)}, &stage, nil, nil)
-	result := map[string]any{"cqs": cqs, "duplicate_count": dup}
+	_ = st.Append(sess.ID, ontochat.Message{Role: "assistant", Content: fmt.Sprintf("访谈完成。已从用户故事抽取能力问题候选 %d 条（去重滤除 %d 条），请在确认卡中勾选编辑后写入——确认后可直接「生成草稿」或继续补充领域信息。", len(res.CQs), res.Dedup)}, &stage, nil, nil)
+	result := map[string]any{"cqs": res.CQs, "duplicate_count": res.Dedup}
+	if res.Purification != nil {
+		result["purification"] = res.Purification
+	}
+	if res.PurificationDegraded {
+		result["purification_degraded"] = true
+	}
 	bts, _ := json.Marshal(result)
 	_ = st.SetJobResult(jobID, bts)
 	_ = st.UpdateJobStatus(jobID, "done", "")

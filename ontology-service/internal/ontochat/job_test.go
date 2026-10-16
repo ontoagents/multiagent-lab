@@ -116,7 +116,7 @@ func TestWillGenerateAndIntent(t *testing.T) {
 		{"生成草稿", true},
 		{"请生成草稿", true},
 		{"信息差不多了，帮我生成草稿吧", true}, // >12 rune + 生成 + 草稿 → 命中（旧 12 rune 硬阈漏判）
-		{"生成关系的设计思路", true},          // ≤12 rune 含「生成」→ 命中（沿 REQ-246/G5 既有短句口径）
+		{"生成关系的设计思路", true},      // ≤12 rune 含「生成」→ 命中（沿 REQ-246/G5 既有短句口径）
 	}
 	notHits := []string{
 		"请帮我梳理一下生成概念之间关系的设计思路", // >12 rune 含「生成」无目标词 → 普通建模输入
@@ -137,10 +137,10 @@ func TestWillGenerateAndIntent(t *testing.T) {
 		stage, text string
 		want        bool
 	}{
-		{"cq", "生成草稿", false},          // cq 首轮纯本地，不做生成意图判断
-		{"domain", "生成草稿", true},       // domain 生成意图 → 异步生成
-		{"domain", "补充：还有 StatefulSet", false}, // domain 普通补充 → 同步归纳
-		{"draft", "", true},             // draft 阶段空文本重生成 → 异步
+		{"cq", "生成草稿", false},                    // cq 首轮纯本地，不做生成意图判断
+		{"domain", "生成草稿", true},                 // domain 生成意图 → 异步生成
+		{"domain", "补充：还有 StatefulSet", false},   // domain 普通补充 → 同步归纳
+		{"draft", "", true},                      // draft 阶段空文本重生成 → 异步
 		{"refine", "给 Deployment 增加副本数属性", true}, // 修正意见 → 异步
 		{"done", "生成草稿", false},
 	} {
@@ -173,7 +173,9 @@ func TestPromptsInventory(t *testing.T) {
 // REQ-272：UpdateContext 定点更新（CQ 确认写入，不追加消息）。
 func TestUpdateContextCQs(t *testing.T) {
 	st := newJobTestStore(t)
-	if err := st.UpdateContext("sess-1", func(c *Context) { c.CQs = []string{"药物可治疗哪些疾病？", "疾病簇由哪些症状组成？"} }); err != nil {
+	if err := st.UpdateContext("sess-1", func(c *Context) {
+		c.CQs = []string{"药物可治疗哪些疾病？", "疾病簇由哪些症状组成？"}
+	}); err != nil {
 		t.Fatal(err)
 	}
 	back, err := st.Get("sess-1")

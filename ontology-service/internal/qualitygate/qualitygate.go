@@ -81,7 +81,7 @@ type Stats struct {
 	Relations      int `json:"relations"`
 	Instances      int `json:"instances"`
 	DataProperties int `json:"data_properties,omitempty"` // REQ-268/M77
-	Axioms         int `json:"axioms,omitempty"`           // REQ-269/M78
+	Axioms         int `json:"axioms,omitempty"`          // REQ-269/M78
 }
 
 const maxSamples = 20

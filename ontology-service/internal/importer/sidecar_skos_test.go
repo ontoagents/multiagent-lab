@@ -177,7 +177,7 @@ func TestSidecarDatatypeExportRoundTrip(t *testing.T) {
 		t.Skip("sidecar 未配置")
 	}
 	sp := &pkgspec.Spec{
-		Name: "t",
+		Name:     "t",
 		Concepts: []pkgspec.Concept{{Name: "Pod"}},
 		DataProperties: []pkgspec.DataProperty{
 			{Name: "副本数", Domain: "Pod", Range: "integer", Definition: "副本数量"},

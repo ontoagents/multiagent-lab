@@ -30,8 +30,8 @@ func TestIsQuestionRules(t *testing.T) {
 	}
 	no := []string{
 		"补充：药物分为处方药和非处方药两类", // 陈述材料
-		"生成草稿",                            // 生成意图（先于 isQuestion 判定，此处仅验非疑问）
-		"",                                      // 空
+		"生成草稿", // 生成意图（先于 isQuestion 判定，此处仅验非疑问）
+		"",     // 空
 	}
 	for _, s := range no {
 		if isQuestion(s) {
