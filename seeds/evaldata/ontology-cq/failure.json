@@ -1,0 +1,36 @@
+{
+  "note": "REQ-345/M145 CQ 基准集（failure）：gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/failure.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "ontology": "failure",
+  "cqs": [
+    {
+      "id": "failure-cq-1",
+      "cq": "某个设备包含哪些部件？",
+      "gold": [
+        "设备",
+        "包含",
+        "部件"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "failure-cq-2",
+      "cq": "某个部件发生了哪些故障？",
+      "gold": [
+        "部件",
+        "发生",
+        "故障"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "failure-cq-3",
+      "cq": "某个故障原因对应哪些维护措施？",
+      "gold": [
+        "故障原因",
+        "对应",
+        "维护措施"
+      ],
+      "type": "R"
+    }
+  ]
+}

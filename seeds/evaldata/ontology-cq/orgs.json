@@ -1,0 +1,36 @@
+{
+  "note": "REQ-345/M145 CQ 基准集（orgs）：gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/orgs.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "ontology": "orgs",
+  "cqs": [
+    {
+      "id": "orgs-cq-1",
+      "cq": "某个组织下设哪些部门？",
+      "gold": [
+        "组织",
+        "下设",
+        "部门"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "orgs-cq-2",
+      "cq": "某个人员担任哪些岗位？",
+      "gold": [
+        "人员",
+        "担任",
+        "岗位"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "orgs-cq-3",
+      "cq": "某个部门承接哪些项目？",
+      "gold": [
+        "部门",
+        "承接",
+        "项目"
+      ],
+      "type": "R"
+    }
+  ]
+}
