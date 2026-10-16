@@ -1,6 +1,6 @@
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
-import { Card, Menu, Space, Splitter, Tag, Typography } from 'antd'
+import { Card, Menu, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
 import {
   ApartmentOutlined,
   FileTextOutlined,
@@ -15,6 +15,7 @@ import {
 import XMarkdown from '@ant-design/x-markdown'
 import DocViewerModal from '../components/DocViewerModal'
 import { docFileOf, resolveRef } from '../lib/docref'
+import HintIcon from './settings/HintIcon'
 
 // 平台知识内容（REQ-116 / REQ-161 v2）：构建期内联扫描 platform-knowledge/ 全目录。
 // REQ-188 起全链目录驱动：目录即页面树——顶层目录=L1 组、子目录=L2、文档=主题页；
@@ -267,15 +268,47 @@ const GROUPS = (() => {
     .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, 'zh-Hans-CN'))
 })()
 
-/** 默认选中：首组主页（修复历史遗留的失效 key「总览/平台总览」） */
-const DEFAULT_ACTIVE = GROUPS[0]?.topics.find((t) => t.isHome)?.key ?? GROUPS[0]?.topics[0]?.key ?? ''
+/** 界面优化批（REQ-341）：一级目录 → 内容区顶部水平页签（本体 module-tabs 同款范式）；
+ *  页签记忆 eino.ref.tab（缺省/失效回落首组）；二级清单进左侧栏（子目录降为不可折叠分组标题）。
+ *  默认选中：当前分组主页（无主页取首篇）。 */
+const REF_TAB_KEY = 'eino.ref.tab'
+const REF_DOC_KEY = 'eino.ref.doc'
+// 初始化序：文档记忆（跨分组有效，topic key 全局唯一）→ 推导分组 → 分组记忆回落首组
+const INIT_DOC = (() => {
+  const v = localStorage.getItem(REF_DOC_KEY)
+  return TOPICS.some((t) => t.key === v) ? (v as string) : ''
+})()
+const INIT_GROUP_KEY = (() => {
+  const fromDoc = TOPICS.find((t) => t.key === INIT_DOC)?.group
+  if (fromDoc) return fromDoc
+  const v = localStorage.getItem(REF_TAB_KEY)
+  return GROUPS.some((g) => g.group === v) ? (v as string) : GROUPS[0]?.group ?? ''
+})()
+const DEFAULT_ACTIVE = INIT_DOC
+  || (GROUPS.find((g) => g.group === INIT_GROUP_KEY) ?? GROUPS[0])?.topics.find((t) => t.isHome)?.key
+  || (GROUPS.find((g) => g.group === INIT_GROUP_KEY) ?? GROUPS[0])?.topics[0]?.key
+  || ''
 
 import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function ReferencePage() {
   const rail = useSidebarCollapse('eino.ref.sidebar.collapsed')
+  const [groupKey, setGroupKey] = useState(INIT_GROUP_KEY)
   const [active, setActive] = useState(DEFAULT_ACTIVE)
   const [viewDoc, setViewDoc] = useState<string | null>(null) // REQ-169：点击互引相对路径 → 右侧 Drawer 阅读，默认关闭
-  const topic = TOPICS.find((t) => t.key === active) ?? TOPICS[0]
+  const group = GROUPS.find((g) => g.group === groupKey) ?? GROUPS[0]
+  // 切分组：落默认文档（主页优先）；active 失效（跨组残留）时回落组默认
+  const selectGroup = (key: string) => {
+    localStorage.setItem(REF_TAB_KEY, key)
+    setGroupKey(key)
+    const g = GROUPS.find((x) => x.group === key)
+    if (g) activate(g.topics.find((t) => t.isHome)?.key ?? g.topics[0]?.key ?? '')
+  }
+  // REQ-341：选中文档持久化（刷新/重开回看同一篇）
+  const activate = (key: string) => {
+    localStorage.setItem(REF_DOC_KEY, key)
+    setActive(key)
+  }
+  const topic = group.topics.find((t) => t.key === active) ?? group.topics.find((t) => t.isHome) ?? group.topics[0]
   const { meta, body } = useMemo(() => parseFrontmatter(topic.md), [topic])
   /** 正文相对引用点击（REQ-169）：拦截指向仓库内 .md 的相对路径 → 右侧 Drawer 阅读；http/锚点走默认 */
   const onBodyClick = (e: MouseEvent) => {
@@ -286,8 +319,50 @@ export default function ReferencePage() {
     e.preventDefault()
     setViewDoc(resolved)
   }
+  // 左栏二级清单：根文档平铺 + 子目录降为不可折叠分组标题（REQ-341：树深 3→2）
+  const menuItems = (() => {
+    const roots = group.topics.filter((t) => !t.file.includes('/'))
+    const subMap = new Map<string, Topic[]>()
+    for (const t of group.topics) {
+      if (!t.file.includes('/')) continue
+      const sub = t.file.slice(0, t.file.indexOf('/'))
+      if (!subMap.has(sub)) subMap.set(sub, [])
+      subMap.get(sub)!.push(t)
+    }
+    const items: any[] = roots.map((t) => ({ key: t.key, label: t.title }))
+    const subs = [...subMap.keys()].sort((a, b) => {
+      const pa = parsePrefix(a)
+      const pb = parsePrefix(b)
+      return pa.order - pb.order || pa.label.localeCompare(pb.label, 'zh-Hans-CN')
+    })
+    for (const sub of subs) {
+      items.push({ type: 'group', label: parsePrefix(sub).label, children: subMap.get(sub)!.map((t) => ({ key: t.key, label: t.title })) })
+    }
+    return items
+  })()
+
   return (
     <>
+    <div className="module-shell">
+      {/* REQ-341：一级目录 → 内容区顶部水平页签（学习中心等分区收尾）；溢出横向滚动兜底 */}
+      <div className="module-tabs ref-tabs" role="tablist" aria-label="平台知识分区导航" data-testid="ref-tabs" style={{ overflowX: 'auto' }}>
+        {GROUPS.map((g) => (
+          <Tooltip key={g.group} title={`平台知识 · ${g.label}`} placement="bottom" mouseEnterDelay={0.4}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={g.group === groupKey}
+              aria-current={g.group === groupKey ? 'page' : undefined}
+              className={`module-tab${g.group === groupKey ? ' active' : ''}`}
+              onClick={() => selectGroup(g.group)}
+            >
+              <span className="module-tab-icon">{g.icon}</span>
+              <span className="module-tab-label">{g.label}</span>
+            </button>
+          </Tooltip>
+        ))}
+      </div>
+      <div className="module-body" style={{ flex: 1, minHeight: 0 }}>
       {/* REQ-237（57 号 F4）：左栏宽度并入全站单一约定（eino.sidebar.width/280/220/480 + 写入回填；原独用 eino.ref.width 退役） */}
       <Splitter className="main sidebar-splitter" onResizeEnd={sidebarRemember}>
       <Splitter.Panel
@@ -301,52 +376,22 @@ export default function ReferencePage() {
       ) : (
         <aside className="sidebar">
           <div className="side-head">
-            <span className="side-title">平台知识</span>
+            <span className="side-title">平台知识 · {group.label}</span>
             <SidebarCollapseButton onClick={rail.toggle} />
           </div>
           <div className="ref-menu">
+            {/* REQ-341：二级清单单层化——根文档平铺、子目录降为不可折叠分组标题（Menu group） */}
             <Menu
               mode="inline"
               selectedKeys={[active]}
-              defaultOpenKeys={[]}
-              onClick={({ key }) => setActive(String(key))}
+              onClick={({ key }) => activate(String(key))}
               style={{ background: 'transparent' }}
-              items={GROUPS.map((g) =>
-                g.topics.length === 1
-                  ? { key: g.topics[0].key, icon: g.icon, label: g.label }
-                  : {
-                      key: g.group,
-                      icon: g.icon,
-                      label: g.label,
-                      children: (() => {
-                        const roots = g.topics.filter((t) => !t.file.includes('/'))
-                        const subMap = new Map<string, Topic[]>()
-                        for (const t of g.topics) {
-                          if (!t.file.includes('/')) continue
-                          const sub = t.file.slice(0, t.file.indexOf('/'))
-                          if (!subMap.has(sub)) subMap.set(sub, [])
-                          subMap.get(sub)!.push(t)
-                        }
-                        const items: any = roots.map((t) => ({ key: t.key, label: t.title }))
-                        // 子目录按数字前缀排序（REQ-188；无前缀按名置尾）
-                        const subs = [...subMap.keys()].sort((a, b) => {
-                          const pa = parsePrefix(a)
-                          const pb = parsePrefix(b)
-                          return pa.order - pb.order || pa.label.localeCompare(pb.label, 'zh-Hans-CN')
-                        })
-                        for (const sub of subs) {
-                          items.push({ key: `${g.group}/${sub}`, label: parsePrefix(sub).label, children: subMap.get(sub)!.map((t) => ({ key: t.key, label: t.title })) })
-                        }
-                        return items
-                      })(),
-                    },
-              )}
+              items={menuItems}
             />
           </div>
-          <div className="settings-note">
-            内容收录目录驱动（
-            <Typography.Text code style={{ fontSize: 11 }}>platform-knowledge/</Typography.Text>
-            ）；新增目录/文档按数字前缀落入后重建即生效（REQ-188）。
+          <div className="settings-note" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <HintIcon text="内容收录目录驱动（platform-knowledge/）；新增目录/文档按数字前缀落入后重建即生效（REQ-188）。" />
+            <span>目录驱动收录</span>
           </div>
         </aside>
       )}
@@ -373,7 +418,9 @@ export default function ReferencePage() {
           </div>
         </div>
       </Splitter.Panel>
-    </Splitter>
+      </Splitter>
+      </div>
+    </div>
     {/* 抽屉必须挂在 Splitter 之外：AntD Splitter 只认 Splitter.Panel 子元素，
         混入其他组件会被吞成一个空白面板（REQ-169「右侧空白栏/链接无反应」的根因） */}
     <DocViewerModal path={viewDoc} open={!!viewDoc} onClose={() => setViewDoc(null)} onNavigate={setViewDoc} />
