@@ -2,17 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, Tag } from 'antd'
 import {
   PlusOutlined,
-  SettingOutlined,
+  EllipsisOutlined,
   DeleteOutlined,
   EditOutlined,
   DownOutlined,
   RightOutlined,
-  ProjectOutlined,
 } from '@ant-design/icons'
 import { Conversations } from '@ant-design/x'
 import { api } from '../api/client'
 import EmptyGuide from './EmptyGuide'
-import { AgentLogo } from './AgentLogo'
 import type { Agent, Conversation, Project } from '../api/types'
 import { useUI } from '../store/ui'
 import { confirmAction } from '../lib/antd'
@@ -154,11 +152,16 @@ export default function Sidebar({
       <div className="side-head">
         <span className="side-title">{isAgent ? '智能体' : '项目'}</span>
         <span className="side-count">{nodes.length}</span>
-      </div>
-      <div className="side-actions">
-        <Button block type="dashed" icon={<PlusOutlined />} onClick={isAgent ? onNewAgent : onNewProject}>
-          新建{isAgent ? '智能体' : '项目'}
-        </Button>
+        {/* REQ-326 迭代四：新建入口 + 化并入标题行右端（原整幅虚线钮退役；空态引导保留显式 CTA） */}
+        <Button
+          type="text"
+          size="small"
+          className="side-head-add"
+          icon={<PlusOutlined />}
+          title={`新建${isAgent ? '智能体' : '项目'}`}
+          aria-label={`新建${isAgent ? '智能体' : '项目'}`}
+          onClick={isAgent ? onNewAgent : onNewProject}
+        />
       </div>
 
       <div className="conv-list">
@@ -203,17 +206,15 @@ export default function Sidebar({
                   onClick={() => toggleNode(n.key)}
                 >
                   <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
-                  {/* 智能体用品牌同源的三节点标记；项目保留各自图标，一眼可辨 */}
-                  <span className="side-node-dot">{isAgent ? <AgentLogo backend={n.backend} logoUrl={n.logo} size={16} /> : <ProjectOutlined />}</span>
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {n.builtin && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>内置</Tag>}
                   {/* REQ-326 迭代三：会话数轻量裸数字（0 不显示）——减少名称之外的行内空间占用 */}
                   {n.convs.length > 0 && <span className="side-node-count" title={`${n.convs.length} 个对话`}>{n.convs.length}</span>}
                 </button>
+                {/* REQ-326 迭代四：行内操作悬停显现＋齿轮改三点；配置入口=三点钮（REQ-213 内置助手同入口归一不变） */}
                 <span className="side-node-ops">
                   <Button type="text" size="small" icon={<PlusOutlined />} title={n.builtin ? '与平台助手开始对话' : '新建对话'} onClick={() => onNewConversation(n.key)} />
-                  {/* REQ-213：内置助手配置入口归一——同普通智能体打开配置侧板（原 REQ-186「无配置入口」退役） */}
-                  <Button type="text" size="small" icon={<SettingOutlined />} title={n.builtin ? '配置平台助手' : '配置'} onClick={() => configure(n.key)} />
+                  <Button type="text" size="small" icon={<EllipsisOutlined />} title={n.builtin ? '配置平台助手' : '配置'} onClick={() => configure(n.key)} />
                 </span>
               </div>
 
