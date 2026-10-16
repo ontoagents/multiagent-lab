@@ -11,7 +11,7 @@
       {
         "label": "main",
         "title": "智能体构建平台",
-        "url": "http://127.0.0.1:8080/",
+        "url": "index.html",
         "width": 1152,
         "height": 720,
         "center": true,

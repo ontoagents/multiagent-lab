@@ -524,6 +524,14 @@ pub fn run() {
                 let _ = job;
             }
 
+            // 启动过渡页（REQ-321 迭代）：窗口初始 URL 即本地过渡页（frontendDist index.html，
+            // 转圈+「正在启动」文案，本地资源近零成本渲染）——创建即显示，替代「双击后数秒无任何
+            // 反馈」的真空期，也杜绝就绪前白屏/「无法加载」错误页；服务就绪后由 spawn 线程
+            // location.replace 到本实例 backend 实际地址。
+            if let Some(win) = handle.get_webview_window("main") {
+                let _ = win.show();
+            }
+
             // 启动前残留回收：上次壳异常退出遗留的服务（仅按本数据根 PID 留痕，防误伤他方实例）
             #[cfg(not(windows))]
             {
@@ -609,18 +617,38 @@ pub fn run() {
                     }
                 };
                 if PORTS_BUSY.load(Ordering::SeqCst) {
-                    return; // 占用态：窗口已落本地占位页，不刷新重载
+                    return; // 占用态：窗口已落端口占用诊断页，不被超时文案覆盖、不导航
                 }
                 if let Some(win) = handle_for_spawn.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
                     let _ = win.emit("backend-ready", ready);
-                    // 就绪后显式导航到实际 backend 地址（端口顺延时 tauri.conf 的静态 8080 初始
-                    // 导航必然失败，reload 会停留在死地址；replace 才能落到本实例真实端口）
-                    let _ = win.eval(&format!(
-                        "setTimeout(function(){{try{{location.replace({:?})}}catch(e){{}}}},600)",
-                        ports_for_spawn.backend_url()
-                    ));
+                    if ready {
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                        // 就绪后显式导航到实际 backend 地址（端口顺延后初始过渡页地址不再是
+                        // 最终页；replace 才能落到本实例真实端口，reload 会停留在过渡页）
+                        let _ = win.eval(&format!(
+                            "setTimeout(function(){{try{{location.replace({:?})}}catch(e){{}}}},600)",
+                            ports_for_spawn.backend_url()
+                        ));
+                    } else {
+                        // 超时未就绪：过渡页原位换成诊断文案（不导航到死地址——杜绝「无法加载」错误页）
+                        let msg = format!(
+                            "<div style='font-family:sans-serif;display:flex;flex-direction:column;\
+                             align-items:center;justify-content:center;height:100vh;margin:0;\
+                             background:#f7f8fa;color:#374151;text-align:center'>\
+                             <h2 style='color:#b45309'>服务启动超时</h2>\
+                             <p style='line-height:1.8'>本地服务未在预期时间内就绪（backend :{}）。<br>\
+                             请查看数据目录 logs\\ 下各服务日志定位原因；<br>\
+                             端口冲突可在安装目录用 launcher.json 换端口后重启本客户端。</p></div>",
+                            ports_for_spawn.backend
+                        );
+                        let _ = win.eval(&format!(
+                            "setTimeout(function(){{document.body.innerHTML={:?};}},50);",
+                            msg
+                        ));
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
                 }
             });
 
