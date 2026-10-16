@@ -651,6 +651,13 @@ export const api = {
   /** fork 本体：POST /api/ontologies/{id}/fork → 201 新本体（forked_from=源 id，version 重置 1） */
   /** OntoExtend ODP 精选清单（M-O14 P2②；A-7 清扫：原裸 fetch 收编） */
   ontoExtendODPs: () => req<{ odps: unknown[] }>('/api/ontology/ontoextend/odps'),
+  /** REQ-343/OE-1：CQ 驱动增量扩展（论文三段式 RAG，新能力承载不复用 ontoextend API 名）——
+   *  cqs 缺省用 spec.CQ；profile=structure|restriction；top_k 缺省 20。202 job 轮询 getAiDraftJob（job.rag） */
+  cqragDraft: (ontologyId: string, cqs?: string[], profile?: string, topK?: number) =>
+    req<{ job_id: string; total: number }>('/api/ontology/cqrag/draft', {
+      method: 'POST',
+      body: JSON.stringify({ ontology_id: ontologyId, cqs: cqs ?? [], profile: profile ?? 'structure', top_k: topK ?? 20 }),
+    }),
   /** LOV 词表搜索（REQ-171 P1；上游不可达 502 优雅降级） */
   vocabSearch: (q: string) => req<{ results?: unknown[]; items?: unknown[] }>(`/api/ontology/vocabularies/search?q=${encodeURIComponent(q)}`),
   forkOntology: (id: string, input: ForkOntologyInput = {}) =>

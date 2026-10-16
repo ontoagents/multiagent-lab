@@ -87,7 +87,7 @@ func TestRunFailsFastAndTraces(t *testing.T) {
 }
 
 func TestRegistryCovers(t *testing.T) {
-	for _, p := range []string{"ai-draft", "ontoextend-draft", "kb-extract"} {
+	for _, p := range []string{"ai-draft", "ontoextend-draft", "kb-extract", "cq-rag-draft"} {
 		if !Covers(p, StageSource) || !Covers(p, StageIngest) {
 			t.Fatalf("%s 应覆盖 source/ingest 全段", p)
 		}
@@ -95,8 +95,8 @@ func TestRegistryCovers(t *testing.T) {
 	if Covers("未知管线", StageSource) {
 		t.Fatal("未登记管线不应覆盖任何段")
 	}
-	if len(Registered()) != 3 {
-		t.Fatalf("注册表应 3 实例: %v", Registered())
+	if len(Registered()) != 4 {
+		t.Fatalf("注册表应 4 实例: %v", Registered())
 	}
 	// 未声明段：Run 跳过不留痕
 	cap := withCapture(t)

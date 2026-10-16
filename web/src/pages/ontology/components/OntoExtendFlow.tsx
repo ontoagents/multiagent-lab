@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Empty, Input, Select, Space, Spin, Steps, Tag, Typography } from 'antd'
-import { LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Checkbox, Empty, Input, InputNumber, Segmented, Select, Space, Spin, Steps, Table, Tag, Typography } from 'antd'
+import { CheckCircleOutlined, CloseCircleOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
 
 // ---------------------------------------------------------------------------
-// M-O14 P2②（REQ-171 P2/26 号方案 §9）：OntoExtend 流程从引导卡升格「部分可用」。
-// 三步流程：选目标本体 → ODP 精选推荐 + LOV 词表卡片（可选补充）→ 生成扩展草稿 →
-// 既有 merge/preview 审查（REQ-157 底座：冲突检测/改名策略）→ merge/apply 入库（strict 门禁+版本快照）。
-// 后端：GET /api/ontology/ontoextend/odps（人工精选 12 模式）+ POST /api/ontology/ontoextend/draft。
+// M-O14 P2②（REQ-171 P2/26 号方案 §9）+ REQ-343/OE-2 双模式演化动线：
+//   模式一 ODP 模式扩展（既有）：人工精选 ODP + LOV 词表 → 静态片段 → merge 审查。
+//   模式二 CQ 驱动扩展（REQ-343/OE-1 论文三段式 RAG）：spec.CQ → 元素级向量检索 top-k →
+//     LLM 生成 spec 片段（双 profile+两阶段校验，失败标记不静默入库）→ 去重 → merge 审查。
+// 两模式共用目标本体选择与 merge/preview|apply 审查入库底座（REQ-157）。
 // ---------------------------------------------------------------------------
 
 interface OdpItem {
@@ -27,25 +28,53 @@ interface MergePreviewData {
   renamed?: unknown[]
   conflicts?: unknown[]
 }
+/** REQ-343：CQ 驱动扩展片段结果（job.rag.fragments[]） */
+interface RagFragment {
+  cq: string
+  status: 'ok' | 'failed'
+  fragment?: { concepts?: unknown[]; relations?: unknown[]; data_properties?: unknown[]; axioms?: unknown[] }
+  error?: string
+  rounds?: number
+  used?: { element: { local_name: string; kind: string; label?: string }; score: number }[]
+}
+interface RagJobData {
+  fragments: RagFragment[]
+  draft_spec?: { name?: string; concepts?: unknown[]; relations?: unknown[]; data_properties?: unknown[]; axioms?: unknown[] }
+  removed?: string[]
+  retrieval: { elements_indexed: number; top_k: number; profile: string; cq_total: number; cq_ok: number; cq_failed: number; elements_used: number }
+  quality?: { score?: { overall: number }; error_count: number; warning_count: number }
+}
 
 /** REQ-339：资产详情「演化」动作 handoff 键（携本体 id 跳转本页，消费后置空）。 */
 export const ASSET_EXTEND_KEY = 'eino.onto.asset.extend'
 
+type ExtendMode = 'odp' | 'cqrag'
+
 export default function OntoExtendFlow() {
+  const [mode, setMode] = useState<ExtendMode>('odp')
   const [ontos, setOntos] = useState<OntoItem[]>([])
   const [ontosErr, setOntosErr] = useState<string | null>(null)
   const [targetId, setTargetId] = useState<string | undefined>(undefined)
 
+  // ---- ODP 模式状态（REQ-171 既有）----
   const [odps, setOdps] = useState<OdpItem[]>([])
   const [odpsLoading, setOdpsLoading] = useState(false)
   const [odpsErr, setOdpsErr] = useState<string | null>(null)
   const [odpId, setOdpId] = useState<string | undefined>(undefined)
-
   const [lovQuery, setLovQuery] = useState('')
   const [lovHits, setLovHits] = useState<{ label: string; uri: string; desc?: string }[]>([])
   const [lovLoading, setLovLoading] = useState(false)
   const [lovErr, setLovErr] = useState<string | null>(null)
   const [lovPicked, setLovPicked] = useState<Record<string, { label: string; uri: string; desc?: string }>>({})
+
+  // ---- CQ 驱动模式状态（REQ-343/OE-1）----
+  const [targetCQs, setTargetCQs] = useState<string>('')
+  const [profile, setProfile] = useState<'structure' | 'restriction'>('structure')
+  const [topK, setTopK] = useState<number>(20)
+  const [ragBusy, setRagBusy] = useState(false)
+  const [ragProgress, setRagProgress] = useState('')
+  const [ragErr, setRagErr] = useState<string | null>(null)
+  const [ragData, setRagData] = useState<RagJobData | null>(null)
 
   const [preview, setPreview] = useState<MergePreviewData | null>(null)
   const previewBaseVersionRef = useRef<number>(0) // REQ-293②：预览时点版本（apply 回传防陈旧）
@@ -73,6 +102,17 @@ export default function OntoExtendFlow() {
       setStep(1)
     }
   }, [])
+
+  // CQ 模式：目标本体就绪后拉 spec.CQ 预填（REQ-248 CQ 一等公民直接作需求输入）
+  useEffect(() => {
+    if (mode !== 'cqrag' || !targetId) return
+    api
+      .getSpec(targetId)
+      .then((sp: any) => setTargetCQs(Array.isArray(sp?.cq) && sp.cq.length ? sp.cq.map((c: string) => String(c)).join('\n') : ''))
+      .catch(() => setTargetCQs(''))
+    setRagData(null)
+    setRagErr(null)
+  }, [mode, targetId])
 
   const loadOdps = useCallback(() => {
     setOdpsLoading(true)
@@ -106,7 +146,7 @@ export default function OntoExtendFlow() {
       .finally(() => setLovLoading(false))
   }, [lovQuery])
 
-  /** 草稿 = ODP 片段 + LOV 勾选术语（作为附加概念并入 spec 后送 merge 审查） */
+  /** ODP 模式草稿 = ODP 片段 + LOV 勾选术语（作为附加概念并入 spec 后送 merge 审查） */
   const buildDraftSpec = useCallback(() => {
     if (!odp) return null
     const spec: any = {
@@ -121,15 +161,55 @@ export default function OntoExtendFlow() {
     return spec
   }, [odp, lovPicked])
 
+  /** CQ 模式草稿 = 三段式生成产物（去重合并片段；两阶段校验在生成段已完成） */
+  const buildRagDraftSpec = useCallback(() => (ragData?.draft_spec ?? null), [ragData])
+
+  /** 发起 CQ 驱动生成（202+job 轮询，复用 aiDraftJob 轮询通道 job.rag） */
+  const runRag = async () => {
+    if (!targetId) return
+    const cqs = targetCQs.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (!cqs.length) {
+      setRagErr('请至少填写一条能力问题（CQ）——CQ 驱动扩展以能力问题为需求输入')
+      return
+    }
+    setRagBusy(true)
+    setRagErr(null)
+    setRagData(null)
+    setRagProgress('任务提交中…')
+    try {
+      const j = await api.cqragDraft(targetId, cqs, profile, topK)
+      const timer = setInterval(async () => {
+        try {
+          const job: any = await api.aiDraftJob(j.job_id)
+          if (job.progress) setRagProgress(job.progress)
+          if (job.status === 'done' || job.status === 'failed') {
+            clearInterval(timer)
+            setRagBusy(false)
+            setRagProgress('')
+            if (job.status === 'failed') setRagErr(job.error ?? '生成失败')
+            else if (job.rag) setRagData(job.rag as RagJobData)
+          }
+        } catch {
+          /* 单次轮询失败下次重试 */
+        }
+      }, 1500)
+    } catch (e: any) {
+      setRagBusy(false)
+      setRagProgress('')
+      setRagErr(e?.message ?? '提交失败')
+    }
+  }
+
   const doPreview = async () => {
-    if (!targetId || !odp) return
-    const spec = buildDraftSpec()
+    if (!targetId) return
+    const spec = mode === 'cqrag' ? buildRagDraftSpec() : buildDraftSpec()
     if (!spec) return
+    const filename = mode === 'cqrag' ? 'cqrag-fragments.json' : `ontoextend-${odp?.id ?? 'draft'}.json`
     setPreviewLoading(true)
     setApplyErr(null)
     setAppliedVersion(null)
     try {
-      const pv = await api.mergePreview(targetId, { filename: `ontoextend-${odp.id}.json`, spec, strategy: 'merge' })
+      const pv = await api.mergePreview(targetId, { filename, spec, strategy: 'merge' })
       previewBaseVersionRef.current = pv.base_version ?? 0 // REQ-293②：apply 回传防陈旧（0=跳过校验）
       setPreview(pv as unknown as MergePreviewData)
       setStep(2)
@@ -141,13 +221,14 @@ export default function OntoExtendFlow() {
   }
 
   const doApply = async () => {
-    if (!targetId || !odp) return
-    const spec = buildDraftSpec()
+    if (!targetId) return
+    const spec = mode === 'cqrag' ? buildRagDraftSpec() : buildDraftSpec()
     if (!spec) return
+    const filename = mode === 'cqrag' ? 'cqrag-fragments.json' : `ontoextend-${odp?.id ?? 'draft'}.json`
     setApplying(true)
     setApplyErr(null)
     try {
-      const res = await api.mergeApply(targetId, { filename: `ontoextend-${odp.id}.json`, spec, strategy: 'merge', base_version: previewBaseVersionRef.current })
+      const res = await api.mergeApply(targetId, { filename, spec, strategy: 'merge', base_version: previewBaseVersionRef.current })
       setAppliedVersion(res.version ?? null)
       setPreview(null)
     } catch (e: any) {
@@ -162,23 +243,37 @@ export default function OntoExtendFlow() {
   const addedRelations = addedList.filter((s) => s.startsWith('relation:')).length
   const conflictCount = (preview?.conflicts?.length ?? 0) + (preview?.renamed?.length ?? 0)
 
+  const stepItems =
+    mode === 'cqrag'
+      ? [{ title: '选目标本体' }, { title: 'CQ 与生成' }, { title: '审查入库' }]
+      : [{ title: '选目标本体' }, { title: 'ODP + 词表' }, { title: '审查入库' }]
+
   return (
     <Card className="work-card" size="small">
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        title="OntoExtend 流程——演化路径：对已交付本体做 ODP 模式扩展与词表补全（REQ-339）"
-        description="不新建本体：选取人工精选的设计模式（ODP）与 LOV 词表术语生成扩展片段，经导入审查（冲突检测/改名）与质量门禁后并入目标本体新版本。生产环境中已交付本体的增量演化比新建更高频；也可从「本体资产」详情页点「演化」携本体直达。"
+        title="演化路径——对已交付本体做增量扩展（REQ-339/REQ-343 双模式）"
+        description="不新建本体：ODP 模式扩展=人工精选设计模式与 LOV 词表补全；CQ 驱动扩展=以能力问题为需求输入，检索目标本体相关元素（RAG）后由模型生成扩展片段（两阶段校验，失败不静默入库），经导入审查与质量门禁后并入新版本。也可从「本体资产」详情页点「演化」携本体直达。"
       />
-      {/* REQ-337/M137：三步页化——Steps 可点跳步，每步独立子页+上一步/下一步导航 */}
-      <Steps
-        size="small"
-        current={step}
-        onChange={setStep}
-        items={[{ title: '选目标本体' }, { title: 'ODP + 词表' }, { title: '审查入库' }]}
-        style={{ marginBottom: 12 }}
-      />
+      <div style={{ marginBottom: 12 }} data-testid="extend-mode-seg">
+        <Segmented
+          value={mode}
+          onChange={(v) => {
+            setMode(v as ExtendMode)
+            setPreview(null)
+            setAppliedVersion(null)
+            setStep((s) => (s === 0 ? 0 : 1))
+          }}
+          options={[
+            { value: 'odp', label: 'ODP 模式扩展' },
+            { value: 'cqrag', label: 'CQ 驱动扩展（RAG）' },
+          ]}
+        />
+      </div>
+      {/* REQ-337/M137 三步页化 + REQ-343 模式化 Steps——可点跳步，每步独立子页 */}
+      <Steps size="small" current={step} onChange={setStep} items={stepItems} style={{ marginBottom: 12 }} />
 
       {step === 0 && (
         <>
@@ -205,17 +300,17 @@ export default function OntoExtendFlow() {
             />
           )}
           {!targetId && (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择目标本体——OntoExtend 对既有本体做增量扩展，不新建" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先选择目标本体——演化对既有本体做增量扩展，不新建" />
           )}
           <Space style={{ marginTop: 12 }}>
             <Button type="primary" disabled={!targetId} onClick={() => setStep(1)}>
-              下一步：选择扩展模式 <RightOutlined />
+              下一步：{mode === 'cqrag' ? '配置 CQ 与生成' : '选择扩展模式'} <RightOutlined />
             </Button>
           </Space>
         </>
       )}
 
-      {step === 1 && (
+      {step === 1 && mode === 'odp' && (
         <>
           <div className="onto-sec" style={{ marginTop: 0 }}>
             <span className="onto-sec-title">
@@ -305,12 +400,141 @@ export default function OntoExtendFlow() {
         </>
       )}
 
+      {step === 1 && mode === 'cqrag' && (
+        <>
+          <div className="onto-sec" style={{ marginTop: 0 }}>
+            <span className="onto-sec-title">② 能力问题与生成参数（REQ-343 论文三段式）</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                CQ 清单（每行一条；已预填目标本体 spec.CQ——可增删改，只影响本次扩展不改回本体）
+              </Typography.Text>
+              <Input.TextArea
+                rows={4}
+                value={targetCQs}
+                onChange={(e) => setTargetCQs(e.target.value)}
+                placeholder={'如：药物可治疗哪些疾病？\n哪种症状提示重症？'}
+                style={{ marginTop: 4, fontFamily: 'inherit' }}
+                data-testid="cqrag-cqs-input"
+              />
+            </div>
+            <div style={{ width: 220 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>建模 profile</Typography.Text>
+              <Select
+                style={{ width: '100%', marginTop: 4 }}
+                value={profile}
+                onChange={setProfile}
+                options={[
+                  { value: 'structure', label: '结构型（声明齐备）' },
+                  { value: 'restriction', label: '限制型（层级+公理）' },
+                ]}
+                data-testid="cqrag-profile"
+              />
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>检索 top-k</Typography.Text>
+              <InputNumber min={5} max={50} value={topK} onChange={(v) => setTopK(v ?? 20)} style={{ width: '100%', marginTop: 4 }} />
+              <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
+                论文口径：检索目标本体元素级片段作只读上下文（默认 20）；生成片段经两阶段校验（结构校验+治理约束），失败标记不静默入库。
+              </Typography.Text>
+            </div>
+          </div>
+          <Space wrap style={{ marginBottom: 8 }}>
+            <Button onClick={() => setStep(0)} icon={<LeftOutlined />}>上一步</Button>
+            <Button type="primary" loading={ragBusy} disabled={ragBusy || !targetId} onClick={runRag} data-testid="cqrag-run-btn">
+              生成扩展片段
+            </Button>
+            {ragData && (
+              <Button type="primary" ghost loading={previewLoading} onClick={doPreview} data-testid="cqrag-review-btn">
+                送审查入库 <RightOutlined />
+              </Button>
+            )}
+          </Space>
+          {ragProgress && (
+            <div style={{ marginBottom: 8 }}>
+              <Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>{ragProgress}</Typography.Text>
+            </div>
+          )}
+          {ragErr && <LoadErrorAlert title="CQ 驱动扩展失败" message={ragErr} onRetry={runRag} style={{ marginBottom: 8 }} />}
+          {ragData && (
+            <>
+              <Card size="small" style={{ marginBottom: 8 }} data-testid="cqrag-result-summary">
+                <Space size={14} wrap>
+                  <Typography.Text strong>生成结果</Typography.Text>
+                  <Tag color="blue">元素索引 {ragData.retrieval.elements_indexed}</Tag>
+                  <Tag color="geekblue">top-k {ragData.retrieval.top_k}</Tag>
+                  <Tag color={ragData.retrieval.cq_failed > 0 ? 'orange' : 'green'}>
+                    CQ 成功 {ragData.retrieval.cq_ok}/{ragData.retrieval.cq_total}
+                    {ragData.retrieval.cq_failed > 0 ? `（失败 ${ragData.retrieval.cq_failed} 已标记）` : ''}
+                  </Tag>
+                  {ragData.removed?.length ? <Tag color="default">去重剔除 {ragData.removed.length}</Tag> : null}
+                  {ragData.quality && (
+                    <Tag color={ragData.quality.error_count > 0 ? 'red' : 'green'}>质量 err {ragData.quality.error_count} / warn {ragData.quality.warning_count}</Tag>
+                  )}
+                </Space>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+                  失败片段不静默入库（论文不变式：失败要么重试要么标记）；合并片段已逐条去重，审查入库走导入合并底座（strict 门禁+版本快照）。
+                </Typography.Paragraph>
+              </Card>
+              <Table
+                size="small"
+                rowKey={(r) => r.cq}
+                dataSource={ragData.fragments}
+                pagination={{ pageSize: 5 }}
+                data-testid="cqrag-fragments-table"
+                columns={[
+                  { title: '能力问题', dataIndex: 'cq', ellipsis: true },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    width: 90,
+                    render: (v: string) =>
+                      v === 'ok' ? <Tag color="green" icon={<CheckCircleOutlined />}>ok</Tag> : <Tag color="red" icon={<CloseCircleOutlined />}>failed</Tag>,
+                  },
+                  {
+                    title: '产出',
+                    width: 190,
+                    render: (_: unknown, r: RagFragment) =>
+                      r.fragment ? (
+                        <Typography.Text style={{ fontSize: 12 }}>
+                          概念 {r.fragment.concepts?.length ?? 0} · 关系 {r.fragment.relations?.length ?? 0}
+                          {r.fragment.data_properties?.length ? ` · 数据属性 ${r.fragment.data_properties.length}` : ''}
+                          {r.fragment.axioms?.length ? ` · 公理 ${r.fragment.axioms.length}` : ''}
+                        </Typography.Text>
+                      ) : (
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>{r.error?.slice(0, 120)}</Typography.Text>
+                      ),
+                  },
+                  {
+                    title: '检索命中',
+                    dataIndex: 'used',
+                    ellipsis: true,
+                    render: (used: RagFragment['used']) =>
+                      used?.length ? (
+                        <span>
+                          {used.slice(0, 4).map((u) => (
+                            <Tag key={u.element.local_name} style={{ marginInlineEnd: 4, fontSize: 11 }}>
+                              {u.element.local_name} {u.score.toFixed(2)}
+                            </Tag>
+                          ))}
+                          {used.length > 4 ? <Typography.Text type="secondary" style={{ fontSize: 11 }}>+{used.length - 4}</Typography.Text> : null}
+                        </span>
+                      ) : (
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>无命中（全新建模）</Typography.Text>
+                      ),
+                  },
+                ]}
+              />
+            </>
+          )}
+        </>
+      )}
+
       {step === 2 && (
         <>
           <div className="onto-sec" style={{ marginTop: 0 }}>
-            <span className="onto-sec-title">④ 审查入库（strategy=merge，REQ-157 底座）</span>
+            <span className="onto-sec-title">③ 审查入库（strategy=merge，REQ-157 底座）</span>
           </div>
-          {applyErr && <LoadErrorAlert title="OntoExtend 操作失败" message={applyErr} onRetry={() => setApplyErr(null)} style={{ marginBottom: 8 }} />}
+          {applyErr && <LoadErrorAlert title="演化操作失败" message={applyErr} onRetry={() => setApplyErr(null)} style={{ marginBottom: 8 }} />}
           {preview ? (
             <>
               <Card size="small" style={{ marginBottom: 8 }}>
@@ -328,7 +552,7 @@ export default function OntoExtendFlow() {
               </Card>
               <Space wrap style={{ marginBottom: 8 }}>
                 <Button onClick={() => setStep(1)} icon={<LeftOutlined />}>
-                  上一步（调整模式/词表）
+                  上一步{mode === 'cqrag' ? '（调整 CQ/参数）' : '（调整模式/词表）'}
                 </Button>
                 <Button type="primary" ghost loading={applying} onClick={doApply}>
                   应用入库（新版本）
@@ -336,7 +560,7 @@ export default function OntoExtendFlow() {
               </Space>
             </>
           ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成审查预览——回上一步点「生成扩展草稿并审查」" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成审查预览——回上一步发起" />
           )}
           {appliedVersion !== null && (
             <Alert

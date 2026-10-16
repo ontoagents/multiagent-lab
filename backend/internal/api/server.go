@@ -278,6 +278,7 @@ func (s *Server) routes() {
 
 	// 本体对接（M8 §6.10）：模型能力代理 + 双反向代理（同源透传免跨域）
 	m.HandleFunc("POST /api/ontology-llm/generate", s.generateOntologyLLM)
+	m.HandleFunc("POST /api/ontology-llm/embed", s.embedOntologyLLM) // REQ-343 OE-1：本体元素向量检索代理
 	if s.Ontology != nil {
 		m.Handle("/api/ontologies", s.Ontology.BuildProxy()) // → 构建平面 BUILD_SVC_URL(:8091)
 		m.Handle("/api/ontologies/", s.Ontology.BuildProxy())

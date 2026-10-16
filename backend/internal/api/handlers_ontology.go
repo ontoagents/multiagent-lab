@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
@@ -200,4 +201,32 @@ func (s *Server) generateOntologyLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"draft_json": string(res.DraftJSON), "usage": res.Usage})
+}
+
+// embedOntologyLLM POST /api/ontology-llm/embed
+// {texts: [...]} → {vectors: [[...]], model}（REQ-343 OE-1：本体元素级向量检索的模型能力代理，
+// 沿 generateOntologyLLM 同一代理口径——连接与密钥归主平台，构建平面不自持 embedding 凭据）。
+// 复用 KB 侧默认 embedding 连接（kb.Embedder：OpenAI 兼容 /embeddings，64 批次分批）。
+func (s *Server) embedOntologyLLM(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Texts []string `json:"texts"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if len(req.Texts) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "texts 不能为空"})
+		return
+	}
+	if len(req.Texts) > 512 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("texts 过多（%d > 512）：请分批调用", len(req.Texts))})
+		return
+	}
+	vecs, err := (&kb.Embedder{Store: s.Store, Box: s.Box}).EmbedTexts(r.Context(), req.Texts)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vectors": vecs, "count": len(vecs)})
 }

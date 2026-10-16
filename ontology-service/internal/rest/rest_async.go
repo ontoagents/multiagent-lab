@@ -27,6 +27,7 @@ type draftJob struct {
 	Result    *draftResult           `json:"result,omitempty"`
 	CQs       []ontochat.ExtractedCQ `json:"cqs,omitempty"`   // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
 	Dedup     int                    `json:"dedup,omitempty"` // REQ-308：与既有 CQ 重复被滤除条数
+	RAG       *cqragDraftResult      `json:"rag,omitempty"`   // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
 	Error     string                 `json:"error,omitempty"`
 	CreatedAt time.Time              `json:"created_at"`
 }

@@ -38,6 +38,9 @@ var registry = map[string][]Stage{
 	"ai-draft":         {StageSource, StageExtract, StageDraft, StageGate, StageReview, StageIngest},
 	"ontoextend-draft": {StageSource, StageExtract, StageDraft, StageGate, StageReview, StageIngest},
 	"kb-extract":       {StageSource, StageExtract, StageDraft, StageGate, StageReview, StageIngest},
+	// REQ-343/OE-1：CQ 驱动增量扩展（ontorag 三段式 RAG）——extract=元素抽取+索引检索、
+	// draft=逐 CQ 生成+两阶段校验；审查/入库=通用 merge/preview+apply（REQ-157 底座，不在本端点）。
+	"cq-rag-draft": {StageSource, StageExtract, StageDraft, StageGate, StageReview, StageIngest},
 }
 
 // Registered 已登记的管线实例名（诊断/测试用）。
