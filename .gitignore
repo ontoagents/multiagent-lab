@@ -17,6 +17,9 @@ backend/internal/companion/data/
 smoke
 exe/
 .workbuddy
+# ZCode 工具本地产物（会话计划/工具 ignore 镜像——自动生成不入库，沿 .workbuddy 先例）
+.zcode/
+.zcodeignore
 # REQ-223 agenteval 评测产物（agent 写入的样例文件，不入库）
 backend/internal/agenteval/data/
 backend/internal/inference/data/
