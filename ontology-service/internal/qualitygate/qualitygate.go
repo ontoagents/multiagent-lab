@@ -521,3 +521,32 @@ func checkDuplicateName(sp *pkgspec.Spec, add func(string)) {
 		}
 	}
 }
+
+// Remediations 检查项修复指引（REQ-331②：每条 finding 附「怎么改」人话指引——
+// 机器产报告人做决策，只给动线不代改；check_id→指引，未登记项前端降级纯展示）。
+var Remediations = map[string]string{
+	"orphan_concept":                "为该概念挂到父概念（层级）或建立至少一条关系/实例引用，消除孤立；若确属冗余概念可删除。",
+	"missing_definition":            "补 definition：一句话说清「这是什么、边界在哪」——可参考学习中心方法论「概念定义」卡（七阶段·概念化）。",
+	"missing_label":                 "补 label（展示名）——图形编辑或 JSON 编辑的 label 字段，用于可视化与列表展示。",
+	"naming_style":                  "统一命名风格：中文名+英文 label 是平台惯例；同一类对象用同一风格（如全部中文名或全部英文），避免中英混写。",
+	"relation_endpoint_unspecified": "为关系补全 from/to（定义域/值域）——关系两端必须挂在已定义概念上，图形编辑拖线即可声明。",
+	"dangling_relation_endpoint":    "关系的 from/to 引用了不存在的概念：改指到已定义概念，或先创建被引用概念（「前往图形编辑」按样例定位）。",
+	"dangling_parent":               "父概念引用不存在：修正 parents 拼写，或改挂到已存在的上位概念。",
+	"hierarchy_cycle":               "概念层级出现循环（A→B→A）：打破环路——层级应是 DAG，把其中一条 parents 改指更高层概念或删除。",
+	"instance_type_missing":         "实例缺类型或类型不存在：为实例指定已定义概念，或先创建其所属概念。",
+	"dangling_instance_rel":         "实例关系断言悬空：rel 须是已定义关系、target 须是已存在实例——逐条对齐样例中的断言。",
+	"duplicate_name":                "命名重复：同域内概念/关系/实例各自唯一（概念与实例还跨域唯一）——重命名其一，引用会随保存校验提示修正。",
+	"dangling_dataprop_domain":      "数据属性 domain 引用不存在的概念：改指到已定义概念或清空（不限定义域）。",
+	"dangling_axiom_ref":            "公理主体/目标引用不存在的概念：修正为已定义概念；未注册目标在导入侧会被丢弃（REQ-269）。",
+	"undeclared_attribute_key":      "实例属性键未声明为数据属性：在 data_properties 声明同名属性（name/label/domain/range），或改掉实例上的自由属性键。",
+	"reasoning_owlrl":               "OWL 2 RL 推理一致性未通过（owlrl）：查看 violations 明细定位冲突公理——多为 disjoint 与实例断言矛盾或层级循环；修正后重跑检查。",
+}
+
+// AllRemediations 全量指引（REST 只读透出，前端 finding 行按 check_id 取用）。
+func AllRemediations() map[string]string {
+	out := make(map[string]string, len(Remediations))
+	for k, v := range Remediations {
+		out[k] = v
+	}
+	return out
+}

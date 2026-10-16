@@ -802,6 +802,7 @@ export default function AssetsPage() {
                   <QualityCardPane
                     ontologyId={active.id}
                     onReport={(r) => setQualityCache((m) => ({ ...m, [active.id]: r }))}
+                    onGoGraphEdit={() => setTabKey('graph-edit')} // REQ-331②：error finding 定位跳转（沿 REQ-235 onNeedEdit 先例）
                   />
                 )}
                 {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} onRestored={refreshAfterSave} />}

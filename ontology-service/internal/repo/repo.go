@@ -640,3 +640,52 @@ func (s *Store) RefreshOverlayBase(ontologyID string, machineJSON map[string]str
 	}
 	return n, nil
 }
+
+// QualityScoreRow 资产级质量评分历史行（REQ-331/M131：评分随版本追加记录——
+// 趋势线+三点对照取数源；source=draft|ingest|manual）。
+type QualityScoreRow struct {
+	ID              int64   `json:"id"`
+	OntologyID      string  `json:"ontology_id"`
+	Version         int     `json:"version"`
+	Source          string  `json:"source"` // draft | ingest | manual
+	Overall         float64 `json:"overall"`
+	Completeness    float64 `json:"completeness"`
+	Consistency     float64 `json:"consistency"`
+	Maintainability float64 `json:"maintainability"`
+	ErrorCount      int     `json:"error_count"`
+	WarningCount    int     `json:"warning_count"`
+	CreatedAt       string  `json:"created_at"`
+}
+
+// SaveQualityScore 追加一行评分记录（评分时写一行；失败由调用方决定是否阻断——
+// 评分历史是增强不是依赖，调用方普遍忽略错误不阻断主链路）。
+func (s *Store) SaveQualityScore(r QualityScoreRow) error {
+	if r.CreatedAt == "" {
+		r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO ontology_quality_score (ontology_id, version, source, overall, completeness, consistency, maintainability, error_count, warning_count, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.OntologyID, r.Version, r.Source, r.Overall, r.Completeness, r.Consistency, r.Maintainability, r.ErrorCount, r.WarningCount, r.CreatedAt)
+	return err
+}
+
+// ListQualityScores 评分历史（时间正序——趋势线与三点对照同源）。
+func (s *Store) ListQualityScores(ontologyID string) ([]QualityScoreRow, error) {
+	rows, err := s.db.Query(
+		`SELECT id, ontology_id, version, source, overall, completeness, consistency, maintainability, error_count, warning_count, created_at
+		 FROM ontology_quality_score WHERE ontology_id = ? ORDER BY created_at ASC, id ASC`, ontologyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []QualityScoreRow{}
+	for rows.Next() {
+		var r QualityScoreRow
+		if err := rows.Scan(&r.ID, &r.OntologyID, &r.Version, &r.Source, &r.Overall, &r.Completeness, &r.Consistency, &r.Maintainability, &r.ErrorCount, &r.WarningCount, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

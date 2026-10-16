@@ -645,6 +645,21 @@ export interface QualityReport {
   stats?: { concepts: number; relations: number; instances: number; data_properties?: number; axioms?: number }
 }
 
+/** REQ-331/M131：资产级质量评分历史行（source=draft|ingest|manual；趋势线+三点对照取数源） */
+export interface QualityScoreRow {
+  id: number
+  ontology_id: string
+  version: number
+  source: 'draft' | 'ingest' | 'manual'
+  overall: number
+  completeness: number
+  consistency: number
+  maintainability: number
+  error_count: number
+  warning_count: number
+  created_at: string
+}
+
 export interface AiDraftResult {
   spec: Spec
   rounds: number

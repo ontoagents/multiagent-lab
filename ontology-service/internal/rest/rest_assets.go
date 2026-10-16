@@ -110,8 +110,34 @@ func (s *Server) qualityCheck(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out["artifact_saved"] = true
+		// REQ-331/M131：评分历史追加一行（source=manual——质量卡手动生成时刻；失败不阻断）
+		if o, gerr := s.Store.GetOntology(req.OntologyID); gerr == nil {
+			_ = s.Store.SaveQualityScore(repo.QualityScoreRow{
+				OntologyID: req.OntologyID, Version: o.Version, Source: "manual",
+				Overall: rep.Score.Overall, Completeness: rep.Score.Completeness,
+				Consistency: rep.Score.Consistency, Maintainability: rep.Score.Maintainability,
+				ErrorCount: rep.ErrorCount, WarningCount: rep.WarningCount,
+			})
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// qualityRemediations GET /api/ontology/quality/remediations → 检查项修复指引全量
+// （REQ-331②：finding 行按 check_id 取「怎么改」人话指引；只读静态，前端可长期缓存）。
+func (s *Server) qualityRemediations(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, qualitygate.AllRemediations())
+}
+
+// qualityHistory GET /api/ontologies/{id}/quality-history → 评分历史（REQ-331①：
+// 版本×综合分趋势线+草稿→入库→当前三点对照取数源；时间正序）。
+func (s *Server) qualityHistory(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Store.ListQualityScores(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": r.PathValue("id"), "history": rows, "count": len(rows)})
 }
 
 // qualityReport 读取最近一次质量报告 artifact（GET /api/ontology/quality/report?ontology_id=）。

@@ -219,6 +219,7 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
+	s.recordIngestScore(id, v, pv.MergedSpec) // REQ-331/M131：入库评分随版本追加（失败不阻断）
 	pv.ImportReport = imp // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv,
 		"overlays_applied": applied, "overlays_skipped": skipped, "notes": notes})

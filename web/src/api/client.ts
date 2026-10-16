@@ -4,6 +4,7 @@ import type {
   AiDraftJobState,
   AiDraftResult,
   BuildQualitySummary,
+  QualityScoreRow,
   McpServeInfo,
   ArtifactMeta,
   Conversation,
@@ -450,6 +451,11 @@ export const api = {
   setQualityConfig: (id: string, patch: { strict?: boolean; reasoning_check?: boolean }) =>
     req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** REQ-255/H2：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走 profileSparql） */
+  /** REQ-331①：评分历史（趋势线+草稿→入库→当前三点对照取数源；时间正序） */
+  getQualityHistory: (id: string) =>
+    req<{ ontology_id: string; history: QualityScoreRow[]; count: number }>(`/api/ontologies/${id}/quality-history`),
+  /** REQ-331②：检查项修复指引全量（check_id→「怎么改」人话指引；只读静态可缓存） */
+  getQualityRemediations: () => req<Record<string, string>>('/api/ontology/quality/remediations'),
   /** CQ→SPARQL 翻译（REQ-255）；cqs 可选（REQ-342/OC-2 双轨并轨：只翻译存疑项，缺省=全量 spec.CQ） */
   cqSparql: (id: string, cqs?: string[]) =>
     req<{ ontology_id: string; items: { cq: string; sparql: string }[]; count: number }>(`/api/ontologies/${id}/cq-sparql`, {

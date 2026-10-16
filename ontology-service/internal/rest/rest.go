@@ -88,6 +88,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/accept", s.acceptEvolutionCandidate)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/reject", s.rejectEvolutionCandidate)
 	m.HandleFunc("GET /api/ontology/quality/report", s.qualityReport)
+	m.HandleFunc("GET /api/ontology/quality/remediations", s.qualityRemediations)   // REQ-331②：检查项修复指引
+	m.HandleFunc("GET /api/ontologies/{id}/quality-history", s.qualityHistory)      // REQ-331①：评分历史（趋势线+三点对照）
 	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
 	m.HandleFunc("POST /api/ontologies/{id}/cq-sparql", s.cqSparql)
 	m.HandleFunc("PUT /api/ontologies/{id}/cq-test-report", s.saveCQTestReport) // REQ-342/OC-2：双轨报告持久化
@@ -291,7 +293,21 @@ func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
+	// REQ-331/M131：入库评分随版本追加一行（source=ingest；本地计算零成本，失败不阻断保存）
+	s.recordIngestScore(id, v, &sp)
 	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "overlays_recorded": overlaysRecorded})
+}
+
+// recordIngestScore 入库评分落历史（REQ-331：saveSpec/mergeApply/ontoChatSave 三动线共用；
+// 评分历史是增强不是依赖——错误静默不阻断入库）。
+func (s *Server) recordIngestScore(id string, version int, sp *pkgspec.Spec) {
+	rep := qualitygate.Check(sp, nil)
+	_ = s.Store.SaveQualityScore(repo.QualityScoreRow{
+		OntologyID: id, Version: version, Source: "ingest",
+		Overall: rep.Score.Overall, Completeness: rep.Score.Completeness,
+		Consistency: rep.Score.Consistency, Maintainability: rep.Score.Maintainability,
+		ErrorCount: rep.ErrorCount, WarningCount: rep.WarningCount,
+	})
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {

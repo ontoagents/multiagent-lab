@@ -18,6 +18,8 @@ import (
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
 )
 
 // listOntoChatSessions GET /api/ontochat/sessions → 会话列表（不含消息体）
@@ -839,6 +841,9 @@ func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "草稿校验未通过", "validation_errors": errs})
 		return
 	}
+	// REQ-331/M131③：草稿分（source=draft）——入库前生成稿评分先算后存（本体创建后带 id 落行）；
+	// 手写/导入路径不走本端点=三点对照诚实降级两点
+	draftRep := qualitygate.Check(&sp, nil)
 	o, err := s.Store.CreateOntology(newID(), name, sp.Description)
 	if err != nil {
 		writeErr(w, err)
@@ -850,6 +855,14 @@ func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.Store.SaveVersion(o.ID, 1, string(bts), "", "")
+	// REQ-331/M131：草稿分+入库分落历史（评分历史是增强不是依赖，失败不阻断入库）
+	_ = s.Store.SaveQualityScore(repo.QualityScoreRow{
+		OntologyID: o.ID, Version: 0, Source: "draft",
+		Overall: draftRep.Score.Overall, Completeness: draftRep.Score.Completeness,
+		Consistency: draftRep.Score.Consistency, Maintainability: draftRep.Score.Maintainability,
+		ErrorCount: draftRep.ErrorCount, WarningCount: draftRep.WarningCount,
+	})
+	s.recordIngestScore(o.ID, 1, &sp)
 	// REQ-275：访谈制品归档——用户故事落 artifact story_md 供学习中心/任务卡援引（REQ-91）
 	if sess.Context.DraftStory != "" {
 		_ = s.Store.PutArtifact(o.ID, "story_md", sess.Context.DraftStory, true)

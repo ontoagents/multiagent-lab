@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Input, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { AlertOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
-import type { OntoChatCQVerdict, RuntimeProfile } from '../../../../api/types'
+import type { OntoChatCQVerdict, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
 // REQ-156/M-O15 资产详情「质量卡」页签：qualitygate 报告呈现（复用 REQ-171 引擎，零重复建设）。
 //   三维评分（完备性/一致性/可维护性，扣分制加权综合）+ 检查项命中明细 + 本体级 strict 门禁开关
 //   （开启后保存/导入合并的错误级命中将被 400 拦截——默认宽松仅告警）。
+// REQ-331/M131 资产级质量档案升级：①草稿→入库→当前三点对照+版本×综合分趋势线+评估历史
+//   （评分随版本追加记录，写入点=质量卡生成 manual/入库动线 ingest/OntoChat 草稿 draft）；
+//   ②Findings 按严重级分组+「怎么改」人话指引+error 定位跳转（沿 REQ-235 前往图形编辑先例）。
+//   口径=机器产报告人做决策，不新增自动改写通道。
 // ---------------------------------------------------------------------------
 
 const SEV_META: Record<string, { color: string; text: string }> = {
@@ -19,13 +23,69 @@ const SEV_META: Record<string, { color: string; text: string }> = {
   info: { color: 'default', text: '提示' },
 }
 
-export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: string; onReport?: (r: QualityReport | null) => void }) {
+/** REQ-331①：版本×综合分趋势线（SVG 折线零依赖；点=一次评分记录，悬停看版本/来源/时间） */
+function TrendChart({ rows }: { rows: QualityScoreRow[] }) {
+  if (rows.length < 2) return null
+  const W = 560
+  const H = 120
+  const PAD = 24
+  const xs = (i: number) => PAD + (i * (W - PAD * 2)) / (rows.length - 1)
+  const ys = (v: number) => H - PAD - (v / 100) * (H - PAD * 2)
+  const path = rows.map((r, i) => `${i === 0 ? 'M' : 'L'}${xs(i).toFixed(1)},${ys(r.overall).toFixed(1)}`).join(' ')
+  const srcColor = (s: string) => (s === 'draft' ? '#d97706' : s === 'ingest' ? '#4f46e5' : '#16a34a')
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: 640 }} data-testid="quality-trend-chart">
+      <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--ant-color-border, #ddd)" strokeWidth={1} />
+      <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="var(--ant-color-border, #ddd)" strokeWidth={1} />
+      <path d={path} fill="none" stroke="var(--c-brand, #4f46e5)" strokeWidth={2} />
+      {rows.map((r, i) => (
+        <circle key={r.id} cx={xs(i)} cy={ys(r.overall)} r={4} fill={srcColor(r.source)}>
+          <title>{`v${r.version} · ${{ draft: '草稿', ingest: '入库', manual: '手动' }[r.source] ?? r.source} · ${r.overall.toFixed(1)} 分 · ${r.created_at.slice(0, 19).replace('T', ' ')}`}</title>
+        </circle>
+      ))}
+      <text x={PAD} y={12} fontSize={10} fill="var(--ant-color-text-tertiary, #999)">综合分 {rows[rows.length - 1].overall.toFixed(1)}（{rows.length} 次评估）</text>
+    </svg>
+  )
+}
+
+/** REQ-331③：草稿→入库→当前三点对照（缺段诚实标注「—」——手写/导入路径无草稿分降级两点） */
+function EvolutionTriple({ history }: { history: QualityScoreRow[] }) {
+  const draft = [...history].reverse().find((r) => r.source === 'draft')
+  const ingest = [...history].reverse().find((r) => r.source === 'ingest')
+  const current = history[history.length - 1]
+  const node = (label: string, r?: QualityScoreRow, hint?: string, testid?: string) => (
+    <div style={{ textAlign: 'center', minWidth: 96 }} data-testid={testid}>
+      <Typography.Text type="secondary" style={{ fontSize: 11 }}>{label}</Typography.Text>
+      <div style={{ fontSize: 22, fontWeight: 700, color: r ? (r.overall >= 90 ? '#16a34a' : r.overall >= 70 ? '#d97706' : '#dc2626') : 'var(--ant-color-text-quaternary, #ccc)' }}>
+        {r ? r.overall.toFixed(1) : '—'}
+      </div>
+      <Typography.Text type="secondary" style={{ fontSize: 10 }}>{r ? `v${r.version} · ${{ draft: '草稿', ingest: '入库', manual: '手动' }[r.source]}` : hint}</Typography.Text>
+    </div>
+  )
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-testid="quality-evolution-triple">
+      {node('草稿分', draft, '无草稿分（手写/导入路径）', 'triple-draft')}
+      <ArrowRightOutlined style={{ color: 'var(--ant-color-text-quaternary, #ccc)' }} />
+      {node('入库分', ingest, '尚未入库评分', 'triple-ingest')}
+      <ArrowRightOutlined style={{ color: 'var(--ant-color-text-quaternary, #ccc)' }} />
+      {node('当前分', current, '生成报告后呈现', 'triple-current')}
+      <Typography.Text type="secondary" style={{ fontSize: 11, flex: 1, minWidth: 180 }}>
+        三点=草稿（生成稿入库前）→ 入库（保存/合并动线自动评）→ 当前（最近一次评估）；存量资产与手写/导入路径无草稿分为预期降级。
+      </Typography.Text>
+    </div>
+  )
+}
+
+export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }: { ontologyId: string; onReport?: (r: QualityReport | null) => void; onGoGraphEdit?: () => void }) {
   const [config, setConfig] = useState<{ strict: boolean; reasoning_check?: boolean } | null>(null)
   const [report, setReport] = useState<QualityReport | null>(null)
   const [reportAt, setReportAt] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // REQ-331/M131：评分历史（三点对照+趋势线+评估历史同源）与修复指引（check_id→人话）
+  const [history, setHistory] = useState<QualityScoreRow[]>([])
+  const [remediations, setRemediations] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
     setLoading(true)
@@ -46,9 +106,20 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
         setReportAt('')
       })
       .finally(() => setLoading(false))
+    api
+      .getQualityHistory(ontologyId)
+      .then((r) => setHistory(r.history ?? []))
+      .catch(() => setHistory([]))
   }, [ontologyId])
 
   useEffect(load, [load])
+  // 修复指引全量（只读静态，挂载拉一次）
+  useEffect(() => {
+    api
+      .getQualityRemediations()
+      .then(setRemediations)
+      .catch(() => setRemediations({}))
+  }, [])
 
   const run = (strictFlag: boolean, reasoningFlag = false) => {
     setRunning(true)
@@ -301,13 +372,8 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
 
   const cqPassRate = cqResults ? `${cqResults.filter((r) => r.ok).length}/${cqResults.length}` : null
 
-  const columns: ColumnsType<NonNullable<QualityReport['findings'][number]>> = [
-    {
-      title: '级别',
-      dataIndex: 'severity',
-      width: 70,
-      render: (v: string) => <Tag color={SEV_META[v]?.color ?? 'default'} style={{ margin: 0 }}>{SEV_META[v]?.text ?? v}</Tag>,
-    },
+  // REQ-331②：分组内列（级别列由分组 Collapse 承载；error 项带定位跳转=前往图形编辑按样例名定位）
+  const findingColumns: ColumnsType<NonNullable<QualityReport['findings'][number]>> = [
     { title: '检查项', dataIndex: 'title', ellipsis: true },
     { title: '维度', dataIndex: 'dimension', width: 84, render: (v: string) => ({ completeness: '完备性', consistency: '一致性', maintainability: '可维护性' }[v] ?? v) },
     { title: '命中', dataIndex: 'count', width: 60, render: (v: number) => <b>{v}</b> },
@@ -316,6 +382,38 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
       dataIndex: 'samples',
       ellipsis: true,
       render: (v: string[]) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{(v ?? []).slice(0, 3).join('；')}</Typography.Text>,
+    },
+    {
+      title: '修复',
+      width: 96,
+      render: (_: unknown, r: NonNullable<QualityReport['findings'][number]>) =>
+        r.severity === 'error' && (r.samples?.length ?? 0) > 0 && onGoGraphEdit ? (
+          <Tooltip title="前往图形编辑按样例名定位修补（展开行看「怎么改」指引）">
+            <Button
+              size="small"
+              type="link"
+              style={{ padding: 0 }}
+              onClick={() => onGoGraphEdit()}
+              data-testid={`finding-fix-${r.check_id}`}
+            >
+              前往修复
+            </Button>
+          </Tooltip>
+        ) : r.severity === 'info' ? (
+          <Tooltip title="学习中心方法论卡有对应建模方法（七阶段·概念化/关系设计）">
+            <Button
+              size="small"
+              type="link"
+              style={{ padding: 0 }}
+              onClick={() => {
+                localStorage.setItem('eino.onto.sidebar', 'learn')
+                window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+              }}
+            >
+              方法论
+            </Button>
+          </Tooltip>
+        ) : null,
     },
   ]
 
@@ -410,6 +508,16 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
               </Space>
             </div>
           </Card>
+
+          {/* REQ-331①③：草稿→入库→当前三点对照 + 版本×综合分趋势线（评分随版本追加记录） */}
+          {history.length > 0 && (
+            <Card size="small" className="work-card" data-testid="quality-archive-card">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <EvolutionTriple history={history} />
+                {history.length >= 2 && <TrendChart rows={history} />}
+              </div>
+            </Card>
+          )}
 
           {/* REQ-255①（60 号 H2）：CQ→SPARQL 验收闭环——LLM 翻译→人工确认模板→运行方案执行→通过率 */}
           <Card size="small" className="work-card" data-testid="cq-verify-card">
@@ -554,14 +662,90 @@ export default function QualityCardPane({ ontologyId, onReport }: { ontologyId: 
             )}
           </Card>
 
-          <Table
-            rowKey={(r) => r.check_id}
-            columns={columns}
-            dataSource={report.findings}
-            size="small"
-            pagination={false}
-            locale={{ emptyText: '全部检查项通过，无命中' }}
-          />
+          {/* REQ-331②：Findings 按严重级分组+「怎么改」人话指引+error 定位跳转（沿 REQ-235 前往图形编辑先例）——
+              口径=机器产报告人做决策：只给动线与指引，不新增自动改写通道 */}
+          {(report.findings?.length ?? 0) > 0 ? (
+            <Card size="small" className="work-card" data-testid="quality-findings-groups">
+              <Collapse
+                size="small"
+                defaultActiveKey={(['error', 'warning', 'info'] as const).filter((sev) => report.findings!.some((f) => f.severity === sev))}
+                items={(['error', 'warning', 'info'] as const)
+                  .map((sev) => ({ sev, items: report.findings!.filter((f) => f.severity === sev) }))
+                  .filter(({ items }) => items.length > 0)
+                  .map(({ sev, items }) => ({
+                    key: sev,
+                    label: (
+                      <Space size={8}>
+                        <Tag color={SEV_META[sev]?.color} style={{ margin: 0 }}>{SEV_META[sev]?.text}</Tag>
+                        <Typography.Text strong>{items.length} 项检查命中</Typography.Text>
+                        {sev === 'error' && <Typography.Text type="secondary" style={{ fontSize: 11 }}>（strict 开启时阻断入库）</Typography.Text>}
+                      </Space>
+                    ),
+                    children: (
+                      <Table
+                        rowKey={(r) => r.check_id}
+                        columns={findingColumns}
+                        dataSource={items}
+                        size="small"
+                        pagination={false}
+                        expandable={{
+                          rowExpandable: (r) => !!remediations[r.check_id],
+                          expandedRowRender: (r) => (
+                            <Typography.Text style={{ fontSize: 12 }}>
+                              <SafetyOutlined style={{ color: 'var(--c-brand)', marginInlineEnd: 6 }} />
+                              怎么改：{remediations[r.check_id]}
+                            </Typography.Text>
+                          ),
+                        }}
+                      />
+                    ),
+                  }))}
+              />
+            </Card>
+          ) : (
+            <Card size="small" className="work-card">
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="全部检查项通过，无命中" />
+            </Card>
+          )}
+
+          {/* REQ-331①：评估历史（每次评分一行——报告全文 artifact 仅存最新一份，历史=评分行，如实标注） */}
+          {history.length > 0 && (
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: 'quality-history',
+                  label: (
+                    <Space size={8}>
+                      <HistoryOutlined />
+                      <Typography.Text strong>评估历史（{history.length} 次）</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>报告全文仅存最新一份 artifact，此处为历次评分记录</Typography.Text>
+                    </Space>
+                  ),
+                  children: (
+                    <Table
+                      size="small"
+                      rowKey={(r) => r.id}
+                      dataSource={[...history].reverse()}
+                      pagination={{ pageSize: 5 }}
+                      data-testid="quality-history-table"
+                      columns={[
+                        { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v.slice(0, 19).replace('T', ' ')}</Typography.Text> },
+                        { title: '版本', dataIndex: 'version', width: 60, render: (v: number) => <Tag style={{ margin: 0 }}>v{v}</Tag> },
+                        { title: '来源', dataIndex: 'source', width: 70, render: (v: string) => <Tag color={{ draft: 'orange', ingest: 'geekblue', manual: 'green' }[v] ?? 'default'} style={{ margin: 0 }}>{({ draft: '草稿', ingest: '入库', manual: '手动' } as Record<string, string>)[v] ?? v}</Tag> },
+                        { title: '综合分', dataIndex: 'overall', width: 80, render: (v: number) => <b>{v.toFixed(1)}</b> },
+                        { title: '完备', dataIndex: 'completeness', width: 60, render: (v: number) => v.toFixed(0) },
+                        { title: '一致', dataIndex: 'consistency', width: 60, render: (v: number) => v.toFixed(0) },
+                        { title: '可维护', dataIndex: 'maintainability', width: 60, render: (v: number) => v.toFixed(0) },
+                        { title: '错误/告警', width: 90, render: (_: unknown, r: QualityScoreRow) => `${r.error_count}/${r.warning_count}` },
+                      ]}
+                    />
+                  ),
+                },
+              ]}
+              style={{ marginTop: 12 }}
+            />
+          )}
         </>
       )}
     </div>
