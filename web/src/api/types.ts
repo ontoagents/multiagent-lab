@@ -608,6 +608,17 @@ export interface ImportReport {
   lossy: boolean
   warnings: string[]
   lossy_note?: string
+  unprojected?: string[]
+  /** REQ-328/B：导入对账块——恒等式 triples_in = vocabulary + projected + remainder（unaccounted=0） */
+  reconciliation?: {
+    triples_in: number
+    vocabulary: number
+    projected: number
+    remainder: number
+    unaccounted: number
+    inferred_notes?: string[]
+    capture_rate?: number
+  }
 }
 
 /** AI 草案结果（POST /api/ontologies/ai-draft） */

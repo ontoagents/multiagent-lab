@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -296,6 +297,29 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	switch format {
 	case "turtle":
+		// REQ-328/C 运行装载双源——未编辑直挂分支：导入源本体且导入后零编辑（version=1，
+		// 任何内容变更动线都 bump 版本）→ original 全图 canonical Turtle 直出（rdflib 图同构
+		// 100% 无损），X-Onto-Triples=原图精确计数（REQ-293① 硬闸照常）；直挂失败回落 spec 重导出。
+		if o.Version == 1 {
+			for _, af := range []string{"turtle", "owl_rdfxml"} {
+				orig, _, aerr := s.Store.GetArtifact(id, af)
+				if aerr != nil || orig == "" {
+					continue
+				}
+				ttl, triples, cerr := importer.CanonicalTTL(s.Sidecar, af, orig)
+				if cerr != nil {
+					// 直挂失败诚实回落（原文件损坏等）——spec 重导出+余量账本拼接仍可装载
+					log.Printf("[req328] canonical 直挂失败 ontology=%s format=%s: %v（回落 spec 导出）", id, af, cerr)
+					break
+				}
+				w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, o.Version))
+				w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
+				w.Header().Set("X-Onto-Source", "original") // REQ-328/C：数据源诚实标注（未编辑=100% 导入源）
+				_, _ = w.Write([]byte(ttl))
+				return
+			}
+		}
 		raw, _, err := s.Store.GetArtifact(id, "spec_json")
 		if err != nil {
 			writeErr(w, err)
@@ -330,6 +354,7 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 		if triples >= 0 {
 			w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
 		}
+		w.Header().Set("X-Onto-Source", "spec_export") // REQ-328/C：数据源诚实标注（编辑后=投影+余量还原）
 		_, _ = w.Write([]byte(ttl))
 	case "vowljson":
 		// WebVOWL 对照视图数据源（2026-09-27 转换链重构）：spec → VOWL JSON 本服务直出，

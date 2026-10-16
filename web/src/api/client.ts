@@ -962,7 +962,22 @@ export interface MergePreview {
   target_name: string
   merged_spec: unknown
   /** REQ-235/H5/M62：原文件解析报告（lossy 清单+warnings；spec 直传时缺省） */
-  import_report?: { format: string; lossy: boolean; warnings?: string[]; lossy_note?: string } | null
+  import_report?: {
+    format: string
+    lossy: boolean
+    warnings?: string[]
+    lossy_note?: string
+    /** REQ-328/B：导入对账块（unaccounted=0 恒等式+捕获率+推断清单） */
+    reconciliation?: {
+      triples_in: number
+      vocabulary: number
+      projected: number
+      remainder: number
+      unaccounted: number
+      inferred_notes?: string[]
+      capture_rate?: number
+    }
+  } | null
   /** REQ-293②：预览时点目标版本（apply 回传）；REQ-295②：人话 notes */
   base_version?: number
   notes?: { kind: string; text: string }[] | null

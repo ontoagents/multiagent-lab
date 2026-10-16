@@ -257,6 +257,17 @@ func importLimits() (bodyLimit int64, maxObjects int) {
 	return limit, objs
 }
 
+// captureMinTriples REQ-328/A 哨兵阈值：余量账本达到该条数且 spec 投影全空时 400 拒绝
+// （IMPORT_CAPTURE_MIN_TRIPLES，默认 10；<=0 关闸——全空小文件多为测试空壳，拒绝反而碍事）。
+func captureMinTriples() int {
+	if v := os.Getenv("IMPORT_CAPTURE_MIN_TRIPLES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 10
+}
+
 func importTooLarge(w http.ResponseWriter, bodyLimit int64) {
 	writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
 		"error": fmt.Sprintf("导入内容超过体积上限（%d MB）：请拆分或清洗后重试", bodyLimit>>20),
@@ -331,6 +342,23 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 	sp, rep, err := importer.Import(s.Sidecar, filename, content)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	// REQ-328/A 捕获率哨兵：RDF 形态投影全空且余量账本非空 → 400 拒绝（防「静默全空空壳库」——
+	// 77 号触发案例：fastq 纯 ABox 曾 0/0/0 零警告 201 建库）；人话成因+建议随行。
+	// 阈值：余量 ≥ IMPORT_CAPTURE_MIN_TRIPLES（默认 10，<=0 关闸）。<50% 捕获率 warning 由 sidecar 报告自带。
+	if rc := rep.Reconciliation; rc != nil && rc.Remainder >= captureMinTriples() &&
+		len(sp.Concepts) == 0 && len(sp.Relations) == 0 && len(sp.DataProperties) == 0 && len(sp.Instances) == 0 {
+		causes := rep.Warnings
+		if len(causes) == 0 {
+			causes = []string{"文件中没有可识别的本体结构声明（owl:Class/属性声明/实例标记均缺失）"}
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": fmt.Sprintf("导入已拒绝：文件含 %d 条语义三元组，但未识别出任何可编辑本体结构（用法推断亦无法补齐）", rc.Remainder),
+			"causes": causes,
+			"hint":   "常见成因：①非 RDF 文件被误判为本体格式 ②全部内容为不支持的形态（如复杂限制表达式无具名结构）——可先在 Protégé 等工具为类型/个体补显式声明后重试",
+			"reconciliation": rc,
+		})
 		return
 	}
 	// 规模校验（REQ-305）：归一化 spec 五层元素总数上限——在 CreateOntology 之前拒绝，无脏数据

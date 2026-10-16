@@ -17,7 +17,7 @@
 导出 URN 规则与 pkg/ontology/spec 的 sanitize 逐字符一致（查询翻译共用）；
 data_properties 声明导出为 <attr:名> owl:DatatypeProperty（与实例属性断言同 IRI，声明与使用统一）。
 """
-import sys, json
+import sys, json, decimal
 
 try:
     from rdflib import Graph, RDF, RDFS, OWL, URIRef, Literal, SKOS
@@ -106,16 +106,56 @@ def parse(format: str) -> int:
         return 1
 
     warnings, lossy = [], False
-    # REQ-318/M120：未投影公理透传——丢弃点同步收集完整公理 Turtle 片段（确定性零 LLM），
-    # 经导入侧存 artifact axioms-raw、导出拼接还原（77 号 §6 设计）。上限 500 条防爆炸。
+    # REQ-328/B：余量全量账本——凡未投影且非「纯系统词汇」三元组全部 N-Triples 入账（无上限，
+    # 规模由 IMPORT_MAX_BODY_MB 上界自然约束），导出拼接还原；对账恒等式
+    #   triples_in = vocabulary（纯系统）+ projected（投影消费）+ remainder（余量）
+    # unaccounted = 0 结构性保证（三集合按构造划分）；对账块随导入报告透出。
     unprojected = []
-    UNPROJECTED_CAP = 500
+    consumed = set()  # 投影消费的三元组（逐点 mark；漏标落余量为无害重复——余量按图重解析去重）
+
+    def mark(*triples):
+        for t in triples:
+            consumed.add(t)
+
     spec = {"name": "", "description": "", "concepts": [], "relations": [], "instances": []}
+
+    # ---- REQ-328/A：用法推断补声明（deterministic 零 LLM；报告 inferred 明示非文件原生）----
+    # 纯 ABox 形态（77 号触发案例：类型只被使用未声明、个体无 owl:NamedIndividual 标记）投影全漏——
+    # 三类推断补齐：①类型使用→概念声明 ②类型使用主体→实例 ③实例断言谓词→属性声明。
+    XSD_NS = "http://www.w3.org/2001/XMLSchema#"
+    SYS_NS = (str(RDF), str(RDFS), str(OWL), str(SKOS), XSD_NS)
+
+    def is_sys(u) -> bool:
+        return isinstance(u, URIRef) and any(str(u).startswith(ns) for ns in SYS_NS)
+
+    def purely_system(t) -> bool:
+        s, p, o = t
+        return is_sys(s) and is_sys(p) and is_sys(o)
+
+    declared_classes = set(g.subjects(RDF.type, OWL.Class)) | set(g.subjects(RDF.type, RDFS.Class)) | set(g.subjects(RDF.type, SKOS.Concept))
+    inferred_notes = []
+    used_as_class = set()
+    for s, o in g.subject_objects(RDF.type):
+        if isinstance(o, URIRef) and not is_sys(o) and isinstance(s, URIRef) and not is_sys(s):
+            used_as_class.add(o)  # o 被用作类型 → 推断为概念
+    for s, o in g.subject_objects(RDFS.subClassOf):
+        for u in (s, o):
+            if isinstance(u, URIRef) and not is_sys(u):
+                used_as_class.add(u)  # subClassOf 两端皆类
+    for s, o in g.subject_objects(RDFS.domain):
+        if isinstance(o, URIRef) and not is_sys(o):
+            used_as_class.add(o)  # domain/range 宾语为类（主语是属性本体，不推断）
+    for s, o in g.subject_objects(RDFS.range):
+        if isinstance(o, URIRef) and not is_sys(o):
+            used_as_class.add(o)
+    inferred_classes = {c for c in used_as_class if c not in declared_classes}
+    classes = declared_classes | inferred_classes
+    if inferred_classes:
+        inferred_notes.append(f"概念声明（用法推断补齐，非文件原生）: {len(inferred_classes)} 个")
 
     # ---- 类：owl:Class / rdfs:Class / skos:Concept（REQ-235① SKOS 词表；跳过系统内建类）----
     seen_c = {}
-    classes = set(g.subjects(RDF.type, OWL.Class)) | set(g.subjects(RDF.type, RDFS.Class)) | set(g.subjects(RDF.type, SKOS.Concept))
-    for c in classes:
+    for c in sorted(classes, key=str):  # 确定性输出（set 迭代序随机）
         if not isinstance(c, URIRef):
             continue
         uri = str(c)
@@ -127,9 +167,18 @@ def parse(format: str) -> int:
             continue
         seen_c[uri] = name
         concept = {"name": name}
+        for t in g.objects(c, RDF.type):
+            if isinstance(t, URIRef) and str(t) in (str(OWL.Class), str(RDFS.Class), str(SKOS.Concept)):
+                mark((c, RDF.type, t))
+        for lab_pred in (SKOS.prefLabel, SKOS.altLabel, RDFS.label):
+            for lab in g.objects(c, lab_pred):
+                mark((c, lab_pred, lab))
         comment = definition_of(g, c)
         if comment:
             concept["definition"] = comment
+        for cm_pred in (RDFS.comment, SKOS.definition):
+            for cm in g.objects(c, cm_pred):
+                mark((c, cm_pred, cm))
         parents = []
         for p in g.objects(c, RDFS.subClassOf):
             if isinstance(p, URIRef) and str(p) in seen_c:
@@ -140,8 +189,7 @@ def parse(format: str) -> int:
             else:
                 lossy = True
                 warnings.append(f"{name} 的匿名父类（限制/公理）丢弃: {p.n3()[:80]}")
-                if len(unprojected) < UNPROJECTED_CAP:
-                    unprojected.append(f"{c.n3()} rdfs:subClassOf {p.n3()} .")
+                # REQ-328/B：匿名父类结构落余量账本（BNode 链全域由余量清扫承载，此处不重复收集）
         # REQ-235①：skos:broader/narrower → parents 统一放第二轮（父注册完成后补，避免悬空引用）
         if parents:
             concept["parents"] = parents
@@ -163,6 +211,7 @@ def parse(format: str) -> int:
                 pname = name_by_uri.get(str(p))
                 if pname and pname != mine["name"]:
                     parents.append(pname)
+                    mark((c, RDFS.subClassOf, p))
         # skos:broader → parents；skos:narrower 反向 → parents（目标须已注册为概念，外部引用 warning 丢弃）
         for p in list(g.objects(c, SKOS.broader)) + list(g.subjects(SKOS.narrower, c)):
             if not isinstance(p, URIRef):
@@ -170,6 +219,7 @@ def parse(format: str) -> int:
             pname = name_by_uri.get(str(p))
             if pname and pname != mine["name"] and pname not in parents:
                 parents.append(pname)
+                mark((c, SKOS.broader, p))
             elif pname is None and not parents:
                 lossy = True
                 warnings.append(f"{mine['name']} 的 skos:broader/narrower 目标 {local(str(p))} 未注册为概念，丢弃")
@@ -179,7 +229,7 @@ def parse(format: str) -> int:
     # ---- 对象属性 ----
     seen_r = {}
     props = set(g.subjects(RDF.type, OWL.ObjectProperty))
-    for pr in props:
+    for pr in sorted(props, key=str):  # 确定性输出
         if not isinstance(pr, URIRef):
             continue
         uri = str(pr)
@@ -191,11 +241,19 @@ def parse(format: str) -> int:
             continue
         seen_r[uri] = name
         rel = {"name": name, "evidence": "declared"}  # REQ-295①：显式 OWL 声明=declared 档（67 号 A2 分级）
+        mark((pr, RDF.type, OWL.ObjectProperty))
+        for lab in g.objects(pr, RDFS.label):
+            mark((pr, RDFS.label, lab))
         comment = g.value(pr, RDFS.comment)
         if comment:
             rel["definition"] = str(comment)
+            mark((pr, RDFS.comment, comment))
         dom = g.value(pr, RDFS.domain)
         rng = g.value(pr, RDFS.range)
+        if dom is not None:
+            mark((pr, RDFS.domain, dom))
+        if rng is not None:
+            mark((pr, RDFS.range, rng))
         if dom is not None and str(dom) in seen_c:
             rel["from"] = seen_c[str(dom)]
         else:
@@ -217,7 +275,7 @@ def parse(format: str) -> int:
     data_properties = []
     dp_name_by_uri = {}
     seen_dp = set()
-    for pr in dt_props:
+    for pr in sorted(dt_props, key=str):  # 确定性输出
         if not isinstance(pr, URIRef) or str(pr).startswith((str(RDF), str(RDFS), str(OWL), str(SKOS))):
             continue
         name = label_or_local(g, pr)
@@ -227,6 +285,7 @@ def parse(format: str) -> int:
         seen_dp.add(name)
         dp_name_by_uri[str(pr)] = name
         dp = {"name": name}
+        mark((pr, RDF.type, OWL.DatatypeProperty))
         lbl = label_of(g, pr)
         if lbl and lbl != name:
             dp["label"] = lbl
@@ -234,29 +293,24 @@ def parse(format: str) -> int:
         if comment:
             dp["definition"] = comment
         dom = g.value(pr, RDFS.domain)
-        if dom is not None and str(dom) in seen_c:
-            dp["domain"] = seen_c[str(dom)]
-        elif dom is not None:
-            warnings.append(f"数据属性 {name} 定义域 {label_or_local(g, dom)} 未注册为概念，留空")
-        dp["range"] = range_short(g.value(pr, RDFS.range))
+        if dom is not None:
+            mark((pr, RDFS.domain, dom))
+            if str(dom) in seen_c:
+                dp["domain"] = seen_c[str(dom)]
+            else:
+                warnings.append(f"数据属性 {name} 定义域 {label_or_local(g, dom)} 未注册为概念，留空")
+        rng_val = g.value(pr, RDFS.range)
+        if rng_val is not None:
+            mark((pr, RDFS.range, rng_val))
+        dp["range"] = range_short(rng_val)
+        for lab in g.objects(pr, RDFS.label):
+            mark((pr, RDFS.label, lab))
         data_properties.append(dp)
     if data_properties:
         spec["data_properties"] = data_properties
 
-    # REQ-318/M120：属性公理透传收集——函数性/逆函数性/传递/对称声明、逆关系、属性链
-    #（此前一律丢弃+warning；现原样收集进 unprojected，经 axioms-raw artifact 导出还原）
-    for pred in (OWL.FunctionalProperty, OWL.InverseFunctionalProperty, OWL.TransitiveProperty, OWL.SymmetricProperty):
-        for subj in g.subjects(RDF.type, pred):
-            if not isinstance(subj, URIRef) or str(subj).startswith((str(RDF), str(RDFS), str(OWL), str(SKOS))):
-                continue
-            if len(unprojected) < UNPROJECTED_CAP:
-                unprojected.append(f"{subj.n3()} a {pred.n3()} .")
-    for subj, obj in g.subject_objects(OWL.inverseOf):
-        if isinstance(subj, URIRef) and isinstance(obj, URIRef) and len(unprojected) < UNPROJECTED_CAP:
-            unprojected.append(f"{subj.n3()} owl:inverseOf {obj.n3()} .")
-    for subj, obj in g.subject_objects(OWL.propertyChainAxiom):
-        if len(unprojected) < UNPROJECTED_CAP:
-            unprojected.append(f"{subj.n3()} owl:propertyChainAxiom {obj.n3()} .")
+    # REQ-328/B：函数性/逆/传递/对称/逆关系/属性链等属性公理不再特殊收集——
+    # 余量全域清扫（见尾部 reconciliation 段）会原样入账（含 BNode 结构），导出拼接还原
 
     # REQ-269/M78（D-O22 批次三）：类级公理捕获——owl:disjointWith / owl:equivalentClass。
     # 双端均已注册为概念才入 axioms（URI → 已注册概念名归一）；任一端未注册则 warning 丢弃
@@ -274,11 +328,10 @@ def parse(format: str) -> int:
                 warnings.append(f"公理 {atype} 端点 {label_or_local(g, subj if s_name is None else obj)} 未注册为概念，丢弃")
                 lossy = True
                 _ = miss
-                if len(unprojected) < UNPROJECTED_CAP:
-                    unprojected.append(f"{subj.n3()} {pred.n3()} {obj.n3()} .")
-                continue
+                continue  # 余量全域清扫承载
             if s_name == o_name:
                 continue
+            mark((subj, pred, obj))
             key = (atype, s_name)
             if key in ax_index:
                 if o_name not in axioms[ax_index[key]]["targets"]:
@@ -289,9 +342,17 @@ def parse(format: str) -> int:
     if axioms:
         spec["axioms"] = axioms
 
-    # ---- 实例 ----
+    # ---- 实例（owl:NamedIndividual 标记 ∪ REQ-328/A 类型使用推断——无标记个体补齐）----
+    declared_props_uris = props | dt_props
+    inst_subjects = {i for i in g.subjects(RDF.type, OWL.NamedIndividual) if isinstance(i, URIRef) and not is_sys(i)}
+    for s, o in g.subject_objects(RDF.type):
+        if (isinstance(s, URIRef) and isinstance(o, URIRef) and not is_sys(s)
+                and str(o) in seen_c and str(s) not in seen_c and s not in declared_props_uris):
+            inst_subjects.add(s)  # 主体被 rdf:type 挂到已注册概念=个体（无 NamedIndividual 标记，推断补齐）
+    if len(inst_subjects) > len(set(g.subjects(RDF.type, OWL.NamedIndividual))):
+        inferred_notes.append(f"实例（类型使用推断补齐，非文件原生标记）: 新增 {len(inst_subjects) - len([i for i in g.subjects(RDF.type, OWL.NamedIndividual) if isinstance(i, URIRef)])} 个")
     inst_by_uri = {}
-    for ind in g.subjects(RDF.type, OWL.NamedIndividual):
+    for ind in sorted(inst_subjects, key=str):  # 确定性输出
         if not isinstance(ind, URIRef):
             continue
         uri = str(ind)
@@ -301,6 +362,8 @@ def parse(format: str) -> int:
             continue
         inst_by_uri[uri] = name
         it = {"name": name, "attributes": {}, "relations": []}
+        for t in g.objects(ind, RDF.type):
+            mark((ind, RDF.type, t))
         ctypes = [str(t) for t in g.objects(ind, RDF.type)
                   if isinstance(t, URIRef) and str(t) in seen_c and str(t) != str(OWL.NamedIndividual)]
         if ctypes:
@@ -321,13 +384,20 @@ def parse(format: str) -> int:
                 tgt = inst_by_uri.get(ou) or (str(o) and None)
                 if tgt:
                     it["relations"].append({"rel": seen_r[pu], "target": tgt})
+                    mark((ind, p, o))
                 else:
                     lossy = True
                     warnings.append(f"实例 {name} 关系 {seen_r[pu]} 的目标 {local(ou)} 不是已注册实例，丢弃")
             else:  # 其余断言 → attributes（REQ-268/M77：谓词命中数据属性声明时键归一为声明名）
+                mark((ind, p, o))
                 try:
                     val = o.toPython()
-                    val = val.isoformat() if hasattr(val, "isoformat") else val
+                    # REQ-328/E：xsd:decimal → Python Decimal 不可 JSON 序列化（json.dump 崩溃 exit=1
+                    # sidecar 整体失败）——转 float；datetime 等有 isoformat 的转 ISO 串
+                    if isinstance(val, decimal.Decimal):
+                        val = float(val)
+                    else:
+                        val = val.isoformat() if hasattr(val, "isoformat") else val
                 except Exception:  # noqa: BLE001
                     val = ou
                 it["attributes"][dp_name_by_uri.get(pu) or local(pu) or pu] = val
@@ -337,11 +407,101 @@ def parse(format: str) -> int:
             it.pop("relations")
         spec["instances"].append(it)
 
+    # ---- REQ-328/A③：属性声明推断（实例断言谓词未声明→补声明；域值域自使用统计）----
+    inst_uris = set(inst_by_uri.keys())
+    used_preds = {}
+    for ind in inst_subjects:
+        types = [str(t) for t in g.objects(ind, RDF.type) if isinstance(t, URIRef) and str(t) in seen_c]  # inst_subjects 元素为 URIRef 原词元，可直接查图
+        for p, o in g.predicate_objects(ind):
+            pu, ou = str(p), str(o)
+            if pu in (str(RDF.type), str(RDFS.label), str(RDFS.comment), str(SKOS.prefLabel), str(SKOS.altLabel), str(SKOS.definition)):
+                continue
+            if is_sys(p):
+                continue
+            used_preds.setdefault(pu, {"subjects": set(), "objects": set(), "uri_objects": 0, "total": 0})
+            used_preds[pu]["subjects"].add(tuple(types[:1]))
+            used_preds[pu]["total"] += 1
+            if isinstance(o, URIRef):
+                used_preds[pu]["uri_objects"] += 1
+    inferred_obj, inferred_dp = 0, 0
+    for pu, stat in used_preds.items():
+        if pu in seen_r or pu in dp_name_by_uri:
+            continue
+        # 声明名=URI local；域=主体类型众数；对象属性值域=目标实例类型众数 / 数据属性值域=字面量 datatype 短名
+        dom_name = _mode_concept(stat["subjects"], seen_c)
+        if stat["uri_objects"] > 0:
+            rng_name = _mode_concept(_inst_types(g, inst_by_uri, pu, seen_c), seen_c)
+            if not dom_name and not rng_name:
+                continue
+            spec["relations"].append({"name": local(pu) or pu, "from": dom_name or "", "to": rng_name or "",
+                                      "evidence": "values", "definition": "（声明缺失，导入时按用法推断补齐）"})
+            inferred_obj += 1
+        else:
+            spec.setdefault("data_properties", []).append({"name": local(pu) or pu, "domain": dom_name or "",
+                                                           "range": "string", "definition": "（声明缺失，导入时按用法推断补齐）"})
+            inferred_dp += 1
+    if inferred_obj:
+        inferred_notes.append(f"对象关系声明（用法推断补齐）: {inferred_obj} 条")
+    if inferred_dp:
+        inferred_notes.append(f"数据属性声明（用法推断补齐）: {inferred_dp} 条")
+
+    # ---- REQ-328/B：余量全域清扫 + 对账恒等式 ----
+    # V=纯系统词汇三元组（主谓宾全在 rdf/rdfs/owl/skos/xsd 命名空间）；C=投影消费（consumed 逐点标记，
+    # 漏标落余量为无害重复——余量按图重解析同三元组去重）；R=其余全部（含 BNode 限制结构/头部元数据/
+    # 自定义谓词非实例断言）原样 N-Triples 入账无上限。恒等式 unaccounted=0 按构造成立。
+    vocabulary_n, remainder = 0, []
+    for t in g:
+        if t in consumed or purely_system(t):
+            vocabulary_n += 1 if purely_system(t) and t not in consumed else 0
+            if t in consumed and not purely_system(t):
+                pass
+            continue
+        s_, p_, o_ = t
+        remainder.append(f"{s_.n3()} {p_.n3()} {o_.n3()} .")
+    triples_in = len(g)
+    projected_n = len([t for t in consumed if not purely_system(t)])
+    reconciliation = {
+        "triples_in": triples_in,
+        "vocabulary": vocabulary_n,
+        "projected": projected_n,
+        "remainder": len(remainder),
+        "inferred_notes": inferred_notes,
+        "unaccounted": triples_in - vocabulary_n - projected_n - len(remainder),
+    }
+    semantic = max(1, triples_in - vocabulary_n)
+    capture_rate = round(min(1.0, (projected_n + inferred_obj + inferred_dp) / semantic), 4)
+    reconciliation["capture_rate"] = capture_rate
+    if capture_rate < 0.5 and triples_in > 0:
+        warnings.append(f"捕获率 {capture_rate:.0%} 低于 50%——大部分内容未被投影为可编辑结构（余量账本已保全部原样，导出与运行可还原；建议检查文件形态或人工补建结构）")
+
+    unprojected = remainder  # REQ-328/B：axioms-raw 升级为全量余量账本（字段名沿用导出拼接链路）
     out = {"spec": spec, "warnings": warnings, "lossy": lossy,
-           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235；REQ-268 数据属性声明捕获）：保留 类层次/SKOS 词表层次/对象属性/数据属性声明/实例断言，datatype 断言落实例 attributes；未投影公理（限制/属性公理等）收集进 unprojected 透传（REQ-318）",
-           "unprojected": unprojected}
-    json.dump(out, sys.stdout, ensure_ascii=False)
+           "note": "OWL/TTL/JSON-LD 有损导入（REQ-69 细则/REQ-235；REQ-268 数据属性声明捕获；REQ-328 用法推断补声明+全量余量账本）：保留 类层次/SKOS 词表层次/对象属性/数据属性声明/实例断言，datatype 断言落实例 attributes；未投影内容全量入余量账本 unprojected 透传（对账恒等式见 reconciliation）",
+           "unprojected": unprojected, "reconciliation": reconciliation}
+    json.dump(out, sys.stdout, ensure_ascii=False, default=str)
     return 0
+
+
+def _mode_concept(type_tuples, seen_c):
+    """主体/目标类型众数→概念名（types 为 (uri,) 元组集合）。"""
+    from collections import Counter
+    c = Counter(t[0] for t in type_tuples if t and t[0])
+    for uri, _ in c.most_common(1):
+        return seen_c.get(uri, "")
+    return ""
+
+
+def _inst_types(g, inst_by_uri, pu, seen_c):
+    """谓词 pu 的目标实例的类型集合（对象属性值域推断用）。
+    inst_by_uri 键为 str(ind)——rdflib 词元匹配需 URIRef 型，回查一律包装。"""
+    out = set()
+    for ind, name in inst_by_uri.items():
+        for p, o in g.predicate_objects(URIRef(ind)):
+            if str(p) == pu and isinstance(o, URIRef) and str(o) in inst_by_uri:
+                for t in g.objects(o, RDF.type):
+                    if isinstance(t, URIRef) and str(t) in seen_c:
+                        out.add((str(t),))
+    return out
 
 
 # ---- 导出：spec_json → TTL ----
@@ -465,6 +625,13 @@ def main() -> int:
         return parse(fmt)
     if cmd == "export":
         return export(sys.argv[2:])
+    if cmd == "canon":
+        # REQ-328/C 运行装载双源：original 全图 canonical Turtle 直出（rdflib 图同构 100% 无损），
+        # stderr TRIPLES 计数与 export 同口径（运行平面装载计数硬闸对账数据源）
+        fmt = "turtle"
+        if "--format" in sys.argv:
+            fmt = sys.argv[sys.argv.index("--format") + 1]
+        return canon(fmt)
     if cmd == "reason":
         # REQ-255②/M62 批次（60 号 H3）：推理级一致性检查档（owlrl OWL 2 RL 闭包；
         # 完整 DL 推理 HermiT 不引入——学习定位内 owlrl 够用）。输入 TTL，输出 JSON。
@@ -474,6 +641,30 @@ def main() -> int:
         return reason(fmt)
     sys.stderr.write(f"未知命令 {cmd}\n")
     return 2
+
+
+def canon(format: str) -> int:
+    content = sys.stdin.read()
+    g = Graph()
+    fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
+    if fmt is None:
+        sys.stderr.write(f"未知 canon 格式 {format}\n")
+        return 2
+    try:
+        g.parse(data=content, format=fmt)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"RDF 解析失败: {e}\n")
+        return 1
+    ttl = g.serialize(format=TTL)
+    try:
+        g2 = Graph()
+        g2.parse(data=ttl, format=TTL)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"canonical TTL 回读校验失败: {e}\n")
+        return 1
+    sys.stderr.write(f"TRIPLES {len(g2)}\n")
+    sys.stdout.write(ttl)
+    return 0
 
 
 def reason(format: str) -> int:

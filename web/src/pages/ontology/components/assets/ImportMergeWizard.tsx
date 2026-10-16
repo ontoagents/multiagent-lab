@@ -226,6 +226,25 @@ export default function ImportMergeWizard({
             </Typography.Paragraph>
           )}
           {/* REQ-235/H5/M62：有损导入清单——条目可定位，应用后可跳图形编辑补录再重跑对账 */}
+          {preview.import_report?.reconciliation && (
+            <Alert
+              type={preview.import_report.reconciliation.unaccounted === 0 ? 'success' : 'error'}
+              showIcon
+              style={{ marginBottom: 10 }}
+              title={`导入对账（REQ-328）：入 ${preview.import_report.reconciliation.triples_in} 条 = 词汇 ${preview.import_report.reconciliation.vocabulary} + 投影 ${preview.import_report.reconciliation.projected} + 余量 ${preview.import_report.reconciliation.remainder}${preview.import_report.reconciliation.unaccounted === 0 ? '（unaccounted=0，零静默丢失）' : `（unaccounted=${preview.import_report.reconciliation.unaccounted}，对账异常请反馈）`}`}
+              description={
+                <>
+                  {preview.import_report.reconciliation.capture_rate !== undefined && (
+                    <div>语义捕获率 {Math.round(preview.import_report.reconciliation.capture_rate * 100)}%；余量账本将随导出与运行装载原样还原（未编辑本体运行 100% 导入源）。</div>
+                  )}
+                  {(preview.import_report.reconciliation.inferred_notes ?? []).map((n, i) => (
+                    <div key={i} style={{ color: 'var(--c-ink-3)', marginTop: 2 }}>· {n}</div>
+                  ))}
+                </>
+              }
+              data-testid="import-reconciliation"
+            />
+          )}
           {preview.import_report && (preview.import_report.lossy || (preview.import_report.warnings?.length ?? 0) > 0) && (
             <Alert
               type="warning"

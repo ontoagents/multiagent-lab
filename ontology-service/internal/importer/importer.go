@@ -36,9 +36,24 @@ type Report struct {
 	Lossy     bool     `json:"lossy"`
 	Warnings  []string `json:"warnings"`
 	LossyNote string   `json:"lossy_note,omitempty"`
-	// Unprojected 未投影公理透传（REQ-318/M120）：sidecar 收集的原 Turtle 公理片段，
-	// 导入侧存 artifact axioms-raw、导出拼接还原（77 号 §6 设计；确定性规则零 LLM）。
+	// Unprojected 未投影内容全量余量账本（REQ-328/B，原 REQ-318 未投影公理透传升级）：
+	// 凡未投影且非纯系统词汇三元组全部 N-Triples 入账（无上限），导入侧存 artifact axioms-raw、
+	// 导出拼接还原（77 号 §6 设计；确定性规则零 LLM）。
 	Unprojected []string `json:"unprojected,omitempty"`
+	// Reconciliation 对账块（REQ-328/B）：恒等式 triples_in = vocabulary + projected + remainder
+	// （unaccounted=0 结构性保证）+ capture_rate（语义三元组捕获率——哨兵数据源）。
+	Reconciliation *Reconciliation `json:"reconciliation,omitempty"`
+}
+
+// Reconciliation 导入对账块（REQ-328/B，77 号 §6）。
+type Reconciliation struct {
+	TriplesIn   int      `json:"triples_in"`
+	Vocabulary  int      `json:"vocabulary"`  // 纯系统词汇三元组（rdf/rdfs/owl/skos/xsd 全系统主谓宾）
+	Projected   int      `json:"projected"`   // 投影消费（结构+断言）
+	Remainder   int      `json:"remainder"`   // 余量账本（未投影且非纯系统——BNode 结构/头部元数据/自定义谓词非实例断言）
+	Unaccounted int      `json:"unaccounted"` // 恒等式差额（结构性为 0；非 0=sidecar 内部缺陷，前端红标）
+	Inferred    []string `json:"inferred_notes,omitempty"`
+	CaptureRate float64  `json:"capture_rate,omitempty"` // (projected+推断声明数)/语义三元组
 }
 
 type Sidecar struct {
@@ -391,11 +406,12 @@ func parseGraphML(content string) (*pkgspec.Spec, *Report) {
 // ---- OWL/TTL：经 sidecar（Python rdflib，不自研）----
 
 type sidecarParseOut struct {
-	Spec        pkgspec.Spec `json:"spec"`
-	Warnings    []string     `json:"warnings"`
-	Lossy       bool         `json:"lossy"`
-	Note        string       `json:"note"`
-	Unprojected []string     `json:"unprojected,omitempty"` // REQ-318/M120：未投影公理透传（Turtle 片段）
+	Spec        pkgspec.Spec    `json:"spec"`
+	Warnings    []string        `json:"warnings"`
+	Lossy       bool            `json:"lossy"`
+	Note        string          `json:"note"`
+	Unprojected []string        `json:"unprojected,omitempty"` // REQ-328/B：全量余量账本（N-Triples 行）
+	Recon       *Reconciliation `json:"reconciliation,omitempty"`
 }
 
 func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Report, error) {
@@ -416,7 +432,31 @@ func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Repor
 	}
 	rep := &Report{Format: format, Lossy: res.Lossy, Warnings: res.Warnings, LossyNote: res.Note}
 	rep.Unprojected = res.Unprojected
+	rep.Reconciliation = res.Recon
 	return &res.Spec, rep, nil
+}
+
+// CanonicalTTL REQ-328/C 运行装载双源：original 全图经 sidecar canon 直出 canonical Turtle
+// （rdflib 图同构 100% 无损）+ 精确三元组计数（X-Onto-Triples 装载硬闸对账数据源）。
+func CanonicalTTL(sc *Sidecar, format, content string) (string, int, error) {
+	if sc == nil || sc.Python == "" || sc.Script == "" {
+		return "", -1, fmt.Errorf("sidecar 未配置（SIDECAR_PYTHON / SIDECAR_SCRIPT）")
+	}
+	cmd := exec.Command(sc.Python, sc.Script, "canon", "--format", format)
+	cmd.Stdin = strings.NewReader(content)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return "", -1, fmt.Errorf("sidecar canon: %w; stderr: %s", err, strings.TrimSpace(errb.String()))
+	}
+	m := triplesRe.FindStringSubmatch(errb.String())
+	if m == nil {
+		return "", -1, fmt.Errorf("sidecar canon 计数标记缺失")
+	}
+	n := 0
+	_, _ = fmt.Sscanf(m[1], "%d", &n)
+	return out.String(), n, nil
 }
 
 // ExportTTL spec_json → Turtle（Go 原生直出，REQ-321 迭代：导出链路脱离 python）。
