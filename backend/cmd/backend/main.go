@@ -56,6 +56,9 @@ func main() {
 		Ontology:    ontology.NewService(),                   // M8：本体对接（facade/双反代/guide）
 		FilesRoot:   getenv("FILES_ROOT", "./data/projects"), // M11：项目文件根目录
 		CheckPoints: chat.NewStoreCheckPointStore(st),       // REQ-204/M39 C1：SQLite 持久化（重启后挂起中断可恢复）
+		// REQ-336：智能体默认文件根（<DB 同级>/agent-files）——未设置 work_dir 的智能体文件工具
+		// 安全根与对话附加文件落位回落于此（web=仓库 data/；客户端=data.location 数据目录内）
+		AgentFilesRoot: filepath.Join(filepath.Dir(dbPath), "agent-files"),
 	}
 	// 知识库服务（M6，§6.9）：向量后端按 KB_VECTOR_BACKEND（qdrant|sqlite），Qdrant 走 REST（QDRANT_URL）
 	kbSvc, err := kb.NewService(st, box,

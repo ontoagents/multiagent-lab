@@ -188,6 +188,8 @@ func (s *Server) routes() {
 	// REQ-218④/M49：智能体文件视图（安全根=agent.work_dir，沿项目 dir-files 先例）
 	m.HandleFunc("GET /api/agents/{id}/dir-files", s.listAgentDirFiles)
 	m.HandleFunc("GET /api/agents/{id}/dir-file", s.getAgentDirFile)
+	// REQ-336：对话窗口附加文件上传（落智能体文件根；未设置 work_dir 时落默认 agent-files 目录）
+	m.HandleFunc("POST /api/agents/{id}/files", s.uploadAgentDirFile)
 	m.HandleFunc("POST /api/agents/{id}/sandbox/start", s.sandboxStart)
 	m.HandleFunc("POST /api/agents/{id}/sandbox/stop", s.sandboxStop)
 	// REQ-191/M31：运行环境统一配置（设置页「运行环境」分区；本体引擎执行方式仍走 /api/runtime-config 反代）

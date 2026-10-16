@@ -191,16 +191,29 @@ body { font-size: 14px; background: var(--c-bg); }
 }
 .side-node-chev { width: 10px; display: inline-flex; justify-content: center; flex: none; font-size: 10px; color: var(--c-ink-3); }
 .side-node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
-/* REQ-326 迭代三：会话数徽标轻量化（背景 pill→裸数字）——开发者反馈「会话数挤压智能体名」 */
-.side-node-count {
-  flex: none; font-size: 11px; color: var(--c-ink-3); line-height: 17px; padding: 0 2px;
-}
-.side-node.active .side-node-count { color: var(--c-brand); }
+/* REQ-336：会话数裸数字退役（行内悬停显隐后孤数怪异）——.side-node-count 规则随之删除 */
 /* REQ-326 迭代四：行内操作（＋新建对话/⋮配置）悬停行才显现（键盘 focus-within 同显）；齿轮改三点 */
 .side-node-ops { display: inline-flex; align-items: center; flex: none; padding-right: 4px; opacity: 0; transition: opacity .12s ease; }
 .side-node:hover .side-node-ops, .side-node:focus-within .side-node-ops { opacity: 1; }
 .side-node-ops .ant-btn { color: var(--c-ink-3); width: 22px; min-width: 22px; padding: 0; }
 .sidebar .side-node-row .side-node-ops .ant-btn:hover { color: var(--c-brand); background: #e3e6f5; }
+
+/* REQ-336：「/」快速配置面板（composer 上方浮层，复用 chip-picker 行样式） */
+.slash-picker {
+  position: absolute; z-index: var(--z-float, 30); bottom: calc(100% + 8px); left: 0;
+  width: min(380px, 92%);
+  background: var(--c-panel); border: 1px solid var(--c-line); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(28, 33, 48, 0.16), 0 2px 6px rgba(28, 33, 48, 0.08);
+  padding: 10px 8px; max-height: min(420px, 52vh); overflow: auto;
+}
+.composer-inner { position: relative; }
+.slash-section { font-size: 11px; font-weight: 600; color: var(--c-ink-3); margin: 8px 6px 4px; }
+/* REQ-336：附件回显条 */
+.attach-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 8px; }
+/* REQ-336：会话设置面板（头部⋮；会话级配置单一入口） */
+.conv-settings { width: 300px; }
+.conv-settings .cs-row { display: flex; gap: 6px; align-items: center; }
+.conv-settings .cs-row .ant-input { flex: 1; }
 
 /* 子树：左侧缩进导轨对齐头像点，行高/间距统一（覆盖 X Conversations 默认内边距；选择器多带一层类名以稳超 antd 运行时样式） */
 .side-node-children {

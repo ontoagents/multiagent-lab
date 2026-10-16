@@ -208,8 +208,7 @@ export default function Sidebar({
                   <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {n.builtin && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>内置</Tag>}
-                  {/* REQ-326 迭代三：会话数轻量裸数字（0 不显示）——减少名称之外的行内空间占用 */}
-                  {n.convs.length > 0 && <span className="side-node-count" title={`${n.convs.length} 个对话`}>{n.convs.length}</span>}
+                  {/* REQ-336：会话数裸数字退役（迭代四后行内常驻元素只剩它，孤数怪异；展开子树即见会话清单） */}
                 </button>
                 {/* REQ-326 迭代四：行内操作悬停显现＋齿轮改三点；配置入口=三点钮（REQ-213 内置助手同入口归一不变） */}
                 <span className="side-node-ops">

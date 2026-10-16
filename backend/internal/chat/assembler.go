@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -37,7 +38,10 @@ type Assembler struct {
 	Composer    *skill.Composer   // M9：技能注入（nil 时技能不生效）
 	Ontology    *ontology.Service // M8：本体对接（nil 时本体不生效）
 	FilesRoot   string            // M11：项目文件根目录（空=save_file 不启用），如 ./data/projects
-	CheckPoints CheckPoints       // M11 收尾：中断检查点存储（nil=中断不持久化、无法恢复）
+	// REQ-336：智能体默认文件根（如 <DB 同级>/agent-files）——未设置 work_dir 的智能体回落
+	// AgentFilesRoot/{agent_id} 作为文件工具安全根与对话附加文件落位（空=维持旧行为返回空）。
+	AgentFilesRoot string
+	CheckPoints    CheckPoints // M11 收尾：中断检查点存储（nil=中断不持久化、无法恢复）
 	// REQ-214/M46：连接器插件服务基址（如 http://127.0.0.1:8093）——kubernetes/ssh 连接器
 	// 经此走标准 MCP 客户端管线；空 = 插件服务未启用（k8s/ssh 连接器装配降级告警）。
 	PluginEndpoint string
@@ -72,7 +76,9 @@ type assembleScope struct {
 
 // resolveWorkRoot REQ-202 ①：文件原语工具的安全根解析——项目会话沿用项目文件根
 //（ProjectDirRoot：绑定 local_dir 优先，回退 FilesRoot/{projectID}）；非项目会话用
-// agent.work_dir（~ 展开 + IsAbsDir 校验，非法值告警返回空——不放松安全边界）。
+// agent.work_dir（~ 展开 + IsAbsDir 校验，非法值告警返回空——不放松安全边界）；
+// REQ-336：未设置 work_dir 时回落默认目录 AgentFilesRoot/{agent_id}（web=仓库 data/、
+// 客户端=数据目录内，与 dir-files 视图/对话附加文件上传同一解析）。
 func (a *Assembler) resolveWorkRoot(sc assembleScope, ag *store.Agent) string {
 	if sc.ProjectID != "" && a.FilesRoot != "" {
 		if root, err := tool.ProjectDirRoot(tool.ProjectDirDeps{Store: a.Store, ProjectID: sc.ProjectID, FilesRoot: a.FilesRoot}); err == nil {
@@ -83,6 +89,12 @@ func (a *Assembler) resolveWorkRoot(sc assembleScope, ag *store.Agent) string {
 		d := fsutil.NormalizeDir(ag.WorkDir)
 		if d != "" && fsutil.IsAbsDir(d) {
 			return d
+		}
+		if a.AgentFilesRoot != "" {
+			d := filepath.Join(a.AgentFilesRoot, ag.ID)
+			if err := os.MkdirAll(d, 0o755); err == nil && fsutil.IsAbsDir(d) {
+				return fsutil.NormalizeDir(d)
+			}
 		}
 	}
 	return ""

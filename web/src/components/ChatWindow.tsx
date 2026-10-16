@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { AppstoreOutlined, BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, DeploymentUnitOutlined, LoadingOutlined, RobotOutlined, SettingOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
+import { BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, PaperClipOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -565,18 +565,16 @@ export default function ChatWindow({
   agents,
   projects,
   onConversationUpdated,
-  sidePanelOpen,
   onToggleSidePanel,
 }: {
   conversation: Conversation
   agents: Agent[]
   projects: Project[]
   onConversationUpdated: () => void
-  /** REQ-102：项目侧边栏开合（仅 project scope 提供；由页面持有状态与面板） */
-  sidePanelOpen?: boolean
+  /** REQ-336：侧板开合（⋮会话设置「智能体配置」入口复用；由页面持有状态与面板） */
   onToggleSidePanel?: () => void
 }) {
-  const { bumpData, showToast, setPage } = useUI()
+  const { bumpData, showToast } = useUI()
   const isProjectScope = conversation.scope === 'project'
 
   const project = isProjectScope
@@ -781,7 +779,13 @@ export default function ChatWindow({
   const [kbs, setKbs] = useState<KnowledgeBase[]>([])
   const [profilesErr, setProfilesErr] = useState(false)
   const [kbsErr, setKbsErr] = useState(false)
-  const [picker, setPicker] = useState<'kb' | 'onto' | 'companion' | 'model' | null>(null)
+  const [picker, setPicker] = useState<'kb' | 'onto' | null>(null)
+  // REQ-336：会话设置（头部⋮）——重命名/检索参数弹层；输入区「/」快速配置与文件附加
+  const [convSetOpen, setConvSetOpen] = useState(false)
+  const [renameVal, setRenameVal] = useState('')
+  const [slashOpen, setSlashOpen] = useState(false)
+  const [attachFiles, setAttachFiles] = useState<{ name: string; size: number }[]>([])
+  const [attaching, setAttaching] = useState(false)
 
   // 选项列表：挂载时拉取；失败降级为空 + chip 置灰说明
   const loadCfgOptions = () => {
@@ -792,21 +796,9 @@ export default function ChatWindow({
   }
   useEffect(loadCfgOptions, [])
   const [conns, setConns] = useState<ModelConnection[]>([])
-
-  // ---- REQ-174/REQ-291 对话输入区模型快捷切换：会话级覆盖落库（conversation.model_conn_id，''=跟随）----
-  // REQ-291 影子层转正：偏好随会话行持久（换浏览器/设备不丢，后端装配与审计可见）；请求级逐次下发退役。
-  const modelOverride = conversation?.model_conn_id || null
-  const setModelOverride = (id: string | null) => {
-    patchConv({ model_conn_id: id || '' }, { silent: true })
-  }
   const convAgent = agents.find((a) => a.id === conversation?.agent_id) ?? null
-  const agentDefaultConn = convAgent?.model_conn_id ? conns.find((c) => c.id === convAgent.model_conn_id) : undefined
-  const modelConnOf = (id: string | null) => (id ? conns.find((c) => c.id === id) : undefined)
-  const effectiveModelName = modelOverride
-    ? (modelConnOf(modelOverride) ? connDisplayName(modelConnOf(modelOverride)!) : modelOverride)
-    : agentDefaultConn
-      ? connDisplayName(agentDefaultConn)
-      : '默认模型'
+  // REQ-336：模型 chip 退役——模型配置归智能体（侧板「模型」页签；会话级 model_conn_id 覆盖能力
+  // 保留在会话行，无发送框入口）。REQ-291 一次性迁移保留（老偏好仍落会话行，后端装配照常生效）。
   // REQ-291 迁移：REQ-174 时代的 localStorage 模型偏好（eino.chat.model.{id}）一次性写入会话行后清除
   const migratedModelRef = useRef<string | null>(null)
   useEffect(() => {
@@ -818,7 +810,7 @@ export default function ChatWindow({
     localStorage.removeItem(`eino.chat.model.${conversation.id}`)
     api.updateConversation(conversation.id, { ...conversation, model_conn_id: legacy })
       .then(() => onConversationUpdated())
-      .catch(() => { /* 迁移失败静默——chip 仍显示跟随默认 */ })
+      .catch(() => { /* 迁移失败静默——历史偏好不丢，仅无 UI 入口 */ })
   }, [conversation?.id, conversation?.model_conn_id])
 
   // ---- REQ-19e/19f 对话对比模式：开关 + 2~4 窗格 + 每窗格单项覆盖（''= 继承对话当前配置）----
@@ -1055,83 +1047,8 @@ export default function ChatWindow({
   const kbChip = <ChatChip on={conversation.enable_kb} disabled={kbDisabled} icon={<BookOutlined />} label="知识库" title={kbHint} onClick={toggleKb} />
   const ontoChip = <ChatChip on={conversation.ontology_enabled} disabled={ontoDisabled} icon={<ClusterOutlined />} label="本体" title={ontoHint} onClick={toggleOnto} />
   const skillsChip = <ChatChip on={skillsOn} disabled={skillsDisabled} icon={<ThunderboltOutlined />} label="技能" title={skillsHint} onClick={toggleSkills} />
-  // REQ-174：模型快捷切换 pill（发送键左方；zcode 风格——当前生效模型名 + 列表 + 模型管理入口）
-  const modelChip = (
-    <Popover
-      open={picker === 'model'}
-      onOpenChange={(o) => { if (!o) setPicker(null) }}
-      trigger="click"
-      placement="topLeft"
-      arrow={false}
-      content={pickerList(
-        '切换模型（随会话保存，对之后的消息生效）',
-        [
-          { id: '', name: '跟随智能体默认', meta: agentDefaultConn ? connDisplayName(agentDefaultConn) : (convAgent ? '未指定连接' : undefined) },
-          ...conns.filter((c) => c.id !== convAgent?.model_conn_id).map((c) => ({ id: c.id, name: connDisplayName(c), meta: c.model_name })),
-        ],
-        modelOverride ?? '',
-        (id) => {
-          setModelOverride(id || null)
-          showToast(id ? `已切换模型：${modelConnOf(id) ? connDisplayName(modelConnOf(id)!) : id}` : '已恢复跟随智能体默认')
-        },
-        {
-          icon: <SettingOutlined style={{ color: 'var(--c-brand)', marginRight: 6 }} />,
-          label: '模型管理',
-          onClick: () => {
-            localStorage.setItem('eino.settings.section', 'models')
-            setPage('settings')
-          },
-        },
-      )}
-    >
-      <span>
-        <ChatChip on={!!modelOverride} disabled={false} icon={<RobotOutlined />} label={effectiveModelName} title="切换模型（随会话保存）" onClick={() => setPicker(picker === 'model' ? null : 'model')} />
-      </span>
-    </Popover>
-  )
-
-  // REQ-322：会话级伴生本体覆盖——自 ChatWindow 头部 Select 迁入输入区配置行（REQ-302 选择器落位演进：
-  // 会话级配置归位会话级配置面，与知识库/本体/技能 chip 同形态；头部不再出现本体选择控件）。
-  // 仅 agent 有伴生绑定时出现；「跟随智能体默认」即清除覆盖（''）。
-  const companionBoundName = companionOntos.find((o) => o.id === agent?.companion_ontology_id)?.name
-  const companionOverrideName = companionOntos.find((o) => o.id === conversation.companion_ontology_id)?.name
-  const companionChip = !isProjectScope && agent?.companion_ontology_id ? (
-    <Popover
-      open={picker === 'companion'}
-      onOpenChange={(o) => { if (!o) setPicker(null) }}
-      trigger="click"
-      placement="topLeft"
-      arrow={false}
-      content={pickerList(
-        `本会话伴生本体（覆盖仅本会话生效：抽取/召回走该本体；agent 默认绑定${companionBoundName ? `「${companionBoundName}」` : ''}不受影响）`,
-        [
-          { id: '', name: '跟随智能体默认', meta: companionBoundName },
-          ...companionOntos
-            .filter((o) => o.id !== agent.companion_ontology_id)
-            .map((o) => ({ id: o.id, name: o.name })),
-        ],
-        conversation.companion_ontology_id || '',
-        (id) => {
-          // REQ-322 顺修 REQ-302 存量缺陷：伴生切换原为裸 PUT（仅 companion 字段）——后端 PUT 为
-          // full-replace，会盲清 title/kb_id/top_k 等。改走 patchConv 合并当前会话字段再落库。
-          void patchConv({ companion_ontology_id: id }, { silent: true }).then(() => {
-            showToast(id ? `本会话伴生已切换（抽取/召回走该本体；其他会话不受影响）` : '已清除覆盖——本会话跟随智能体默认伴生本体')
-          })
-        },
-      )}
-    >
-      <span className="chip-slot">
-        <ChatChip
-          on={!!conversation.companion_ontology_id}
-          disabled={false}
-          icon={<DeploymentUnitOutlined />}
-          label={conversation.companion_ontology_id ? `伴生 · ${companionOverrideName ?? '已覆盖'}` : '伴生 · 跟随默认'}
-          title="本会话伴生本体覆盖（抽取/召回走覆盖本体，跨会话分域；点击切换或清除）"
-          onClick={() => setPicker(picker === 'companion' ? null : 'companion')}
-        />
-      </span>
-    </Popover>
-  ) : null
+  // REQ-336：模型 chip 退役——模型配置归智能体（侧板「模型」页签），发送框不再提供会话级切换；
+  // 伴生 chip 退役——会话伴生本体归位头部 ⋮ 会话设置。「/」快速配置与文件附加见下方 Sender。
 
   // 事件卡渲染（ThoughtChain 深度思考 / 工具详情 / 终态摘要）：
   // 紧凑、左侧色条区分来源、与助手文本列对齐（缩进统一由样式 .event-card/.event-side/.tool-phase
@@ -1664,14 +1581,20 @@ export default function ChatWindow({
   }
 
   const send = async () => {
-    const text = input.trim()
+    let text = input.trim()
     if (!text || running) return
     if (!isProjectScope && !agent) return
     if (isProjectScope && !agent) {
       showToast('项目还没有成员智能体，请先在项目配置中添加成员', 'err')
       return
     }
+    // REQ-336：附加文件随消息发送——文本附文件清单（文件本体已在发送前上传入智能体工作目录）
+    if (attachFiles.length > 0) {
+      text += `\n（附加文件：${attachFiles.map((f) => f.name).join('、')} —— 已存入工作目录，可直接读取）`
+    }
     setInput('')
+    setAttachFiles([])
+    setSlashOpen(false)
     // REQ-19e：对比模式走多窗格并行（一次提问 N 路，停止整组）
     if (cmp.on && cmp.panes.length >= 2) {
       await sendCompare(text)
@@ -1681,6 +1604,29 @@ export default function ChatWindow({
     setItems((prev) => [...prev, { kind: 'msg', role: 'user', content: text }])
     // REQ-291：模型偏好已落会话行（后端装配读 conversation.model_conn_id），不再逐请求下发
     await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist))
+  }
+
+  // REQ-336：附加文件上传——入智能体文件根（未设置 work_dir 落默认 agent-files 目录），发送时附清单引用
+  const uploadAttachments = async (files: FileList | null) => {
+    const agentId = convAgent?.id
+    if (!agentId || !files || files.length === 0) return
+    setAttaching(true)
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData()
+        fd.append('file', f)
+        const r = await fetch(`/api/agents/${agentId}/files`, { method: 'POST', body: fd })
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}))
+          showToast(`附件 ${f.name} 上传失败：${b?.error ?? r.status}`, 'err')
+          continue
+        }
+        const b = await r.json()
+        setAttachFiles((prev) => [...prev, { name: b.path ?? f.name, size: Number(b.size ?? f.size) }])
+      }
+    } finally {
+      setAttaching(false)
+    }
   }
 
   // REQ-19e/19f 对比发送：共用输入框一次提问 → N 路并行；meta 建窗格 run_id 映射，事件按 run_id 路由
@@ -1825,10 +1771,105 @@ export default function ChatWindow({
         {!isProjectScope && agent && (
           <>
             <Tag>{agent.runtime_backend}</Tag>
-            {/* REQ-322：会话伴生选择器已迁输入区配置行（companionChip）；头部不再放本体选择控件。
-                「最大迭代」静态配置标签同步移除——生效值随运行中「迭代 k/N」chip 与侧板 Loop 页签透出 */}
+            {/* REQ-336：会话伴生/检索参数/审批覆盖归位会话设置（头部⋮）；「最大迭代」静态标签已移除 */}
           </>
         )}
+        {/* REQ-336：会话名称右侧「⋮」=会话设置面板（重命名/伴生/审批/检索参数/智能体配置一屏全览；
+            会话级配置归位单一入口——替代原散布的 Dropdown 子菜单+嵌套弹窗方案） */}
+        <Popover
+          trigger="click"
+          open={convSetOpen}
+          onOpenChange={(o) => {
+            setConvSetOpen(o)
+            if (o) setRenameVal(conversation.title ?? '')
+          }}
+          placement="bottomLeft"
+          arrow={false}
+          content={
+            <div className="conv-settings" data-testid="conv-settings">
+              <div className="proc-pop-title">会话设置</div>
+              <div className="cs-row">
+                <Input
+                  size="small"
+                  value={renameVal}
+                  onChange={(e) => setRenameVal(e.target.value)}
+                  placeholder="会话名称"
+                  onPressEnter={() => { if (renameVal && renameVal !== conversation.title) void patchConv({ title: renameVal }) }}
+                />
+                <Button size="small" data-testid="conv-rename-save" onClick={() => { if (renameVal && renameVal !== conversation.title) void patchConv({ title: renameVal }) }}>保存</Button>
+              </div>
+              <div className="chip-picker-divider" />
+              <div className="proc-pop-title">工具调用审批（会话级覆盖）</div>
+              <Segmented
+                size="small"
+                value={conversation.tool_approval ?? ''}
+                onChange={(v) => patchConv({ tool_approval: v as string })}
+                options={[
+                  { value: '', label: '跟随' },
+                  { value: 'on', label: '开启' },
+                  { value: 'off', label: '关闭' },
+                ]}
+              />
+              <div className="proc-pop-title">会话检索参数（0=跟随知识库默认）</div>
+              <div className="cs-row">
+                <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>top_k</Typography.Text>
+                <InputNumber
+                  size="small" min={0} max={50} precision={0} style={{ width: 72 }}
+                  value={conversation.top_k ?? 0}
+                  onChange={(v) => patchConv({ top_k: typeof v === 'number' ? v : 0 })}
+                  data-testid="conv-topk"
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>min_score</Typography.Text>
+                <InputNumber
+                  size="small" min={0} max={1} step={0.05} style={{ width: 84 }}
+                  value={conversation.min_score ?? 0}
+                  onChange={(v) => patchConv({ min_score: typeof v === 'number' ? v : 0 })}
+                  data-testid="conv-minscore"
+                />
+              </div>
+              {!isProjectScope && agent?.companion_ontology_id && (
+                <>
+                  <div className="chip-picker-divider" />
+                  <div className="proc-pop-title">会话伴生本体（覆盖仅本会话生效）</div>
+                  <Select
+                    size="small"
+                    style={{ width: '100%' }}
+                    value={conversation.companion_ontology_id || ''}
+                    onChange={(id) => {
+                      void patchConv({ companion_ontology_id: id }, { silent: true }).then(() => {
+                        showToast(id ? '本会话伴生已切换（抽取/召回走该本体；其他会话不受影响）' : '已清除覆盖——本会话跟随智能体默认伴生本体')
+                      })
+                    }}
+                    options={[
+                      { value: '', label: `跟随智能体默认${agent.companion_ontology_id ? `（${companionOntos.find((o) => o.id === agent.companion_ontology_id)?.name ?? '已绑定'}）` : ''}` },
+                      ...companionOntos
+                        .filter((o) => o.id !== agent.companion_ontology_id)
+                        .map((o) => ({ value: o.id, label: o.name })),
+                    ]}
+                  />
+                </>
+              )}
+              {onToggleSidePanel && ((isProjectScope && project) || (!isProjectScope && agent)) && (
+                <>
+                  <div className="chip-picker-divider" />
+                  <Button
+                    size="small"
+                    block
+                    data-testid="conv-open-panel"
+                    onClick={() => { setConvSetOpen(false); onToggleSidePanel?.() }}
+                  >
+                    智能体配置（打开侧边栏）
+                  </Button>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+                    模型 / 技能挂载 / 提示词等智能体级配置在侧边栏维护
+                  </Typography.Text>
+                </>
+              )}
+            </div>
+          }
+        >
+          <Button size="small" type="text" icon={<EllipsisOutlined />} aria-label="会话设置" data-testid="conv-more" title="会话设置（重命名 / 审批 / 检索参数 / 伴生 / 智能体配置）" />
+        </Popover>
         {/* REQ-311 A4：运行中迭代进度（k=模型调用步累计，N=生效迭代上限；项目会话同样可见） */}
         {running && iterStat && (iterStat.k > 0 || iterStat.n != null) && (
           <Tooltip title="k=本次运行模型调用步累计（model.step）；N=协调者/智能体生效迭代上限">
@@ -1875,6 +1916,15 @@ export default function ChatWindow({
                     { value: 'off', label: '精简' },
                   ]}
                 />
+                {/* REQ-336：自调用轨迹「显示设置」归并（轨迹页只留轨迹） */}
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
+                  <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    深度思考过程 <Switch size="small" checked={showReasoning} onChange={(v) => patchConvCfg({ showReasoning: v })} />
+                  </span>
+                  <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    原始事件 JSON <Switch size="small" checked={showRaw} onChange={setShowRaw} />
+                  </span>
+                </div>
                 <div className="chip-picker-divider" />
                 <div className="proc-pop-title">采集档 · 后端记录多少（仅影响之后的运行）</div>
                 <div className="proc-pop-opts">
@@ -1936,26 +1986,7 @@ export default function ChatWindow({
               ]}
             />
           )}
-          {/* REQ-217④/M48：头部「过程展示」Popover 退役——粒度/深度思考/原始 JSON/调试入库/审批覆盖收编轨迹面板显示与运行治理区（行为配置归会话配置面） */}          {/* REQ-217④/M48：调试三档迁轨迹面板「运行治理」区 */}          {/* REQ-135①：配置入口并入右侧边栏收放按钮（原独立「配置」按钮移除） */}
-          {onToggleSidePanel && ((isProjectScope && project) || (!isProjectScope && agent)) && (
-            <Tooltip
-              title={
-                sidePanelOpen
-                  ? '收起侧边栏'
-                  : isProjectScope
-                    ? '项目侧边栏（文件 / Git / 配置）'
-                    : '智能体侧边栏（配置 / 模型 / 连接器 / 对外服务 / 文件 / 伴生本体）'
-              }
-            >
-              <Button
-                size="small"
-                type={sidePanelOpen ? 'primary' : 'default'}
-                icon={<AppstoreOutlined />}
-                aria-label={isProjectScope ? '项目侧边栏' : '智能体侧边栏'}
-                onClick={onToggleSidePanel}
-              />
-            </Tooltip>
-          )}
+          {/* REQ-336：方块状「智能体侧边栏」开关退役——侧板入口归会话设置 ⋮「智能体配置」（原 REQ-135① 收进入口的再归位） */}
         </Space>
       </div>
 
@@ -2236,11 +2267,98 @@ export default function ChatWindow({
 
       <div className="composer">
         <div className="composer-inner">
+          {/* REQ-336：附件回显条（发送前可移除；文件已上传入智能体工作目录） */}
+          {attachFiles.length > 0 && (
+            <div className="attach-tags" data-testid="attach-tags">
+              {attachFiles.map((f, i) => (
+                <Tag
+                  key={`${f.name}-${i}`}
+                  closable
+                  onClose={() => setAttachFiles((prev) => prev.filter((_, j) => j !== i))}
+                  style={{ fontSize: 11 }}
+                >
+                  📎 {f.name}
+                </Tag>
+              ))}
+            </div>
+          )}
+          {/* REQ-336：「/」触发快速配置面板（本体方案/知识库=会话级挂载即生效；技能=插入 / 引用） */}
+          {slashOpen && (
+            <div className="slash-picker" data-testid="slash-picker">
+              <div className="chip-picker-title">快速配置（选择即对会话生效；Esc 关闭）</div>
+              <div className="slash-section">本体运行方案{ontoDisabled ? '（暂无 running 方案）' : ''}</div>
+              {runningProfiles.slice(0, 6).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="chip-picker-item"
+                  onClick={() => {
+                    patchConv({ runtime_profile_id: p.id, ontology_enabled: true })
+                    setInput((v) => v.replace(/\/$/, ''))
+                    setSlashOpen(false)
+                  }}
+                >
+                  <span className="chip-picker-name">🗂 {p.name}</span>
+                  <span className="chip-picker-meta">{p.engine}</span>
+                </button>
+              ))}
+              <div className="slash-section">知识库{kbDisabled ? '（暂无知识库）' : ''}</div>
+              {kbs.slice(0, 6).map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  className="chip-picker-item"
+                  onClick={() => {
+                    patchConv({ kb_id: k.id, enable_kb: true })
+                    setInput((v) => v.replace(/\/$/, ''))
+                    setSlashOpen(false)
+                  }}
+                >
+                  <span className="chip-picker-name">📚 {k.name}</span>
+                  {typeof k.doc_count === 'number' ? <span className="chip-picker-meta">{k.doc_count} 文档</span> : null}
+                </button>
+              ))}
+              <div className="slash-section">已挂载技能{skillsDisabled ? '（该智能体未挂载技能）' : '（选择即引用，挂载在智能体配置）'}</div>
+              {(agentSkills ?? []).slice(0, 6).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="chip-picker-item"
+                  onClick={() => {
+                    setInput((v) => v.replace(/\/$/, `/${s} `))
+                    setSlashOpen(false)
+                  }}
+                >
+                  <span className="chip-picker-name">⚡ {s}</span>
+                  <span className="chip-picker-meta">插入引用</span>
+                </button>
+              ))}
+            </div>
+          )}
           {/* REQ-322：过程显示分级已迁头部 ops 行（对话历史上方、观测旁），输入区回归「输入卡+会话配置行」两件 */}
-          {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 伴生 / 技能 开关与模型切换 */}
+          {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 技能 开关；模型归智能体配置 */}
           <Sender
             value={input}
-            onChange={setInput}
+            onChange={(v) => {
+              setInput(v)
+              // REQ-336：输入「/」触发快速配置（空输入或空白后 freshly typed 的斜杠）
+              if (/(^|\s)\/$/.test(v)) setSlashOpen(true)
+              else if (!v.endsWith('/') && slashOpen) setSlashOpen(false)
+            }}
+            prefix={
+              <Tooltip title={convAgent?.id ? '附加本地文件（存入工作目录）' : '会话无智能体，无法附加文件'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PaperClipOutlined />}
+                  aria-label="附加文件"
+                  data-testid="attach-btn"
+                  disabled={!convAgent?.id || running}
+                  loading={attaching}
+                  onClick={() => document.getElementById('attach-file-input')?.click()}
+                />
+              </Tooltip>
+            }
             onSubmit={() => send()}
             onCancel={stop}
             loading={running}
@@ -2250,10 +2368,9 @@ export default function ChatWindow({
               <div className="chat-chips">
                 {cmp.on ? (
                   <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    对比模式 · {cmp.panes.length} 窗格独立配置（模型/知识库/本体/技能承载于各窗格头，本区不参与配置）
+                    对比模式 · {cmp.panes.length} 窗格独立配置（知识库/本体/技能承载于各窗格头，本区不参与配置）
                   </Typography.Text>
                 ) : (<>
-                {modelChip}
                 {kbDisabled ? (
                   <Tooltip title={kbHint}><span className="chip-slot">{kbChip}</span></Tooltip>
                 ) : (
@@ -2268,29 +2385,6 @@ export default function ChatWindow({
                       kbs.map((k) => ({ id: k.id, name: k.name, meta: typeof k.doc_count === 'number' ? `${k.doc_count} 文档` : undefined })),
                       conversation.kb_id,
                       (id) => patchConv({ kb_id: id, enable_kb: true }),
-                      undefined,
-                      // REQ-311 B3/M115：会话检索参数（Q-11 既有列的 UI 欠账；68 号定案仅此两参不扩配置面；
-                      // 后端 recallKB 已消费 conv.TopK/MinScore，≤0 回落知识库默认）
-                      <div data-testid="conv-kb-params">
-                        <div className="chip-picker-divider" />
-                        <div className="chip-picker-title">会话检索参数（随会话保存；0=跟随知识库默认）</div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 12px 8px', flexWrap: 'wrap' }}>
-                          <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>命中数 top_k</Typography.Text>
-                          <InputNumber
-                            size="small" min={0} max={50} precision={0} style={{ width: 72 }}
-                            value={conversation.top_k ?? 0}
-                            onChange={(v) => patchConv({ top_k: typeof v === 'number' ? v : 0 })}
-                            data-testid="conv-topk"
-                          />
-                          <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>最低分 min_score</Typography.Text>
-                          <InputNumber
-                            size="small" min={0} max={1} step={0.05} style={{ width: 84 }}
-                            value={conversation.min_score ?? 0}
-                            onChange={(v) => patchConv({ min_score: typeof v === 'number' ? v : 0 })}
-                            data-testid="conv-minscore"
-                          />
-                        </div>
-                      </div>,
                     )}
                   >
                     <span className="chip-slot">{kbChip}</span>
@@ -2310,7 +2404,7 @@ export default function ChatWindow({
                       runningProfiles.map((p) => ({ id: p.id, name: p.name, meta: p.engine })),
                       conversation.runtime_profile_id,
                       (id) => patchConv({ runtime_profile_id: id, ontology_enabled: true }),
-                      // REQ-215：已开启时提供关闭通路（知识库 chip 可直接开关，本体 chip 点击=管理入口）
+                      // REQ-215：已开启时提供关闭通路（本体 chip 点击=管理入口）
                       conversation.ontology_enabled ? {
                         icon: <StopOutlined style={{ color: 'var(--c-ink-2)', marginRight: 6 }} />,
                         label: '关闭本体增强（保留方案绑定）',
@@ -2321,16 +2415,29 @@ export default function ChatWindow({
                     <span className="chip-slot">{ontoChip}</span>
                   </Popover>
                 )}
-                {companionChip}
                 {skillsDisabled ? <Tooltip title={skillsHint}><span className="chip-slot">{skillsChip}</span></Tooltip> : skillsChip}
-                <span className="chat-chips-hint">Enter 发送 · Shift+Enter 换行</span>
+                {/* REQ-311 B3 检索参数迁头部⋮会话设置；REQ-336：模型 chip 退役（模型归智能体）、伴生 chip 迁⋮ */}
+                <span className="chat-chips-hint">输入 / 快速配置 · Enter 发送 · Shift+Enter 换行</span>
                 </>)}
               </div>
             }
           />
+          {/* REQ-336：附加文件选择（隐藏 input；回形针触发；上传入智能体工作目录） */}
+          <input
+            id="attach-file-input"
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              void uploadAttachments(e.target.files)
+              e.target.value = ''
+            }}
+          />
         </div>
       </div>
 
+      {/* REQ-336：会话设置——重命名（头部⋮入口） */}
+      {/* REQ-336：会话设置——会话检索参数（自知识库 chip Popover 迁入；随会话保存，0=跟随知识库默认） */}
       {/* REQ-144：剖面命名保存（对话级） */}
       <Modal
         open={profileSaveFor != null}
@@ -2361,17 +2468,7 @@ export default function ChatWindow({
           title={conversation.title || subjectName || '对话'}
           open={traceOpen}
           onClose={() => setTraceOpen(false)}
-          granularity={granularity}
-          showReasoning={showReasoning}
-          showRaw={showRaw}
           debugLevel={debugLevel}
-          debugPersist={debugPersist}
-          toolApproval={conversation.tool_approval ?? ''}
-          running={running}
-          patch={patchConvCfg}
-          onShowRaw={setShowRaw}
-          onChangeDebugLevel={changeDebugLevel}
-          onPatchConv={patchConv}
         />
       )}
     </div>
