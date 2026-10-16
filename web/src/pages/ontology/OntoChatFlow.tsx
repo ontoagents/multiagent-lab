@@ -8,7 +8,8 @@ import DoneCTA from './components/DoneCTA'
 import { StoryPanel, StoryTemplateChips } from './components/ontochat/StoryPanel'
 import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow } from './components/ontochat/CQConfirmCards'
 import DraftConfirmPanel from './components/ontochat/DraftConfirmPanel'
-import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Steps, Tag, Typography, Upload } from 'antd'
+import type { StepsProps } from 'antd'
 import { ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
@@ -408,7 +409,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     }
   }
 
-  const saveDraft = async () => {
+  // REQ-338①：入库前增量确认——specOverride=分组勾选裁剪后的入库形态（缺省 undefined=整稿）
+  const saveDraft = async (specOverride?: Spec) => {
     if (!active || !draft) return
     const nm = saveName.trim() || draft.name || ''
     if (!nm) {
@@ -417,7 +419,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     }
     setTurning(true)
     try {
-      const r = await api.ontoChatSave(active.id, nm)
+      const r = await api.ontoChatSave(active.id, nm, specOverride)
       showToast(`已创建本体「${r.ontology.name}」`)
       await refreshList()
       setActive(r.session)
@@ -440,6 +442,19 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   }, [storyActive])
   const stageTag = STAGE_TAG[stage] ?? STAGE_TAG.cq
   const isDone = stage === 'done'
+  // REQ-338②：五阶段 Steps 常驻顶部（story/cq/domain/draft·refine/done——与 custom 流程的
+  // antd Steps 交互语言统一；refine 归草稿确认步）。快速模式未进访谈的 story 步显式 wait 不虚标完成。
+  const stageIdx = stage === 'story' ? 0 : stage === 'cq' ? 1 : stage === 'domain' ? 2 : isDone ? 4 : 3
+  const guided = stage === 'story' || (active?.context?.story_step ?? 0) > 0 || !!active?.context?.draft_story
+  const stepStat = (i: number): 'process' | 'finish' | 'wait' => (i === stageIdx ? 'process' : i < stageIdx ? 'finish' : 'wait')
+  const stepsItems: StepsProps['items'] = [
+    // 快速模式未进访谈：story 步显式 wait 不虚标完成（guided 判据=访谈制品/步进残留）
+    { key: 'story', title: '① 用户故事访谈', status: stage === 'story' ? 'process' : stageIdx > 0 && guided ? 'finish' : 'wait' },
+    { key: 'cq', title: '② 能力问题', status: stepStat(1) },
+    { key: 'domain', title: '③ 领域补全', status: stepStat(2) },
+    { key: 'draft', title: stage === 'refine' ? '④ 草稿待修正' : '④ 草稿确认', status: stepStat(3) },
+    { key: 'done', title: '⑤ 已入库', status: stepStat(4) },
+  ]
   const placeholder =
     stage === 'story'
       ? draftStory
@@ -556,6 +571,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   <Tag color="blue" style={{ margin: 0 }}>中断恢复：已还原 {restored.round} 轮{restored.draft ? '与草稿' : ''}（服务端持久化）</Tag>
                 )}
               </Space>
+              {/* 五阶段 Steps 常驻（REQ-338②：阶段可视化，与 STAGE_TAG 同步） */}
+              <Steps
+                size="small"
+                current={stageIdx}
+                items={stepsItems}
+                style={{ marginBottom: 10 }}
+                data-testid="ontochat-steps"
+              />
               <div
                 className="onto-chat-msgs"
                 style={{ maxHeight: 380, overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -629,16 +652,17 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 />
               )}
 
-              {/* 草稿预览 + 入库（REQ-82 门控：必须经用户确认）——draft 阶段视图（REQ-337 分离） */}
+              {/* 草稿确认 + 入库（REQ-82 门控：必须经用户确认）——draft 阶段视图（REQ-337 分离；REQ-338 双栏+增量勾选+版本链） */}
               {draft && !isDone && (
                 <DraftConfirmPanel
+                  sessionId={active.id}
                   draft={draft}
                   draftWarning={draftWarning}
                   draftQuality={draftQuality}
                   saveName={saveName}
                   turning={turning}
                   onSaveName={setSaveName}
-                  onSave={saveDraft}
+                  onSave={(sp) => void saveDraft(sp)}
                   onOptimize={(ftext) => {
                     void send('请重点修复上次生成发现的质量问题：\n' + ftext, '请重点修复上次生成发现的质量问题：\n' + ftext)
                   }}

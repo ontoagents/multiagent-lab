@@ -41,7 +41,7 @@ import type {
   ModelConnection,
   Ontology,
   OntologyReferences,
-  OntoChatSession,
+  OntoChatDraftVersion, OntoChatSession,
   OntoChatTurnResult,
   OntoChatJob,
   OntoChatPrompt,
@@ -731,11 +731,13 @@ export const api = {
   /** REQ-271⑥：提示词清单（只读，页面显示=运行时注入同一份数据） */
   listOntoChatPrompts: () => req<OntoChatPrompt[]>('/api/ontochat/prompts'),
   /** 草稿入库（预览确认门控，REQ-82）：201 {ontology, session} */
-  ontoChatSave: (id: string, name: string) =>
+  ontoChatSave: (id: string, name: string, spec?: Spec) =>
     req<{ ontology: Ontology; session: OntoChatSession }>(`/api/ontochat/sessions/${id}/save`, {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, ...(spec ? { spec } : {}) }), // REQ-338①：增量确认裁剪后的入库形态（缺省=整稿）
     }),
+  // REQ-338③：草稿版本链（中断续作/跨设备/审计回放取数口）
+  ontoChatDrafts: (id: string) => req<OntoChatDraftVersion[]>(`/api/ontochat/sessions/${id}/drafts`),
 }
 
 /**

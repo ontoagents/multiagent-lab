@@ -686,6 +686,16 @@ export interface OntoChatSession {
   updated_at: string
 }
 
+/** REQ-338③：OntoChat 草稿版本链快照（draft/refine 每次生成落全量快照；confirm=增量确认调整后的入库形态）。 */
+export interface OntoChatDraftVersion {
+  version: number
+  source: 'draft' | 'refine' | 'confirm'
+  round: number
+  materials?: string[]
+  spec_json: Spec
+  created_at: string
+}
+
 /** turn 响应：reply 为 assistant 回复；draft 仅生成轮产出 */
 export interface OntoChatTurnResult {
   reply: string

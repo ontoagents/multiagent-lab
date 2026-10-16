@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -661,10 +662,13 @@ func (s *Server) listOntoChatPrompts(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, ontochat.Prompts())
 }
 
-// ontoChatSave POST /api/ontochat/sessions/{id}/save {name} → 草稿入库（预览确认门控，REQ-82）
+// ontoChatSave POST /api/ontochat/sessions/{id}/save {name, spec?} → 草稿入库（预览确认门控，REQ-82）。
+// REQ-338①：spec 可选裁剪版入库形态（前端入库前增量确认——概念/关系/数据属性分组勾选后
+// 的子集；缺省=整稿）。调整形态以 source=confirm 落草稿版本链留痕（原始生成稿已在链上）。
 func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
+		Name string           `json:"name"`
+		Spec *json.RawMessage `json:"spec,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, err)
@@ -680,10 +684,25 @@ func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话尚无草稿，请先完成生成轮"})
 		return
 	}
+	draftRaw := *sess.Context.DraftSpec
+	if req.Spec != nil {
+		draftRaw = *req.Spec
+	}
 	var sp pkgspec.Spec
-	if err := json.Unmarshal(*sess.Context.DraftSpec, &sp); err != nil {
+	if err := json.Unmarshal(draftRaw, &sp); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "草稿解析失败: " + err.Error()})
 		return
+	}
+	// REQ-338①：增量确认调整后的入库形态落版本链（confirm 源；空裁剪=清空全部三集合视为误操作拒绝）
+	if req.Spec != nil {
+		if len(sp.Concepts) == 0 && len(sp.Relations) == 0 && len(sp.Instances) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "裁剪后草稿为空（概念/关系/实例全未勾选）——请至少保留一项，或放弃入库"})
+			return
+		}
+		adjusted, _ := json.Marshal(sp)
+		if _, derr := st.SaveDraftVersion(sess.ID, "confirm", sess.Round, ontochat.MaterialNames(sess.Context.Hints), adjusted); derr != nil {
+			log.Printf("[ontochat] confirm 快照落库失败 session=%s: %v", sess.ID, derr)
+		}
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -715,6 +734,17 @@ func (s *Server) ontoChatSave(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = st.BindOntology(sess.ID, o.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"ontology": o, "session": mustSession(st, sess.ID)})
+}
+
+// ontoChatDrafts GET /api/ontochat/sessions/{id}/drafts → 草稿版本链（REQ-338③：
+// version/source/round/materials/spec 全量随行——会话草稿数有限；中断续作/跨设备/审计回放取数口）。
+func (s *Server) ontoChatDrafts(w http.ResponseWriter, r *http.Request) {
+	vs, err := s.ontoChatStore().ListDraftVersions(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, vs)
 }
 
 // ontoChatStore 惰性初始化会话存储（表由 migrations/003_ontochat.sql 建）。

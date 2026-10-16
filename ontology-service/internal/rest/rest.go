@@ -145,6 +145,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontochat/sessions/{id}/job", s.getOntoChatSessionJob)
 	m.HandleFunc("POST /api/ontochat/jobs/{id}/cancel", s.cancelOntoChatJob)
 	m.HandleFunc("GET /api/ontochat/prompts", s.listOntoChatPrompts)
+	// REQ-338③：草稿版本链（中断续作/跨设备/审计回放取数口）
+	m.HandleFunc("GET /api/ontochat/sessions/{id}/drafts", s.ontoChatDrafts)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

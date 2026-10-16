@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
@@ -380,6 +381,18 @@ func (e *Engine) turnDraft(ctx context.Context, st *Store, sess *Session, onProg
 	raw, _ := json.Marshal(res.Spec)
 	rm := json.RawMessage(raw)
 	sess.Context.DraftSpec = &rm
+
+	// REQ-338③：草稿版本链——每次生成落全量快照（中断续作/跨设备/审计回放；失败不阻断主链路）
+	source := "draft"
+	for _, h := range sess.Context.Hints {
+		if strings.HasPrefix(h, "修正意见：") {
+			source = "refine"
+			break
+		}
+	}
+	if _, derr := st.SaveDraftVersion(sess.ID, source, sess.Round+1, MaterialNames(sess.Context.Hints), raw); derr != nil {
+		log.Printf("[ontochat] 草稿快照落库失败 session=%s: %v", sess.ID, derr)
+	}
 
 	stage := "draft"
 	var warn string

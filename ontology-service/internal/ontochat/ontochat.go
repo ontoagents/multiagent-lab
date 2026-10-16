@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
@@ -174,4 +175,69 @@ func (s *Store) Delete(id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// REQ-338③（80 号 A3）：草稿版本链——draft/refine 每次生成落全量快照（044 迁移）。
+// 会话恢复从 {round,draft} 布尔升为版本链：中断续作/跨设备续作/审计回放一并满足；
+// 文件材料引用清单随快照入库（材料溯源）。
+// ---------------------------------------------------------------------------
+
+// DraftVersion 草稿快照。
+type DraftVersion struct {
+	Version    int             `json:"version"`
+	Source     string          `json:"source"`          // draft | refine | confirm
+	Round      int             `json:"round"`
+	Materials  []string        `json:"materials,omitempty"` // 文件材料引用清单
+	Spec       json.RawMessage `json:"spec_json"`
+	CreatedAt  string          `json:"created_at"`
+}
+
+// materialNames 提取 Hints 中文件材料的引用名（ImportFile 落库形态「[文件导入 name]\n…」）。
+func MaterialNames(hints []string) []string {
+	names := []string{}
+	for _, h := range hints {
+		if rest, ok := strings.CutPrefix(h, "[文件导入 "); ok {
+			if idx := strings.Index(rest, "]"); idx > 0 {
+				names = append(names, rest[:idx])
+			}
+		}
+	}
+	return names
+}
+
+// SaveDraftVersion 落一版快照（version=会话内递增；快照失败不阻断生成主链路，返回错误由调用方记日志）。
+func (s *Store) SaveDraftVersion(sessionID, source string, round int, materials []string, specJSON []byte) (int, error) {
+	var next int
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version),0)+1 FROM ontochat_draft_version WHERE session_id=?`, sessionID).Scan(&next); err != nil {
+		return 0, err
+	}
+	if materials == nil {
+		materials = []string{}
+	}
+	mb, _ := json.Marshal(materials)
+	_, err := s.db.Exec(`INSERT INTO ontochat_draft_version(session_id, version, spec_json, source, round, materials) VALUES(?,?,?,?,?,?)`,
+		sessionID, next, string(specJSON), source, round, string(mb))
+	return next, err
+}
+
+// ListDraftVersions 会话草稿版本链（version 升序；spec 全量随行——会话草稿数有限，不分页）。
+func (s *Store) ListDraftVersions(sessionID string) ([]DraftVersion, error) {
+	rows, err := s.db.Query(`SELECT version, source, round, materials, spec_json, created_at FROM ontochat_draft_version WHERE session_id=? ORDER BY version`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DraftVersion{}
+	for rows.Next() {
+		var v DraftVersion
+		var materials, spec string
+		if err := rows.Scan(&v.Version, &v.Source, &v.Round, &materials, &spec, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(materials), &v.Materials)
+		v.Spec = json.RawMessage(spec)
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
