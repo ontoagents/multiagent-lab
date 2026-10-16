@@ -9,7 +9,7 @@ synced: 2026-10-11
 
 > 状态：v1.2 ｜ 日期：2026-10-11（v1.2 交付回写 2026-10-12）｜ **v1.1 立项回写**：开发者指令「采纳建议，立项，当前agent不开发由其他agent开发」——本档 A/B 层建议已在 03 号需求档 §2.27 立项为 **REQ-292~295**（B1 扩注 REQ-278），决策 **D-O24**；**本轮只立项不开发，开发移交其他 agent**。去向索引见 §7.0，原「未立项」口径见 §8 第 7 条（已更新）｜ **v1.2 交付回写**：REQ-292~295 已由 Helix 线 agent 于 2026-10-12 **一次性交付收口**（M96=292 编辑三层与确定性身份／M98=293 装载原子对账／M99=295 证据分级·notes·诚实进度／M100=294 活动流判据；M97 已被并行伴生线 REQ-296 占用顺延）——实现落点与诚实边界见 03 号 §2.27 v1.15 交付注与 §8 v1.15 迭代行；单测 9 组+API 冒烟 33/33+UI headless 7/7（smoke/req292/）｜ 一手材料：GitHub API + raw 文件级精读 `HelixDB/helix-foundry` @ `main`（298 条目 / 264 文件）与 `HelixDB/helix-db` @ `main`（3,285 条目）
 > 调研动因：开发者指令「深入调研一下本体相关的开源项目 HelixDB/helix-foundry，梳理其对本体构建、使用方面的方案和实现，分析当前项目可以借鉴的地方」
-> **本档定位**：一手源码级技术调研（算法 + 数据结构 + 发布/消费路径），不是功能罗列。同为公司数据本体（Palantir Foundry 开源替代）路线的前辈档见 [33 号 openbkn-ai 分析与借鉴](33_openbkn-ai-分析与借鉴.md) 与 [22 号开源本体与语义层赛道全景](22_开源本体与语义层赛道全景.md)——三者是**同一赛道的三种截然不同解法**，建议对照读（见 §7.4）。
+> **本档定位**：一手源码级技术调研（算法 + 数据结构 + 发布/消费路径），不是功能罗列。同为公司数据本体（Palantir Foundry 开源替代）路线的前辈档见 [82 号 OpenBKN 构建与运行深度分析](82_OpenBKN构建与运行深度分析_20261016.md) 与 [22 号开源本体与语义层赛道全景](22_开源本体与语义层赛道全景.md)——三者是**同一赛道的三种截然不同解法**，建议对照读（见 §7.4）。
 > 关联：REQ-102（qualitygate）/REQ-110（claim 溯源）/REQ-157（merge-preview 评审动线）/REQ-233（资产检索）/REQ-236（启动对账）/REQ-249（同名歧义）/REQ-278（变更影响分析）/REQ-279（蕴含保持切片）/REQ-290（消费观测装载态）；04 号《运行》、05 号《消费与审计》、02 号《构建》；62 号 K1~K3、65 号 B1~B3/B5
 
 ---
@@ -42,7 +42,7 @@ synced: 2026-10-11
 
 ### 1.2 它对我们最重要的身份标签
 
-它是继 OpenBKN（33 号）之后，**第二个开源对标 Palantir Foundry Ontology 的项目**，且二者解法完全相反（见 §7.4）。
+它是继 OpenBKN（82 号）之后，**第二个开源对标 Palantir Foundry Ontology 的项目**，且二者解法完全相反（见 §7.4）。
 
 ### 1.3 一句话产品
 
@@ -515,9 +515,9 @@ export async function effectiveObject(store, scope, r) {
 | **C6** | **按 digest pin 的外部制品**：`docs/models.json` 记录 `qwen3:4b` 的 sha256 并在安装时校验；compose 里 HelixDB 亦 `image@sha256`，并明写「v0.0.10 起索引单向升级」 |
 | **D1/D2** | HelixDB 的 **pre-filter → ranking** 检索形态（§6.3）；以及 Foundry「买了三模态引擎却只用图」的**自我边界**（向量能力没用上，值得警醒：别引入用不到的能力面） |
 
-### 7.4 赛道对照：同一目标的三种解法（建议与 33 / 22 号对读）
+### 7.4 赛道对照：同一目标的三种解法（建议与 82 / 22 号对读）
 
-| 维度 | **OpenBKN**（33 号） | **Helix Foundry**（本档） | **我们（multiagent-lab）** |
+| 维度 | **OpenBKN**（82 号） | **Helix Foundry**（本档） | **我们（multiagent-lab）** |
 | --- | --- | --- | --- |
 | 本体从哪来 | 人写 **BKN Lang**（Markdown + YAML DSL）→ 编译 | **数据说话**：一次性 SQL 推断 + 人审阅 | 人写 spec_json + 六条路径（含 LLM / 知识库 / ODP） |
 | 知识组织 | 知识网络**包化**（tar / CHECKSUM / Diff） | Parquet 快照 + lineage + generation | spec_json 版本 + diff + 产物 |
@@ -568,5 +568,5 @@ export async function effectiveObject(store, scope, r) {
 - `README.md`（10.3KB：三模态 / 四 SDK / Cypher / `helix chef`）、`docs/cypher.md`（32.2KB）、`docs/codebase-map.md`（28KB）、`docs/languages/helixql.json`（9.6KB：`N::` / `E::` / `V::` / `QUERY` / `schema::N` 语法定义）、`crates/` 12 个子 crate
 
 **关联档**
-- 本目录 **33 号**《openbkn-ai 分析与借鉴》（同为 Palantir 开源替代，解法相反）、**22 号**《开源本体与语义层赛道全景》、**62 号**《kubernetes-ontology 与 Kartograph 借鉴分析》（K1~K3 同族）、**65 号**《open-ontologies 深度调研》（B1~B3 / B5 可对照）、**59 号**《Protégé 架构与借鉴分析》
+- 本目录 **82 号**《OpenBKN 构建与运行深度分析》（同为 Palantir 开源替代，解法相反）、**22 号**《开源本体与语义层赛道全景》、**62 号**《kubernetes-ontology 与 Kartograph 借鉴分析》（K1~K3 同族）、**65 号**《open-ontologies 深度调研》（B1~B3 / B5 可对照）、**59 号**《Protégé 架构与借鉴分析》
 - `docs/15_开源项目及论文登记簿.md`（本轮登记见 v2.31）
