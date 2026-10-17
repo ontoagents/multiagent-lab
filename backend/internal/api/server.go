@@ -184,6 +184,9 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/model-connections/{id}/default", s.setDefaultConnection)
 	m.HandleFunc("POST /api/model-connections/test", s.testConnection)
 	m.HandleFunc("POST /api/model-connections/{id}/list-models", s.listConnectionModels)
+	// M23①（REQ-113 互补）：配置面导入/导出（四域 JSON；key 脱敏）
+	m.HandleFunc("GET /api/settings/export", s.exportSettings)
+	m.HandleFunc("POST /api/settings/import", s.importSettings)
 	// M10/10b：沙箱生命周期（状态/启动/停止，per Agent）
 	m.HandleFunc("GET /api/agents/{id}/sandbox", s.sandboxStatus)
 	// REQ-218④/M49：智能体文件视图（安全根=agent.work_dir，沿项目 dir-files 先例）
