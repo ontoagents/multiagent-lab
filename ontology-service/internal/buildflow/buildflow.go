@@ -41,6 +41,9 @@ var registry = map[string][]Stage{
 	// REQ-343/OE-1：CQ 驱动增量扩展（ontorag 三段式 RAG）——extract=元素抽取+索引检索、
 	// draft=逐 CQ 生成+两阶段校验；审查/入库=通用 merge/preview+apply（REQ-157 底座，不在本端点）。
 	"cq-rag-draft": {StageSource, StageExtract, StageDraft, StageGate, StageReview, StageIngest},
+	// REQ-346/M146：CQ 基准集「测我」——source=基准集与目标本体、draft=逐条翻译评测（无抽取段）；
+	// 纯评测无入库段（报告落 artifact 不动仓库资产）。
+	"cq-benchmark": {StageSource, StageDraft},
 }
 
 // Registered 已登记的管线实例名（诊断/测试用）。

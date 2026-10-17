@@ -92,11 +92,15 @@ func TestRegistryCovers(t *testing.T) {
 			t.Fatalf("%s 应覆盖 source/ingest 全段", p)
 		}
 	}
+	// REQ-346/M146：cq-benchmark 为评测管线（报告落 artifact 不动仓库资产）——只声明 source/draft，无 ingest
+	if !Covers("cq-benchmark", StageSource) || !Covers("cq-benchmark", StageDraft) || Covers("cq-benchmark", StageIngest) {
+		t.Fatal("cq-benchmark 应只覆盖 source/draft（评测管线无入库段）")
+	}
 	if Covers("未知管线", StageSource) {
 		t.Fatal("未登记管线不应覆盖任何段")
 	}
-	if len(Registered()) != 4 {
-		t.Fatalf("注册表应 4 实例: %v", Registered())
+	if len(Registered()) != 5 {
+		t.Fatalf("注册表应 5 实例: %v", Registered())
 	}
 	// 未声明段：Run 跳过不留痕
 	cap := withCapture(t)

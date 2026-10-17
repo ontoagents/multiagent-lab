@@ -88,8 +88,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/accept", s.acceptEvolutionCandidate)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/reject", s.rejectEvolutionCandidate)
 	m.HandleFunc("GET /api/ontology/quality/report", s.qualityReport)
-	m.HandleFunc("GET /api/ontology/quality/remediations", s.qualityRemediations)   // REQ-331②：检查项修复指引
-	m.HandleFunc("GET /api/ontologies/{id}/quality-history", s.qualityHistory)      // REQ-331①：评分历史（趋势线+三点对照）
+	m.HandleFunc("GET /api/ontology/quality/remediations", s.qualityRemediations) // REQ-331②：检查项修复指引
+	m.HandleFunc("GET /api/ontologies/{id}/quality-history", s.qualityHistory)    // REQ-331①：评分历史（趋势线+三点对照）
 	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
 	m.HandleFunc("POST /api/ontologies/{id}/cq-sparql", s.cqSparql)
 	m.HandleFunc("PUT /api/ontologies/{id}/cq-test-report", s.saveCQTestReport) // REQ-342/OC-2：双轨报告持久化
@@ -98,7 +98,10 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontology/ontoextend/odps", s.ontoextendListODPs)
 	m.HandleFunc("POST /api/ontology/ontoextend/draft", s.ontoextendDraft)
 	m.HandleFunc("POST /api/ontology/cqrag/draft", s.cqragDraft)
-	m.HandleFunc("POST /api/ontology/nl2sparql", s.nl2sparql) // REQ-333/M133：NL2SPARQL 受控生成 // REQ-343：CQ 驱动增量扩展（论文三段式 RAG，新能力承载不复用 ontoextend API 名）
+	m.HandleFunc("POST /api/ontology/nl2sparql", s.nl2sparql)                         // REQ-333/M133：NL2SPARQL 受控生成
+	m.HandleFunc("GET /api/ontology/cq-benchmark/datasets", s.cqBenchmarkDatasets)    // REQ-346/M146：基准集管理面
+	m.HandleFunc("POST /api/ontology/cq-benchmark/run", s.cqBenchmarkRun)             // REQ-346/M146：用基准集测我（202 job）
+	m.HandleFunc("GET /api/ontologies/{id}/cq-benchmark-report", s.cqBenchmarkReport) // REQ-346/M146：报告历史 // REQ-343：CQ 驱动增量扩展（论文三段式 RAG，新能力承载不复用 ontoextend API 名）
 
 	// 方案生命周期（REQ-155 阶段二/M-O15：Terraform 式 plan/apply，monitor=plan 只读形态）
 	m.HandleFunc("GET /api/ontology/lifecycle/plan", s.lifecyclePlan)

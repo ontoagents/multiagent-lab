@@ -656,6 +656,20 @@ export interface QualityReport {
   stats?: { concepts: number; relations: number; instances: number; data_properties?: number; axioms?: number }
 }
 
+/** REQ-346/M146：CQ 基准集「测我」单次运行报告（runs 追加式历史；三率+逐条信号） */
+export interface CqBenchmarkRun {
+  ontology_id: string
+  version: number
+  dataset: string
+  ts: string
+  signals: { id: string; cq: string; translated: boolean; whitelist_ok: boolean; gold_aligned: boolean; query?: string; error?: string }[]
+  translated: number
+  whitelist: number
+  gold_aligned: number
+  total: number
+  note?: string
+}
+
 /** REQ-331/M131：资产级质量评分历史行（source=draft|ingest|manual；趋势线+三点对照取数源） */
 export interface QualityScoreRow {
   id: number

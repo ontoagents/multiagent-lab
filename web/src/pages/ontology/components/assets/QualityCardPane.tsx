@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
-import type { OntoChatCQVerdict, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
+import type { CqBenchmarkRun, OntoChatCQVerdict, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,13 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
   // REQ-331/M131：评分历史（三点对照+趋势线+评估历史同源）与修复指引（check_id→人话）
   const [history, setHistory] = useState<QualityScoreRow[]>([])
   const [remediations, setRemediations] = useState<Record<string, string>>({})
+  // REQ-346/M146：CQ 基准集「测我」（数据集清单/运行/报告历史）
+  const [benchDatasets, setBenchDatasets] = useState<{ name: string; ontology: string; count: number }[]>([])
+  const [benchDataset, setBenchDataset] = useState<string | undefined>(undefined)
+  const [benchBusy, setBenchBusy] = useState(false)
+  const [benchProgress, setBenchProgress] = useState('')
+  const [benchErr, setBenchErr] = useState<string | null>(null)
+  const [benchRuns, setBenchRuns] = useState<CqBenchmarkRun[] | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -110,6 +117,14 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
       .getQualityHistory(ontologyId)
       .then((r) => setHistory(r.history ?? []))
       .catch(() => setHistory([]))
+    api
+      .cqBenchmarkDatasets()
+      .then((r) => setBenchDatasets(r.datasets ?? []))
+      .catch(() => setBenchDatasets([]))
+    api
+      .cqBenchmarkReport(ontologyId)
+      .then((r) => setBenchRuns(r.report?.runs ?? []))
+      .catch(() => setBenchRuns(null))
   }, [ontologyId])
 
   useEffect(load, [load])
@@ -335,6 +350,39 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
       setLastReport({ created_at: report.created_at, base_version: report.base_version, summary: { passed: covResult.passed, total: covResult.total, pass_rate: covResult.pass_rate } })
     } catch {
       /* 报告持久化失败不阻断呈现 */
+    }
+  }
+
+  // REQ-346/M146：用基准集测我（202 job → 轮询 → 报告刷新）
+  const runBenchmark = async () => {
+    if (!benchDataset) return
+    setBenchBusy(true)
+    setBenchErr(null)
+    setBenchProgress('任务排队中…')
+    try {
+      const j = await api.cqBenchmarkRun(ontologyId, benchDataset)
+      const timer = setInterval(async () => {
+        try {
+          const job: any = await api.aiDraftJob(j.job_id)
+          if (job.progress) setBenchProgress(job.progress)
+          if (job.status === 'done' || job.status === 'failed') {
+            clearInterval(timer)
+            setBenchBusy(false)
+            setBenchProgress('')
+            if (job.status === 'failed') setBenchErr(job.error ?? '测我失败')
+            else {
+              const r = await api.cqBenchmarkReport(ontologyId)
+              setBenchRuns(r.report?.runs ?? [])
+            }
+          }
+        } catch {
+          /* 单次轮询失败下次重试 */
+        }
+      }, 2000)
+    } catch (e: any) {
+      setBenchBusy(false)
+      setBenchProgress('')
+      setBenchErr(e?.message ?? '提交失败')
     }
   }
 
@@ -661,6 +709,73 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
               </>
             )}
           </Card>
+
+          {/* REQ-346/M146：CQ 基准集「测我」（数据集清单动线+报告历史——测试资产产品化 v1） */}
+          {benchDatasets.length > 0 && (
+            <Card size="small" className="work-card" data-testid="cq-bench-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                <SafetyOutlined style={{ color: 'var(--c-brand)' }} />
+                <Typography.Text strong>CQ 基准集测我</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 220 }}>
+                  选一份基准集（按源种子域编写），对本本体逐条翻译评测：翻译成功率/白名单通过率/gold 对齐率——域外本体 gold 对齐率低为预期负信号。报告历史随版本留存可比。
+                </Typography.Text>
+                <Select
+                  size="small"
+                  style={{ minWidth: 180 }}
+                  placeholder="选基准集…"
+                  value={benchDataset}
+                  onChange={setBenchDataset}
+                  options={benchDatasets.map((d) => ({ value: d.name, label: `${d.name}（${d.count} 条·${d.ontology} 域）` }))}
+                  data-testid="cq-bench-dataset"
+                />
+                <Button size="small" type="primary" loading={benchBusy} disabled={benchBusy || !benchDataset} onClick={runBenchmark} data-testid="cq-bench-run-btn">
+                  用基准集测我
+                </Button>
+              </div>
+              {benchProgress && (
+                <div style={{ marginBottom: 8 }}>
+                  <Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>{benchProgress}</Typography.Text>
+                </div>
+              )}
+              {benchErr && <Alert type="error" showIcon style={{ marginBottom: 8 }} title={benchErr} onClose={() => setBenchErr(null)} />}
+              {benchRuns && benchRuns.length > 0 && (
+                <Table
+                  size="small"
+                  rowKey={(r) => `${r.dataset}-${r.ts}`}
+                  dataSource={[...benchRuns].reverse()}
+                  pagination={{ pageSize: 3 }}
+                  data-testid="cq-bench-report"
+                  columns={[
+                    { title: '时间', dataIndex: 'ts', width: 150, render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v.slice(0, 19).replace('T', ' ')}</Typography.Text> },
+                    { title: '基准集', dataIndex: 'dataset', width: 100 },
+                    { title: '本体版本', dataIndex: 'version', width: 80, render: (v: number) => <Tag style={{ margin: 0 }}>v{v}</Tag> },
+                    { title: '翻译', width: 70, render: (_: unknown, r: CqBenchmarkRun) => `${r.translated}/${r.total}` },
+                    { title: '白名单', width: 70, render: (_: unknown, r: CqBenchmarkRun) => `${r.whitelist}/${r.total}` },
+                    {
+                      title: 'gold 对齐',
+                      width: 100,
+                      render: (_: unknown, r: CqBenchmarkRun) => {
+                        const rate = r.total ? r.gold_aligned / r.total : 0
+                        return <Tag color={rate >= 0.8 ? 'green' : rate > 0 ? 'orange' : 'red'} style={{ margin: 0 }}>{r.gold_aligned}/{r.total}</Tag>
+                      },
+                    },
+                  ]}
+                  expandable={{
+                    rowExpandable: (r: CqBenchmarkRun) => r.signals.some((x) => !x.gold_aligned || x.error),
+                    expandedRowRender: (r: CqBenchmarkRun) => (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {r.signals.filter((x) => !x.gold_aligned || x.error).map((x) => (
+                          <Typography.Text key={x.id} type="secondary" style={{ fontSize: 11 }}>
+                            {x.cq} — {x.error || `翻译=${x.translated} 白名单=${x.whitelist_ok} gold 对齐=${x.gold_aligned}`}
+                          </Typography.Text>
+                        ))}
+                      </div>
+                    ),
+                  }}
+                />
+              )}
+            </Card>
+          )}
 
           {/* REQ-331②：Findings 按严重级分组+「怎么改」人话指引+error 定位跳转（沿 REQ-235 前往图形编辑先例）——
               口径=机器产报告人做决策：只给动线与指引，不新增自动改写通道 */}

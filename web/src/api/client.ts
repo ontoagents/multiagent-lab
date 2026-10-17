@@ -5,6 +5,7 @@ import type {
   AiDraftResult,
   BuildQualitySummary,
   QualityScoreRow,
+  CqBenchmarkRun,
   McpServeInfo,
   ArtifactMeta,
   Conversation,
@@ -634,6 +635,22 @@ export const api = {
   /** SPARQL 工作台：POST application/sparql-query；非 running → 409；状态码/错误透传引擎；accept 可覆盖（CONSTRUCT/DESCRIBE 传 text/turtle） */
   runSparql: (profileId: string, query: string, accept?: string, nl?: string) =>
     reqSparql(`/api/runtime-profiles/${profileId}/sparql`, query, accept, nl),
+  /** REQ-346/M146：CQ 基准集清单（seeds/evaldata/ontology-cq/ 管理面） */
+  cqBenchmarkDatasets: () =>
+    req<{ datasets: { name: string; ontology: string; count: number; note?: string }[]; count: number }>(
+      '/api/ontology/cq-benchmark/datasets',
+    ),
+  /** REQ-346/M146：用基准集测我（202 job 轮询 aiDraftJob；报告落 artifact cq-benchmark-report） */
+  cqBenchmarkRun: (ontologyId: string, dataset: string) =>
+    req<{ job_id: string; total: number }>('/api/ontology/cq-benchmark/run', {
+      method: 'POST',
+      body: JSON.stringify({ ontology_id: ontologyId, dataset }),
+    }),
+  /** REQ-346/M146：基准测我报告历史（runs 追加式） */
+  cqBenchmarkReport: (id: string) =>
+    req<{ ontology_id: string; imported_at: string; report: { runs: CqBenchmarkRun[] } }>(
+      `/api/ontologies/${id}/cq-benchmark-report`,
+    ),
   /** REQ-333/M133：NL2SPARQL 受控生成（LLM+只读白名单修复环 ≤2 轮；执行由前端携 NL 走工作台代理落透视） */
   nl2Sparql: (ontologyId: string, question: string) =>
     req<{ ontology_id: string; question: string; query: string; rounds: number; history?: string[] }>('/api/ontology/nl2sparql', {
