@@ -7,6 +7,7 @@ import BuildLayout from './build/BuildLayout'
 import BuildPathGrid from './build/BuildPathGrid'
 import CustomBuildFlow from './build/CustomBuildFlow'
 import KgGuidePage from './build/KgGuidePage'
+import ProductionGuide from './build/ProductionGuide'
 import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/paths'
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,8 @@ import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/path
 //   CustomBuildFlow（S1~S4 子页化+草稿暂存）/ KgGuidePage 见 build/ 拆分；
 //   未工程化路径显示引导卡、不做空壳交互（D-O11）；oo 双轨已退役（66 号，方案 B）。
 //   共享组件 QualityReportCard/SpecGraph/DoneCTA/CatalogPane 复用不动（80 号 U4）。
+//   REQ-334/M134：首页顶部生产动线引导条（导入/构建→质量门禁→发布→运行消费四步，
+//   串质量档案/发布态/消费观测台三段；双模式叙事=动线区分非功能分叉，学习叙事不动）。
 // ---------------------------------------------------------------------------
 
 export default function BuildPage() {
@@ -30,7 +33,12 @@ export default function BuildPage() {
 
   return (
     <BuildLayout buildPath={buildPath} onSelect={select}>
-      {buildPath === 'home' && <BuildPathGrid onSelect={select} />}
+      {buildPath === 'home' && (
+        <>
+          <ProductionGuide onGoBuild={() => select('custom')} />
+          <BuildPathGrid onSelect={select} />
+        </>
+      )}
       {buildPath === 'custom' && (
         <CustomBuildFlow
           onGoKbPath={() => select('kb')}
