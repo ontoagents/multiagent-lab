@@ -37,7 +37,7 @@ type evalResult struct {
 	Relations int     `json:"relations"`
 	StructOK  bool    `json:"struct_ok"`
 	Issues    string  `json:"issues,omitempty"`
-	CQCount   int     `json:"cq_count"`           // REQ-344/OC-5：CQ 质量信号维度（spec.CQ 条数；0=无 CQ——REQ-255/274 遗留的「种子无 CQ」已随种子补 CQ 解除）
+	CQCount   int     `json:"cq_count"` // REQ-344/OC-5：CQ 质量信号维度（spec.CQ 条数；0=无 CQ——REQ-255/274 遗留的「种子无 CQ」已随种子补 CQ 解除）
 }
 
 // structCheck 结构轻量断言（进化「诊断」信号①）。

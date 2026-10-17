@@ -589,9 +589,9 @@ func (s *Server) runOntoCoverageTest(jobID, oid string, sp *pkgspec.Spec, cqs []
 	// REQ-342/OC-2：快筛报告落 artifact cq-test-report（回归基准——报告带 base_version，
 	// 版本超前即过期提示重跑；双轨完整报告由前端并轨后经 PUT cq-test-report 覆盖保存）
 	if rep, merr := json.Marshal(map[string]any{
-		"created_at": time.Now().UTC().Format(time.RFC3339),
+		"created_at":   time.Now().UTC().Format(time.RFC3339),
 		"base_version": s.ontologyVersion(oid),
-		"summary": sum,
+		"summary":      sum,
 	}); merr == nil {
 		_ = s.Store.PutArtifact(oid, "cq-test-report", string(rep), false)
 	}

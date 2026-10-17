@@ -220,7 +220,7 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
 	s.recordIngestScore(id, v, pv.MergedSpec) // REQ-331/M131：入库评分随版本追加（失败不阻断）
-	pv.ImportReport = imp // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
+	pv.ImportReport = imp                     // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv,
 		"overlays_applied": applied, "overlays_skipped": skipped, "notes": notes})
 }
@@ -354,9 +354,9 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 			causes = []string{"文件中没有可识别的本体结构声明（owl:Class/属性声明/实例标记均缺失）"}
 		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": fmt.Sprintf("导入已拒绝：文件含 %d 条语义三元组，但未识别出任何可编辑本体结构（用法推断亦无法补齐）", rc.Remainder),
-			"causes": causes,
-			"hint":   "常见成因：①非 RDF 文件被误判为本体格式 ②全部内容为不支持的形态（如复杂限制表达式无具名结构）——可先在 Protégé 等工具为类型/个体补显式声明后重试",
+			"error":          fmt.Sprintf("导入已拒绝：文件含 %d 条语义三元组，但未识别出任何可编辑本体结构（用法推断亦无法补齐）", rc.Remainder),
+			"causes":         causes,
+			"hint":           "常见成因：①非 RDF 文件被误判为本体格式 ②全部内容为不支持的形态（如复杂限制表达式无具名结构）——可先在 Protégé 等工具为类型/个体补显式声明后重试",
 			"reconciliation": rc,
 		})
 		return
