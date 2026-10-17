@@ -75,7 +75,25 @@ synced: 2026-10-17
 - **OntoEval 数据集 ✅ 远期候选**：1393 CQ 公开数据集是 REQ-347（外部标准基准引入）的候选项之一，与 CQ4OE HF、OAEI 并列；其「人工+LLM 生成混合、刻意含噪声」的构成哲学对种子本体基准集扩条有直接参考价值。
 - **与 87 号 OntoGPT 的关系**：同生态不同环节——OntoGPT 管「抽得准+grounding 实」（构建期），ontoeval/OntoEval 管「评得准」（评估期）；两者在「LLM 不可信环节给确定性工具兜底」的哲学上一致（SPIRES 的 OAKlib grounding ↔ metadiff 的确定性 diff、K4 的 confidence 建议）。
 
-## 六、维护说明
+## 七、谱系×项目实现完备度对照检查（2026-10-17 增补，开发者指令）
+
+> 对 §三表格逐行核对：当前项目实现是否完备、产品设计界面提示是否清晰有条理。依据=代码盘点（qualitygate/evaldata/cqbench/removal_eval 五包+前端 QualityCardPane/QualityReportCard/ProductionGuide/AuditPage）+18 号注册表 REQ 状态。
+
+| 谱系体系 | 项目实现 | 完备度 | 界面承载与提示 | 结论 |
+| --- | --- | --- | --- | --- |
+| OntoEval（CQ 功能满足） | REQ-345 ✅ 基准集（gold terms+E/I/R 三层，扩容后 50 条三层均衡）+cqsignal_eval 三率信号；REQ-346 ✅ cqbench 三端点（datasets/run/report） | ✅ 缩小版完备（v1）；差距=无难度标签/答案级评估留 Judge 共契 | 质量卡「CQ 基准集测我」卡：选集+三率说明+「跨域 gold 对齐率低为预期负信号」解释+报告历史三率表+低对齐行展开明细+版本超前过期提示重跑 | 提示清晰有条理（机制/口径/预期行为三层齐） |
+| ai4curation/ontoeval（agent 行为） | 无对应场景 | ➖ 诚实不建（正确） | 无 | 一致 |
+| CQ4OE（生成质量） | qualitygate 15 项三维（完备/一致/可维护，扣分制权重透明）+REQ-342 ✅ OC-2 覆盖测试站（快筛+SPARQL 精判双轨+回归基准+三级覆盖衔接 81 号）；REQ-347 📋 CQ4OE 数据集适配未领取 | ◐ 结构与功能覆盖在位；CQ4OE 式 gold 对齐五层指标挂 REQ-347 | 覆盖测试站双轨说明（L633）+QualityReportCard 扣分制权重说明+新旧对照 Alert | 清晰；口径与 CQ4OE 的关系由 81 号档承载，界面不重复背 |
+| OntoURL（LLM 本体能力） | 无（远期） | ➖ 正确不做 | 无 | 一致 |
+| OAEI（对齐） | REQ-347 📋（OAEI 挂 REQ-79 对齐链） | 📋 立项未开发（触发驱动纪律内） | 无 | 一致，谱系唯一剩余落地缺口 |
+| OOPS!（结构缺陷） | qualitygate 15 项自研检查覆盖部分同型 pitfall（层级循环/悬空端点/未连接等）+REQ-344 ✅ 交付注「结构维 OOPS! 不引入如实标注」；REQ-331 P2 留「OOPS! 检查档」触发 | ◐ 自研替代部分覆盖，41 类 taxonomy 对标有意不做（已登记去向） | 质量档案：Findings 严重级分组+15 项「怎么改」人话指引+error 前往图形修复+info 方法论入口（REQ-331 修复动线三段跳转） | 提示清晰有条理（评估→动作闭环） |
+
+**总评**：①六个体系没有「该做没做」的悬空——2 个落地（OntoEval 缩小版/OOPS 自研替代）、1 个部分覆盖（CQ4OE 挂 REQ-347）、1 个立项待领取（OAEI 同属 REQ-347）、2 个诚实不做；②界面提示普遍做到「机制说明+口径+预期行为解释」，REQ-334 生产动线「②质量门禁」步骤把评估串进交付路径，条理成立。③可改进三件：
+- **K-界面①（唯一具体缺口）**：基准测我卡未透出「gold 对齐=查询引用 gold 概念 URN，非答案内容比对」语义（REQ-345 诚实边界，仅代码注释 cqbench.go 承载）——用户易误读为答案正确率；建议报告历史表加一句 Tooltip，随 REQ-346 后续轮或 Judge 共契落地。
+- **K-界面②**：基准集无难度分层标签（§四 K5），统计口径防回归噪声可扩展——留基准集下次扩条。
+- **K-界面③**：qualitygate 检查项↔OOPS 41 类映射表不存在（文档/界面均无）——REQ-331 P2「OOPS! 检查档」触发时一并补，当前不预付。
+
+## 八、维护说明
 - 来源：github.com/ai4curation/ontoeval（README+docs 站）、pypi.org/project/ontoeval、arxiv.org/abs/2507.14552（§3/§4/§6/摘要）、arxiv.org/abs/2505.11031、ai4curation.github.io/ontoeval docs（Evaluators/Limitations 节引文为原文直译）。OntoEval 精确指标表未逐值摘录，以论文 §6 为准。
 - 关联：[87 号 OntoGPT](../08_调研预研/项目深度调研/87_OntoGPT深度调研_SPIRES原理与开源实现与借鉴_20261017.md)、[81 号 CQ4OE](./81_CQ4OE深度调研_CQ2Term与CQ2Onto原理与借鉴_20261016.md)、[85 号](./85_测试数据集与基准测试模块必要性分析_20261016.md)、[86 号](../08_调研预研/产品与设计分析/86_本体实现现状体检与不足清单_20261017.md)；登记簿 §六 ai4curation/ontoeval 行+T1-16；15 号 v2.42。
 - 维护者：董奎 × 协作 Agent ｜ 2026-10-17 建
