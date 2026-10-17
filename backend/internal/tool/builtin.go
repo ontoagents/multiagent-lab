@@ -60,12 +60,16 @@ func RegisterBuiltin(r *Registry) error {
 	if err != nil {
 		return fmt.Errorf("infer ask_human tool: %w", err)
 	}
-	return r.Register(&Entry{
+	if err := r.Register(&Entry{
 		ID:          "ask_human",
 		Description: "向用户提问并等待答复（中断恢复，内置）",
 		Source:      SourceBuiltin,
 		New: func(ctx context.Context) (einotool.BaseTool, error) {
 			return ah, nil
 		},
-	})
+	}); err != nil {
+		return err
+	}
+	// REQ-354/M154：OntoChat 工具组（ontochat_start/turn/save）——仅注册不进默认工具集
+	return registerOntoChatTools(r)
 }

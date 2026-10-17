@@ -49,6 +49,8 @@ var DangerousBuiltinTools = map[string]bool{
 	"save_file":  true,
 	"todo_write": true,
 	"http_fetch": true,
+	// REQ-354/M154：ontochat_save 写类内置（对话产物入库为本体资产，资产库变更面）
+	"ontochat_save": true,
 }
 
 // IsDangerousTool REQ-231①：danger 档判定——内置写类 + 连接器/mcp 非 read-only 前缀工具

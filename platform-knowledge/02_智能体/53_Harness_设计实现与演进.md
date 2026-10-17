@@ -2,10 +2,10 @@
 module: 智能体
 topic: Harness 域事实源（设计总纲·实现现状·演进跟踪）
 desc: harness 技术沉淀单一事实点——层职责与代码地图、已交付能力表（REQ/M58 里程碑映射）、演进跟踪（触发驱动项）、开放问题与诚实边界；域内文档导航
-req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330]
+req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-10-16
+synced: 2026-10-17
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -62,6 +62,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 对话过程可观测三整理（「过程」单入口面板=显示档+采集档+关系说明〔答「是否重复」〕/伴生沉淀卡归组〔处理中展开、完成自动收起、手动优先〕/执行树叶级收放〔活跃叶子自动展开执行细节、完成自动收起〕；顺修 live 判定工具执行窗口整树反收+委派归组劈组〔subagent 事件劈 tool.call/result 两组〕→整轮一棵树） | REQ-323 | M125 | ✅ | 真机 GLM 项目委派链+UI 21/21 smoke/req323/ |
 | 伴生沉淀过程呈现解耦（伴生管线过程事件出聊天流进右上角悬浮胶囊 CompanionCapsule〔与 chat-stop 对角对称；started 出现→增量摘要→终态定格淡出可点回→明细面板〕/companion.hit 保留流内〔本职 vs 旁路分界〕/REQ-323 伴生组退役留回放摘要行/live「运行完成」卡改插助手消息之后对齐回放；**前置件=收尾轮询游标修复**——order=desc 最新窗+sawDone 基线闸，治 limit:50+ASC 恒取最老 50 条的盲区〔60 存量+2 新鲜 API 实锤，修复前实测 197 条会话「对话完等很久不显示、切回来才显示」〕） | REQ-330 | M129 | ✅ | 真机 GLM 伴生链+UI 17/17 smoke/req330/ |
 | 对话界面配置归位与会话文件附加（TraceDrawer 去设置化〔显示/治理区退役→过程面板+⋮会话设置；原始 JSON/时序条改轨迹局部开关〕/头部⋮会话设置面板=会话级配置单一入口〔重命名/审批/检索参数/伴生/智能体配置〕方块侧板钮退役/发送框收敛〔模型 chip 退役模型归智能体、伴生迁⋮、/ 触发快速配置、回形针附件上传入工作目录随消息发送〕/智能体默认工作目录〈DB 同级 agent-files/{id}，客户端数据目录内〉） | REQ-336 | M136 | ✅ | UI 20/20 smoke/req336/ |
+| 对话式本体构建工具组（ontochat_start/turn/save 三件——包装构建平面 /api/ontochat/* REST：guided/quick 双模式+202 job 工具内轮询同 ONTOCHAT_LLM_TIMEOUT·超时 job_id 续查+save confirm_note 确认纪律与门禁明细透传；Registry 注册**不进任何默认 agent 工具集**、Agent.Tools 显式勾选生效；ontochat_save 入 REQ-231① 危险清单 danger 档同审=审批双保险；BUILD_SVC_URL 直连双进程可用+不可达诚实回执；引导段模板落 platform-knowledge/04_本体/02_构建.md） | REQ-354 | M154 | ✅（2026-10-17 领取交付：真机 GLM 全链〔quick 访谈→CQ 列号确认→58.7s 草稿 98.95→save 201+quality-history 双行〕+审批链真机〔all 档 run.interrupted 挂起→resume approve 执行〕+headless 8/8 smoke/req354/） | 单测 7 组+22 包绿+真机+8/8 |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 
