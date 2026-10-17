@@ -75,7 +75,7 @@ synced: 2026-10-17
 - **OntoEval 数据集 ✅ 远期候选**：1393 CQ 公开数据集是 REQ-347（外部标准基准引入）的候选项之一，与 CQ4OE HF、OAEI 并列；其「人工+LLM 生成混合、刻意含噪声」的构成哲学对种子本体基准集扩条有直接参考价值。
 - **与 87 号 OntoGPT 的关系**：同生态不同环节——OntoGPT 管「抽得准+grounding 实」（构建期），ontoeval/OntoEval 管「评得准」（评估期）；两者在「LLM 不可信环节给确定性工具兜底」的哲学上一致（SPIRES 的 OAKlib grounding ↔ metadiff 的确定性 diff、K4 的 confidence 建议）。
 
-## 七、谱系×项目实现完备度对照检查（2026-10-17 增补，开发者指令）
+## 六、谱系×项目实现完备度对照检查（2026-10-17 增补，开发者指令）
 
 > 对 §三表格逐行核对：当前项目实现是否完备、产品设计界面提示是否清晰有条理。依据=代码盘点（qualitygate/evaldata/cqbench/removal_eval 五包+前端 QualityCardPane/QualityReportCard/ProductionGuide/AuditPage）+18 号注册表 REQ 状态。
 
@@ -93,7 +93,7 @@ synced: 2026-10-17
 - **K-界面②**：基准集无难度分层标签（§四 K5），统计口径防回归噪声可扩展——留基准集下次扩条。
 - **K-界面③**：qualitygate 检查项↔OOPS 41 类映射表不存在（文档/界面均无）——REQ-331 P2「OOPS! 检查档」触发时一并补，当前不预付。
 
-## 八、维护说明
+## 七、维护说明
 - 来源：github.com/ai4curation/ontoeval（README+docs 站）、pypi.org/project/ontoeval、arxiv.org/abs/2507.14552（§3/§4/§6/摘要）、arxiv.org/abs/2505.11031、ai4curation.github.io/ontoeval docs（Evaluators/Limitations 节引文为原文直译）。OntoEval 精确指标表未逐值摘录，以论文 §6 为准。
 - 关联：[87 号 OntoGPT](../08_调研预研/项目深度调研/87_OntoGPT深度调研_SPIRES原理与开源实现与借鉴_20261017.md)、[81 号 CQ4OE](./81_CQ4OE深度调研_CQ2Term与CQ2Onto原理与借鉴_20261016.md)、[85 号](./85_测试数据集与基准测试模块必要性分析_20261016.md)、[86 号](../08_调研预研/产品与设计分析/86_本体实现现状体检与不足清单_20261017.md)；登记簿 §六 ai4curation/ontoeval 行+T1-16；15 号 v2.42。
 - 维护者：董奎 × 协作 Agent ｜ 2026-10-17 建
