@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, DatePicker, Menu, Popconfirm, Result, Segmented, Space, Splitter, Table, Tag, Typography } from 'antd'
+import { Alert, Button, DatePicker, Menu, Popconfirm, Result, Segmented, Space, Splitter, Table, Tag, Typography, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
+import { DownloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { ProviderGroupMeta } from '../api/client'
 import HintIcon from './settings/HintIcon'
@@ -700,6 +701,33 @@ function SecurityPanel() {
       showToast(e.message, 'err')
     }
   }
+  // M23①：配置面导入/导出（四域 JSON；key 脱敏——连接导入后需重录 key）
+  const exportSettings = async () => {
+    try {
+      const data = await api.settingsExport()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `multiagent-lab-settings-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      showToast('配置已导出（模型连接 key 不含在内——导入后需重录）')
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+  const importSettings = async (file: File) => {
+    try {
+      const text = await file.text()
+      const payload = JSON.parse(text)
+      const r = await api.settingsImport(payload)
+      const lines = Object.entries(r.imported).map(([domain, s2]) => `${domain}：新建 ${s2.created} · 跳过 ${s2.skipped.length} · 失败 ${s2.failed}`)
+      showToast(`配置导入完成——${lines.join('；')}（模型连接需手工重录 key）`)
+      setTick((t) => t + 1)
+    } catch (e: any) {
+      showToast(e?.message ?? '导入失败（文件格式不正确？）', 'err')
+    }
+  }
   const delProject = async (p: { id: string; name: string; conversations: number }) => {
     try {
       await api.deleteProject(p.id)
@@ -720,6 +748,27 @@ function SecurityPanel() {
           数据与安全
           <HintIcon text="全部数据存于本机 SQLite 单文件（密钥 AES-256-GCM 加密）；删除对话/项目会级联删除其下数据，操作前请确认级联范围。API Key 只能整库管理，无单独导出。" />
         </Typography.Title>
+      </div>
+      {/* M23①：配置面导入/导出（REQ-113 互补——配置面 vs 记录面；换机/备份） */}
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-testid="settings-import-export">
+        <Button icon={<DownloadOutlined />} onClick={exportSettings} data-testid="settings-export-btn">
+          导出配置
+        </Button>
+        <Upload
+          accept=".json"
+          showUploadList={false}
+          beforeUpload={(file: any) => {
+            void importSettings(file)
+            return false
+          }}
+        >
+          <Button icon={<UploadOutlined />} data-testid="settings-import-btn">
+            导入配置
+          </Button>
+        </Upload>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          智能体 / 项目 / 模型连接 / 技能 四域 JSON（换机与备份；key 脱敏不导出——连接导入后需重录密钥；同名配置跳过不覆盖）
+        </Typography.Text>
       </div>
       <div className="usage-summary" style={{ marginTop: 12 }}>
         {[

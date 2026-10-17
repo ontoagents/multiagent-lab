@@ -635,6 +635,14 @@ export const api = {
   /** SPARQL 工作台：POST application/sparql-query；非 running → 409；状态码/错误透传引擎；accept 可覆盖（CONSTRUCT/DESCRIBE 传 text/turtle） */
   runSparql: (profileId: string, query: string, accept?: string, nl?: string) =>
     reqSparql(`/api/runtime-profiles/${profileId}/sparql`, query, accept, nl),
+  /** M23①：配置面导出（四域 JSON；key 脱敏不导出）——Blob 下载由调用方处理 */
+  settingsExport: () => req<Record<string, unknown>>('/api/settings/export'),
+  /** M23①：配置面导入（同形态文件；按名去重保守导入，连接不带 key 需重录） */
+  settingsImport: (payload: unknown) =>
+    req<{ imported: Record<string, { created: number; skipped: string[]; failed: number; errors?: string[] }> }>('/api/settings/import', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   /** REQ-346/M146：CQ 基准集清单（seeds/evaldata/ontology-cq/ 管理面） */
   cqBenchmarkDatasets: () =>
     req<{ datasets: { name: string; ontology: string; count: number; note?: string }[]; count: number }>(
