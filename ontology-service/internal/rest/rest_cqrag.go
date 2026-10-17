@@ -97,13 +97,14 @@ func (s *Server) cqragDraft(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
-	go s.runCQRAGDraft(job, oid, target, cqs, profile, topK, req.SkipPrecheck)
+	go s.runCQRAGDraft(job, oid, target, ontorag.SpecFingerprint(raw), cqs, profile, topK, req.SkipPrecheck)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
 }
 
 // runCQRAGDraft 后台执行三段式：索引检索 → 逐 CQ 生成（两阶段校验）→ 去重合并 → 检索日志落 artifact。
 // 段留痕经 buildflow（cq-rag-draft 实例）；审查/入库由前端走通用 merge 端点（REQ-157，版本快照）。
-func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, cqs []string, profile string, topK int, skipPrecheck bool) {
+// specFP=目标 spec 内容指纹（向量化结果按其缓存，84 号 A2/86 号 N3——同 spec 重跑不再重调 embedding）。
+func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, specFP string, cqs []string, profile string, topK int, skipPrecheck bool) {
 	started := time.Now()
 	setProgress := func(msg string) {
 		draftJobsMu.Lock()
@@ -124,6 +125,10 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 		}},
 		// Retriever：元素级抽取 + 管道符序列化 + 向量索引（论文第一段；单机暴力内积等价 FAISS IP）
 		buildflow.Segment{Stage: buildflow.StageExtract, Run: func(ctx context.Context) (string, error) {
+			if els, vecs, ok := s.vecCache.Get(oid, specFP); ok {
+				elements, vectors = els, vecs
+				return fmt.Sprintf("元素 %d 个命中向量缓存（spec 未变更，跳过 embedding）", len(els)), nil
+			}
 			setProgress("目标本体元素向量化中")
 			client := ontorag.NewClient(s.LLM.PlatformURL)
 			els, vecs, err := client.Index(ctx, oid, target)
@@ -131,6 +136,7 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 				return "", err
 			}
 			elements, vectors = els, vecs
+			s.vecCache.Put(oid, specFP, els, vecs)
 			return fmt.Sprintf("元素 %d 个向量化（概念/关系/数据属性）", len(els)), nil
 		}},
 		// REQ-344/OE-5：CQ 质量预检（可答性/原子性/具体性——N9 信号「框架不能补救坏需求」；

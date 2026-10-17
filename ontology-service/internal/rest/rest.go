@@ -18,6 +18,7 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontorag"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/pipeline"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
@@ -35,6 +36,8 @@ type Server struct {
 	evoDB      *evolution.Store    // REQ-207/M43：进化候选（惰性初始化）
 	vocab      *vocabsearch.Client // REQ-171 P1：LOV 词表搜索（惰性初始化；LOV_API_BASE 可注入测试桩）
 
+	vecCache *ontorag.VectorCache // CQ 扩展元素向量缓存（84 号 A2/86 号 N3：按 spec 指纹命中，进程内）
+
 	jobCancelsMu sync.Mutex
 	// jobCancels OntoChat 生成 job 的运行期取消句柄（jobID→cancel；终态后摘除）。
 	// job 状态本体在 SQLite（ontochat_job，重启可恢复）；此 map 仅运行期句柄，缺失时取消走收敛兜底。
@@ -43,7 +46,7 @@ type Server struct {
 
 func New(st *repo.Store, sc *importer.Sidecar, llm *llmcreate.Creator) *Server {
 	return &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm},
-		jobCancels: map[string]context.CancelFunc{}}
+		vecCache: ontorag.NewVectorCache(0), jobCancels: map[string]context.CancelFunc{}}
 }
 
 // Mount 注册到主平台兼容的 1.22 pattern mux。
