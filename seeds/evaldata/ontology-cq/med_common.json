@@ -1,9 +1,9 @@
 {
-  "note": "REQ-345/M145 CQ 基准集（med_common）：gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/med_common.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "note": "REQ-345/M145 CQ 基准集（med_common）· N2 扩容：每本体 10 条=4R+3E+3I 三层均衡（原 3 条全 R 层统计噪声过大）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应，I 层另有实例断言锚点）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/med_common.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
   "ontology": "med_common",
   "cqs": [
     {
-      "id": "med-cq-1",
+      "id": "med_common-cq-1",
       "cq": "哪些药物可用于治疗高血压？",
       "gold": [
         "药物",
@@ -13,7 +13,7 @@
       "type": "R"
     },
     {
-      "id": "med-cq-2",
+      "id": "med_common-cq-2",
       "cq": "某疾病有哪些典型症状？",
       "gold": [
         "疾病",
@@ -23,7 +23,7 @@
       "type": "R"
     },
     {
-      "id": "med-cq-3",
+      "id": "med_common-cq-3",
       "cq": "某药物的用药禁忌疾病是什么？",
       "gold": [
         "药物",
@@ -31,6 +31,78 @@
         "疾病"
       ],
       "type": "R"
+    },
+    {
+      "id": "med_common-cq-4",
+      "cq": "某药物与哪些药物存在相互作用？",
+      "gold": [
+        "药物",
+        "相互作用"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "med_common-cq-5",
+      "cq": "心血管用药有哪些类别？",
+      "gold": [
+        "心血管用药",
+        "抗高血压药",
+        "钙通道阻滞剂",
+        "利尿剂"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "med_common-cq-6",
+      "cq": "检查手段有哪些类型？",
+      "gold": [
+        "检查",
+        "实验室检查",
+        "影像学检查",
+        "体格检查"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "med_common-cq-7",
+      "cq": "抗菌药物有哪些类别？",
+      "gold": [
+        "抗菌药物",
+        "青霉素类抗生素",
+        "大环内酯类抗生素",
+        "喹诺酮类抗菌药"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "med_common-cq-8",
+      "cq": "阿司匹林禁忌于哪些疾病？",
+      "gold": [
+        "药物",
+        "禁忌于",
+        "疾病"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "med_common-cq-9",
+      "cq": "布洛芬能治疗哪些疾病？",
+      "gold": [
+        "药物",
+        "治疗",
+        "疾病"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "med_common-cq-10",
+      "cq": "对乙酰氨基酚能缓解哪些症状？",
+      "gold": [
+        "药物",
+        "缓解",
+        "症状"
+      ],
+      "type": "I"
     }
   ]
 }

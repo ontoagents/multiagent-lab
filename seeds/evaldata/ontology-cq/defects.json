@@ -1,5 +1,5 @@
 {
-  "note": "REQ-345/M145 CQ 基准集（defects）：gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/defects.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "note": "REQ-345/M145 CQ 基准集（defects）· N2 扩容：每本体 10 条=4R+3E+3I 三层均衡（原 3 条全 R 层统计噪声过大）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应，I 层另有实例断言锚点）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/defects.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
   "ontology": "defects",
   "cqs": [
     {
@@ -31,6 +31,79 @@
         "缺陷"
       ],
       "type": "R"
+    },
+    {
+      "id": "defects-cq-4",
+      "cq": "某个测试用例验证哪些缺陷？",
+      "gold": [
+        "测试用例",
+        "验证",
+        "缺陷"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "defects-cq-5",
+      "cq": "缺陷管理领域有哪些核心概念？",
+      "gold": [
+        "项目",
+        "迭代",
+        "需求",
+        "缺陷",
+        "测试用例",
+        "人员"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "defects-cq-6",
+      "cq": "描述人员职责活动涉及哪些概念？",
+      "gold": [
+        "人员",
+        "项目",
+        "缺陷"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "defects-cq-7",
+      "cq": "需求到缺陷的追溯涉及哪些概念？",
+      "gold": [
+        "需求",
+        "缺陷",
+        "迭代"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "defects-cq-8",
+      "cq": "bug-1042 是谁提交的？",
+      "gold": [
+        "人员",
+        "提交",
+        "缺陷"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "defects-cq-9",
+      "cq": "tc-pay-01 验证的是哪个缺陷？",
+      "gold": [
+        "测试用例",
+        "验证",
+        "缺陷"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "defects-cq-10",
+      "cq": "张伟负责哪些项目？",
+      "gold": [
+        "人员",
+        "负责",
+        "项目"
+      ],
+      "type": "I"
     }
   ]
 }

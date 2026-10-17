@@ -1,9 +1,9 @@
 {
-  "note": "REQ-345/M145 CQ 基准集（gene_core）：gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/gene_core.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "note": "REQ-345/M145 CQ 基准集（gene_core）· N2 扩容：每本体 10 条=4R+3E+3I 三层均衡（原 3 条全 R 层统计噪声过大）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应，I 层另有实例断言锚点）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/gene_core.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
   "ontology": "gene_core",
   "cqs": [
     {
-      "id": "gene-cq-1",
+      "id": "gene_core-cq-1",
       "cq": "某个基因转录出哪些转录本？",
       "gold": [
         "基因",
@@ -13,7 +13,7 @@
       "type": "R"
     },
     {
-      "id": "gene-cq-2",
+      "id": "gene_core-cq-2",
       "cq": "某蛋白编码基因定位于哪些染色体区域？",
       "gold": [
         "基因",
@@ -23,7 +23,7 @@
       "type": "R"
     },
     {
-      "id": "gene-cq-3",
+      "id": "gene_core-cq-3",
       "cq": "某个转录本翻译出哪些蛋白质？",
       "gold": [
         "转录本",
@@ -31,6 +31,80 @@
         "蛋白质"
       ],
       "type": "R"
+    },
+    {
+      "id": "gene_core-cq-4",
+      "cq": "某个基因参与哪些通路？",
+      "gold": [
+        "基因",
+        "参与通路",
+        "通路"
+      ],
+      "type": "R"
+    },
+    {
+      "id": "gene_core-cq-5",
+      "cq": "基因有哪些主要分类？",
+      "gold": [
+        "基因",
+        "蛋白编码基因",
+        "非编码RNA基因",
+        "伪基因"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "gene_core-cq-6",
+      "cq": "转录本有哪些类型？",
+      "gold": [
+        "转录本",
+        "信使RNA",
+        "微RNA",
+        "长链非编码RNA",
+        "环状RNA"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "gene_core-cq-7",
+      "cq": "蛋白质按功能有哪些类别？",
+      "gold": [
+        "蛋白质",
+        "酶",
+        "转录因子",
+        "信号蛋白",
+        "受体"
+      ],
+      "type": "E"
+    },
+    {
+      "id": "gene_core-cq-8",
+      "cq": "TP53 调控哪些基因？",
+      "gold": [
+        "基因",
+        "调控"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "gene_core-cq-9",
+      "cq": "TP53 定位于哪条染色体带？",
+      "gold": [
+        "基因",
+        "定位于",
+        "染色体带"
+      ],
+      "type": "I"
+    },
+    {
+      "id": "gene_core-cq-10",
+      "cq": "EGFR 参与哪些信号转导通路？",
+      "gold": [
+        "基因",
+        "参与通路",
+        "信号转导通路"
+      ],
+      "type": "I"
     }
   ]
 }
