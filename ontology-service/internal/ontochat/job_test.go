@@ -22,6 +22,7 @@ func newJobTestStore(t *testing.T) *Store {
 		`CREATE TABLE IF NOT EXISTS ontochat_session (
 			id TEXT PRIMARY KEY, title TEXT, stage TEXT, round INTEGER,
 			messages TEXT, context_json TEXT, ontology_id TEXT DEFAULT '',
+			source TEXT NOT NULL DEFAULT 'page', agent_id TEXT NOT NULL DEFAULT '',
 			created_at TEXT, updated_at TEXT)`,
 		`CREATE TABLE IF NOT EXISTS ontochat_job (
 			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',

@@ -46,8 +46,12 @@ type Session struct {
 	Messages   []Message `json:"messages"`
 	Context    Context   `json:"context"`
 	OntologyID string    `json:"ontology_id,omitempty"`
-	CreatedAt  string    `json:"created_at"`
-	UpdatedAt  string    `json:"updated_at"`
+	// 归属审计两列（REQ-354/P2·G4，迁移 046）：page=页面流程（缺省）；agent_chat=智能体对话
+	// （ontochat_start 经 tool.Caller 注入 agent_id）——「哪个智能体产了哪些本体」可审计。
+	Source    string    `json:"source"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 }
 
 // Store SQLite 存储（复用 repo.Store 的连接）。
@@ -59,12 +63,20 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// Create 新建会话（stage=cq）。
+// Create 新建会话（stage=cq；source=page 页面流程缺省）。
 func (s *Store) Create(id, title string) (*Session, error) {
+	return s.CreateSourced(id, title, "page", "")
+}
+
+// CreateSourced 新建会话并落归属审计两列（REQ-354/P2·G4；source 白名单外值归 page）。
+func (s *Store) CreateSourced(id, title, source, agentID string) (*Session, error) {
+	if source != "page" && source != "agent_chat" {
+		source = "page"
+	}
 	ts := now()
 	_, err := s.db.Exec(
-		`INSERT INTO ontochat_session (id, title, stage, round, messages, context_json, created_at, updated_at)
-		 VALUES (?, ?, 'cq', 0, '[]', '{}', ?, ?)`, id, title, ts, ts)
+		`INSERT INTO ontochat_session (id, title, stage, round, messages, context_json, source, agent_id, created_at, updated_at)
+		 VALUES (?, ?, 'cq', 0, '[]', '{}', ?, ?, ?, ?)`, id, title, source, agentID, ts, ts)
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +86,12 @@ func (s *Store) Create(id, title string) (*Session, error) {
 // Get 读取会话；不存在 → repo.ErrNotFound。
 func (s *Store) Get(id string) (*Session, error) {
 	row := s.db.QueryRow(
-		`SELECT id, title, stage, round, messages, context_json, ontology_id, created_at, updated_at
+		`SELECT id, title, stage, round, messages, context_json, ontology_id, source, agent_id, created_at, updated_at
 		 FROM ontochat_session WHERE id = ?`, id)
 	var sess Session
 	var rawMsgs, rawCtx, ontoID sql.NullString
-	if err := row.Scan(&sess.ID, &sess.Title, &sess.Stage, &sess.Round, &rawMsgs, &rawCtx, &ontoID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	if err := row.Scan(&sess.ID, &sess.Title, &sess.Stage, &sess.Round, &rawMsgs, &rawCtx, &ontoID,
+		&sess.Source, &sess.AgentID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -97,7 +110,7 @@ func (s *Store) Get(id string) (*Session, error) {
 // List 会话列表（按更新时间倒序；不含消息体，列表页轻量）。
 func (s *Store) List() ([]Session, error) {
 	rows, err := s.db.Query(
-		`SELECT id, title, stage, round, ontology_id, created_at, updated_at
+		`SELECT id, title, stage, round, ontology_id, source, agent_id, created_at, updated_at
 		 FROM ontochat_session ORDER BY updated_at DESC, id DESC`)
 	if err != nil {
 		return nil, err
@@ -107,7 +120,8 @@ func (s *Store) List() ([]Session, error) {
 	for rows.Next() {
 		var sess Session
 		var ontoID sql.NullString
-		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Stage, &sess.Round, &ontoID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Stage, &sess.Round, &ontoID,
+			&sess.Source, &sess.AgentID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 			return nil, err
 		}
 		sess.OntologyID = ontoID.String

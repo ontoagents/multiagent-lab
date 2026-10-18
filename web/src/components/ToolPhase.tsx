@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { useUI } from '../store/ui'
 import './tool-phase.css'
 
 /** 一次工具调用（call/result 合并后） */
@@ -81,6 +82,44 @@ function summarizeArgs(args: unknown): string {
 function truncate(s: string, n: number): string {
   const t = String(s).replace(/\s+/g, ' ').trim()
   return t.length > n ? t.slice(0, n) + '…' : t
+}
+
+/** REQ-354/P2 跨动线深链（G3，92 号 §6 P2①）：ontochat_* 工具结果附构建平面跳转——
+ *  start/turn 有 session_id → 「前往构建页面继续精修」（OntoChat 流程页续接会话，REQ-338 快照链）；
+ *  save 有 asset_id → 「打开本体资产」。跳转=写跨栏记忆 + onto-sidebar-change 事件 + 切模块
+ *  （沿 AgentCompanionManage「打开本体资产」同款四行动线）。 */
+function ontochatDeepLink(call: ToolCallRow): { label: string; go: () => void } | null {
+  if (!call.name.startsWith('ontochat_') || !call.result || call.err) return null
+  let out: { error?: string; session_id?: string; asset_id?: string }
+  try {
+    out = JSON.parse(call.result)
+  } catch {
+    return null
+  }
+  if (!out || out.error) return null
+  const jump = (sidebar: string, pairs: Array<[string, string]>) => {
+    localStorage.setItem('eino.onto.sidebar', sidebar)
+    for (const [k, v] of pairs) localStorage.setItem(k, v)
+    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+    useUI.getState().setPage('ontology')
+  }
+  if (typeof out.asset_id === 'string' && out.asset_id) {
+    return {
+      label: '打开本体资产',
+      go: () => jump('assets', [['eino.onto.asset.focus', out.asset_id!]]),
+    }
+  }
+  if (typeof out.session_id === 'string' && out.session_id) {
+    return {
+      label: '前往构建页面继续精修',
+      go: () =>
+        jump('build', [
+          ['eino.onto.buildPath', 'ontochat'],
+          ['eino.ontochat.session.focus', out.session_id!],
+        ]),
+    }
+  }
+  return null
 }
 
 const isToolEv = (t?: string) => t === 'tool.call' || t === 'tool.result'
@@ -215,6 +254,7 @@ function ToolLine({ call, pending }: { call: ToolCallRow; pending?: boolean }) {
   const isLiveRunning = call.running && !pending
   const dotCls = isLiveRunning ? 'run' : pending ? 'pend' : call.err ? 'bad' : 'ok'
   const dotTxt = isLiveRunning ? '' : pending ? '–' : call.err ? '✕' : '✓'
+  const deepLink = ontochatDeepLink(call)
 
   // 执行中：入参超宽时自动来回滚动（随流式补全周期重测），单行内刷新
   useEffect(() => {
@@ -256,6 +296,20 @@ function ToolLine({ call, pending }: { call: ToolCallRow; pending?: boolean }) {
         {isLiveRunning && <span className="tool-running-hint">执行中…</span>}
         <span className={`tool-caret${open ? ' open' : ''}`} />
       </div>
+      {deepLink && (
+        <div className="tool-line-links">
+          <a
+            className="tool-deeplink"
+            data-testid="ontochat-deeplink"
+            onClick={(e) => {
+              e.preventDefault()
+              deepLink.go()
+            }}
+          >
+            🔗 {deepLink.label} →
+          </a>
+        </div>
+      )}
       {open && (
         <pre className="tool-raw">
           {call.args ? `入参：${prettyJson(call.args)}\n` : ''}

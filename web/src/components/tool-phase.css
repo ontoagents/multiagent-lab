@@ -157,3 +157,17 @@
   color: #9333ea;
   padding: 2px 0 2px 4px;
 }
+
+/* REQ-354/P2：ontochat_* 工具行深链（对话→构建页面续作 / 资产详情） */
+.tool-line-links {
+  margin: 1px 0 4px 26px;
+}
+.tool-deeplink {
+  font-size: 11px;
+  color: var(--ant-color-primary, #1677ff);
+  cursor: pointer;
+  user-select: none;
+}
+.tool-deeplink:hover {
+  text-decoration: underline;
+}

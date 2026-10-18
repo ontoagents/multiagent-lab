@@ -22,6 +22,7 @@ func TestSessionPersistenceAcrossReopen(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ontochat_session (
 		id TEXT PRIMARY KEY, title TEXT, stage TEXT, round INTEGER,
 		messages TEXT, context_json TEXT, ontology_id TEXT DEFAULT '',
+		source TEXT NOT NULL DEFAULT 'page', agent_id TEXT NOT NULL DEFAULT '',
 		created_at TEXT, updated_at TEXT)`); err != nil {
 		t.Fatal(err)
 	}

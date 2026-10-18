@@ -256,6 +256,13 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
+	// REQ-354/P2·G4：调用者身份入 ctx（ontochat 工具组落构建平面审计两列的数据源；
+	// 纯附加值，装配与编排行为零变化——沿 WithEventSink 注入先例）
+	if agent != nil {
+		ctx = tool.WithCaller(ctx, tool.CallerInfo{
+			AgentID: agent.ID, AgentName: agent.Name, ConversationID: conv.ID, Scope: conv.Scope,
+		})
+	}
 
 	rt, err := s.Assembler.Assemble(ctx, agent, conv)
 	if err != nil {
@@ -1052,6 +1059,12 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
+	// REQ-354/P2·G4：调用者身份入 ctx（同 runOnce——恢复重入路径的工具调用同源可审计）
+	if agent != nil {
+		ctx = tool.WithCaller(ctx, tool.CallerInfo{
+			AgentID: agent.ID, AgentName: agent.Name, ConversationID: conv.ID, Scope: conv.Scope,
+		})
+	}
 
 	rt, err := s.Assembler.Assemble(ctx, agent, conv)
 	if err != nil {

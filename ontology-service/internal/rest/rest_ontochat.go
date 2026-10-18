@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
@@ -32,14 +34,23 @@ func (s *Server) listOntoChatSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, sessions)
 }
 
-// createOntoChatSession POST /api/ontochat/sessions {title?} → 201 新会话（stage=cq）
+// createOntoChatSession POST /api/ontochat/sessions {title?, source?, agent_id?} → 201 新会话（stage=cq）。
+// source/agent_id 为 REQ-354/P2·G4 归属审计两列：智能体工具组（ontochat_start）传
+// source=agent_chat+发起智能体 id；页面流程不传（缺省 page）。source 白名单外值归 page。
 func (s *Server) createOntoChatSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title string `json:"title"`
-		Mode  string `json:"mode"` // REQ-275 定案①：guided=访谈模式（story 阶段起）；缺省 quick=快速模式（cq 起，现状）
+		Title   string `json:"title"`
+		Mode    string `json:"mode"` // REQ-275 定案①：guided=访谈模式（story 阶段起）；缺省 quick=快速模式（cq 起，现状）
+		Source  string `json:"source"`
+		AgentID string `json:"agent_id"`
 	}
 	_ = decodeJSON(r, &req) // body 可省略
-	sess, err := s.ontoChatStore().Create(newID(), strings.TrimSpace(req.Title))
+	agentID := strings.TrimSpace(req.AgentID)
+	if len(agentID) > 128 { // 审计列防御性截断（id 形态远短于此）
+		agentID = agentID[:128]
+	}
+	sess, err := s.ontoChatStore().CreateSourced(newID(), strings.TrimSpace(req.Title),
+		strings.TrimSpace(req.Source), agentID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -880,6 +891,40 @@ func (s *Server) ontoChatDrafts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, vs)
+}
+
+// ontoChatSessionExport GET /api/ontochat/sessions/{id}/export → 会话草稿 Turtle 直出
+// （REQ-354/P2：ontochat_export_ttl 工具数据源——智能体对话内导出草稿 TTL 备选路径，
+// 92 号 §6 P2③「复用 REQ-328 导出先例」；spec→TTL 走 Go 导出器单源，与资产导出同一实现）。
+// X-Onto-Source: ontochat_draft 诚实标注数据源=对话草稿（非入库资产，无 axioms-raw 余量账本可拼）。
+func (s *Server) ontoChatSessionExport(w http.ResponseWriter, r *http.Request) {
+	st := s.ontoChatStore()
+	sess, err := st.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if sess.Context.DraftSpec == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "会话尚无草稿：请先生成草稿再导出（TTL 导出对象是当前草稿）"})
+		return
+	}
+	var sp pkgspec.Spec
+	if err := json.Unmarshal(*sess.Context.DraftSpec, &sp); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "草稿解析失败: " + err.Error()})
+		return
+	}
+	ttl, triples, err := importer.ExportTTLCount(sess.ID, &sp)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_draft.ttl", sess.ID))
+	if triples >= 0 {
+		w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
+	}
+	w.Header().Set("X-Onto-Source", "ontochat_draft") // REQ-354/P2：数据源诚实标注（对话草稿，非入库资产）
+	_, _ = w.Write([]byte(ttl))
 }
 
 // ontoChatStore 惰性初始化会话存储（表由 migrations/003_ontochat.sql 建）。

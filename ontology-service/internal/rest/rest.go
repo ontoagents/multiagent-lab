@@ -159,6 +159,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontochat/prompts", s.listOntoChatPrompts)
 	// REQ-338③：草稿版本链（中断续作/跨设备/审计回放取数口）
 	m.HandleFunc("GET /api/ontochat/sessions/{id}/drafts", s.ontoChatDrafts)
+	// REQ-354/P2：会话草稿 Turtle 直出（ontochat_export_ttl 工具数据源，X-Onto-Source: ontochat_draft）
+	m.HandleFunc("GET /api/ontochat/sessions/{id}/export", s.ontoChatSessionExport)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

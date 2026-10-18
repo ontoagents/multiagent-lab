@@ -1,4 +1,6 @@
 // REQ-354/M154 OntoChat 能力赋予智能体：对话式本体构建工具组（ontochat_start/turn/save）。
+// P2（M160）增补：ontochat_export_ttl 草稿 TTL 导出（只读）+会话归属审计（start 经 tool.Caller
+// 落构建平面 source/agent_id 两列）。
 // 包装构建平面既有 /api/ontochat/* REST（92 号 §5.3 设计）——旁路三原则：
 // ①只发起 HTTP 调用不进 runner 主链路；②注册进 Registry 但不进任何默认 agent 工具集
 // （Agent.Tools 显式勾选才生效）；③零新表零新状态，会话与产物全由构建平面存储承载。
@@ -50,32 +52,38 @@ func ontoChatBudget() time.Duration {
 
 // ontoCall 单次构建平面调用（错误回执文本化，不炸 run；不伪造结果）。
 func ontoCall(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	status, _, bts, err := ontoCallHdr(ctx, method, path, body)
+	return status, bts, err
+}
+
+// ontoCallHdr 同 ontoCall 并回传响应头（export 工具读 X-Onto-Triples 计数头用）。
+func ontoCallHdr(ctx context.Context, method, path string, body any) (int, http.Header, []byte, error) {
 	url := ontoChatBaseURL() + path
 	var rd io.Reader
 	if body != nil {
 		bts, err := json.Marshal(body)
 		if err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		rd = bytes.NewReader(bts)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, url, rd)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
 	if err != nil {
-		return resp.StatusCode, nil, err
+		return resp.StatusCode, resp.Header, nil, err
 	}
-	return resp.StatusCode, b, nil
+	return resp.StatusCode, resp.Header, b, nil
 }
 
 func ontoErr(format string, a ...any) string {
@@ -225,7 +233,14 @@ func ontoStartFn(ctx context.Context, in ontoStartIn) (*ontoStartOut, error) {
 	if mode != "guided" && mode != "quick" {
 		return &ontoStartOut{Error: fmt.Sprintf("mode 仅支持 guided/quick，收到 %q", in.Mode)}, nil
 	}
-	status, body, err := ontoCall(ctx, http.MethodPost, "/api/ontochat/sessions", map[string]string{"title": topic, "mode": mode})
+	// REQ-354/P2·G4：会话归属审计两列——调用者身份（tool.WithCaller 注入）随建会话落
+	// 构平面 source=agent_chat+agent_id；非运行期（无身份）不传，构建平面缺省归 page。
+	payload := map[string]string{"title": topic, "mode": mode}
+	if ci, ok := CallerFrom(ctx); ok && ci.AgentID != "" {
+		payload["source"] = "agent_chat"
+		payload["agent_id"] = ci.AgentID
+	}
+	status, body, err := ontoCall(ctx, http.MethodPost, "/api/ontochat/sessions", payload)
 	if err != nil {
 		return &ontoStartOut{Error: ontoErr("%v", err)}, nil
 	}
@@ -515,6 +530,62 @@ func ontoSaveFn(ctx context.Context, in ontoSaveIn) (*ontoSaveOut, error) {
 
 // ---------------------------------------------------------------------------
 
+// ontoExportTTLCap 工具输出 TTL 上限（模型上下文保护；超出截断并如实标注——
+// 全文可经深链在构建平面/资产页获取）。
+const ontoExportTTLCap = 24 << 10
+
+type ontoExportIn struct {
+	SessionID string `json:"session_id" jsonschema:"required"`
+}
+
+type ontoExportOut struct {
+	Error        string `json:"error,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	Triples      int    `json:"triples,omitempty"`
+	TTL          string `json:"ttl,omitempty"`
+	Truncated    bool   `json:"truncated,omitempty"`
+	SavedAssetID string `json:"saved_asset_id,omitempty"` // 会话已入库时回填（资产页有权威导出）
+	Hint         string `json:"hint,omitempty"`
+}
+
+// ontoExportTTLFn 草稿 TTL 导出（REQ-354/P2③：构建平面 GET sessions/{id}/export——
+// spec→TTL Go 导出器与资产导出同一实现，X-Onto-Source: ontochat_draft）。
+// 只读动作：导出≠入库，无质量门禁环节——入库仍须走 ontochat_save（确认纪律不豁免）。
+func ontoExportTTLFn(ctx context.Context, in ontoExportIn) (*ontoExportOut, error) {
+	status, hdr, body, err := ontoCallHdr(ctx, http.MethodGet,
+		"/api/ontochat/sessions/"+in.SessionID+"/export", nil)
+	if err != nil {
+		return &ontoExportOut{Error: ontoErr("%v", err)}, nil
+	}
+	if status != http.StatusOK {
+		msg, _ := ontoDecodeErr(status, body)
+		return &ontoExportOut{Error: msg}, nil
+	}
+	out := &ontoExportOut{SessionID: in.SessionID, TTL: string(body)}
+	if n, cerr := strconv.Atoi(hdr.Get("X-Onto-Triples")); cerr == nil && n > 0 {
+		out.Triples = n
+	}
+	if len(out.TTL) > ontoExportTTLCap {
+		out.TTL = out.TTL[:ontoExportTTLCap]
+		out.Truncated = true
+	}
+	// 已入库会话顺带回填资产指引（一次 GET；失败不阻断导出主链路）
+	if status, body, err := ontoCall(ctx, http.MethodGet, "/api/ontochat/sessions/"+in.SessionID, nil); err == nil && status == http.StatusOK {
+		var sess ontoSessionSnap
+		if json.Unmarshal(body, &sess) == nil {
+			out.SavedAssetID = sess.OntoID
+		}
+	}
+	if out.SavedAssetID != "" {
+		out.Hint = "会话已入库资产 " + out.SavedAssetID + "（资产页可下载权威导出与版本快照）；本 TTL 为当前草稿投影。把 TTL 交给用户或按需转述，不要无必要地全文复述。"
+	} else {
+		out.Hint = "草稿 TTL（未经质量门禁）。如需入库走 ontochat_save（须先获用户确认）；把 TTL 交给用户或按需转述，不要无必要地全文复述。"
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+
 // registerOntoChatTools 注册 OntoChat 工具组（REQ-354）。仅注册——挂载由 Agent.Tools 显式勾选，
 // 不进任何内置助手默认工具集（92 号 §5.2 默认关原则）。
 func registerOntoChatTools(r *Registry) error {
@@ -536,6 +607,12 @@ func registerOntoChatTools(r *Registry) error {
 				return utils.InferTool("ontochat_save",
 					"会话草稿入库为本体资产（质量门禁）。必须先向用户展示质量报告与入库清单并获确认（confirm_note 必填）。",
 					ontoSaveFn)
+			}},
+		{ID: "ontochat_export_ttl", Description: "把会话当前草稿导出为 Turtle（TTL）文本（只读，不经质量门禁——导出≠入库，入库仍须 ontochat_save）。用户要「导出 TTL/交给外部工具」时使用；返回 TTL 全文（超 24KB 截断并标注）与三元组计数。",
+			Source: SourceBuiltin, New: func(ctx context.Context) (einotool.BaseTool, error) {
+				return utils.InferTool("ontochat_export_ttl",
+					"会话草稿导出为 TTL 文本（只读）。导出不等价入库；入库走 ontochat_save。",
+					ontoExportTTLFn)
 			}},
 	}
 	for _, e := range entries {

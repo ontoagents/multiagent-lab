@@ -347,7 +347,17 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
 
   useEffect(() => {
     ;(async () => {
+      // REQ-354/P2 跨动线深链：对话侧「前往构建页面继续精修」携带会话焦点（一次性消费）；
+      // 焦点会话存在则直达，否则回落最新会话（删除后的深链兜底）
+      const focus = localStorage.getItem('eino.ontochat.session.focus')
       const list = await refreshList()
+      if (focus) {
+        localStorage.removeItem('eino.ontochat.session.focus')
+        if (list.some((s) => s.id === focus)) {
+          await openSession(focus)
+          return
+        }
+      }
       if (list.length > 0) await openSession(list[0].id)
       else setLoading(false)
     })()
