@@ -62,7 +62,10 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
   }, [conn, form, groups, initialProvider])
 
   const providerKey = Form.useWatch('provider', form)
+  // 界面优化批：内联新建自定义供应商（选「＋ 新建供应商…」不跳出弹窗即可建商+模型）
+  const inlineNew = providerKey === '__new__'
   const providerGroup = groups.find((g) => g.key === providerKey)
+  const newProviderName = Form.useWatch('new_name', form)
   const protocol = Form.useWatch('protocol', form)
   const anthropic = isAnthropicProtocol(protocol)
 
@@ -70,6 +73,7 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
   //（新商无该协议连接则顺带切到其锚点协议并取锚点地址——保证协议/地址永远配对）
   useEffect(() => {
     if (!providerKey || providerKey === loadedProvider.current) return
+    if (providerKey === '__new__') { loadedProvider.current = providerKey; return }
     const g = groups.find((x) => x.key === providerKey)
     if (g) {
       const cur = form.getFieldValue('protocol') ?? 'openai_compat'
@@ -112,10 +116,21 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
     if (preset) form.setFieldsValue({ base_url: preset.baseUrl })
   }
   useEffect(() => {
-    if (protocol == null || !providerGroup) return
+    if (protocol == null) return
+    if (inlineNew) {
+      // 内联新建：按输入的厂商名模糊匹配预设 → 填 base_url
+      const head = (newProviderName ?? '').split(' ')[0]
+      const preset = PROVIDER_PRESETS.find(
+        (pr) => (pr.protocol ?? 'openai_compat') === protocol &&
+          ((head && pr.name.includes(head)) || ((newProviderName ?? '').includes(pr.key))),
+      )
+      if (preset) form.setFieldsValue({ base_url: preset.baseUrl })
+      return
+    }
+    if (!providerGroup) return
     syncAddress(providerGroup.name, protocol)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [protocol])
+  }, [protocol, inlineNew, newProviderName])
 
   const save = async () => {
     let v: any
@@ -147,6 +162,23 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
           is_default: v.is_default,
         })
         if (v.is_default) await api.setDefaultConnection(editConn.id)
+      } else if (inlineNew) {
+        // 界面优化批：内联新建自定义供应商 + 首个模型连接（一次保存，不跳出弹窗）
+        const newName = (v.new_name ?? '').trim()
+        if (!newName) throw new Error('请填写新供应商名称')
+        const g = await api.createProviderGroup(newName)
+        const created = await api.createConnection({
+          name: uniqueConnName(newName, v.model_name, new Set(conns.map((c) => c.name))),
+          protocol: v.protocol,
+          base_url: v.base_url,
+          model_name: v.model_name,
+          conn_type: anthropic ? 'chat' : v.conn_type,
+          provider_group_id: g.id,
+          api_key: v.new_api_key ?? '',
+          enabled: true,
+          is_default: false,
+        })
+        if (v.is_default) await api.setDefaultConnection(created.id)
       } else {
         if (!providerGroup) throw new Error('请先选择提供商；新提供商请先添加')
         const created = await api.createConnection({
@@ -192,21 +224,43 @@ export function ModelModal({ conn, groups, conns, initialProvider, onClose, onSa
             showIcon
             style={{ marginBottom: 16 }}
             title="尚无提供商"
-            description="请先关闭本弹窗，用「＋ 添加提供商」从厂商预设快速填充访问配置（仅需补 API Key）。"
+            description="在下方「所属提供商」选「＋ 新建供应商（自定义）…」内联创建；或关闭本弹窗用「＋ 添加提供商」从厂商预设快速填充。"
           />
         )}
         <Form.Item
           name="provider"
           label={<span>所属提供商 <HintIcon text="API Key 由提供商统一管理（移动提供商时自动沿用目标提供商的 Key）。切协议/切供应商时接入地址自动联动。" /></span>}
-          rules={[{ required: true, message: '请选择提供商；新提供商请先添加' }]}
+          rules={[{ required: true, message: '请选择提供商' }]}
          
           style={{ marginBottom: 12 }}
         >
           <Select
             placeholder="选择提供商"
-            options={groups.map((g) => ({ value: g.key, label: g.name }))}
+            options={[
+              ...groups.map((g) => ({ value: g.key, label: g.name })),
+              { value: '__new__', label: '＋ 新建供应商（自定义）…' },
+            ]}
           />
         </Form.Item>
+        {inlineNew && (
+          <>
+            <Form.Item
+              name="new_name"
+              label={<span>新供应商名称 <HintIcon text="自定义供应商：填名称/接入点与协议即可；Key 归该供应商，后续模型可随时追加" /></span>}
+              rules={[{ required: true, message: '新供应商名称必填' }]}
+              style={{ marginBottom: 12 }}
+            >
+              <Input placeholder="如：MyOrg 内网网关" />
+            </Form.Item>
+            <Form.Item
+              name="new_api_key"
+              label={<span>API Key <HintIcon text="保存后 AES-256-GCM 加密，仅显示掩码" /></span>}
+              style={{ marginBottom: 12 }}
+            >
+              <Input.Password placeholder="sk-…" autoComplete="new-password" />
+            </Form.Item>
+          </>
+        )}
         <div style={{ display: 'flex', gap: 12 }}>
           <Form.Item name="protocol" label={<span>协议 <HintIcon text="同一供应商下可与其他连接不同协议；切换协议自动联动匹配的接入地址。" /></span>} style={{ width: 250, marginBottom: 12 }}>
             <Select options={PROTOCOL_OPTIONS} />

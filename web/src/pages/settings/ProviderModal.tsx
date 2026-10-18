@@ -9,7 +9,7 @@
  * - 协议联动（REQ-172）：anthropic 仅 chat（Anthropic 无官方向量接口）。
  */
 import { useEffect, useState } from 'react'
-import { Alert, Button, Divider, Form, Input, Modal, Select, Space, Switch, Tag } from 'antd'
+import { Alert, Button, Divider, Form, Input, Modal, Segmented, Select, Space, Switch, Tag } from 'antd'
 import { api } from '../../api/client'
 import { PROVIDER_PRESETS } from '../../api/providerPresets'
 import HintIcon from './HintIcon'
@@ -37,6 +37,8 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
   // 选中的厂商预设（REQ-106；仅新建态）
   const [presetKey, setPresetKey] = useState<string | undefined>(undefined)
   const preset = PROVIDER_PRESETS.find((p) => p.key === presetKey)
+  // 界面优化批：供应商来源双模式——厂商预设填充 / 自定义供应商（显式支持，不预设 DeepSeek 默认值）
+  const [srcMode, setSrcMode] = useState<'preset' | 'custom'>('preset')
   // REQ-172：协议驱动的表单联动（新建态首个连接的协议）
   const protocol = Form.useWatch('protocol', form)
   const anthropic = isAnthropicProtocol(protocol)
@@ -61,9 +63,23 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
       // 名称（真名前缀）从锚点连接名派生；别名仅展示层——两者语义分离（REQ-148）
       form.setFieldsValue({ name: providerOfName(editGroup.anchor.name), alias: editGroup.alias, api_key: '', enabled: editGroup.members.every((m) => m.enabled) })
     } else {
-      form.setFieldsValue({ name: '', protocol: 'openai_compat', base_url: 'https://api.deepseek.com/v1', model_name: 'deepseek-chat', conn_type: 'chat', api_key: '', enabled: true })
+      // 界面优化批：默认留空（自定义供应商友好——地址/模型不预设第三方厂商值）
+      form.setFieldsValue({ name: '', protocol: 'openai_compat', base_url: '', model_name: '', conn_type: 'chat', api_key: '', enabled: true })
     }
   }, [group, form])
+
+  // 模式切换：custom 清预设；preset 保持可随时选预设填充
+  const switchSrcMode = (m: 'preset' | 'custom') => {
+    setSrcMode(m)
+    if (m === 'custom') {
+      setPresetKey(undefined)
+      const cur = form.getFieldValue('name')
+      // 未手填名称时清掉预设带出的厂商名/地址/模型（避免自定义供应商顶着别家预设值）
+      if (cur && PROVIDER_PRESETS.some((pr) => cur.includes(pr.name.split(' ')[0]))) {
+        form.setFieldsValue({ name: '', base_url: '', model_name: '' })
+      }
+    }
+  }
 
   const save = async () => {
     let v: any
@@ -157,9 +173,22 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
     >
       <Form form={form} layout="vertical" requiredMark={false} disabled={busy}>
         {!editGroup && (
+          <Form.Item label="供应商来源" style={{ marginBottom: 10 }}>
+            <Segmented
+              block
+              value={srcMode}
+              onChange={(v) => switchSrcMode(v as 'preset' | 'custom')}
+              options={[
+                { value: 'preset', label: '从厂商预设开始' },
+                { value: 'custom', label: '自定义供应商' },
+              ]}
+            />
+          </Form.Item>
+        )}
+        {!editGroup && srcMode === 'preset' && (
           <Form.Item
-            label={<span>从厂商预设快速填充 <HintIcon text={preset?.console ? `已按预设填充协议与 Base URL，仅需补 API Key 与模型名；Key 申请：${preset.console}` : '选择厂商自动填充协议与 Base URL（预设清单，含 Anthropic 系兼容网关）；也可留空手动填写'} /></span>}
-            style={{ marginBottom: 8 }}
+            label={<span>厂商预设 <HintIcon text={preset?.console ? `已按预设填充协议与 Base URL，仅需补 API Key 与模型名；Key 申请：${preset.console}` : '选择厂商自动填充协议与 Base URL（预设清单，含 Anthropic 系兼容网关）'} /></span>}
+            style={{ marginBottom: 10 }}
           >
             <Select
               showSearch
@@ -173,8 +202,7 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
           </Form.Item>
         )}
 
-        <Divider plain style={{ margin: '8px 0 12px' }}>基本信息</Divider>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
           <Form.Item name="name" label={<span>名称 <HintIcon text={editGroup ? '改名将按「名称·模型名」重生成该提供商下全部连接名' : '作为连接名前缀（名称·模型名）'} /></span>} rules={[{ required: true, message: '名称必填' }]} style={{ flex: 1, marginBottom: 12 }}>
             <Input placeholder="DeepSeek 官方" />
           </Form.Item>
@@ -185,7 +213,10 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
 
         {editGroup ? (
           <>
-            <Divider plain style={{ margin: '8px 0 12px' }}>批量应用</Divider>
+            <Divider plain style={{ margin: '8px 0 12px' }}>
+              批量应用
+              <HintIcon text="协议与 Base URL 为各模型连接自己的属性（同一供应商下可混合 openai_compat 与 anthropic）——请在展开区逐连接「编辑」维护" />
+            </Divider>
             <div style={{ display: 'flex', gap: 12 }}>
               <Form.Item
                 name="api_key"
@@ -198,16 +229,10 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
                 <Switch checkedChildren="启用" unCheckedChildren="停用" />
               </Form.Item>
             </div>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 4 }}
-              title="协议与 Base URL 为各模型连接自己的属性（同一供应商下可混合 openai_compat 与 anthropic，REQ-177）——请在展开区逐连接「编辑」维护。"
-            />
+
           </>
         ) : (
           <>
-            <Divider plain style={{ margin: '8px 0 12px' }}>接入配置（首个连接）</Divider>
             <div style={{ display: 'flex', gap: 12 }}>
               <Form.Item
                 name="protocol"
@@ -232,7 +257,7 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
               rules={[{ required: true, message: 'Base URL 必填' }]}
               style={{ marginBottom: 12 }}
             >
-              <Input placeholder={anthropic ? 'https://api.anthropic.com' : 'https://api.deepseek.com/v1'} />
+              <Input placeholder={anthropic ? 'https://api.anthropic.com' : srcMode === 'custom' ? 'https://api.example.com/v1' : 'https://api.deepseek.com/v1'} />
             </Form.Item>
             <div style={{ display: 'flex', gap: 12 }}>
               <Form.Item name="api_key" label={<span>API Key <HintIcon text="保存后 AES-256-GCM 加密，仅显示掩码" /></span>} style={{ flex: 1, marginBottom: 12 }}>
@@ -253,7 +278,7 @@ export function ProviderModal({ group, conns, onClose, onSaved }: {
               />
             )}
             <Form.Item name="model_name" label={<span>首个模型名 <HintIcon text="添加提供商将同时创建首个模型连接（后端无独立提供商实体）" /></span>} rules={[{ required: true, message: '模型名必填' }]} style={{ marginBottom: 12 }}>
-              <Input placeholder={anthropic ? 'claude-sonnet-4-5' : 'deepseek-chat'} />
+              <Input placeholder={anthropic ? 'claude-sonnet-4-5' : srcMode === 'custom' ? 'my-model' : 'deepseek-chat'} />
             </Form.Item>
           </>
         )}
