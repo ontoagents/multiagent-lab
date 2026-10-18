@@ -27,7 +27,6 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
 )
@@ -35,7 +34,7 @@ import (
 const platformKBName = "platform-knowledge 平台知识库"
 
 // EnsurePlatformKB 按名称取/建专用 rag 库（幂等）。
-func EnsurePlatformKB(ctx context.Context, st *store.Store, kbSvc *kb.Service) (*store.KnowledgeBase, error) {
+func EnsurePlatformKB(ctx context.Context, st *store.Store) (*store.KnowledgeBase, error) {
 	if kbs, err := st.ListKnowledgeBases(); err == nil {
 		for _, k := range kbs {
 			if k.Name == platformKBName {
@@ -63,8 +62,8 @@ type SyncResult struct {
 
 // SyncPlatformKB 扫描 platform-knowledge/**/*.md 与 KB 文档对账（mtime 增量）。
 // 返回对账结果；个别文件索引失败（如向量化不可用）计入 Failed/Errors 不阻断其余。
-func SyncPlatformKB(ctx context.Context, st *store.Store, kbSvc *kb.Service, knowledgeRoot string) (*SyncResult, error) {
-	kbRow, err := EnsurePlatformKB(ctx, st, kbSvc)
+func SyncPlatformKB(ctx context.Context, st *store.Store, kbSvc KBAdminSource, knowledgeRoot string) (*SyncResult, error) {
+	kbRow, err := EnsurePlatformKB(ctx, st)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +151,7 @@ func parseTime(s string) time.Time {
 }
 
 // assistantSyncPlatformKB L0：平台知识库增量对账（repo 派生、幂等——非用户数据写入）。
-func assistantSyncPlatformKB(deps AssistantDeps, kbSvc *kb.Service) *tool.Entry {
+func assistantSyncPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entry {
 	return &tool.Entry{
 		ID:          "sync_platform_kb",
 		Name:        "sync_platform_kb",
@@ -176,34 +175,34 @@ func assistantSyncPlatformKB(deps AssistantDeps, kbSvc *kb.Service) *tool.Entry 
 }
 
 // assistantSearchPlatformKB L0：平台知识库向量检索 topK=5（embedding 未配置时如实报错降级）。
-func assistantSearchPlatformKB(deps AssistantDeps, kbSvc *kb.Service) *tool.Entry {
+func assistantSearchPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entry {
 	type in struct {
 		Query string `json:"query"`
 	}
 	newFn := func(ctx context.Context) (einotool.BaseTool, error) {
 		fn := func(ctx context.Context, args in) (string, error) {
-		q := strings.TrimSpace(args.Query)
-		if q == "" {
-			return "", fmt.Errorf("query 必填")
-		}
-		kbRow, err := EnsurePlatformKB(ctx, deps.Store, kbSvc)
-		if err != nil {
-			return "", err
-		}
-		hits, serr := kbSvc.Search(ctx, kbRow, q, 5, 0)
-		if serr != nil {
-			return "", fmt.Errorf("平台知识库检索不可用（embedding 未配置或索引为空——可先调 sync_platform_kb 同步，或用 doc_read 词法精读）: %w", serr)
-		}
-		if len(hits) == 0 {
-			return "平台知识库无命中——可尝试其他关键词，或用 doc_read 直接精读 platform-knowledge/ 下文档。", nil
-		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("平台知识库命中 %d 条（topK=5）：\n", len(hits)))
-		for i, h := range hits {
-			b.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, h.Doc, truncateForPrompt(h.Excerpt, 300)))
-		}
-		b.WriteString("（可对上述文档路径调 doc_read 精读全文）")
-		return b.String(), nil
+			q := strings.TrimSpace(args.Query)
+			if q == "" {
+				return "", fmt.Errorf("query 必填")
+			}
+			kbRow, err := EnsurePlatformKB(ctx, deps.Store)
+			if err != nil {
+				return "", err
+			}
+			hits, serr := kbSvc.Search(ctx, kbRow, q, 5, 0)
+			if serr != nil {
+				return "", fmt.Errorf("平台知识库检索不可用（embedding 未配置或索引为空——可先调 sync_platform_kb 同步，或用 doc_read 词法精读）: %w", serr)
+			}
+			if len(hits) == 0 {
+				return "平台知识库无命中——可尝试其他关键词，或用 doc_read 直接精读 platform-knowledge/ 下文档。", nil
+			}
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("平台知识库命中 %d 条（topK=5）：\n", len(hits)))
+			for i, h := range hits {
+				b.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, h.Doc, truncateForPrompt(h.Excerpt, 300)))
+			}
+			b.WriteString("（可对上述文档路径调 doc_read 精读全文）")
+			return b.String(), nil
 		}
 		return utils.InferTool("search_platform_kb", "检索 platform-knowledge/ 平台知识库（向量 topK=5），回答平台使用/功能/设计问题前的首选知识源。入参 query 为检索问题", fn)
 	}
@@ -236,11 +235,11 @@ func truncateForPrompt(s string, n int) string {
 // ---------------------------------------------------------------------------
 
 type AssistantProposal struct {
-	ID        string               `json:"proposal_id"`
-	Changes   []map[string]string  `json:"changes"`
+	ID        string                 `json:"proposal_id"`
+	Changes   []map[string]string    `json:"changes"`
 	Current   *store.AssistantConfig `json:"current"`
 	Proposed  *store.AssistantConfig `json:"proposed"`
-	CreatedAt string               `json:"created_at"`
+	CreatedAt string                 `json:"created_at"`
 }
 
 var (
@@ -327,22 +326,22 @@ func assistantProposeConfig(deps AssistantDeps) *tool.Entry {
 	}
 	newFn := func(ctx context.Context) (einotool.BaseTool, error) {
 		fn := func(ctx context.Context, args in) (string, error) {
-		if strings.TrimSpace(args.SystemPrompt) == "" && args.ModelConnID == "" && args.Temperature == nil {
-			return "", fmt.Errorf("至少提供一项变更（system_prompt / model_conn_id / temperature）")
-		}
-		if args.Temperature != nil && (*args.Temperature < 0 || *args.Temperature > 2) {
-			return "", fmt.Errorf("temperature 取值 0~2")
-		}
-		cur, err := deps.Store.GetAssistantConfig()
-		if err != nil {
-			return "", err
-		}
-		prop := &store.AssistantConfig{SystemPrompt: args.SystemPrompt, ModelConnID: args.ModelConnID, Temperature: args.Temperature}
-		p := StageAssistantProposal(cur, prop)
-		if len(p.Changes) == 0 {
-			return "提案与现行配置无差异——无需变更。", nil
-		}
-		return fmt.Sprintf("配置提案已暂存（proposal_id=%s，10 分钟内有效，确认前不落库）。变更项：%v。请到「设置 → 平台助手」分区查看并确认应用；用户确认后才会写入配置。", p.ID, p.Changes), nil
+			if strings.TrimSpace(args.SystemPrompt) == "" && args.ModelConnID == "" && args.Temperature == nil {
+				return "", fmt.Errorf("至少提供一项变更（system_prompt / model_conn_id / temperature）")
+			}
+			if args.Temperature != nil && (*args.Temperature < 0 || *args.Temperature > 2) {
+				return "", fmt.Errorf("temperature 取值 0~2")
+			}
+			cur, err := deps.Store.GetAssistantConfig()
+			if err != nil {
+				return "", err
+			}
+			prop := &store.AssistantConfig{SystemPrompt: args.SystemPrompt, ModelConnID: args.ModelConnID, Temperature: args.Temperature}
+			p := StageAssistantProposal(cur, prop)
+			if len(p.Changes) == 0 {
+				return "提案与现行配置无差异——无需变更。", nil
+			}
+			return fmt.Sprintf("配置提案已暂存（proposal_id=%s，10 分钟内有效，确认前不落库）。变更项：%v。请到「设置 → 平台助手」分区查看并确认应用；用户确认后才会写入配置。", p.ID, p.Changes), nil
 		}
 		return utils.InferTool("propose_assistant_config", "L1 两段式提案：产出平台助手配置变更提案（system_prompt/model_conn_id/temperature 任一或多项），暂存 10 分钟且不落库；用户需到「设置 → 平台助手」分区确认应用。用户要求调整助手配置时用此工具，绝不可声称已直接修改配置", fn)
 	}
@@ -356,7 +355,7 @@ func assistantProposeConfig(deps AssistantDeps) *tool.Entry {
 }
 
 // RegisterAssistantL1Tools 注册 L1 提案与平台知识工具（阶段一/三；在 L0 注册后调用，幂等）。
-func RegisterAssistantL1Tools(r *tool.Registry, deps AssistantDeps, kbSvc *kb.Service) error {
+func RegisterAssistantL1Tools(r *tool.Registry, deps AssistantDeps, kbSvc KBAdminSource) error {
 	entries := []*tool.Entry{
 		assistantSyncPlatformKB(deps, kbSvc),
 		assistantSearchPlatformKB(deps, kbSvc),

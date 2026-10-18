@@ -1,6 +1,6 @@
 // KB-5（M35/37 号方案）：全局问答闭环——社区摘要按需生成+缓存（D5 采纳）+ 社区摘要 map-reduce
 // 进 LLM 上下文生成回答（对标微软 GraphRAG global search 语义）+ chat.CommunitySource 适配器
-//（对话兜底接入，SC-K7；接口在 chat 侧定义，kg 已依赖 chat 不成环）。
+// （对话兜底接入，SC-K7；接口在 chat 侧定义，kg 已依赖 chat 不成环）。
 package kg
 
 import (
@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
@@ -86,7 +85,7 @@ func (x *Summarizer) GlobalAnswer(ctx context.Context, kbID, connID, query strin
 	system := "你是知识库问答助手。请仅依据给出的社区摘要回答全局性问题；摘要未覆盖的内容明确说明「知识库中未覆盖」，不要编造。"
 	user := "以下是知识图谱社区摘要（每个社区是一组紧密关联的实体及其关系概要）：\n\n" +
 		strings.Join(parts, "\n\n") + "\n\n问题：" + query
-	answer, gerr := chat.GenerateText(ctx, x.Store, x.Box, connID, system, user, nil)
+	answer, gerr := x.genText(ctx, connID, system, user, nil)
 	if gerr != nil || strings.TrimSpace(answer) == "" {
 		return "", out, false
 	}

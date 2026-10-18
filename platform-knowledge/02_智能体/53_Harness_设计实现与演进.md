@@ -2,7 +2,7 @@
 module: 智能体
 topic: Harness 域事实源（设计总纲·实现现状·演进跟踪）
 desc: harness 技术沉淀单一事实点——层职责与代码地图、已交付能力表（REQ/M58 里程碑映射）、演进跟踪（触发驱动项）、开放问题与诚实边界；域内文档导航
-req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-356]
+req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-355, REQ-356]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
 synced: 2026-10-18
@@ -31,6 +31,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 
 | 组件 | 代码 | 职责 |
 | --- | --- | --- |
+| 检索源接口族 | `internal/chat/{runner.go,kbsource.go}` | 对话召回三源接口反转（nil=未接入降级）：CompanionSource〔REQ-170〕/CommunitySource〔KB-5③〕/KBSource+KBAdminSource〔REQ-355 R1——chat 零 kb import，api.NewKBChatSource 适配 kb.Service；recallKB 经 RetrieveContext 单方法检索+渲染〕 |
 | 装配链 assembleTools | `internal/chat/assembler.go` | 8 步管线：内置勾选→技能白名单→连接器（mcp 直通/k8s·ssh 经插件服务 :8093）→本体 facade→项目文件→执行面原语→hook 包装→审批包装；`{连接器实例名}__{tool}` 前缀改名；先到先得+重名告警 |
 | HookChain | `internal/tool/hooks.go` | PreHook（带 guard 名，拒绝=结构化回执回喂+hook.denied 审计事件）/PostHook；fetchGuard（http_fetch 内网预检，启用）/cmdGuard（危险命令模式表，预置未启用） |
 | 审批 gating | `internal/tool/approval.go` | 三档 off/danger/all（危险清单=写类内置+http_fetch+连接器/MCP 非 read-only 前缀，ontology/oo 免审）；豁免清单 approval_exempt；挂起经 checkpoint（SuspenseAt 持久化），恢复重入超时自动 deny |

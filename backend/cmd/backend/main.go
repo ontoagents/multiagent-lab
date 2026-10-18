@@ -55,7 +55,7 @@ func main() {
 		Composer:    &skill.Composer{Store: st},              // M9：技能注入
 		Ontology:    ontology.NewService(),                   // M8：本体对接（facade/双反代/guide）
 		FilesRoot:   getenv("FILES_ROOT", "./data/projects"), // M11：项目文件根目录
-		CheckPoints: chat.NewStoreCheckPointStore(st),       // REQ-204/M39 C1：SQLite 持久化（重启后挂起中断可恢复）
+		CheckPoints: chat.NewStoreCheckPointStore(st),        // REQ-204/M39 C1：SQLite 持久化（重启后挂起中断可恢复）
 		// REQ-336：智能体默认文件根（<DB 同级>/agent-files）——未设置 work_dir 的智能体文件工具
 		// 安全根与对话附加文件落位回落于此（web=仓库 data/；客户端=data.location 数据目录内）
 		AgentFilesRoot: filepath.Join(filepath.Dir(dbPath), "agent-files"),
@@ -72,9 +72,10 @@ func main() {
 	// M36/KB-6③：本体约束抽取词表注入（I3 裁定：构建平面 spec 只读投影；构建平面不可达时降级自由抽取）。
 	ontoSvc := ontology.NewService()
 	kbSvc.SetKGExtractor((&kg.Extractor{
-		Store:  st,
-		Box:    box,
-		ConnID: getenv("KG_LLM_CONN_ID", ""),
+		Store:    st,
+		Box:      box,
+		ConnID:   getenv("KG_LLM_CONN_ID", ""),
+		GenFuncs: api.ChatGenFuncs(st, box), // REQ-355 R2：kg→chat 生成依赖反转（装配层闭包注入）
 		OntoVocab: func(ctx context.Context, ontologyID string) (*kg.OntoVocab, error) {
 			v, err := ontoSvc.FetchSpecVocab(ctx, ontologyID)
 			if err != nil {
@@ -97,7 +98,8 @@ func main() {
 		return string(res.DraftJSON), nil
 	})
 
-	svc := chat.NewService(st, asm, kbSvc)
+	kbSrc, kbAdmin := api.NewKBChatSource(kbSvc) // REQ-355 R1：kb→chat 接口反转装配（适配器，nil=未接入）
+	svc := chat.NewService(st, asm, kbSrc)
 	// REQ-192/M32：平台助手配置单源归一引导——builtin 行 instruction 空时写入当前默认基座
 	//（一次性移植 assistant_config 存量微调），此后 agent 内置行即配置单源、assistant_config 退役。
 	if err := st.EnsureBuiltinAssistantInstruction(api.AssistantDefaultPrompt); err != nil {
@@ -114,7 +116,7 @@ func main() {
 		log.Printf("[backend] assistant tools register: %v", err)
 	}
 	// REQ-186 阶段一/三（M-O14 流水线）：平台知识 KB 化工具（sync/search_platform_kb）与 L1 提案工具（propose_assistant_config 两段式）
-	if err := chat.RegisterAssistantL1Tools(reg, chat.AssistantDeps{Store: st, KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge")}, kbSvc); err != nil {
+	if err := chat.RegisterAssistantL1Tools(reg, chat.AssistantDeps{Store: st, KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge")}, kbAdmin); err != nil {
 		log.Printf("[backend] assistant L1 tools register: %v", err)
 	}
 	// M10 §6.3 + REQ-191/M31：沙箱执行后端动态装配——运行方式（进程内嵌/docker/k8s/auto）与

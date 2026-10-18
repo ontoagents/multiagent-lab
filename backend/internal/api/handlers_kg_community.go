@@ -22,7 +22,7 @@ func (s *Server) kgCommunitiesRebuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅 graphrag 模式库支持社区摘要"})
 		return
 	}
-	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID} // 库级抽取连接（REQ-129① 同源）
+	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box)} // 库级抽取连接（REQ-129① 同源）
 	n, method, err := sum.BuildKGCommunities(r.Context(), kbID)
 	if err != nil {
 		writeErr(w, err)
@@ -82,7 +82,7 @@ func (s *Server) kgGlobalSearch(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID}
+	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box)}
 	answer, hits, ok := sum.GlobalAnswer(r.Context(), k.ID, k.KGConnID, in.Query, comms)
 	resp := map[string]any{"kb_id": k.ID, "degraded": !ok, "hits": hits}
 	if ok {

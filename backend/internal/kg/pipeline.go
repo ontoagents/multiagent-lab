@@ -19,7 +19,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
@@ -217,7 +216,7 @@ func (x *Extractor) llmExtractTwoPass(ctx context.Context, kbID string, wins []e
 			prompt = promptOverride + "\n\n【输出 JSON 契约不变，本步只抽实体清单】" + prompt
 		}
 		prompt += "\n窗口语料：\n" + wins[i].text
-		res, err := chat.GenerateStructured(ctx, x.Store, x.Box, connID, prompt, pass1Schema)
+		raw, err := x.genStructured(ctx, connID, prompt, pass1Schema)
 		if err != nil {
 			mu.Lock()
 			fail1++
@@ -228,7 +227,7 @@ func (x *Extractor) llmExtractTwoPass(ctx context.Context, kbID string, wins []e
 		var step1 struct {
 			Entities []kgEntityT `json:"entities"`
 		}
-		if err := json.Unmarshal(res.DraftJSON, &step1); err != nil {
+		if err := json.Unmarshal(raw, &step1); err != nil {
 			mu.Lock()
 			fail1++
 			mu.Unlock()
@@ -274,7 +273,7 @@ func (x *Extractor) llmExtractTwoPass(ctx context.Context, kbID string, wins []e
 			prompt = promptOverride + "\n\n【输出 JSON 契约不变，本步只抽关系与 claims】" + prompt
 		}
 		prompt += "\n已确认实体清单：" + strings.Join(entityNames, "、") + "\n窗口语料：\n" + wins[i].text
-		res, err := chat.GenerateStructured(ctx, x.Store, x.Box, connID, prompt, pass2Schema)
+		raw, err := x.genStructured(ctx, connID, prompt, pass2Schema)
 		if err != nil {
 			mu.Lock()
 			fail2++
@@ -286,7 +285,7 @@ func (x *Extractor) llmExtractTwoPass(ctx context.Context, kbID string, wins []e
 			Relations []kgRelT   `json:"relations"`
 			Claims    []kgClaimT `json:"claims"`
 		}
-		if err := json.Unmarshal(res.DraftJSON, &step2); err != nil {
+		if err := json.Unmarshal(raw, &step2); err != nil {
 			mu.Lock()
 			fail2++
 			mu.Unlock()

@@ -16,7 +16,6 @@ import (
 	"gonum.org/v1/gonum/graph/community"
 	"gonum.org/v1/gonum/graph/simple"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
@@ -196,9 +195,10 @@ func internalRelTypes(rels []*store.KGRelationship, members []string) []string {
 
 // Summarizer 社区摘要生成（LLM 主路径，失败回退骨架；method 记录生成方式）。
 type Summarizer struct {
-	Store  *store.Store
-	Box    *secrets.Box
-	ConnID string // 库级抽取连接（REQ-129① 同源）；空 = 默认 chat
+	Store    *store.Store
+	Box      *secrets.Box
+	ConnID   string // 库级抽取连接（REQ-129① 同源）；空 = 默认 chat
+	GenFuncs        // REQ-355 R2：LLM 生成注入（摘要主路径 + 全局问答）
 }
 
 // communitySumSchema 摘要 JSON 契约（复用 REQ-98 能力代理）。
@@ -211,14 +211,14 @@ func (x *Summarizer) SummarizeCommunity(ctx context.Context, label string, membe
 	prompt := "以下是知识图谱中一个社区（一组紧密关联的实体）的成员与关系。请用 2~3 句话概括这个社区整体在讲什么，" +
 		"回答应面向全局性问题（如「这个库整体在讲什么」）。\n成员实体：" + strings.Join(members, "、") +
 		"\n内部关系类型：" + strings.Join(relTypes, "、") + "\n只输出 JSON。"
-	res, err := chat.GenerateStructured(ctx, x.Store, x.Box, x.ConnID, prompt, communitySumSchema)
+	raw, err := x.genStructured(ctx, x.ConnID, prompt, communitySumSchema)
 	if err != nil {
 		return skeleton, "skeleton"
 	}
 	var out struct {
 		Summary string `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(res.DraftJSON), &out); err != nil || strings.TrimSpace(out.Summary) == "" {
+	if err := json.Unmarshal(raw, &out); err != nil || strings.TrimSpace(out.Summary) == "" {
 		return skeleton, "skeleton"
 	}
 	return strings.TrimSpace(out.Summary), "llm"
@@ -230,7 +230,7 @@ const eagerSummaryLimit = 12
 
 // BuildKGCommunities 社区检测 + 摘要 + 持久化（重建全量替换 = 摘要缓存失效语义不变）。
 // KB-5：检测主路径 gonum Louvain（层次社区，解除 12 上限），空结果回退 label propagation
-//（该路径保留 12 长尾合并）；大库（社区数 > eagerSummaryLimit）摘要不即时生成（method=pending），
+// （该路径保留 12 长尾合并）；大库（社区数 > eagerSummaryLimit）摘要不即时生成（method=pending），
 // 由 global-search / 对话兜底按需生成+缓存。返回（社区数, 检测方法, error）。
 func (x *Summarizer) BuildKGCommunities(ctx context.Context, kbID string) (int, string, error) {
 	entities, rels, err := x.Store.KGByKB(kbID)
@@ -281,11 +281,11 @@ func (x *Summarizer) BuildKGCommunities(ctx context.Context, kbID string) (int, 
 
 // GlobalSearchHit 全局问答命中（社区摘要检索）。
 type GlobalSearchHit struct {
-	Label    string   `json:"label"`
-	Summary  string   `json:"summary"`
-	Members  []string `json:"members"`
-	Score    int      `json:"score"`
-	Used     bool     `json:"used,omitempty"` // KB-5②：该社区参与本次 map-reduce 生成（只增不改）
+	Label   string   `json:"label"`
+	Summary string   `json:"summary"`
+	Members []string `json:"members"`
+	Score   int      `json:"score"`
+	Used    bool     `json:"used,omitempty"` // KB-5②：该社区参与本次 map-reduce 生成（只增不改）
 }
 
 // GlobalSearch 全局问答（REQ-130）：查询词与社区摘要/成员做中文 2-gram 覆盖评分（零 embedding 依赖，

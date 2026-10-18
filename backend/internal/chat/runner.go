@@ -19,17 +19,16 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/runtime"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
 )
 
 // Service 运行服务：装配、执行、停止。
 type Service struct {
 	Store     *store.Store
 	Assembler *Assembler
-	KB        *kb.Service         // M6：对话知识库召回（nil 时禁用）
+	KB        KBSource            // M6：对话知识库召回（REQ-355 R1 接口反转；nil 时禁用，api 装配层适配 kb.Service）
 	Runtime   runtime.Backend     // M10：沙箱执行后端（nil=inprocess；agent.RuntimeBackend=docker 时转发）
 	Inference *inference.Registry // M13：推理后端注册表（nil=仅 eino-adk；外部 CLI 后端走 runExternal）
 	// Companion REQ-170 P2「KG 检索源并入」：伴生图检索源（nil=未接入）。
@@ -67,9 +66,9 @@ type CommunitySource interface {
 	CommunityContext(ctx context.Context, kbID, connID, query string) (context string, hits []map[string]any, ok bool)
 }
 
-// NewService 构造。
-func NewService(st *store.Store, asm *Assembler, kbSvc *kb.Service) *Service {
-	return &Service{Store: st, Assembler: asm, KB: kbSvc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}}
+// NewService 构造。kbSrc 为知识库检索源（REQ-355 R1 接口反转，api 装配层适配 kb.Service；nil=未接入）。
+func NewService(st *store.Store, asm *Assembler, kbSrc KBSource) *Service {
+	return &Service{Store: st, Assembler: asm, KB: kbSrc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}}
 }
 
 // ResolveExtApproval REQ-206/M41 S2：外部推理后端权限挂起的人工决议（approve|deny）。
@@ -137,10 +136,10 @@ func WithModelOverride(ag *store.Agent, modelConnID string) *store.Agent {
 	return paneAgent(ag, PaneConfig{ModelConnID: modelConnID})
 }
 
-// ApplyConversationModelOverride 会话级模型覆盖（REQ-291：conversation.model_conn_id，''=跟随智能体默认）：
+// ApplyConversationModelOverride 会话级模型覆盖（REQ-291：conversation.model_conn_id，”=跟随智能体默认）：
 // 复制 Agent 并改写模型连接（与 REQ-135② 审批覆盖同构的「空=跟随」范式）。
 // 合并序＝请求级（RunInput.model_conn_id，handler 层在其后应用故优先）> 会话级 > 智能体默认 > 全局默认；
-// 对比窗格未选模型时（''=继承）经基座 Agent 继承会话级，窗格显式选择仍最高。
+// 对比窗格未选模型时（”=继承）经基座 Agent 继承会话级，窗格显式选择仍最高。
 // 项目会话作用于运行目标（协调者/首成员），与 REQ-174 既有单路覆盖语义一致；
 // docker/外部 CLI 推理后端由 agentd/适配器按库内 Agent 行自取模型——本覆盖不生效（沿 REQ-174 注记）。
 func ApplyConversationModelOverride(conv *store.Conversation, ag *store.Agent) *store.Agent {
@@ -486,7 +485,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		// 补「结果未知」合成文本，context.go mergeToolTurns；中断/停止收尾的悬空调用属预期不告警）。
 		if rc.toolCalls != rc.toolResults {
 			s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{
-				"message":   fmt.Sprintf("运行时不变量检查：工具调用/结果计数不一致（%d call / %d result），悬空调用已在历史重建中补「结果未知」文本", rc.toolCalls, rc.toolResults),
+				"message":    fmt.Sprintf("运行时不变量检查：工具调用/结果计数不一致（%d call / %d result），悬空调用已在历史重建中补「结果未知」文本", rc.toolCalls, rc.toolResults),
 				"tool_calls": rc.toolCalls, "tool_results": rc.toolResults,
 			}), emit)
 		}
@@ -711,7 +710,7 @@ type interruptState struct {
 // effectiveApprovalPolicy REQ-231④ 生效策略透出：当前 run 实际生效的审批档与覆盖来源
 // （与装配期合并同语义；run 头显示用，治 P-H2 生效策略不可见）。
 // 合并语义：会话级 off→关闭（source=conversation）；会话级 on→保留 agent 档、空档升 all
-//（source=conversation）；会话级空→跟随 agent（source=agent）。档位值域 ''|all|danger（REQ-231①）。
+// （source=conversation）；会话级空→跟随 agent（source=agent）。档位值域 ”|all|danger（REQ-231①）。
 func effectiveApprovalPolicy(agent *store.Agent, conv *store.Conversation) (mode, source string) {
 	mode = agent.ToolApproval
 	source = "agent"
@@ -815,8 +814,8 @@ type runConsumer struct {
 	recordDelta   func(string)
 	persistDeltas bool // REQ-224⑤：message.delta 随 debug_persist 门控落库
 
-	buf         []byte
-	stopped     bool
+	buf     []byte
+	stopped bool
 	// REQ-210：工具调用/结果计数（completed 收尾不变量检查用）
 	toolCalls   int
 	toolResults int
@@ -834,9 +833,9 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 	rc := &runConsumer{
 		s: s, ctx: ctx, conv: conv, runID: runID, rt: rt, emit: emit, start: start,
 		persistDeltas: persistDeltas,
-		rootAgent:  rt.AgentName,
-		toolAgg:    map[int]*pendingToolCall{},
-		toolCallAt: map[string]time.Time{},
+		rootAgent:     rt.AgentName,
+		toolAgg:       map[int]*pendingToolCall{},
+		toolCallAt:    map[string]time.Time{},
 	}
 	rc.subagentLeave = func(name string) {
 		if name != "" && name != rc.rootAgent {
@@ -1504,8 +1503,9 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 	}
 	// M14 D-KB4：graphrag 模式 KB 走 KG 扩展检索；KG 无命中降级向量检索（不阻断，事件标注 degraded）。
 	// M16/REQ-128：detail 版返回命中路径上的实体/关系/claims 明细，随 retrieval 事件外显（过程可观测）。
-	detail, mode, degraded, serr := s.KB.GraphragQueryWithFallbackDetail(ctx, kbcfg, input, conv.TopK, conv.MinScore, kb.GraphragOpts{})
-	hits := []kb.RetrievalHit{}
+	// REQ-355 R1：经 KBSource 接口（chat 侧投影类型）——注入文本与命中明细由实现方渲染返回。
+	text, detail, mode, degraded, serr := s.KB.RetrieveContext(ctx, kbcfg, input, conv.TopK, conv.MinScore)
+	hits := []KBHit{}
 	if detail != nil {
 		hits = detail.Hits
 	}
@@ -1516,16 +1516,16 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 		hd := make([]map[string]any, 0, len(hits))
 		for _, h := range hits {
 			entry := map[string]any{"doc": h.Doc, "seq": h.Seq, "score": h.Score, "excerpt": h.Excerpt}
-			if len(h.Spans) > 0 { // B1 引用溯源：命中区间（excerpt 内 rune 偏移，前端句级高亮）
+			if h.Spans != nil { // B1 引用溯源：命中区间（excerpt 内 rune 偏移，前端句级高亮）
 				entry["spans"] = h.Spans
 			}
-			if len(h.Sources) > 0 { // REQ-241：wiki 页溯源定位（doc 标题+chunk 序号，回答可下钻原文）
+			if h.Sources != nil { // REQ-241：wiki 页溯源定位（doc 标题+chunk 序号，回答可下钻原文）
 				entry["sources"] = h.Sources
 			}
 			hd = append(hd, entry)
 		}
 		data := map[string]any{"kb_id": kbcfg.ID, "mode": mode, "hits": hd} // M14 ④：retrieval 事件带 mode
-		if mode == "wiki" { // REQ-241：wiki 臂命中来源标注（沿 community 先例，过程可观测）
+		if mode == "wiki" {                                                 // REQ-241：wiki 臂命中来源标注（沿 community 先例，过程可观测）
 			data["source"] = "wiki"
 		}
 		if degraded {
@@ -1537,8 +1537,8 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 			data["claims"] = detail.Claims
 		}
 		s.emitAndRecord(ctx, conv, runID, newEvent("retrieval", runID, data), emit)
-		if ctxText := kb.RenderContext(kbcfg.Name, hits); ctxText != "" {
-			histMsgs = append(histMsgs, schema.SystemMessage(ctxText))
+		if text != "" {
+			histMsgs = append(histMsgs, schema.SystemMessage(text))
 		}
 	case len(hits) == 0 && kbcfg.Mode == "graphrag" && s.Community != nil:
 		// KB-5③（M35）：graphrag 库本地检索（KG 扩展 + 向量）全空 → 社区摘要兜底上下文

@@ -9,6 +9,7 @@ package kg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -17,6 +18,32 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
+// GenFuncs LLM 生成注入（REQ-355 R2：反转 kg→chat 正向 import——装配层闭包注入，
+// 沿 kb.SetWikiLLM「kb 包不 import chat 防环」同款先例；签名仅用 kg/store 侧形态，
+// kg 摘除不再拖出 chat）。nil 项按生成失败走既有回退/降级分支，规则抽取路径不受影响。
+type GenFuncs struct {
+	// GenStructured 结构化生成：返回模型输出的 JSON 原文（原 chat.GenerateStructured 的 DraftJSON 投影）。
+	GenStructured func(ctx context.Context, connID, prompt, schemaJSON string) (json.RawMessage, error)
+	// GenText 自由文本生成（temperature=nil 沿用连接默认）。
+	GenText func(ctx context.Context, connID, system, user string, temperature *float64) (string, error)
+}
+
+// genStructured 结构化生成（nil 注入如实报错，调用方沿既有失败分支降级）。
+func (g GenFuncs) genStructured(ctx context.Context, connID, prompt, schemaJSON string) (json.RawMessage, error) {
+	if g.GenStructured == nil {
+		return nil, fmt.Errorf("KG 结构化生成未注入（装配缺失）")
+	}
+	return g.GenStructured(ctx, connID, prompt, schemaJSON)
+}
+
+// genText 文本生成（nil 注入如实报错）。
+func (g GenFuncs) genText(ctx context.Context, connID, system, user string, temperature *float64) (string, error) {
+	if g.GenText == nil {
+		return "", fmt.Errorf("KG 文本生成未注入（装配缺失）")
+	}
+	return g.GenText(ctx, connID, system, user, temperature)
+}
+
 // Extractor KG 抽取器（api 层构造并注入 kb.Service.KGExtract）。
 type Extractor struct {
 	Store  *store.Store
@@ -24,6 +51,7 @@ type Extractor struct {
 	ConnID string // 兜底模型连接；空 = 默认 chat 连接（REQ-98 规则）
 	// OntoVocab 本体词表读取注入（M36/KB-6③；main 层经构建平面 spec 只读投影，见 pipeline.go）。
 	OntoVocab OntoVocabFunc
+	GenFuncs  // REQ-355 R2：LLM 生成注入（两步抽取主路径）
 }
 
 // kgEntityT/kgRelT/kgClaimT 抽取输出条目（LLM JSON 契约；轻量回退同形构造）。
