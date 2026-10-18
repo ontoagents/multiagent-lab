@@ -33,7 +33,8 @@
   padding: 1px 6px;
   border-radius: 6px;
   cursor: pointer;
-  color: var(--ant-color-text, #374151);
+  /* 界面优化批：执行细节行比正文淡一档 */
+  color: var(--ant-color-text-secondary, #6b7280);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -78,6 +79,18 @@
 }
 .tool-args::-webkit-scrollbar { height: 3px; }
 .tool-args::-webkit-scrollbar-thumb { background: var(--c-line, #e5e7eb); border-radius: 2px; }
+/* 界面优化批：执行中入参一行内滚动刷新（超宽自动来回滚动；淡色） */
+.tool-args-text { display: inline-block; color: var(--ant-color-text-tertiary, #9ca3af); }
+.tool-line.running .tool-args-text.rolling {
+  animation: tool-args-roll var(--roll-dur, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes tool-args-roll {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--roll-x, -40px)); }
+}
+.tool-line.running .tool-running-hint { animation: hint-pulse 1.2s ease-in-out infinite; }
+@keyframes hint-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 /* REQ-317：live 运行中的调用行高亮（淡底 + 执行中提示） */
 .tool-line.running .tool-line-head { background: rgba(79, 70, 229, 0.05); }
 .tool-running-hint { flex: none; font-size: 10px; color: #4f46e5; }

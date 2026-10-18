@@ -10,7 +10,7 @@
  * - ToolLine：入参摘要**同一行内横向滚动**展示（不换行；摘要上限放宽，不再截到不可读），
  *   委派徽标（REQ-311 A5）保留。
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import './tool-phase.css'
 
@@ -41,7 +41,6 @@ export interface ToolPhaseGroup {
   totalMs: number
   live: boolean // 流式进行中（展开）；结束后 false（收起）
   subDepth: number
-  activeLeafCallId?: string // REQ-323：运行中活跃叶子（栈顶挂起调用）——其执行细节自动展开
 }
 
 /** 来源分类（与 ChatWindow.eventSource 同口径的最小副本——避免环导入） */
@@ -200,31 +199,59 @@ function buildGroup(buf: any[], all: any[], runActive = false): ToolPhaseGroup {
     totalMs: calls.reduce((s, c) => s + (c.durationMs ?? 0), 0),
     live,
     subDepth: (buf.find((b) => isToolEv(b.evType))?.subDepth) ?? 0,
-    // REQ-323：栈顶=当前最内层挂起调用（活跃叶子）——其执行细节自动展开，完成（出栈）即收起
-    activeLeafCallId: live ? stack[stack.length - 1]?.row.callId : undefined,
   }
 }
 
 const fmtMs = (ms?: number) => (ms == null ? '' : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`)
 
-/** 单次调用行：入参摘要同行横向滚动；点击展开原始入参/结果。
- *  REQ-323：autoOpen=本行为运行中活跃叶子时自动展开执行步骤信息（入参/结果），完成即自动收起；
- *  用户手动开合后以手动状态优先（不再被自动态翻转）。 */
-function ToolLine({ call, pending, autoOpen }: { call: ToolCallRow; pending?: boolean; autoOpen?: boolean }) {
-  const [userOpen, setUserOpen] = useState<boolean | null>(null)
-  const open = userOpen ?? !!autoOpen
+/** 单次调用行：每条默认只占一行（入参摘要同行）；点击展开原始入参/结果。
+ *  界面优化批（REQ-317/323 谱系演进）：执行中该行内容**在一行中滚动刷新**（超宽自动来回滚动 +
+ *  周期重测捕捉参数流式补全），字体比正文淡；完成即定格单行摘要；细节默认不展开。 */
+function ToolLine({ call, pending }: { call: ToolCallRow; pending?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const argsBoxRef = useRef<HTMLSpanElement | null>(null)
+  const argsTextRef = useRef<HTMLSpanElement | null>(null)
   const cls = srcClassOf(call.source, call.name)
   const isLiveRunning = call.running && !pending
   const dotCls = isLiveRunning ? 'run' : pending ? 'pend' : call.err ? 'bad' : 'ok'
   const dotTxt = isLiveRunning ? '' : pending ? '–' : call.err ? '✕' : '✓'
+
+  // 执行中：入参超宽时自动来回滚动（随流式补全周期重测），单行内刷新
+  useEffect(() => {
+    if (!isLiveRunning) return
+    const box = argsBoxRef.current
+    const txt = argsTextRef.current
+    if (!box || !txt) return
+    const measure = () => {
+      const over = txt.scrollWidth - box.clientWidth
+      if (over > 8) {
+        txt.style.setProperty('--roll-x', `${-over}px`)
+        txt.style.setProperty('--roll-dur', `${Math.max(4, Math.min(14, over / 30))}s`)
+        txt.classList.add('rolling')
+      } else {
+        txt.classList.remove('rolling')
+      }
+    }
+    measure()
+    const timer = window.setInterval(measure, 1000)
+    return () => {
+      window.clearInterval(timer)
+      txt.classList.remove('rolling')
+    }
+  }, [isLiveRunning, call.argsSummary])
+
   return (
     <div className={`tool-line src-${cls}${call.err ? ' err' : ''}${isLiveRunning ? ' running' : ''}`}>
-      <div className="tool-line-head" onClick={() => setUserOpen(!open)} title={open ? '收起详情' : '展开入参与结果'}>
+      <div className="tool-line-head" onClick={() => setOpen((o) => !o)} title={open ? '收起详情' : '展开入参与结果'}>
         <span className={`tool-dot ${dotCls}`}>{dotTxt}</span>
         {/* REQ-311 A5：委派徽标——source=agent:{id} 的调用即协调者对成员智能体的委派（function name=成员名） */}
         {cls === 'subagent' && <span className="tool-delegate">委派</span>}
         <span className="tool-name">{call.name}</span>
-        {call.argsSummary && <span className="tool-args">{call.argsSummary}</span>}
+        {call.argsSummary && (
+          <span className="tool-args" ref={argsBoxRef}>
+            <span className="tool-args-text" ref={argsTextRef}>{call.argsSummary}</span>
+          </span>
+        )}
         {call.durationMs != null && <span className="tool-dur">{fmtMs(call.durationMs)}</span>}
         {isLiveRunning && <span className="tool-running-hint">执行中…</span>}
         <span className={`tool-caret${open ? ' open' : ''}`} />
@@ -240,19 +267,15 @@ function ToolLine({ call, pending, autoOpen }: { call: ToolCallRow; pending?: bo
 }
 
 /** 调用树节点渲染：子调用挂在父调用下的引导线容器内（树形层级一眼可读）；
- *  REQ-323：callId 作 key（流式重建时不丢行内手动开合状态），活跃叶子逐层透传 autoOpen */
-function TreeNode({ node, pendingTree, activeLeafCallId }: { node: ToolCallNode; pendingTree?: boolean; activeLeafCallId?: string }) {
+ *  callId 作 key（流式重建时不丢行内手动开合状态） */
+function TreeNode({ node, pendingTree }: { node: ToolCallNode; pendingTree?: boolean }) {
   return (
     <div className="tool-node">
-      <ToolLine
-        call={node.row}
-        pending={pendingTree && node.row.running}
-        autoOpen={node.row.callId != null && node.row.callId === activeLeafCallId}
-      />
+      <ToolLine call={node.row} pending={pendingTree && node.row.running} />
       {node.children.length > 0 && (
         <div className="tool-node-children">
           {node.children.map((ch, i) => (
-            <TreeNode key={ch.row.callId ?? i} node={ch} pendingTree={pendingTree} activeLeafCallId={activeLeafCallId} />
+            <TreeNode key={ch.row.callId ?? i} node={ch} pendingTree={pendingTree} />
           ))}
         </div>
       )}
@@ -301,7 +324,7 @@ export function ToolPhaseBlock({ group }: { group: ToolPhaseGroup }) {
         </div>
         <div className="tool-tree">
           {group.tree.map((n, i) => (
-            <TreeNode key={n.row.callId ?? i} node={n} activeLeafCallId={group.activeLeafCallId} />
+            <TreeNode key={n.row.callId ?? i} node={n} />
           ))}
         </div>
         {delegates && <div className="tool-phase-title tool-delegate-summary">委派统计：{delegates}</div>}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Drawer, Input, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
+import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { RunEventDTO } from '../api/types'
@@ -74,6 +74,9 @@ export default function TraceDrawer({
   const [replayRun, setReplayRun] = useState<string | null>(null)
   // REQ-284②：时序条开关（默认开）
   const [showTimeline, setShowTimeline] = useState(true)
+  // 界面优化批：运行块分页（最近置顶）——每页默认 5 条，可切 10/20
+  const [runPage, setRunPage] = useState(1)
+  const [runPageSize, setRunPageSize] = useState(5)
   // REQ-336：原始事件 payload 开关改轨迹局部（外置会话流口径归头部「过程」面板）
   const [showRaw, setShowRaw] = useState(false)
 
@@ -127,6 +130,9 @@ export default function TraceDrawer({
         }),
       }))
   }, [runs, runFilter, typeGroups, keyword, debugLevel])
+  // 界面优化批：时序编号总数（运行 1=最早，最新=最大号）+ 过滤变化回第一页
+  const totalRendered = filteredRuns.filter((r) => r.runId !== '__none__').length + (filteredRuns.some((r) => r.runId === '__none__') ? 1 : 0)
+  useEffect(() => { setRunPage(1) }, [runFilter, typeGroups, keyword])
 
   return (
     <Drawer
@@ -182,11 +188,14 @@ export default function TraceDrawer({
             placeholder="运行选择（全部）"
             style={{ width: 220 }}
             value={runFilter || undefined}
-            onChange={(v) => setRunFilter(v || '')}
-            options={runs.filter((r) => r.runId !== '__none__').map((r, i) => ({
-              value: r.runId,
-              label: `运行 ${i + 1} · ${fmtTime(r.startedAt)}（${r.events.length} 事件）`,
-            }))}
+            onChange={(v) => { setRunFilter(v || ''); setRunPage(1) }}
+            options={(() => {
+              const named = runs.filter((r) => r.runId !== '__none__')
+              return [...named].reverse().map((r, i) => ({
+                value: r.runId,
+                label: `运行 ${named.length - i} · ${fmtTime(r.startedAt)}（${r.events.length} 事件）`,
+              }))
+            })()}
           />
           <Input size="small" placeholder="关键字过滤" style={{ width: 150 }} value={keyword} onChange={(e) => setKeyword(e.target.value)} allowClear />
           <Button size="small" onClick={() => setExpandAll(true)}>全部展开</Button>
@@ -194,12 +203,37 @@ export default function TraceDrawer({
         </Space>
       </div>
 
-      {/* 时间线：按运行分组 */}
+      {/* 时间线：按运行分组——界面优化批：最近的运行置顶（新→旧），条目分页浏览 */}
       {filteredRuns.length === 0 && <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无事件（运行一轮后刷新，或调整过滤条件）</Typography.Text>}
-      {filteredRuns.map((r, ri) => (
-        <RunBlock key={r.runId} run={r} index={ri} showRaw={showRaw} expandAll={expandAll} showTimeline={showTimeline}
-          onReplay={() => setReplayRun(r.runId)} />
-      ))}
+      {(() => {
+        const named = filteredRuns.filter((r) => r.runId !== '__none__')
+        const orphans = filteredRuns.filter((r) => r.runId === '__none__')
+        const ordered = [...named].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? '')).concat(orphans)
+        const start = (runPage - 1) * runPageSize
+        const page = ordered.slice(start, start + runPageSize)
+        return (
+          <>
+            {page.map((r, i) => (
+              <RunBlock key={r.runId} run={r} index={totalRendered - 1 - (start + i)} showRaw={showRaw} expandAll={expandAll} showTimeline={showTimeline}
+                onReplay={() => setReplayRun(r.runId)} />
+            ))}
+            {ordered.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                <Pagination
+                  size="small"
+                  current={runPage}
+                  pageSize={runPageSize}
+                  total={ordered.length}
+                  showSizeChanger
+                  pageSizeOptions={[5, 10, 20]}
+                  onChange={(p, ps) => { setRunPage(p); setRunPageSize(ps) }}
+                  showTotal={(n) => `共 ${n} 次运行`}
+                />
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       {replayRun !== null && (
         <EventReplayDrawer
