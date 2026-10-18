@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Collapse, Empty, Input, Popconfirm, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, QuestionCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
 import type { CqBenchmarkRun, OntoChatCQVerdict, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
@@ -752,7 +752,15 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                     { title: '翻译', width: 70, render: (_: unknown, r: CqBenchmarkRun) => `${r.translated}/${r.total}` },
                     { title: '白名单', width: 70, render: (_: unknown, r: CqBenchmarkRun) => `${r.whitelist}/${r.total}` },
                     {
-                      title: 'gold 对齐',
+                      // REQ-348/M148：gold 对齐口径透出——防「对齐率=答案正确率」误读（文案与 cqbench.go Run 注释一致）
+                      title: (
+                        <span>
+                          gold 对齐
+                          <Tooltip title="gold 对齐 = 查询引用了基准 CQ 答案依赖的概念/关系 URN，非答案内容比对；答案级评估随 REQ-346 Judge 共契落地。跨域本体该率低是预期信号（基准集按种子域编写，域外本体不覆盖该域=合理的负信号，非缺陷）。">
+                            <QuestionCircleOutlined style={{ marginLeft: 4, color: 'var(--c-ink-3, #999)' }} data-testid="gold-align-hint" />
+                          </Tooltip>
+                        </span>
+                      ),
                       width: 100,
                       render: (_: unknown, r: CqBenchmarkRun) => {
                         const rate = r.total ? r.gold_aligned / r.total : 0
