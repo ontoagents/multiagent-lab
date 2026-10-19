@@ -85,26 +85,6 @@ if [ "$STAGE_ONLY" != "1" ]; then
   [ -f "$OXI_BIN" ] && chmod +x "$OXI_BIN"
 fi
 
-# ---- NFD 文件名归一（HFS+/DMG 卷强制分解 UTF-8 文件名，与签名封印的 NFC 名不符会破 seal）----
-# 在 dist 落位后、codesign 前调用；重名碰撞（NFC/NFD 同现）诚实报错退出。
-normalize_nfd() {
-  "$PY3" - "$1" <<'PYEOF2'
-import os, sys, unicodedata
-root = sys.argv[1]
-n = 0
-for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-    for name in list(dirnames) + list(filenames):
-        nfd = unicodedata.normalize('NFD', name)
-        if nfd == name:
-            continue
-        src, dst = os.path.join(dirpath, name), os.path.join(dirpath, nfd)
-        if os.path.exists(dst):
-            sys.exit(f'NFD 归一撞名: {src} -> {dst}')
-        os.rename(src, dst)
-        n += 1
-print(f'[build] NFD 归一 {n} 个文件名（HFS+/DMG 卷兼容）')
-PYEOF2
-}
 
 if [ "$SHELL_KIND" = "go" ]; then
   # ---- 遗留壳（REQ-324 首交付形态：ASOC + WKWebView，零编译器依赖）----
@@ -136,7 +116,6 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
   cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
-  normalize_nfd "$APP"
 
   echo "[build] ad-hoc 签名..."
   codesign --force --deep --sign - "$APP" 2>/dev/null || echo "[build] 警告: ad-hoc 签名失败（本机直接运行通常不受影响）"
@@ -205,7 +184,6 @@ EOF
     mkdir -p "$MACOS_DIR/dist"
     rm -rf "$MACOS_DIR/dist/MultiAgentLab.app"
     cp -R "$BUILT" "$MACOS_DIR/dist/MultiAgentLab.app"
-    normalize_nfd "$MACOS_DIR/dist/MultiAgentLab.app"
     codesign --force --deep --sign - "$MACOS_DIR/dist/MultiAgentLab.app" 2>/dev/null || true
   fi
 fi
@@ -213,17 +191,27 @@ fi
 if [ "$SKIP_DMG" != "1" ] && [ "$STAGE_ONLY" != "1" ]; then
   APP="$MACOS_DIR/dist/MultiAgentLab.app"
   DMG_OUT="$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg"
-  PY3="${MLAB_PY3:-/usr/local/bin/python3.12}"
-  # ---- DMG 拖拽安装排版（2026-10-19 定为默认）：应用图标 + /Applications 别名 + 背景引导 +
-  # 固定窗口布局（dmgbuild 纯 Python 写 .DS_Store，挂载镜像内部排版，无需访达自动化权限）。
-  # 降级链：无 Chrome→无背景纯排版；无 dmgbuild / 排版失败→纯镜像 DMG（-PlainDmg 显式退回）。
-  if [ "$PLAIN_DMG" != "1" ] && command -v "$PY3" >/dev/null 2>&1 && "$PY3" -c 'import dmgbuild' >/dev/null 2>&1; then
+  LAYOUT_OK=0
+  # ---- DMG 拖拽安装排版（默认）：应用图标 + /Applications 别名 + 背景引导 + 固定窗口布局。
+  # 管线=hdiutil UDRW -srcfolder（copyfile 保字节名，绕开 shutil 触发 HFS+ 分解致 seal 破损的坑）
+  # → 挂 RW → dmg_layout.py 写 .DS_Store（ds_store+mac_alias，零访达自动化权限）→ 卸载 → UDZO 转换
+  # → 挂只读 codesign 校验硬闸。降级链：无 Chrome→无背景纯排版；缺 ds_store/排版或校验失败→纯镜像
+  #（-PlainDmg 显式退回）。
+  LAYOUT_OK=0
+  if [ "$PLAIN_DMG" != "1" ] && "$PY3" -c 'import ds_store, mac_alias' >/dev/null 2>&1; then
     echo "[build] 打 DMG（拖拽安装排版）..."
-    WORK="$(mktemp -d)"
-    BG=""
-    CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    if [ -x "$CHROME" ]; then
-      cat > "$WORK/bg.html" <<'HTMLEOF'
+    STAGE="$(mktemp -d)"
+    RW="$(mktemp -d)/rw.dmg"
+    MNT="$(mktemp -d)"
+    cp -R "$APP" "$STAGE/MultiAgentLab.app"
+    ln -s /Applications "$STAGE/Applications"
+    hdiutil create -volname MultiAgentLab -srcfolder "$STAGE" -ov -format UDRW "$RW" >/dev/null
+    if hdiutil attach -nobrowse -readwrite -mountpoint "$MNT" "$RW" >/dev/null; then
+      BG=""
+      CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      if [ -x "$CHROME" ]; then
+        BGHTML="$(mktemp).html"
+        cat > "$BGHTML" <<'HTMLEOF'
 <!doctype html><html><head><meta charset="utf-8"><style>
 body{margin:0;width:660px;height:400px;background:linear-gradient(135deg,#eef3fb 0%,#dfe9f7 60%,#d3e2f5 100%);
 font-family:-apple-system,'PingFang SC',sans-serif;overflow:hidden}
@@ -243,39 +231,49 @@ font-family:-apple-system,'PingFang SC',sans-serif;overflow:hidden}
 <div class="t2">完成永久安装（也可拖入其他位置；数据独立存放不受影响）</div>
 </body></html>
 HTMLEOF
-      if "$CHROME" --headless=new --disable-gpu --window-size=660,400 --screenshot="$WORK/bg.png" "file://$WORK/bg.html" >/dev/null 2>&1 && [ -s "$WORK/bg.png" ]; then
-        BG="$WORK/bg.png"
+        BG="$(mktemp).png"
+        if ! "$CHROME" --headless=new --disable-gpu --window-size=660,400 --screenshot="$BG" "file://$BGHTML" >/dev/null 2>&1 || [ ! -s "$BG" ]; then
+          echo "[build] 警告: 背景图渲染失败 → 排版降级纯色背景"
+          BG=""
+        fi
       else
-        echo "[build] 警告: 背景图渲染失败 → 排版降级无背景"
+        echo "[build] 警告: 未找到 Chrome → 排版降级纯色背景"
       fi
+      if "$PY3" "$MACOS_DIR/dmg_layout.py" "$MNT" "$BG"; then
+        LAYOUT_OK=1
+      else
+        echo "[build] 警告: 排版写入失败 → 回落纯镜像 DMG"
+      fi
+      hdiutil detach "$MNT" >/dev/null 2>&1 || { sleep 2; hdiutil detach -force "$MNT" >/dev/null 2>&1 || true; }
+      if [ "$LAYOUT_OK" = "1" ]; then
+        hdiutil convert "$RW" -format UDZO -o "$DMG_OUT" >/dev/null
+      fi
+      rm -rf "$STAGE" "$RW"
     else
-      echo "[build] 警告: 未找到 Chrome → 排版降级无背景"
+      echo "[build] 警告: RW 镜像挂载失败 → 回落纯镜像 DMG"
     fi
-    {
-      echo "format = 'UDZO'"
-      echo "files = [r'''$APP''']"
-      echo "symlinks = {'Applications': '/Applications'}"
-      echo "default_view = 'icon-view'"
-      echo "window_rect = ((100, 100), (660, 400))"
-      echo "icon_size = 72"
-      echo "text_size = 13"
-      echo "icon_locations = {'MultiAgentLab.app': (140, 95), 'Applications': (520, 95)}"
-      [ -n "$BG" ] && echo "background = r'''$BG'''"
-    } > "$WORK/settings.py"
-    if "$PY3" -m dmgbuild -s "$WORK/settings.py" MultiAgentLab "$DMG_OUT" >/dev/null 2>&1; then
-      echo "[build] DMG 拖拽排版完成（${VERSION_ID}）"
-    else
-      echo "[build] 警告: dmgbuild 排版失败 → 回落纯镜像 DMG"
-      rm -f "$DMG_OUT"
-      hdiutil create -volname MultiAgentLab -srcfolder "$APP" -ov -format UDZO "$DMG_OUT" >/dev/null
-    fi
-    rm -rf "$WORK"
+    [ -n "${BGHTML:-}" ] && [ -f "$BGHTML" ] && rm -f "$BGHTML"
+    [ -n "${BG:-}" ] && [ -f "$BG" ] && rm -f "$BG"
   else
     if [ "$PLAIN_DMG" != "1" ]; then
-      echo "[build] 警告: 缺 dmgbuild（$PY3 -m pip install --user --break-system-packages dmgbuild）→ 回落纯镜像 DMG"
+      echo "[build] 警告: 缺 ds_store/mac_alias（$PY3 -m pip install --user --break-system-packages dmgbuild）→ 回落纯镜像 DMG"
     fi
+  fi
+  if [ "$LAYOUT_OK" != "1" ]; then
     echo "[build] 打 DMG（纯镜像）..."
-    hdiutil create -volname MultiAgentLab -srcfolder "$MACOS_DIR/dist/MultiAgentLab.app" -ov -format UDZO "$DMG_OUT" >/dev/null
+    hdiutil create -volname MultiAgentLab -srcfolder "$APP" -ov -format UDZO "$DMG_OUT" >/dev/null
+  fi
+  # ---- 在镜像签名校验硬闸（防跨 FS 封印破损流出到用户）：挂只读 codesign 验证，失败即构建失败
+  VNT="$(mktemp -d)"
+  if hdiutil attach -nobrowse -readonly -mountpoint "$VNT" "$DMG_OUT" >/dev/null; then
+    if codesign --verify --deep --strict "$VNT/MultiAgentLab.app" 2>/dev/null; then
+      echo "[build] DMG 内签名校验通过（${VERSION_ID}）"
+    else
+      echo "[build] 错误: DMG 内签名校验失败（seal 破损）"; hdiutil detach "$VNT" >/dev/null 2>&1 || true; exit 1
+    fi
+    hdiutil detach "$VNT" >/dev/null
+  else
+    echo "[build] 警告: DMG 校验挂载失败（跳过在镜像签名断言）"
   fi
 fi
 
