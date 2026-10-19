@@ -2,7 +2,11 @@
  * 官网图示组件库（REQ-238 扩展）：纯内联 SVG，与品牌视觉同源（#4f46e5 系）。
  * 设计目标：直观易读——分层清晰 / 连线带语义标签 / 配色区分平面与事件类别；
  * 全部为无外部依赖的 React 组件，可直接构建进静态站。
+ * REQ-360：图内文字随站点语言切换（useLocale；坐标布局双语言共用）。
  */
+
+import { useLocale } from '../i18n'
+import type { L10n } from '../locale'
 
 const INK = '#1c2130'
 const INK2 = '#575e75'
@@ -67,16 +71,72 @@ function VLine({ x, y1, y2, label, labelSide = 'right', dashed = false, color = 
   )
 }
 
+const ARCH: {
+  clientLayer: L10n<string>
+  engines: L10n<string>
+  browser: L10n<{ t: string; d: string }>
+  desktop: L10n<{ t: string; d: string }>
+  mcpClient: L10n<{ t: string; d: string }>
+  mainTitle: L10n<string>
+  mainSub: L10n<string>
+  m1: L10n<{ t: string; d: string }>
+  m2: L10n<{ t: string; d: string }>
+  m3: L10n<{ t: string; d: string }>
+  m4: L10n<{ t: string }>
+  m5: L10n<{ t: string; d: string }>
+  m6: L10n<{ t: string }>
+  build: L10n<{ t: string; d1: string; d2: string }>
+  runtime: L10n<{ t: string; d1: string; d2: string }>
+  asset: L10n<string>
+  qdrant: L10n<{ t: string; d: string }>
+  sqlite: L10n<{ t: string; d: string }>
+  oxigraph: L10n<{ t: string; d: string }>
+  fuseki: L10n<{ t: string; d: string }>
+  vectorLine: L10n<string>
+  llmLine: L10n<string>
+} = {
+  clientLayer: { zh: '客户端层', en: 'Client layer' },
+  engines: { zh: '引擎与存储', en: 'Engines & storage' },
+  browser: { zh: { t: '浏览器 Web UI', d: 'React 18 · AntD 6 · hash 路由' }, en: { t: 'Browser Web UI', d: 'React 18 · AntD 6 · hash routing' } },
+  desktop: { zh: { t: '桌面客户端（Tauri 2 壳）', d: 'Windows 安装包 / macOS DMG · 系统托盘' }, en: { t: 'Desktop client (Tauri 2 shell)', d: 'Windows installer / macOS DMG · system tray' } },
+  mcpClient: { zh: { t: '外部 MCP 客户端', d: 'Claude Desktop / Cursor 直连' }, en: { t: 'External MCP clients', d: 'Claude Desktop / Cursor direct' } },
+  mainTitle: { zh: '主平台 backend（Go · Hertz · :8080）', en: 'Main platform backend (Go · Hertz · :8080)' },
+  mainSub: { zh: '智能体装配与运行 · 知识库 · 设置 · 平台助手', en: 'Agent assembly & running · knowledge base · settings · assistant' },
+  m1: { zh: { t: 'Eino ADK 装配与运行', d: '对话 / 对比模式 / 多智能体编排' }, en: { t: 'Eino ADK assembly & run', d: 'Chat / compare mode / multi-agent orchestration' } },
+  m2: { zh: { t: 'SSE 事件流', d: '工具 / 子智能体 / 本体查询全留痕' }, en: { t: 'SSE event stream', d: 'Tools / sub-agents / ontology queries fully traced' } },
+  m3: { zh: { t: '知识库 RAG / GraphRAG', d: 'Qdrant 向量（主）· SQLite 余弦 fallback' }, en: { t: 'Knowledge base RAG / GraphRAG', d: 'Qdrant vectors (primary) · SQLite cosine fallback' } },
+  m4: { zh: { t: '技能 / 工具 / 外部连接器' }, en: { t: 'Skills / tools / external connectors' } },
+  m5: { zh: { t: '模型代理（双协议）', d: 'openai_compat / anthropic' }, en: { t: 'Model proxy (dual protocol)', d: 'openai_compat / anthropic' } },
+  m6: { zh: { t: 'Agent 对外 MCP 服务化（/mcp）' }, en: { t: 'Agent MCP serving (/mcp)' } },
+  build: {
+    zh: { t: '本体构建平面 ontology-service（:8091）', d1: '六条构建路径 · LLM 生成必过质量门禁', d2: 'spec_json 多形态资产仓库 · 导入审查合并 · 工具链' },
+    en: { t: 'Ontology build plane — ontology-service (:8091)', d1: 'Six build paths · LLM generations must pass the quality gate', d2: 'Multi-form spec_json asset store · import review/merge · tooling' },
+  },
+  runtime: {
+    zh: { t: '本体运行平面 runtime-manager（:8090）', d1: '运行方案编排（Oxigraph / Fuseki）', d2: '统一 MCP facade：onto_* 五工具 + sparql_query' },
+    en: { t: 'Ontology runtime plane — runtime-manager (:8090)', d1: 'Run-plan orchestration (Oxigraph / Fuseki)', d2: 'Unified MCP facade: five onto_* tools + sparql_query' },
+  },
+  asset: { zh: '资产', en: 'assets' },
+  qdrant: { zh: { t: 'Qdrant（向量，主）', d: 'SQLite 余弦 fallback' }, en: { t: 'Qdrant (vectors, primary)', d: 'SQLite cosine fallback' } },
+  sqlite: { zh: { t: 'SQLite 业务库', d: 'AES-256-GCM 密钥加密' }, en: { t: 'SQLite business DB', d: 'AES-256-GCM key encryption' } },
+  oxigraph: { zh: { t: 'Oxigraph', d: 'SPARQL 型引擎（默认）' }, en: { t: 'Oxigraph', d: 'SPARQL engine (default)' } },
+  fuseki: { zh: { t: 'Fuseki', d: 'OWL 推理对照引擎' }, en: { t: 'Fuseki', d: 'OWL reasoning engine' } },
+  vectorLine: { zh: '向量检索', en: 'vector retrieval' },
+  llmLine: { zh: '外部 LLM 供应商 —— OpenAI 兼容 / Anthropic 兼容（多连接 · 自动发现 · 厂商预设 · Key 本地 AES-256-GCM 加密）', en: 'External LLM vendors — OpenAI-compatible / Anthropic-compatible (multi-connection · auto-discovery · vendor presets · keys encrypted locally with AES-256-GCM)' },
+}
+
 export function ArchDiagram() {
+  const { locale } = useLocale()
+  const a = ARCH
   return (
-    <svg viewBox="0 0 1180 660" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label="系统架构：三平面 + 双代理">
+    <svg viewBox="0 0 1180 660" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label={locale === 'zh' ? '系统架构：三平面 + 双代理' : 'System architecture: three planes + dual proxy'}>
       <ArrowDefs id="arrow-arch" />
 
       {/* ===== 客户端层 ===== */}
-      <Text x={34} y={52} size={11.5} weight={700} fill={INK2} anchor="start">客户端层</Text>
-      <InnerCard x={100} y={24} w={300} h={56} title="浏览器 Web UI" desc="React 18 · AntD 6 · hash 路由" tint={BRAND} />
-      <InnerCard x={440} y={24} w={330} h={56} title="桌面客户端（Tauri 2 壳）" desc="Windows 安装包 / macOS DMG · 系统托盘" tint={BRAND} />
-      <InnerCard x={810} y={24} w={310} h={56} title="外部 MCP 客户端" desc="Claude Desktop / Cursor 直连" tint={BRAND} />
+      <Text x={34} y={52} size={11.5} weight={700} fill={INK2} anchor="start">{a.clientLayer[locale]}</Text>
+      <InnerCard x={100} y={24} w={300} h={56} title={a.browser[locale].t} desc={a.browser[locale].d} tint={BRAND} />
+      <InnerCard x={440} y={24} w={330} h={56} title={a.desktop[locale].t} desc={a.desktop[locale].d} tint={BRAND} />
+      <InnerCard x={810} y={24} w={310} h={56} title={a.mcpClient[locale].t} desc={a.mcpClient[locale].d} tint={BRAND} />
 
       {/* 客户端 → 主平台 */}
       <VLine x={250} y1={80} y2={128} label="HTTP · REST + SSE" />
@@ -85,14 +145,14 @@ export function ArchDiagram() {
 
       {/* ===== 主平台 ===== */}
       <Box x={60} y={130} w={1060} h={172} fill="#eef4ff" stroke="#a8bdf0" />
-      <Text x={84} y={156} size={13.5} weight={800} anchor="start">主平台 backend（Go · Hertz · :8080）</Text>
-      <Text x={84} y={174} size={10.5} fill={INK2} anchor="start">智能体装配与运行 · 知识库 · 设置 · 平台助手</Text>
-      <InnerCard x={84} y={188} w={310} h={52} title="Eino ADK 装配与运行" desc="对话 / 对比模式 / 多智能体编排" tint={BRAND} />
-      <InnerCard x={414} y={188} w={310} h={52} title="SSE 事件流" desc="工具 / 子智能体 / 本体查询全留痕" tint={BRAND} />
-      <InnerCard x={744} y={188} w={352} h={52} title="知识库 RAG / GraphRAG" desc="Qdrant 向量（主）· SQLite 余弦 fallback" tint={BRAND} />
-      <InnerCard x={84} y={246} w={310} h={44} title="技能 / 工具 / 外部连接器" tint={BRAND} />
-      <InnerCard x={414} y={246} w={310} h={44} title="模型代理（双协议）" desc="openai_compat / anthropic" tint={BRAND} />
-      <InnerCard x={744} y={246} w={352} h={44} title="Agent 对外 MCP 服务化（/mcp）" tint={BRAND} />
+      <Text x={84} y={156} size={13.5} weight={800} anchor="start">{a.mainTitle[locale]}</Text>
+      <Text x={84} y={174} size={10.5} fill={INK2} anchor="start">{a.mainSub[locale]}</Text>
+      <InnerCard x={84} y={188} w={310} h={52} title={a.m1[locale].t} desc={a.m1[locale].d} tint={BRAND} />
+      <InnerCard x={414} y={188} w={310} h={52} title={a.m2[locale].t} desc={a.m2[locale].d} tint={BRAND} />
+      <InnerCard x={744} y={188} w={352} h={52} title={a.m3[locale].t} desc={a.m3[locale].d} tint={BRAND} />
+      <InnerCard x={84} y={246} w={310} h={44} title={a.m4[locale].t} tint={BRAND} />
+      <InnerCard x={414} y={246} w={310} h={44} title={a.m5[locale].t} desc={a.m5[locale].d} tint={BRAND} />
+      <InnerCard x={744} y={246} w={352} h={44} title={a.m6[locale].t} tint={BRAND} />
 
       {/* 主平台 → 本体两平面 */}
       <VLine x={310} y1={302} y2={360} label="反向代理 · 同源嵌入" labelSide="left" />
@@ -100,37 +160,37 @@ export function ArchDiagram() {
 
       {/* ===== 本体两平面 ===== */}
       <Box x={60} y={362} w={520} h={104} fill="#eef2ff" stroke="#b6bcf2" />
-      <Text x={84} y={388} size={13.5} weight={800} anchor="start">本体构建平面 ontology-service（:8091）</Text>
-      <Text x={84} y={410} size={11} fill={INK2} anchor="start">六条构建路径 · LLM 生成必过质量门禁</Text>
-      <Text x={84} y={430} size={11} fill={INK2} anchor="start">spec_json 多形态资产仓库 · 导入审查合并 · 工具链</Text>
+      <Text x={84} y={388} size={13.5} weight={800} anchor="start">{a.build[locale].t}</Text>
+      <Text x={84} y={410} size={11} fill={INK2} anchor="start">{a.build[locale].d1}</Text>
+      <Text x={84} y={430} size={11} fill={INK2} anchor="start">{a.build[locale].d2}</Text>
 
       <Box x={600} y={362} w={520} h={104} fill="#ecfdf5" stroke="#9fd8bd" />
-      <Text x={624} y={388} size={13.5} weight={800} anchor="start">本体运行平面 runtime-manager（:8090）</Text>
-      <Text x={624} y={410} size={11} fill={INK2} anchor="start">运行方案编排（Oxigraph / Fuseki）</Text>
-      <Text x={624} y={430} size={11} fill={INK2} anchor="start">统一 MCP facade：onto_* 五工具 + sparql_query</Text>
+      <Text x={624} y={388} size={13.5} weight={800} anchor="start">{a.runtime[locale].t}</Text>
+      <Text x={624} y={410} size={11} fill={INK2} anchor="start">{a.runtime[locale].d1}</Text>
+      <Text x={624} y={430} size={11} fill={INK2} anchor="start">{a.runtime[locale].d2}</Text>
 
       {/* 构建 → 运行（资产交付） */}
       <line x1={580} y1={414} x2={600} y2={414} stroke={LINE} strokeWidth="1.4" markerEnd="url(#arrow-arch)" />
-      <Text x={590} y={400} size={10} fill={INK2}>资产</Text>
+      <Text x={590} y={400} size={10} fill={INK2}>{a.asset[locale]}</Text>
 
       {/* 平面 → 引擎/存储 */}
       <VLine x={860} y1={466} y2={520} label="SPARQL / 推理" labelSide="right" />
 
       {/* ===== 引擎与存储层 ===== */}
-      <Text x={34} y={546} size={11.5} weight={700} fill={INK2} anchor="start">引擎与存储</Text>
-      <InnerCard x={100} y={522} w={210} h={48} title="Qdrant（向量，主）" desc="SQLite 余弦 fallback" tint="#9db8e8" />
-      <InnerCard x={340} y={522} w={240} h={48} title="SQLite 业务库" desc="AES-256-GCM 密钥加密" tint="#9db8e8" />
-      <InnerCard x={700} y={522} w={190} h={48} title="Oxigraph" desc="SPARQL 型引擎（默认）" tint="#7fc8a4" />
-      <InnerCard x={920} y={522} w={180} h={48} title="Fuseki" desc="OWL 推理对照引擎" tint="#7fc8a4" />
+      <Text x={34} y={546} size={11.5} weight={700} fill={INK2} anchor="start">{a.engines[locale]}</Text>
+      <InnerCard x={100} y={522} w={210} h={48} title={a.qdrant[locale].t} desc={a.qdrant[locale].d} tint="#9db8e8" />
+      <InnerCard x={340} y={522} w={240} h={48} title={a.sqlite[locale].t} desc={a.sqlite[locale].d} tint="#9db8e8" />
+      <InnerCard x={700} y={522} w={190} h={48} title={a.oxigraph[locale].t} desc={a.oxigraph[locale].d} tint="#7fc8a4" />
+      <InnerCard x={920} y={522} w={180} h={48} title={a.fuseki[locale].t} desc={a.fuseki[locale].d} tint="#7fc8a4" />
 
       {/* backend → Qdrant/SQLite（向量检索链） */}
-      <VLine x={200} y1={290} y2={520} dashed label="向量检索" labelSide="right" />
+      <VLine x={200} y1={290} y2={520} dashed label={a.vectorLine[locale]} labelSide="right" />
       {/* backend → LLM */}
       <VLine x={1150} y1={290} y2={590} dashed color="#c9b2e8" />
 
       {/* ===== 外部 LLM 供应商 ===== */}
       <Box x={60} y={594} w={1060} h={44} fill="#faf8ff" stroke="#d9c8f0" rx={10} />
-      <Text x={590} y={616} size={12} weight={700} fill={INK2}>外部 LLM 供应商 —— OpenAI 兼容 / Anthropic 兼容（多连接 · 自动发现 · 厂商预设 · Key 本地 AES-256-GCM 加密）</Text>
+      <Text x={590} y={616} size={12} weight={700} fill={INK2}>{a.llmLine[locale]}</Text>
     </svg>
   )
 }
@@ -170,18 +230,39 @@ function Event({
 
 const SSE_COLORS = { life: '#4f46e5', delta: '#2563eb', tool: '#d97706', onto: '#059669' }
 
+const SSE_COPY = {
+  zh: {
+    laneClient: { t: '浏览器', s: '事件卡实时渲染' },
+    laneBackend: { t: 'backend', s: 'Eino ADK 装配运行' },
+    laneExt: { t: '扩展执行面', s: '工具 · 子智能体 · 本体 · 知识' },
+    toolCard: '工具/委派事件卡',
+    deltaCont: 'message.delta（续）',
+    note: '事件 JSON 统一 {type, run_id, ts, data} · 调试模式三档观测级别 · 原始事件可展开查看 · 对话可导出重放（REQ-117）',
+  },
+  en: {
+    laneClient: { t: 'Browser', s: 'live event cards' },
+    laneBackend: { t: 'backend', s: 'Eino ADK assembly & run' },
+    laneExt: { t: 'Extended execution', s: 'tools · sub-agents · ontology · knowledge' },
+    toolCard: 'tool/delegation event cards',
+    deltaCont: 'message.delta (cont.)',
+    note: 'Unified event JSON {type, run_id, ts, data} · three debug observation levels · expandable raw events · export & replay conversations (REQ-117)',
+  },
+}
+
 export function SseTimeline() {
+  const { locale } = useLocale()
   const c = SSE_COLORS
+  const t = SSE_COPY[locale]
   return (
-    <svg viewBox="0 0 1180 300" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label="SSE 事件流时序">
+    <svg viewBox="0 0 1180 300" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label={locale === 'zh' ? 'SSE 事件流时序' : 'SSE event stream timeline'}>
       <ArrowDefs id={`arrow-sse-${c.life.replace('#', '')}`} color={c.life} />
       <ArrowDefs id={`arrow-sse-${c.delta.replace('#', '')}`} color={c.delta} />
       <ArrowDefs id={`arrow-sse-${c.tool.replace('#', '')}`} color={c.tool} />
       <ArrowDefs id={`arrow-sse-${c.onto.replace('#', '')}`} color={c.onto} />
 
-      <Lane y={LANE_Y.client} title="浏览器" sub="事件卡实时渲染" color="#eef2ff" />
-      <Lane y={LANE_Y.backend} title="backend" sub="Eino ADK 装配运行" color="#eef4ff" />
-      <Lane y={LANE_Y.ext} title="扩展执行面" sub="工具 · 子智能体 · 本体 · 知识" color="#f2fbf6" />
+      <Lane y={LANE_Y.client} title={t.laneClient.t} sub={t.laneClient.s} color="#eef2ff" />
+      <Lane y={LANE_Y.backend} title={t.laneBackend.t} sub={t.laneBackend.s} color="#eef4ff" />
+      <Lane y={LANE_Y.ext} title={t.laneExt.t} sub={t.laneExt.s} color="#f2fbf6" />
 
       {/* 生命周期 */}
       <Event x={210} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label="run.started" tint={c.life} />
@@ -191,13 +272,13 @@ export function SseTimeline() {
       {/* 工具调用（backend → 扩展面往返） */}
       <Event x={530} laneFrom={LANE_Y.backend} laneTo={LANE_Y.ext} label="tool.call" tint={c.tool} />
       <Event x={640} laneFrom={LANE_Y.ext} laneTo={LANE_Y.backend} label="tool.result" tint={c.tool} />
-      <Event x={715} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label="工具/委派事件卡" tint={c.tool} />
+      <Event x={715} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label={t.toolCard} tint={c.tool} />
       {/* 本体/知识 */}
       <Event x={830} laneFrom={LANE_Y.backend} laneTo={LANE_Y.ext} label="ontology.query / retrieval" tint={c.onto} />
-      <Event x={955} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label="message.delta（续）" tint={c.delta} />
+      <Event x={955} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label={t.deltaCont} tint={c.delta} />
       <Event x={1075} laneFrom={LANE_Y.backend} laneTo={LANE_Y.client} label="run.finished | run.error" tint={c.life} />
 
-      <Text x={585} y={288} size={11} fill={INK2}>事件 JSON 统一 {'{type, run_id, ts, data}'} · 调试模式三档观测级别 · 原始事件可展开查看 · 对话可导出重放（REQ-117）</Text>
+      <Text x={585} y={288} size={11} fill={INK2}>{t.note}</Text>
     </svg>
   )
 }
@@ -206,14 +287,52 @@ export function SseTimeline() {
 // 3. 本体构建六路径 → 质量门禁 → 资产仓库（源：docs/03 / 04 · REQ-171 qualitygate）
 // ---------------------------------------------------------------------------
 
+const QG_COPY = {
+  zh: {
+    paths: ['手工向导（自定义）', 'OntoChat 对话引导', 'OntoExtend 增量扩展', 'Open Ontologies 双轨导入', '由知识库构建', 'CSV 灌装'],
+    gate: '质量门禁 qualitygate',
+    g1: '11 检查项 · 三维评分（REQ-171）',
+    g2: 'LLM 生成产物必须通过 · 必要时自动修复',
+    g3: '含导入审查合并（六路径收敛于资产段）',
+    gFail: '未通过 → 自修复 / 退回修改',
+    repair: '自修复循环',
+    pass: '通过',
+    store: '本体资产仓库',
+    s1: 'spec_json 多形态资产（TTL / JSON-LD / GraphML / CSV）',
+    s2: '版本管理与 diff · 质量卡 · 源码视图',
+    s3: '进化候选受控生长 · 被引用聚合',
+    s4: 'SPARQL 工作台 · 三维浏览 / WebVOWL 对照',
+    s5: '伴生本体页签（动态薄本体）',
+    toRun: '发布为运行方案（Oxigraph / Fuseki）→ MCP facade 供智能体消费',
+  },
+  en: {
+    paths: ['Manual wizard (custom)', 'OntoChat guided chat', 'OntoExtend evolution', 'Open Ontologies dual-track import', 'Build from knowledge base', 'CSV fill'],
+    gate: 'Quality gate (qualitygate)',
+    g1: '11 checks · three-dimension score (REQ-171)',
+    g2: 'LLM generations must pass · auto-repair when needed',
+    g3: 'Includes import review/merge (six paths converge on the asset stage)',
+    gFail: 'Fail → self-repair / return for edits',
+    repair: 'self-repair loop',
+    pass: 'Pass',
+    store: 'Ontology asset store',
+    s1: 'Multi-form spec_json assets (TTL / JSON-LD / GraphML / CSV)',
+    s2: 'Versions & diff · quality card · source view',
+    s3: 'Controlled growth of evolution candidates · reference aggregation',
+    s4: 'SPARQL workbench · 3D browsing / WebVOWL comparison',
+    s5: 'Companion ontology tab (dynamic thin ontology)',
+    toRun: 'Publish as run plans (Oxigraph / Fuseki) → MCP facade for agent consumption',
+  },
+}
+
 export function QualityGateFlow() {
-  const paths = ['手工向导（自定义）', 'OntoChat 对话引导', 'OntoExtend 增量扩展', 'Open Ontologies 双轨导入', '由知识库构建', 'CSV 灌装']
+  const { locale } = useLocale()
+  const t = QG_COPY[locale]
   return (
-    <svg viewBox="0 0 1180 330" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label="本体构建路径与质量门禁">
+    <svg viewBox="0 0 1180 330" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label={locale === 'zh' ? '本体构建路径与质量门禁' : 'Ontology build paths and the quality gate'}>
       <ArrowDefs id="arrow-qg" />
 
       {/* 六条路径 */}
-      {paths.map((p, i) => {
+      {t.paths.map((p, i) => {
         const y = 30 + i * 50
         return (
           <g key={p}>
@@ -226,31 +345,31 @@ export function QualityGateFlow() {
 
       {/* 质量门禁 */}
       <Box x={400} y={96} w={280} h={134} fill="#fff7ed" stroke="#f0b269" rx={12} />
-      <Text x={540} y={122} size={14} weight={800}>质量门禁 qualitygate</Text>
-      <Text x={540} y={148} size={11.5} fill={INK2}>11 检查项 · 三维评分（REQ-171）</Text>
-      <Text x={540} y={170} size={11.5} fill={INK2}>LLM 生成产物必须通过 · 必要时自动修复</Text>
-      <Text x={540} y={196} size={11.5} fill={INK2}>含导入审查合并（六路径收敛于资产段）</Text>
-      <Text x={540} y={218} size={10.5} fill="#b45309">未通过 → 自修复 / 退回修改</Text>
+      <Text x={540} y={122} size={14} weight={800}>{t.gate}</Text>
+      <Text x={540} y={148} size={11.5} fill={INK2}>{t.g1}</Text>
+      <Text x={540} y={170} size={11.5} fill={INK2}>{t.g2}</Text>
+      <Text x={540} y={196} size={11.5} fill={INK2}>{t.g3}</Text>
+      <Text x={540} y={218} size={10.5} fill="#b45309">{t.gFail}</Text>
       {/* 自修复循环 */}
       <path d="M 540 230 C 480 285 420 260 405 232" fill="none" stroke="#d97706" strokeWidth="1.3" strokeDasharray="5 4" markerEnd="url(#arrow-qg)" />
-      <Text x={470} y={278} size={10.5} fill="#b45309">自修复循环</Text>
+      <Text x={470} y={278} size={10.5} fill="#b45309">{t.repair}</Text>
 
       {/* 门禁 → 资产 */}
       <line x1={680} y1={163} x2={770} y2={163} stroke={LINE} strokeWidth="1.4" markerEnd="url(#arrow-qg)" />
-      <Text x={725} y={150} size={10.5} fill={INK2}>通过</Text>
+      <Text x={725} y={150} size={10.5} fill={INK2}>{t.pass}</Text>
 
       {/* 资产仓库 */}
       <Box x={774} y={76} w={370} h={178} fill="#ecfdf5" stroke="#9fd8bd" rx={12} />
-      <Text x={959} y={104} size={14} weight={800}>本体资产仓库</Text>
-      <Text x={959} y={132} size={11.5} fill={INK2}>spec_json 多形态资产（TTL / JSON-LD / GraphML / CSV）</Text>
-      <Text x={959} y={158} size={11.5} fill={INK2}>版本管理与 diff · 质量卡 · 源码视图</Text>
-      <Text x={959} y={184} size={11.5} fill={INK2}>进化候选受控生长 · 被引用聚合</Text>
-      <Text x={959} y={210} size={11.5} fill={INK2}>SPARQL 工作台 · 三维浏览 / WebVOWL 对照</Text>
-      <Text x={959} y={236} size={11.5} fill={INK2}>伴生本体页签（动态薄本体）</Text>
+      <Text x={959} y={104} size={14} weight={800}>{t.store}</Text>
+      <Text x={959} y={132} size={11.5} fill={INK2}>{t.s1}</Text>
+      <Text x={959} y={158} size={11.5} fill={INK2}>{t.s2}</Text>
+      <Text x={959} y={184} size={11.5} fill={INK2}>{t.s3}</Text>
+      <Text x={959} y={210} size={11.5} fill={INK2}>{t.s4}</Text>
+      <Text x={959} y={236} size={11.5} fill={INK2}>{t.s5}</Text>
 
       {/* 资产 → 运行平面 */}
       <line x1={959} y1={254} x2={959} y2={300} stroke={LINE} strokeWidth="1.3" markerEnd="url(#arrow-qg)" />
-      <Text x={959} y={316} size={11} fill={INK2}>发布为运行方案（Oxigraph / Fuseki）→ MCP facade 供智能体消费</Text>
+      <Text x={959} y={316} size={11} fill={INK2}>{t.toRun}</Text>
     </svg>
   )
 }
@@ -259,37 +378,61 @@ export function QualityGateFlow() {
 // 4. 伴生本体（动态薄本体）旁路管线（源：REQ-170 · docs/03 §2.31）
 // ---------------------------------------------------------------------------
 
+const COMP_COPY = {
+  zh: {
+    main: '对话主链（Eino ADK · SSE 事件流 · 完全可观测）',
+    mainSub: '旁路只在对话收尾时触发，不阻塞、不侵入主流程',
+    trigger: '对话收尾触发',
+    steps: [
+      { t: '① 旁路抽取', d: 'LLM 抽取知识候选' },
+      { t: '② 人工确认', d: '候选确认 UI（可批量）' },
+      { t: '③ 会话图引擎', d: '确认后入会话图（薄本体）' },
+      { t: '④ 并入检索源', d: '自动成为 KG 检索 TTL 源' },
+    ],
+    principle: '低侵入三原则：开关默认关 · 产物可摘除 · 失败静默降级不影响主链（REQ-170，平台横切原则的实例化）',
+  },
+  en: {
+    main: 'Conversation main path (Eino ADK · SSE events · fully observable)',
+    mainSub: 'The bypass only triggers as the conversation wraps up — never blocks or intrudes on the main flow',
+    trigger: 'triggers at conversation end',
+    steps: [
+      { t: '① Bypass extraction', d: 'LLM extracts knowledge candidates' },
+      { t: '② Human confirmation', d: 'candidate review UI (batch-capable)' },
+      { t: '③ Session graph engine', d: 'confirmed entries enter the session graph (thin ontology)' },
+      { t: '④ Joins retrieval sources', d: 'automatically becomes a KG retrieval TTL source' },
+    ],
+    principle: 'Three low-intrusion principles: off by default · removable artifacts · silent degradation on failure never affects the main path (REQ-170, an instantiation of the platform’s cross-cutting principles)',
+  },
+}
+
 export function CompanionPipeline() {
+  const { locale } = useLocale()
+  const t = COMP_COPY[locale]
   return (
-    <svg viewBox="0 0 1180 250" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label="伴生本体旁路管线">
+    <svg viewBox="0 0 1180 250" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label={locale === 'zh' ? '伴生本体旁路管线' : 'Companion-ontology bypass pipeline'}>
       <ArrowDefs id="arrow-comp" />
 
       {/* 主链 */}
       <Box x={30} y={28} w={1120} h={54} fill="#eef4ff" stroke="#a8bdf0" rx={12} />
-      <Text x={590} y={50} size={13} weight={800}>对话主链（Eino ADK · SSE 事件流 · 完全可观测）</Text>
-      <Text x={590} y={70} size={11} fill={INK2}>旁路只在对话收尾时触发，不阻塞、不侵入主流程</Text>
+      <Text x={590} y={50} size={13} weight={800}>{t.main}</Text>
+      <Text x={590} y={70} size={11} fill={INK2}>{t.mainSub}</Text>
 
       {/* 主链 → 旁路入口 */}
       <line x1={210} y1={82} x2={210} y2={128} stroke="#8a90ad" strokeWidth="1.3" strokeDasharray="5 4" markerEnd="url(#arrow-comp)" />
-      <Text x={218} y={108} size={10.5} fill={INK2} anchor="start">对话收尾触发</Text>
+      <Text x={218} y={108} size={10.5} fill={INK2} anchor="start">{t.trigger}</Text>
 
       {/* 旁路四节点 */}
-      {[
-        { x: 60, t: '① 旁路抽取', d: 'LLM 抽取知识候选', tint: '#eef2ff', s: '#b6bcf2' },
-        { x: 340, t: '② 人工确认', d: '候选确认 UI（可批量）', tint: '#fff7ed', s: '#f0b269' },
-        { x: 620, t: '③ 会话图引擎', d: '确认后入会话图（薄本体）', tint: '#ecfdf5', s: '#9fd8bd' },
-        { x: 900, t: '④ 并入检索源', d: '自动成为 KG 检索 TTL 源', tint: '#ecfdf5', s: '#9fd8bd' },
-      ].map((n, i) => (
+      {t.steps.map((n, i) => (
         <g key={n.t}>
-          <Box x={n.x} y={132} w={220} h={64} fill={n.tint} stroke={n.s} rx={10} />
-          <Text x={n.x + 110} y={156} size={12.5} weight={700}>{n.t}</Text>
-          <Text x={n.x + 110} y={178} size={10.5} fill={INK2}>{n.d}</Text>
-          {i < 3 && <line x1={n.x + 220} y1={164} x2={n.x + 280} y2={164} stroke={LINE} strokeWidth="1.4" markerEnd="url(#arrow-comp)" />}
+          <Box x={[60, 340, 620, 900][i]} y={132} w={220} h={64} fill={['#eef2ff', '#fff7ed', '#ecfdf5', '#ecfdf5'][i]} stroke={['#b6bcf2', '#f0b269', '#9fd8bd', '#9fd8bd'][i]} rx={10} />
+          <Text x={[60, 340, 620, 900][i] + 110} y={156} size={12.5} weight={700}>{n.t}</Text>
+          <Text x={[60, 340, 620, 900][i] + 110} y={178} size={10.5} fill={INK2}>{n.d}</Text>
+          {i < 3 && <line x1={[60, 340, 620, 900][i] + 220} y1={164} x2={[60, 340, 620, 900][i] + 280} y2={164} stroke={LINE} strokeWidth="1.4" markerEnd="url(#arrow-comp)" />}
         </g>
       ))}
 
       {/* 低侵入三原则 */}
-      <Text x={590} y={228} size={11.5} fill={INK2}>低侵入三原则：开关默认关 · 产物可摘除 · 失败静默降级不影响主链（REQ-170，平台横切原则的实例化）</Text>
+      <Text x={590} y={228} size={11.5} fill={INK2}>{t.principle}</Text>
     </svg>
   )
 }

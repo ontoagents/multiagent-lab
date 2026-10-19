@@ -9,6 +9,8 @@ import PrinciplesPage from './pages/Principles'
 import DeployPage from './pages/Deploy'
 import EcosystemPage from './pages/Ecosystem'
 import { MODULES, REPO_SLUG, REPO_URL } from './content'
+import { useLocale } from './i18n'
+import type { L10n } from './locale'
 
 // 演示页懒加载：three.js/react-force-graph 体量大（主包 ~3MB→首屏 ~1MB），首访演示页才拉取
 const DemoPage = lazy(() => import('./pages/DemoPage'))
@@ -23,7 +25,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 //   #/ecosystem       开源生态（关联图谱 / 七类对比表 / 状态口径）
 //   #/deploy          部署运行（桌面客户端 / 服务端部署 web 访问 / 本地运行）
 //   #/demo            内置演示数据（种子本体可视化）
-// 右上角 GitHub 仓库链接常驻。
+// 右上角语言切换 + GitHub 仓库链接常驻（REQ-360）。
 // ---------------------------------------------------------------------------
 
 function useHashRoute(): string {
@@ -48,16 +50,39 @@ function BrandMark({ size = 20 }: { size?: number }) {
   )
 }
 
-const NAVS: { hash: string; label: string; match: (h: string) => boolean }[] = [
-  { hash: '#/', label: '首页', match: (h) => h === '#/' || h === '' },
-  { hash: '#/module/agents', label: '功能模块', match: (h) => h.startsWith('#/module/') },
-  { hash: '#/architecture', label: '整体架构', match: (h) => h.startsWith('#/architecture') },
-  { hash: '#/implementation', label: '关键实现', match: (h) => h.startsWith('#/implementation') },
-  { hash: '#/principles', label: '实现原理', match: (h) => h.startsWith('#/principles') },
-  { hash: '#/ecosystem', label: '开源生态', match: (h) => h.startsWith('#/ecosystem') },
-  { hash: '#/deploy', label: '部署运行', match: (h) => h.startsWith('#/deploy') },
-  { hash: '#/demo', label: '在线演示', match: (h) => h.startsWith('#/demo') },
+const NAVS: { hash: string; label: L10n<string>; match: (h: string) => boolean }[] = [
+  { hash: '#/', label: { zh: '首页', en: 'Home' }, match: (h) => h === '#/' || h === '' },
+  { hash: '#/module/agents', label: { zh: '功能模块', en: 'Modules' }, match: (h) => h.startsWith('#/module/') },
+  { hash: '#/architecture', label: { zh: '整体架构', en: 'Architecture' }, match: (h) => h.startsWith('#/architecture') },
+  { hash: '#/implementation', label: { zh: '关键实现', en: 'Implementation' }, match: (h) => h.startsWith('#/implementation') },
+  { hash: '#/principles', label: { zh: '实现原理', en: 'Principles' }, match: (h) => h.startsWith('#/principles') },
+  { hash: '#/ecosystem', label: { zh: '开源生态', en: 'Ecosystem' }, match: (h) => h.startsWith('#/ecosystem') },
+  { hash: '#/deploy', label: { zh: '部署运行', en: 'Deploy' }, match: (h) => h.startsWith('#/deploy') },
+  { hash: '#/demo', label: { zh: '在线演示', en: 'Demo' }, match: (h) => h.startsWith('#/demo') },
 ]
+
+const COPY = {
+  zh: {
+    brandSub: '智能体构建平台',
+    navAria: '主导航',
+    ghAria: 'GitHub 仓库',
+    langAria: '切换语言',
+    notFoundTitle: '页面不存在',
+    backHome: '返回首页',
+    footerRepo: '代码仓库',
+    footerLinks: { design: '整体设计', principles: '实现原理', ecosystem: '开源生态', deploy: '部署运行', demo: '在线演示' },
+  },
+  en: {
+    brandSub: 'Agent Construction Platform',
+    navAria: 'Main navigation',
+    ghAria: 'GitHub repository',
+    langAria: 'Switch language',
+    notFoundTitle: 'Page not found',
+    backHome: 'Back to home',
+    footerRepo: 'Source',
+    footerLinks: { design: 'Overall Design', principles: 'Principles', ecosystem: 'Ecosystem', deploy: 'Deploy', demo: 'Demo' },
+  },
+}
 
 function Body({ route }: { route: string }) {
   const moduleMatch = route.match(/^#\/module\/([\w-]+)/)
@@ -88,12 +113,14 @@ function Body({ route }: { route: string }) {
 }
 
 function NotFound() {
+  const { locale } = useLocale()
+  const c = COPY[locale]
   return (
     <main className="page">
       <div className="page-inner">
-        <h1>页面不存在</h1>
+        <h1>{c.notFoundTitle}</h1>
         <p>
-          <a href="#/">返回首页</a>
+          <a href="#/">{c.backHome}</a>
         </p>
       </div>
     </main>
@@ -102,6 +129,8 @@ function NotFound() {
 
 export default function App() {
   const route = useHashRoute()
+  const { locale, setLocale } = useLocale()
+  const c = COPY[locale]
   return (
     <div className="site">
       <header className="topnav">
@@ -111,18 +140,27 @@ export default function App() {
           </span>
           <span className="brand-text">
             <span className="brand-name">AgentLab</span>
-            <span className="brand-sub">智能体构建平台</span>
+            <span className="brand-sub">{c.brandSub}</span>
           </span>
         </a>
-        <nav className="topnav-nav" aria-label="主导航">
+        <nav className="topnav-nav" aria-label={c.navAria}>
           {NAVS.map((n) => (
             <a key={n.hash} className={`nav-item${n.match(route) ? ' active' : ''}`} href={n.hash}>
-              {n.label}
+              {n.label[locale]}
             </a>
           ))}
         </nav>
         <span className="topnav-spacer" />
-        <a className="gh-link" href={REPO_URL} target="_blank" rel="noreferrer" aria-label="GitHub 仓库" title={`github.com/${REPO_SLUG}`}>
+        <button
+          type="button"
+          className="lang-toggle"
+          onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+          aria-label={c.langAria}
+          title="切换语言 / Switch language"
+        >
+          {locale === 'zh' ? 'EN' : '中文'}
+        </button>
+        <a className="gh-link" href={REPO_URL} target="_blank" rel="noreferrer" aria-label={c.ghAria} title={`github.com/${REPO_SLUG}`}>
           <GithubOutlined />
           <span className="gh-text">GitHub</span>
         </a>
@@ -133,22 +171,22 @@ export default function App() {
       <footer className="footer">
         <div className="footer-inner">
           <span>
-            <BrandMark size={14} /> AgentLab · 智能体构建平台 — Apache License 2.0
+            <BrandMark size={14} /> AgentLab · {c.brandSub} — Apache License 2.0
           </span>
           <span className="footer-links">
             <a href={REPO_URL} target="_blank" rel="noreferrer">
-              代码仓库
+              {c.footerRepo}
             </a>
             {' · '}
-            <a href="#/module/design">整体设计</a>
+            <a href="#/module/design">{c.footerLinks.design}</a>
             {' · '}
-            <a href="#/principles">实现原理</a>
+            <a href="#/principles">{c.footerLinks.principles}</a>
             {' · '}
-            <a href="#/ecosystem">开源生态</a>
+            <a href="#/ecosystem">{c.footerLinks.ecosystem}</a>
             {' · '}
-            <a href="#/deploy">部署运行</a>
+            <a href="#/deploy">{c.footerLinks.deploy}</a>
             {' · '}
-            <a href="#/demo">在线演示</a>
+            <a href="#/demo">{c.footerLinks.demo}</a>
           </span>
         </div>
       </footer>

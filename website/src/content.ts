@@ -3,7 +3,11 @@
 // 与平台知识页 ReferencePage 同手法——内容只在 platform-knowledge 维护一处）；
 // 演示数据 = ontology-service/internal/seed/examples/ 种子 spec（后端启动播种同一份）。
 // brief 为站点层速览要点（首屏直观化用），正文事实仍以导读页单源为准。
+// 多语言（REQ-360）：模块名/一句话定位/速览要点中英双份（title/tagline/brief），
+// 导读档正文不翻译——单源维持中文，英文侧站内注明。
 // ---------------------------------------------------------------------------
+
+import type { Locale, L10n } from './locale'
 
 // 模块导读页（?raw 构建期内联）
 import agentsMd from '../../platform-knowledge/02_智能体/00_智能体模块.md?raw'
@@ -27,14 +31,18 @@ export const REPO_SLUG: string = __REPO_SLUG__
 export const REPO_URL = `https://github.com/${REPO_SLUG}`
 const REPO_RAW_BASE = `${REPO_URL}/blob/main`
 
-export interface ModuleInfo {
-  key: string
-  /** 仓库内相对路径（GitHub 源文档链接与站内相对链接解析用） */
-  path: string
+export interface ModuleText {
   title: string
   tagline: string
   /** 速览要点（站点层维护，首屏直观化；3 条以内短句） */
   brief: string[]
+}
+
+export interface ModuleInfo {
+  key: string
+  /** 仓库内相对路径（GitHub 源文档链接与站内相对链接解析用） */
+  path: string
+  i18n: L10n<ModuleText>
   md: string
 }
 
@@ -43,60 +51,128 @@ export const MODULES: ModuleInfo[] = [
   {
     key: 'agents',
     path: 'platform-knowledge/02_智能体/00_智能体模块.md',
-    title: '智能体',
-    tagline: '对话 · 多智能体协作 · 知识/技能/本体增强',
-    brief: ['流式对话，工具/子智能体/检索/审批事件全留痕', '多智能体协作：项目空间编排、委派路由、隔离可观测', '五层执行模型：模型/上下文/沙箱/循环/协作全可配'],
+    i18n: {
+      zh: {
+        title: '智能体',
+        tagline: '对话 · 多智能体协作 · 知识/技能/本体增强',
+        brief: ['流式对话，工具/子智能体/检索/审批事件全留痕', '多智能体协作：项目空间编排、委派路由、隔离可观测', '五层执行模型：模型/上下文/沙箱/循环/协作全可配'],
+      },
+      en: {
+        title: 'Agents',
+        tagline: 'Chat · Multi-agent collaboration · Knowledge/skill/ontology augmentation',
+        brief: ['Streaming chat with full traces of tool / sub-agent / retrieval / approval events', 'Multi-agent collaboration: project-space orchestration, delegation routing, isolated observability', 'Five-layer execution model: model / context / harness / loop / graph all configurable'],
+      },
+    },
     md: agentsMd,
   },
   {
     key: 'ontology',
     path: 'platform-knowledge/04_本体/00_本体模块.md',
-    title: '本体',
-    tagline: '构建 → 资产 → 运行 → 消费审计 全流程闭环',
-    brief: ['六条构建路径殊途同归，LLM 生成必过质量门禁', 'spec_json 单一资产：版本 diff、进化候选受控生长', 'Oxigraph / Fuseki 运行平面，MCP facade 供智能体消费'],
+    i18n: {
+      zh: {
+        title: '本体',
+        tagline: '构建 → 资产 → 运行 → 消费审计 全流程闭环',
+        brief: ['六条构建路径殊途同归，LLM 生成必过质量门禁', 'spec_json 单一资产：版本 diff、进化候选受控生长', 'Oxigraph / Fuseki 运行平面，MCP facade 供智能体消费'],
+      },
+      en: {
+        title: 'Ontology',
+        tagline: 'Build → Assets → Run → Consume & audit, a closed loop',
+        brief: ['Six build paths converge on one asset store; every LLM generation passes the quality gate', 'spec_json as the single asset: version diff, controlled growth of evolution candidates', 'Oxigraph / Fuseki runtime plane with an MCP facade for agent consumption'],
+      },
+    },
     md: ontologyMd,
   },
   {
     key: 'knowledge',
     path: 'platform-knowledge/05_知识库/00_知识库模块.md',
-    title: '知识库',
-    tagline: 'RAG / GraphRAG 双子模块（KG 自研内置）',
-    brief: ['RAG：向量检索，Qdrant 主力 / SQLite 兜底可插拔', 'GraphRAG：导入即建 KG，向量命中 → 图一跳扩展', 'LLM Wiki：写时合成互链页面，零 embedding 依赖'],
+    i18n: {
+      zh: {
+        title: '知识库',
+        tagline: 'RAG / GraphRAG 双子模块（KG 自研内置）',
+        brief: ['RAG：向量检索，Qdrant 主力 / SQLite 兜底可插拔', 'GraphRAG：导入即建 KG，向量命中 → 图一跳扩展', 'LLM Wiki：写时合成互链页面，零 embedding 依赖'],
+      },
+      en: {
+        title: 'Knowledge Base',
+        tagline: 'RAG / GraphRAG twin sub-modules (built-in KG)',
+        brief: ['RAG: vector retrieval with pluggable Qdrant primary / SQLite fallback', 'GraphRAG: KG built on import; vector hit → one-hop graph expansion', 'LLM Wiki: write-time synthesis of interlinked pages, zero embedding dependency'],
+      },
+    },
     md: knowledgeMd,
   },
   {
     key: 'projects',
     path: 'platform-knowledge/03_项目/00_项目模块.md',
-    title: '项目',
-    tagline: '多智能体协作工作空间（目录绑定 / 文件 / Git）',
-    brief: ['多智能体协作工作空间，成员编排与委派', '本地目录绑定，文件与 Git 资产纳管', '协作与工作流配置收敛于项目侧'],
+    i18n: {
+      zh: {
+        title: '项目',
+        tagline: '多智能体协作工作空间（目录绑定 / 文件 / Git）',
+        brief: ['多智能体协作工作空间，成员编排与委派', '本地目录绑定，文件与 Git 资产纳管', '协作与工作流配置收敛于项目侧'],
+      },
+      en: {
+        title: 'Projects',
+        tagline: 'Multi-agent collaboration workspace (directory binding / files / Git)',
+        brief: ['A collaboration workspace for multiple agents with member orchestration and delegation', 'Local directory binding; files and Git assets under management', 'Collaboration and workflow configuration converge on the project side'],
+      },
+    },
     md: projectsMd,
   },
   {
     key: 'skills',
     path: 'platform-knowledge/06_技能/00_技能模块.md',
-    title: '技能',
-    tagline: '智能体能力扩展（提示词 / 工具包装）',
-    brief: ['提示词 + 工具包装为可复用技能', '智能体一键暴露为 MCP Server（/mcp）', 'K8s / SSH / 自定义 MCP 三类外部连接器'],
+    i18n: {
+      zh: {
+        title: '技能',
+        tagline: '智能体能力扩展（提示词 / 工具包装）',
+        brief: ['提示词 + 工具包装为可复用技能', '智能体一键暴露为 MCP Server（/mcp）', 'K8s / SSH / 自定义 MCP 三类外部连接器'],
+      },
+      en: {
+        title: 'Skills',
+        tagline: 'Agent capability extensions (prompts / tool wrapping)',
+        brief: ['Prompts + tool wrapping packaged as reusable skills', 'Expose any agent as an MCP Server (/mcp) in one click', 'Three kinds of external connectors: K8s / SSH / custom MCP'],
+      },
+    },
     md: skillsMd,
   },
   {
     key: 'settings',
     path: 'platform-knowledge/07_设置/00_设置模块.md',
-    title: '设置',
-    tagline: '模型连接 · 连接器 · 运行环境 · 使用统计',
-    brief: ['模型连接双协议多厂商，Key 本地加密', '连接器凭据托管，agent 级授权白名单', '沙箱后端选择与 run 级用量统计'],
+    i18n: {
+      zh: {
+        title: '设置',
+        tagline: '模型连接 · 连接器 · 运行环境 · 使用统计',
+        brief: ['模型连接双协议多厂商，Key 本地加密', '连接器凭据托管，agent 级授权白名单', '沙箱后端选择与 run 级用量统计'],
+      },
+      en: {
+        title: 'Settings',
+        tagline: 'Model connections · Connectors · Runtime · Usage stats',
+        brief: ['Dual-protocol multi-vendor model connections with locally encrypted keys', 'Connector credential hosting with agent-level authorization whitelists', 'Sandbox backend selection and per-run usage statistics'],
+      },
+    },
     md: settingsMd,
   },
   {
     key: 'design',
     path: 'platform-knowledge/01_整体设计/00_整体设计.md',
-    title: '整体设计',
-    tagline: '产品定位 / 架构分层 / 技术栈 / 协议面 / 部署形态',
-    brief: ['产品定位与三平面 + 双代理架构', '技术栈总表与 REST+SSE / MCP 协议面', '设计原则四条：开源优先 / 可插拔 / 诚实降级 / 低侵入'],
+    i18n: {
+      zh: {
+        title: '整体设计',
+        tagline: '产品定位 / 架构分层 / 技术栈 / 协议面 / 部署形态',
+        brief: ['产品定位与三平面 + 双代理架构', '技术栈总表与 REST+SSE / MCP 协议面', '设计原则四条：开源优先 / 可插拔 / 诚实降级 / 低侵入'],
+      },
+      en: {
+        title: 'Overall Design',
+        tagline: 'Product positioning / architecture layers / tech stack / protocols / deployment',
+        brief: ['Product positioning; three planes + dual-proxy architecture', 'Tech stack table and the REST+SSE / MCP protocol surface', 'Four design principles: open source first / pluggable / honest degradation / low intrusion'],
+      },
+    },
     md: designMd,
   },
 ]
+
+/** 模块文案（语言维度读取） */
+export function moduleText(m: ModuleInfo, locale: Locale): ModuleText {
+  return m.i18n[locale]
+}
 
 /** 剥 frontmatter（DocViewerModal 同款正则） */
 export function stripFrontmatter(md: string): string {

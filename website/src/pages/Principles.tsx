@@ -1,199 +1,459 @@
 import { REPO_SLUG } from '../content'
+import { useCopy, useLocale } from '../i18n'
+import type { L10n } from '../locale'
 
 // ---------------------------------------------------------------------------
 // 实现原理页（REQ-238 官网）：机制如何工作 + 为什么这样设计 + 理论与实践依据
 // 内容单源：提炼自 platform-knowledge/ 整体设计、五层视角（53~56）、本体（02~04）、
 // 知识库（05）与 docs/15 开源项目及论文登记簿；本文只做"可读版"转述，台账以 15 号为准。
+// REQ-360：全页文案中英双份（zh 为事实源）；项目/论文/标准名与许可协议保持原文。
 // ---------------------------------------------------------------------------
 
 /** 五层视角：智能体执行模型的五个正交切面（源自 platform-knowledge/02_智能体/53~56） */
-const LAYERS: { key: string; title: string; scope: string; points: string[] }[] = [
+const LAYERS: { key: string; i18n: L10n<{ title: string; scope: string; points: string[] }> }[] = [
   {
     key: 'Model',
-    title: 'Model · 模型层',
-    scope: '连哪个模型、怎么采样',
-    points: [
-      '模型连接持久化，openai_compat / anthropic 双协议统一适配温度、MaxTokens 等采样参数',
-      '推理后端可插拔（D-O13）：eino-adk / claude-code / opencode / aider / deepseek-harness 五种 Harness 后端，模型驱动的循环交给谁执行是可替换决策',
-    ],
+    i18n: {
+      zh: {
+        title: 'Model · 模型层',
+        scope: '连哪个模型、怎么采样',
+        points: [
+          '模型连接持久化，openai_compat / anthropic 双协议统一适配温度、MaxTokens 等采样参数',
+          '推理后端可插拔（D-O13）：eino-adk / claude-code / opencode / aider / deepseek-harness 五种 Harness 后端，模型驱动的循环交给谁执行是可替换决策',
+        ],
+      },
+      en: {
+        title: 'Model',
+        scope: 'Which model to call and how to sample',
+        points: [
+          'Model connections are persisted; dual protocols openai_compat / anthropic uniformly adapt sampling params like temperature and MaxTokens',
+          'Pluggable reasoning backends (D-O13): eino-adk / claude-code / opencode / aider / deepseek-harness — who executes the model-driven loop is a replaceable decision',
+        ],
+      },
+    },
   },
   {
     key: 'Context',
-    title: 'Context · 上下文层',
-    scope: '模型每轮真正看到什么',
-    points: [
-      '预算三档（compact≈6k / standard≈24k / full），超预算先前缀摘要、再八段式压缩持久化跨轮复用',
-      '工具结果剪枝（>4000 字符留头 2400 + 尾 800）；tool 轮次保全——悬空调用补"结果未知"，不破坏消息结构',
-      '召回链：知识库命中与伴生本体三元组按序注入，retrieval 事件全程可观测',
-    ],
+    i18n: {
+      zh: {
+        title: 'Context · 上下文层',
+        scope: '模型每轮真正看到什么',
+        points: [
+          '预算三档（compact≈6k / standard≈24k / full），超预算先前缀摘要、再八段式压缩持久化跨轮复用',
+          '工具结果剪枝（>4000 字符留头 2400 + 尾 800）；tool 轮次保全——悬空调用补"结果未知"，不破坏消息结构',
+          '召回链：知识库命中与伴生本体三元组按序注入，retrieval 事件全程可观测',
+        ],
+      },
+      en: {
+        title: 'Context',
+        scope: 'What the model actually sees each turn',
+        points: [
+          'Three budget tiers (compact≈6k / standard≈24k / full); over budget, prefix summary first, then eight-segment compression persisted for cross-turn reuse',
+          'Tool-result pruning (>4000 chars keeps head 2400 + tail 800); tool-turn integrity — dangling calls get a "result unknown" filler without breaking message structure',
+          'Recall chain: knowledge-base hits and companion-ontology triples injected in order, with retrieval events observable throughout',
+        ],
+      },
+    },
   },
   {
     key: 'Harness',
-    title: 'Harness · 执行层',
-    scope: '怎么把事做安全、做扎实',
-    points: [
-      '8 步工具装配链：内置 → 技能 → 连接器 → 本体 facade → 项目文件 → 执行原语 → Hook 包装 → 审批包装',
-      'HookChain 防护：SSRF 预检、危险命令模式拦截；审批三档（off / danger / all）+ 豁免清单，挂起请求随 checkpoint 持久化',
-      '验证背压 verify_on_stop 与沙箱后端（inprocess / docker / k8s）构成"生成 → 校验 → 阻断"闭环',
-    ],
+    i18n: {
+      zh: {
+        title: 'Harness · 执行层',
+        scope: '怎么把事做安全、做扎实',
+        points: [
+          '8 步工具装配链：内置 → 技能 → 连接器 → 本体 facade → 项目文件 → 执行原语 → Hook 包装 → 审批包装',
+          'HookChain 防护：SSRF 预检、危险命令模式拦截；审批三档（off / danger / all）+ 豁免清单，挂起请求随 checkpoint 持久化',
+          '验证背压 verify_on_stop 与沙箱后端（inprocess / docker / k8s）构成"生成 → 校验 → 阻断"闭环',
+        ],
+      },
+      en: {
+        title: 'Harness',
+        scope: 'Getting things done safely and solidly',
+        points: [
+          'An 8-step tool assembly chain: built-ins → skills → connectors → ontology facade → project files → execution primitives → hook wrapping → approval wrapping',
+          'HookChain protection: SSRF pre-checks, dangerous-command pattern interception; three approval tiers (off / danger / all) + exemption lists, pending requests persisted with checkpoints',
+          'Verification backpressure (verify_on_stop) and sandbox backends (inprocess / docker / k8s) form a "generate → verify → block" loop',
+        ],
+      },
+    },
   },
   {
     key: 'Loop',
-    title: 'Loop · 循环层',
-    scope: '跑多久、断了怎么办、花了多少',
-    points: [
-      'ReAct 迭代上限默认 25，超限即停可恢复；checkpoint 快照落库，进程重启后挂起运行可续',
-      '定时续跑：调度状态入库（间隔 ≥1min、次数封顶），长期任务不依赖进程常驻',
-      'todo.md 进度产物 + run 级 usage 统计，token 消耗与轮次可回放',
-    ],
+    i18n: {
+      zh: {
+        title: 'Loop · 循环层',
+        scope: '跑多久、断了怎么办、花了多少',
+        points: [
+          'ReAct 迭代上限默认 25，超限即停可恢复；checkpoint 快照落库，进程重启后挂起运行可续',
+          '定时续跑：调度状态入库（间隔 ≥1min、次数封顶），长期任务不依赖进程常驻',
+          'todo.md 进度产物 + run 级 usage 统计，token 消耗与轮次可回放',
+        ],
+      },
+      en: {
+        title: 'Loop',
+        scope: 'How long it runs, what happens on interruption, what it costs',
+        points: [
+          'ReAct iteration cap defaults to 25 — stops on exceed, resumable; checkpoint snapshots persist so suspended runs survive process restarts',
+          'Scheduled resume: schedule state in the database (interval ≥1min, capped count) so long tasks don’t require a resident process',
+          'todo.md progress artifact + per-run usage stats; token spend and turns are replayable',
+        ],
+      },
+    },
   },
   {
     key: 'Graph',
-    title: 'Graph · 协作层',
-    scope: '多个智能体怎么组队',
-    points: [
-      'agent_as_tool 为推荐协作路径：成员智能体包装为工具，协调者按"能力描述"路由',
-      'subagent.enter / exit 事件记录嵌套轨迹；子智能体上下文隔离，起到"防火墙"语义',
-      'transfer 控制权移交仅保留兼容位；协作与工作流编排配置全部在项目侧收敛',
-    ],
+    i18n: {
+      zh: {
+        title: 'Graph · 协作层',
+        scope: '多个智能体怎么组队',
+        points: [
+          'agent_as_tool 为推荐协作路径：成员智能体包装为工具，协调者按"能力描述"路由',
+          'subagent.enter / exit 事件记录嵌套轨迹；子智能体上下文隔离，起到"防火墙"语义',
+          'transfer 控制权移交仅保留兼容位；协作与工作流编排配置全部在项目侧收敛',
+        ],
+      },
+      en: {
+        title: 'Graph',
+        scope: 'How multiple agents team up',
+        points: [
+          'agent_as_tool is the recommended collaboration path: member agents wrapped as tools, the coordinator routes by capability descriptions',
+          'subagent.enter / exit events record nesting traces; sub-agents run with isolated contexts acting as a "firewall"',
+          'transfer control handoff remains only as a compatibility slot; collaboration and workflow orchestration config converges on the project side',
+        ],
+      },
+    },
   },
 ]
 
 /** 本体工程机制（源自 platform-knowledge/04_本体/02~04 与整体设计） */
-const ONTOLOGY: { title: string; desc: string; points: string[] }[] = [
+const ONTOLOGY: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
-    title: 'spec_json 单一资产',
-    desc: '仓库即唯一事实源（D-O1）：本体以 spec_json 形态落库，TTL / VOWL JSON / CSV 等都是它的导出视图；版本快照、diff 与 fork 溯源全部围绕这一份资产展开，运行方案只是它的"部署视图"。',
-    points: [],
+    i18n: {
+      zh: {
+        title: 'spec_json 单一资产',
+        desc: '仓库即唯一事实源（D-O1）：本体以 spec_json 形态落库，TTL / VOWL JSON / CSV 等都是它的导出视图；版本快照、diff 与 fork 溯源全部围绕这一份资产展开，运行方案只是它的"部署视图"。',
+      },
+      en: {
+        title: 'spec_json as the single asset',
+        desc: 'The repository is the only source of truth (D-O1): ontologies persist as spec_json, with TTL / VOWL JSON / CSV as export views; version snapshots, diff and fork provenance all revolve around this one asset — runtime plans are just its "deployment view".',
+      },
+    },
   },
   {
-    title: '六路径殊途同归',
-    desc: '手工向导、AI 对话（OntoChat 流程）、由知识库构建、导入外部本体、OntoExtend 扩展、权威本体库引入——六条构建路径最终走同一套校验循环、收敛到同一段资产能力，入口不同、门禁一致。',
-    points: [],
+    i18n: {
+      zh: {
+        title: '六路径殊途同归',
+        desc: '手工向导、AI 对话（OntoChat 流程）、由知识库构建、导入外部本体、OntoExtend 扩展、权威本体库引入——六条构建路径最终走同一套校验循环、收敛到同一段资产能力，入口不同、门禁一致。',
+      },
+      en: {
+        title: 'Six paths, one destination',
+        desc: 'Manual wizard, AI chat (OntoChat flow), build from knowledge base, external ontology import, OntoExtend evolution, and authoritative ontology library import — all six build paths run the same validation loop and converge on the same asset capabilities: different entries, identical gates.',
+      },
+    },
   },
   {
-    title: '质量门禁与修复环',
-    desc: 'Spec.Validate 单一结构校验 → qualitygate 11 项三维评分 → LLM 生成走"双校验源"修复环，≤3 轮铁律；进化候选以 vN-cK 配对门控评估，质量回退超过阈值不予合入。',
-    points: [],
+    i18n: {
+      zh: {
+        title: '质量门禁与修复环',
+        desc: 'Spec.Validate 单一结构校验 → qualitygate 11 项三维评分 → LLM 生成走"双校验源"修复环，≤3 轮铁律；进化候选以 vN-cK 配对门控评估，质量回退超过阈值不予合入。',
+      },
+      en: {
+        title: 'Quality gate and repair loop',
+        desc: 'Spec.Validate single structural validation → qualitygate’s 11 checks with three-dimension scoring → LLM generations run a dual-source repair loop, hard-capped at 3 rounds; evolution candidates are evaluated with vN-cK paired gating and merges are rejected when quality regresses past threshold.',
+      },
+    },
   },
   {
-    title: '多引擎运行平面',
-    desc: 'Oxigraph（SPARQL 1.1，单二进制）与 Fuseki（OWL 推理）按方案编排启停；启动对账支持重启领养，逐本体图隔离装载（REQ-320），推理对账下限闸（REQ-329）保证"引擎三元组 ≥ 源"才放行。',
-    points: [],
+    i18n: {
+      zh: {
+        title: '多引擎运行平面',
+        desc: 'Oxigraph（SPARQL 1.1，单二进制）与 Fuseki（OWL 推理）按方案编排启停；启动对账支持重启领养，逐本体图隔离装载（REQ-320），推理对账下限闸（REQ-329）保证"引擎三元组 ≥ 源"才放行。',
+      },
+      en: {
+        title: 'Multi-engine runtime plane',
+        desc: 'Oxigraph (SPARQL 1.1, single binary) and Fuseki (OWL reasoning) start/stop per plan; startup reconciliation supports restart adoption, per-ontology graph isolation (REQ-320), and the reasoning reconciliation lower-bound gate (REQ-329) only passes when "engine triples ≥ source".',
+      },
+    },
   },
   {
-    title: 'MCP facade 消费',
-    desc: '本体能力以 6 个只读 onto_* 工具（概念查询 / 实例枚举 / 邻居扩展 / SPARQL）经 MCP facade 暴露给智能体，只读白名单与图隔离保证消费侧不污染数据源。',
-    points: [],
+    i18n: {
+      zh: {
+        title: 'MCP facade 消费',
+        desc: '本体能力以 6 个只读 onto_* 工具（概念查询 / 实例枚举 / 邻居扩展 / SPARQL）经 MCP facade 暴露给智能体，只读白名单与图隔离保证消费侧不污染数据源。',
+      },
+      en: {
+        title: 'Consuming via MCP facade',
+        desc: 'Ontology capabilities are exposed to agents through six read-only onto_* tools (concept query / instance enumeration / neighbor expansion / SPARQL) via the MCP facade; read-only whitelists and graph isolation keep the consumer side from polluting data sources.',
+      },
+    },
   },
   {
-    title: '伴生本体旁路',
-    desc: '对话中增量抽取候选三元组，人工确认后进入会话图，可并入检索源——旁路落地、默认关闭、随时可摘除，不侵入主链路。',
-    points: [],
+    i18n: {
+      zh: {
+        title: '伴生本体旁路',
+        desc: '对话中增量抽取候选三元组，人工确认后进入会话图，可并入检索源——旁路落地、默认关闭、随时可摘除，不侵入主链路。',
+      },
+      en: {
+        title: 'Companion-ontology bypass',
+        desc: 'Candidate triples are extracted incrementally during conversation and, after human confirmation, enter the session graph and can join retrieval sources — a bypass that’s off by default, removable anytime, never intruding on the main path.',
+      },
+    },
   },
 ]
 
 /** 知识增强机制（源自 platform-knowledge/05_知识库/00） */
-const KNOWLEDGE: { title: string; desc: string }[] = [
+const KNOWLEDGE: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
-    title: 'RAG 管道',
-    desc: '固定长度 + 重叠切分 → 向量化 → TopK 检索注入，retrieval 事件打点来源；向量后端可插拔（Qdrant 主力，SQLite 余弦兜底），单机部署零外部依赖。',
+    i18n: {
+      zh: {
+        title: 'RAG 管道',
+        desc: '固定长度 + 重叠切分 → 向量化 → TopK 检索注入，retrieval 事件打点来源；向量后端可插拔（Qdrant 主力，SQLite 余弦兜底），单机部署零外部依赖。',
+      },
+      en: {
+        title: 'RAG pipeline',
+        desc: 'Fixed-size chunking with overlap → embedding → TopK retrieval injection, with retrieval events marking sources; pluggable vector backends (Qdrant primary, SQLite cosine fallback) keep standalone deployments dependency-free.',
+      },
+    },
   },
   {
-    title: 'GraphRAG',
-    desc: '索引时由 LLM 抽取知识图谱（失败回退规则抽取，degraded 不阻断导入）；实体 / 关系 / 主张三表带 chunk_id 溯源；检索时向量命中 → 图一跳扩展 → 关系与主张汇出，多跳问题优于纯向量召回。',
+    i18n: {
+      zh: {
+        title: 'GraphRAG',
+        desc: '索引时由 LLM 抽取知识图谱（失败回退规则抽取，degraded 不阻断导入）；实体 / 关系 / 主张三表带 chunk_id 溯源；检索时向量命中 → 图一跳扩展 → 关系与主张汇出，多跳问题优于纯向量召回。',
+      },
+      en: {
+        title: 'GraphRAG',
+        desc: 'At index time an LLM extracts the knowledge graph (rule-based fallback on failure; degraded mode never blocks import); entity / relation / claim tables carry chunk_id provenance; retrieval does vector hit → one-hop graph expansion → relations & claims merge, beating pure vector recall on multi-hop questions.',
+      },
+    },
   },
   {
-    title: 'LLM Wiki',
-    desc: '写时合成为互链 Markdown 页面层，检索"读页不读片段"，零 embedding 依赖；与 RAG、GraphRAG 三类知识库并存互补，按语料形态选择。',
+    i18n: {
+      zh: {
+        title: 'LLM Wiki',
+        desc: '写时合成为互链 Markdown 页面层，检索"读页不读片段"，零 embedding 依赖；与 RAG、GraphRAG 三类知识库并存互补，按语料形态选择。',
+      },
+      en: {
+        title: 'LLM Wiki',
+        desc: 'Synthesizes interlinked Markdown pages at write time; retrieval "reads pages, not fragments" with zero embedding dependency. It coexists with RAG and GraphRAG — choose per corpus shape.',
+      },
+    },
   },
 ]
 
 /** 设计原则四条（源自 platform-knowledge/01_整体设计/00 §7） */
-const PRINCIPLES = [
+const PRINCIPLES: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
-    title: '开源优先',
-    desc: '凡有成熟开源实现，不重复造轮子：Eino / Oxigraph / Fuseki / rdflib / Qdrant 等核心组件均为社区验证过的项目，自研代码聚焦胶水与编排。',
+    i18n: {
+      zh: {
+        title: '开源优先',
+        desc: '凡有成熟开源实现，不重复造轮子：Eino / Oxigraph / Fuseki / rdflib / Qdrant 等核心组件均为社区验证过的项目，自研代码聚焦胶水与编排。',
+      },
+      en: {
+        title: 'Open source first',
+        desc: 'Never reinvent what mature open source already provides: core components like Eino / Oxigraph / Fuseki / rdflib / Qdrant are community-proven; in-house code focuses on glue and orchestration.',
+      },
+    },
   },
   {
-    title: '可插拔抽象',
-    desc: '模型、推理后端、向量库、SPARQL 引擎、沙箱后端全部面向接口编程，换实现不动业务代码。',
+    i18n: {
+      zh: {
+        title: '可插拔抽象',
+        desc: '模型、推理后端、向量库、SPARQL 引擎、沙箱后端全部面向接口编程，换实现不动业务代码。',
+      },
+      en: {
+        title: 'Pluggable abstractions',
+        desc: 'Models, reasoning backends, vector stores, SPARQL engines and sandbox backends are all programmed against interfaces — swap implementations without touching business code.',
+      },
+    },
   },
   {
-    title: '诚实降级',
-    desc: '依赖缺失时明确声明 degraded 并降级运行（如 Qdrant 不可用退 SQLite 余弦、KG 抽取失败回退规则抽取），绝不静默假装成功。',
+    i18n: {
+      zh: {
+        title: '诚实降级',
+        desc: '依赖缺失时明确声明 degraded 并降级运行（如 Qdrant 不可用退 SQLite 余弦、KG 抽取失败回退规则抽取），绝不静默假装成功。',
+      },
+      en: {
+        title: 'Honest degradation',
+        desc: 'When a dependency is missing, declare degraded explicitly and keep running (e.g. fall back to SQLite cosine when Qdrant is down, or rule-based extraction when KG extraction fails) — never silently pretend success.',
+      },
+    },
   },
   {
-    title: '低侵入扩展',
-    desc: '伴生本体旁路、知识库导入、外部工具接入均遵循"可并行、可关闭、可摘除"，扩展不绑架主链路。',
+    i18n: {
+      zh: {
+        title: '低侵入扩展',
+        desc: '伴生本体旁路、知识库导入、外部工具接入均遵循"可并行、可关闭、可摘除"，扩展不绑架主链路。',
+      },
+      en: {
+        title: 'Low-intrusion extension',
+        desc: 'The companion-ontology bypass, knowledge-base import and external tool integration all follow "run in parallel, can be turned off, can be removed" — extensions never hijack the main path.',
+      },
+    },
   },
 ]
 
 /** 标准与协议（第二册 T3 类） */
-const STANDARDS: { name: string; by: string; use: string; url: string }[] = [
-  { name: 'Model Context Protocol (MCP)', by: 'Anthropic · 2024', use: '智能体 ↔ 工具 / 本体 facade 的统一协议底座', url: 'https://modelcontextprotocol.io' },
-  { name: 'RDF 1.1', by: 'W3C', use: '本体数据模型与序列化基础（Turtle）', url: 'https://www.w3.org/TR/rdf11-concepts/' },
-  { name: 'OWL 2', by: 'W3C', use: '本体表达力来源（类 / 属性 / 公理），Fuseki 推理目标方言', url: 'https://www.w3.org/TR/owl2-overview/' },
-  { name: 'SHACL', by: 'W3C', use: '约束校验与 qualitygate 结构类规则的依据', url: 'https://www.w3.org/TR/shacl/' },
-  { name: 'SPARQL 1.1', by: 'W3C', use: '图查询语言，工作台与 MCP facade 的查询接口', url: 'https://www.w3.org/TR/sparql11-query/' },
-  { name: 'PROV-O', by: 'W3C', use: '本体构建过程的来源追溯建模参考', url: 'https://www.w3.org/TR/prov-o/' },
+const STANDARDS: { name: string; by: string; url: string; use: L10n<string> }[] = [
+  { name: 'Model Context Protocol (MCP)', by: 'Anthropic · 2024', url: 'https://modelcontextprotocol.io', use: { zh: '智能体 ↔ 工具 / 本体 facade 的统一协议底座', en: 'The unified protocol base for agents ↔ tools and the ontology facade' } },
+  { name: 'RDF 1.1', by: 'W3C', url: 'https://www.w3.org/TR/rdf11-concepts/', use: { zh: '本体数据模型与序列化基础（Turtle）', en: 'Data model and serialization base for ontologies (Turtle)' } },
+  { name: 'OWL 2', by: 'W3C', url: 'https://www.w3.org/TR/owl2-overview/', use: { zh: '本体表达力来源（类 / 属性 / 公理），Fuseki 推理目标方言', en: 'Source of ontology expressivity (classes / properties / axioms); the reasoning target dialect for Fuseki' } },
+  { name: 'SHACL', by: 'W3C', url: 'https://www.w3.org/TR/shacl/', use: { zh: '约束校验与 qualitygate 结构类规则的依据', en: 'Basis for constraint validation and the structural rules in qualitygate' } },
+  { name: 'SPARQL 1.1', by: 'W3C', url: 'https://www.w3.org/TR/sparql11-query/', use: { zh: '图查询语言，工作台与 MCP facade 的查询接口', en: 'The graph query language behind the workbench and MCP facade query interface' } },
+  { name: 'PROV-O', by: 'W3C', url: 'https://www.w3.org/TR/prov-o/', use: { zh: '本体构建过程的来源追溯建模参考', en: 'Modeling reference for provenance tracking of the construction process' } },
 ]
 
 /** 论文与文献（第二册 T1 / T3 代表条目，完整台账见 docs/15） */
-const PAPERS: { name: string; meta: string; use: string; url: string }[] = [
-  { name: 'ReAct: Synergizing Reasoning and Acting', meta: 'Yao et al. · arXiv 2210.03629 · 2022', use: '推理-行动交织范式，智能体运行循环（Loop）的理论原型', url: 'https://arxiv.org/abs/2210.03629' },
-  { name: 'GraphRAG (From Local to Global)', meta: 'Microsoft Research · arXiv 2404.16130 · 2024', use: '知识图谱增强 RAG 的方法论源头，GraphRAG 知识库实现依据', url: 'https://arxiv.org/abs/2404.16130' },
-  { name: 'OntoChat', meta: 'ESWC 2024 · arXiv 2403.05921', use: '对话式本体工程四步工作流（用户故事 → 能力问题 → 聚类 → 测试），"AI 对话构建"路径蓝本', url: 'https://arxiv.org/abs/2403.05921' },
-  { name: 'Participatory Prompting for Ontology Construction', meta: 'arXiv 2408.15256 · 2024', use: '参与式提示设计，人机协作建本的交互策略', url: 'https://arxiv.org/abs/2408.15256' },
-  { name: 'OntoExtend', meta: 'arXiv 2607.17963 · 2026', use: '需求驱动的三段式本体扩展（Retriever → Extender → Integrator），增量进化路径参照', url: 'https://arxiv.org/abs/2607.17963' },
-  { name: 'Online Clustering-based Ontology Extension', meta: 'Frontiers in Big Data · 2024', use: '对话中自动聚簇生长本体的路线，伴生本体机制的理论支撑', url: 'https://www.frontiersin.org/articles/10.3389/fdata.2024.1463543/full' },
-  { name: 'NeOn Methodology', meta: 'Suárez-Figueroa et al. · 2012', use: '协作式本体工程七阶段模型，多路径构建流程的方法论源头', url: 'https://link.springer.com/chapter/10.1007/978-3-642-24794-1_5' },
-  { name: 'TOVE: Towards Enterprise Ontologies', meta: 'Gruninger & Fox · 1995', use: '能力问题（Competency Questions）评估法原始出处，CQ 测试的传统依据', url: 'https://doi.org/10.1007/BFb0026565' },
-  { name: 'Ontology Development 101', meta: 'Noy & McGuinness · 2001', use: '本体建模入门基线，新手向导与文档措辞的参照', url: 'https://protege.stanford.edu/publications/ontology_development/ontology101.pdf' },
-  { name: 'LLM Wiki（写时积累范式）', meta: 'A. Karpathy · gist · 2026', use: '"写时合成、读页不读片段"知识层范式，LLM Wiki 知识库类型依据', url: 'https://gist.github.com/karpathy/2364b8bcb5b1b5cf4d58' },
+const PAPERS: { name: string; meta: string; url: string; use: L10n<string> }[] = [
+  { name: 'ReAct: Synergizing Reasoning and Acting', meta: 'Yao et al. · arXiv 2210.03629 · 2022', url: 'https://arxiv.org/abs/2210.03629', use: { zh: '推理-行动交织范式，智能体运行循环（Loop）的理论原型', en: 'The reasoning-acting interleaving paradigm — theoretical prototype of the agent loop' } },
+  { name: 'GraphRAG (From Local to Global)', meta: 'Microsoft Research · arXiv 2404.16130 · 2024', url: 'https://arxiv.org/abs/2404.16130', use: { zh: '知识图谱增强 RAG 的方法论源头，GraphRAG 知识库实现依据', en: 'Methodological origin of KG-augmented RAG; basis of the GraphRAG knowledge base' } },
+  { name: 'OntoChat', meta: 'ESWC 2024 · arXiv 2403.05921', url: 'https://arxiv.org/abs/2403.05921', use: { zh: '对话式本体工程四步工作流（用户故事 → 能力问题 → 聚类 → 测试），"AI 对话构建"路径蓝本', en: 'Four-step conversational ontology engineering workflow (user story → CQ → clustering → test); blueprint of the AI-chat build path' } },
+  { name: 'Participatory Prompting for Ontology Construction', meta: 'arXiv 2408.15256 · 2024', url: 'https://arxiv.org/abs/2408.15256', use: { zh: '参与式提示设计，人机协作建本的交互策略', en: 'Participatory prompt design — interaction strategies for human-AI co-construction' } },
+  { name: 'OntoExtend', meta: 'arXiv 2607.17963 · 2026', url: 'https://arxiv.org/abs/2607.17963', use: { zh: '需求驱动的三段式本体扩展（Retriever → Extender → Integrator），增量进化路径参照', en: 'Requirement-driven three-stage ontology extension (Retriever → Extender → Integrator); reference for incremental evolution' } },
+  { name: 'Online Clustering-based Ontology Extension', meta: 'Frontiers in Big Data · 2024', url: 'https://www.frontiersin.org/articles/10.3389/fdata.2024.1463543/full', use: { zh: '对话中自动聚簇生长本体的路线，伴生本体机制的理论支撑', en: 'Growing ontologies via in-conversation clustering — theoretical support for the companion mechanism' } },
+  { name: 'NeOn Methodology', meta: 'Suárez-Figueroa et al. · 2012', url: 'https://link.springer.com/chapter/10.1007/978-3-642-24794-1_5', use: { zh: '协作式本体工程七阶段模型，多路径构建流程的方法论源头', en: 'The seven-stage collaborative ontology engineering model; methodological origin of multi-path construction' } },
+  { name: 'TOVE: Towards Enterprise Ontologies', meta: 'Gruninger & Fox · 1995', url: 'https://doi.org/10.1007/BFb0026565', use: { zh: '能力问题（Competency Questions）评估法原始出处，CQ 测试的传统依据', en: 'Original source of the Competency Questions evaluation method; traditional basis for CQ testing' } },
+  { name: 'Ontology Development 101', meta: 'Noy & McGuinness · 2001', url: 'https://protege.stanford.edu/publications/ontology_development/ontology101.pdf', use: { zh: '本体建模入门基线，新手向导与文档措辞的参照', en: 'The beginner baseline for ontology modeling; reference for the new-user wizard and documentation wording' } },
+  { name: 'LLM Wiki (write-time accumulation)', meta: 'A. Karpathy · gist · 2026', url: 'https://gist.github.com/karpathy/2364b8bcb5b1b5cf4d58', use: { zh: '"写时合成、读页不读片段"知识层范式，LLM Wiki 知识库类型依据', en: 'The "synthesize at write time, read pages not fragments" paradigm; basis of the LLM Wiki knowledge-base type' } },
 ]
 
 /** 已集成开源（第一册 ✅ 已集成 类，完整台账见 docs/15） */
-const INTEGRATED: { name: string; license: string; use: string }[] = [
-  { name: 'CloudWeGo Eino + Eino ADK', license: 'Apache-2.0', use: 'Go 智能体编排主骨架：组件抽象、图编排、ReAct / 多智能体运行时' },
-  { name: 'CloudWeGo Hertz', license: 'Apache-2.0', use: 'backend HTTP 服务与 API 网关' },
-  { name: 'mcp-go', license: 'MIT', use: 'MCP 协议 Go 实现，facade 与客户端连接的基座' },
-  { name: 'eino-ext', license: 'Apache-2.0', use: 'MCP Client 组件与 claude 模型适配器（REQ-172）' },
-  { name: 'rdflib (Python)', license: 'BSD-3', use: 'sidecar 进程：TTL 解析 / 图校验 / 导出三职责（D-O5 轻量路线）' },
-  { name: 'pySHACL', license: 'Apache-2.0', use: 'SHACL 约束校验执行器' },
-  { name: 'Oxigraph', license: 'Apache-2.0 / MIT', use: 'P1 唯一 SPARQL 引擎（pin v0.5.11），单二进制免部署' },
-  { name: 'Apache Jena Fuseki', license: 'Apache-2.0', use: 'P2 OWL 推理引擎，方案化编排启停' },
-  { name: 'Qdrant', license: 'Apache-2.0', use: '向量检索主后端（KB_VECTOR_BACKEND 可插拔）' },
-  { name: 'ReactFlow (@xyflow/react)', license: 'MIT', use: '工作流编辑器画布（D-O9 择优定案）' },
-  { name: 'CodeMirror 6', license: 'MIT', use: '代码 / SPARQL 编辑器' },
-  { name: 'react-diff-viewer-continued', license: 'MIT', use: '本体版本 diff 可视化' },
-  { name: '3d-force-graph / react-force-graph-3d', license: 'MIT', use: '三维力导向本体可视化（REQ-154 / 179）' },
-  { name: 'WebVOWL', license: 'MIT', use: 'VOWL 视觉规范参考，owl2vowl 导出形态对齐' },
-  { name: 'santhosh-tekuri/jsonschema', license: 'MIT', use: 'spec_json 结构校验（Spec.Validate 底层）' },
+const INTEGRATED: { name: string; license: string; use: L10n<string> }[] = [
+  { name: 'CloudWeGo Eino + Eino ADK', license: 'Apache-2.0', use: { zh: 'Go 智能体编排主骨架：组件抽象、图编排、ReAct / 多智能体运行时', en: 'The Go agent orchestration backbone: component abstractions, graph orchestration, ReAct / multi-agent runtime' } },
+  { name: 'CloudWeGo Hertz', license: 'Apache-2.0', use: { zh: 'backend HTTP 服务与 API 网关', en: 'Backend HTTP service and API gateway' } },
+  { name: 'mcp-go', license: 'MIT', use: { zh: 'MCP 协议 Go 实现，facade 与客户端连接的基座', en: 'MCP protocol in Go — the base for the facade and client connections' } },
+  { name: 'eino-ext', license: 'Apache-2.0', use: { zh: 'MCP Client 组件与 claude 模型适配器（REQ-172）', en: 'MCP Client component and the claude model adapter (REQ-172)' } },
+  { name: 'rdflib (Python)', license: 'BSD-3', use: { zh: 'sidecar 进程：TTL 解析 / 图校验 / 导出三职责（D-O5 轻量路线）', en: 'Sidecar process: TTL parsing / graph validation / export (D-O5 lightweight route)' } },
+  { name: 'pySHACL', license: 'Apache-2.0', use: { zh: 'SHACL 约束校验执行器', en: 'SHACL constraint validation executor' } },
+  { name: 'Oxigraph', license: 'Apache-2.0 / MIT', use: { zh: 'P1 唯一 SPARQL 引擎（pin v0.5.11），单二进制免部署', en: 'The only P1 SPARQL engine (pinned v0.5.11), single binary, zero deployment' } },
+  { name: 'Apache Jena Fuseki', license: 'Apache-2.0', use: { zh: 'P2 OWL 推理引擎，方案化编排启停', en: 'P2 OWL reasoning engine, orchestrated per plan' } },
+  { name: 'Qdrant', license: 'Apache-2.0', use: { zh: '向量检索主后端（KB_VECTOR_BACKEND 可插拔）', en: 'Primary vector retrieval backend (pluggable via KB_VECTOR_BACKEND)' } },
+  { name: 'ReactFlow (@xyflow/react)', license: 'MIT', use: { zh: '工作流编辑器画布（D-O9 择优定案）', en: 'Workflow editor canvas (chosen after comparison in D-O9)' } },
+  { name: 'CodeMirror 6', license: 'MIT', use: { zh: '代码 / SPARQL 编辑器', en: 'Code / SPARQL editors' } },
+  { name: 'react-diff-viewer-continued', license: 'MIT', use: { zh: '本体版本 diff 可视化', en: 'Ontology version diff visualization' } },
+  { name: '3d-force-graph / react-force-graph-3d', license: 'MIT', use: { zh: '三维力导向本体可视化（REQ-154 / 179）', en: '3D force-directed ontology visualization (REQ-154 / 179)' } },
+  { name: 'WebVOWL', license: 'MIT', use: { zh: 'VOWL 视觉规范参考，owl2vowl 导出形态对齐', en: 'VOWL visual notation reference; aligned with owl2vowl export form' } },
+  { name: 'santhosh-tekuri/jsonschema', license: 'MIT', use: { zh: 'spec_json 结构校验（Spec.Validate 底层）', en: 'spec_json structural validation (under Spec.Validate)' } },
 ]
 
 /** 借鉴思想的开源项目（第一册 🔭 类：未引入代码，采纳设计思想） */
-const INSPIRED: { name: string; takeaway: string }[] = [
-  { name: 'semantica（D-O15）', takeaway: '项目退役后按 D-O15 反转"去-semantica 化"，仍保留其三层架构与 GraphRAG / PROV-O 溯源思路作对照参考' },
-  { name: 'OntoChat', takeaway: '对话式构建流程与开源 prompt 库可复用，REQ-82/103 的蓝本' },
-  { name: 'OntoExtend', takeaway: '三段式扩展管线（检索 → 扩展 → 整合）映射到六路径之"OntoExtend"' },
-  { name: 'Open Ontologies（65/66 号）', takeaway: '判词纪律与 plan-apply 工作流借鉴，2026-10-08 拍板摘除集成（D-O 编号登记）' },
-  { name: 'Helix Foundry', takeaway: 'base+overlay+audit 三层编辑保护与结构确定性推断（REQ-292~295 批次）' },
-  { name: 'kubernetes-ontology', takeaway: '边级溯源（K1）、AI 消费契约（K2）、canonicalId（K3）设计' },
-  { name: 'Microsoft Ontology-Playground', takeaway: '定位同构的平台对照，验证"本体 + 智能体"产品方向的合理性' },
-  { name: 'ontology-on-snowflake', takeaway: '本体质量基准分档（50/60/70/78.2%）为 qualitygate 评分提供量标依据（REQ-313）' },
-  { name: 'Graphify', takeaway: '确定性解析优先 + LLM 兜底、边级可信度、增量更新策略' },
-  { name: 'HelixDB', takeaway: 'pre-filter → ranking 检索管线借鉴' },
-  { name: 'Kartograph', takeaway: '架构边界可执行化（G1）与统一写路径（G2）' },
-  { name: 'LLM Wiki 生态', takeaway: '三问裁决不引入代码，采纳"写时积累"范式另立知识库类型' },
+const INSPIRED: { name: string; takeaway: L10n<string> }[] = [
+  { name: 'semantica (D-O15)', takeaway: { zh: '项目退役后按 D-O15 反转"去-semantica 化"，仍保留其三层架构与 GraphRAG / PROV-O 溯源思路作对照参考', en: 'After the project retired, D-O15 reversed the dependency ("de-semantica-ization"); its three-layer architecture and GraphRAG / PROV-O provenance ideas remain as reference' } },
+  { name: 'OntoChat', takeaway: { zh: '对话式构建流程与开源 prompt 库可复用，REQ-82/103 的蓝本', en: 'Conversational construction flow and reusable open prompts; blueprint of REQ-82/103' } },
+  { name: 'OntoExtend', takeaway: { zh: '三段式扩展管线（检索 → 扩展 → 整合）映射到六路径之"OntoExtend"', en: 'Three-stage extension pipeline (retrieve → extend → integrate), mapped to the OntoExtend build path' } },
+  { name: 'Open Ontologies (docs 65/66)', takeaway: { zh: '判词纪律与 plan-apply 工作流借鉴，2026-10-08 拍板摘除集成（D-O 编号登记）', en: 'Verdict discipline and plan-apply workflow borrowed; integration removed by decision on 2026-10-08 (registered as a D-O decision)' } },
+  { name: 'Helix Foundry', takeaway: { zh: 'base+overlay+audit 三层编辑保护与结构确定性推断（REQ-292~295 批次）', en: 'base+overlay+audit three-layer edit protection and deterministic structural inference (REQ-292~295 batch)' } },
+  { name: 'kubernetes-ontology', takeaway: { zh: '边级溯源（K1）、AI 消费契约（K2）、canonicalId（K3）设计', en: 'Edge-level provenance (K1), AI consumption contract (K2), canonicalId (K3) designs' } },
+  { name: 'Microsoft Ontology-Playground', takeaway: { zh: '定位同构的平台对照，验证"本体 + 智能体"产品方向的合理性', en: 'A structurally identical platform — validation of the "ontology + agents" product direction' } },
+  { name: 'ontology-on-snowflake', takeaway: { zh: '本体质量基准分档（50/60/70/78.2%）为 qualitygate 评分提供量标依据（REQ-313）', en: 'Tiered ontology quality benchmarks (50/60/70/78.2%) ground the qualitygate scoring scale (REQ-313)' } },
+  { name: 'Graphify', takeaway: { zh: '确定性解析优先 + LLM 兜底、边级可信度、增量更新策略', en: 'Deterministic parsing first with LLM fallback, edge-level confidence, incremental update strategy' } },
+  { name: 'HelixDB', takeaway: { zh: 'pre-filter → ranking 检索管线借鉴', en: 'pre-filter → ranking retrieval pipeline borrowed' } },
+  { name: 'Kartograph', takeaway: { zh: '架构边界可执行化（G1）与统一写路径（G2）', en: 'Executable architecture boundaries (G1) and a unified write path (G2)' } },
+  { name: 'LLM Wiki ecosystem', takeaway: { zh: '三问裁决不引入代码，采纳"写时积累"范式另立知识库类型', en: 'A three-question review decided against importing code; the "write-time accumulation" paradigm became a new knowledge-base type' } },
 ]
 
-const GUIDES: { title: string; desc: string; hash: string }[] = [
-  { title: '整体架构', desc: '三平面 + 双代理拓扑总图', hash: '#/architecture' },
-  { title: '关键实现', desc: 'SSE 时序 / 质量门禁 / 伴生管线三张图', hash: '#/implementation' },
-  { title: '开源生态', desc: '全量项目关联图谱与七类关键特征对比', hash: '#/ecosystem' },
-  { title: '平台知识体系', desc: '模块导读与领域事实源', hash: '#/module/design' },
+const GUIDES: { hash: string; i18n: L10n<{ title: string; desc: string }> }[] = [
+  { hash: '#/architecture', i18n: { zh: { title: '整体架构', desc: '三平面 + 双代理拓扑总图' }, en: { title: 'Architecture', desc: 'Three planes + dual-proxy topology diagram' } } },
+  { hash: '#/implementation', i18n: { zh: { title: '关键实现', desc: 'SSE 时序 / 质量门禁 / 伴生管线三张图' }, en: { title: 'Implementation', desc: 'Three diagrams: SSE timeline / quality gate / companion pipeline' } } },
+  { hash: '#/ecosystem', i18n: { zh: { title: '开源生态', desc: '全量项目关联图谱与七类关键特征对比' }, en: { title: 'Ecosystem', desc: 'Full project relation graph and seven-category comparison' } } },
+  { hash: '#/module/design', i18n: { zh: { title: '平台知识体系', desc: '模块导读与领域事实源' }, en: { title: 'Platform knowledge', desc: 'Module guides and domain sources of truth' } } },
 ]
+
+const COPY = {
+  zh: {
+    heroEyebrow: 'Implementation Principles',
+    title: '实现原理',
+    leadPre: '这一页回答三个问题：',
+    leadB1: '机制如何工作',
+    leadMid1: '（五层视角与管线设计）、',
+    leadB2: '为什么这样设计',
+    leadMid2: '（设计原则与取舍依据）、',
+    leadB3: '凭什么可信',
+    leadMid3: '（标准、论文与开源项目的理论和实践依据）。完整推导过程见 ',
+    leadLinkPk: 'platform-knowledge/',
+    leadMid4: ' ，开源与论文台账见 ',
+    leadLink15: 'docs/15 登记簿',
+    leadPost: '。',
+    s1Eyebrow: '01 · Agent Execution',
+    s1Title: '智能体执行模型：五层视角',
+    s1Desc: '把「AgentLab 如何运行一个智能体」沿五个正交切面拆开看——每层有独立配置、独立事件契约与代码落点，单层可替换、可观测。',
+    s1Note: '五层的运行时序统一由 SSE 事件流暴露（',
+    s1NoteCode: 'run.started → agent.started → message.delta* → tool.call/tool.result → run.finished',
+    s1NoteMid: '），事件协议与代码地图见 ',
+    s1NoteLink: '关键实现',
+    s1NotePost: ' 页。',
+    s2Eyebrow: '02 · Ontology Engineering',
+    s2Title: '本体工程机制',
+    s2Desc: '六条构建路径殊途同归：入口可以是对话、导入或向导，出口必然是同一份 spec_json 资产与同一套质量门禁。',
+    s3Eyebrow: '03 · Knowledge Enhancement',
+    s3Title: '知识增强机制',
+    s3Desc: '三类知识库按语料形态并存互补：块级召回（RAG）、图结构多跳（GraphRAG）、页面级合成（LLM Wiki）。',
+    s4Eyebrow: '04 · Design Principles',
+    s4Title: '设计原则',
+    s4Desc: '贯穿全部模块取舍的四条铁律。',
+    s5Eyebrow: '05 · Evidence & References',
+    s5Title: '理论与实践依据',
+    s5Desc: '平台机制不是凭空发明：标准与协议给数据形态，论文给方法论，开源项目给工程实践。以下为代表性条目，完整台账（含七类分级、全部 25 篇论文）见 docs/15 登记簿。',
+    refStandards: '标准与协议',
+    refPapers: '论文与方法论',
+    refIntegrated: '已集成开源项目',
+    badgeIntegrated: '✅ 生产在用',
+    refInspired: '借鉴思想的项目',
+    badgeInspired: '🔭 思想采纳',
+    integratedHeadLicense: '许可证',
+    note15Pre: '台账维护约定（',
+    note15Link: 'docs/15',
+    note15Mid: '）：新项目 / 新论文一经调研即登记，七类分级 + 六状态流转；本页仅展示进入生产或影响设计的条目。',
+    nextTitle: '延伸阅读',
+  },
+  en: {
+    heroEyebrow: 'Implementation Principles',
+    title: 'Principles',
+    leadPre: 'This page answers three questions: ',
+    leadB1: 'how the mechanisms work',
+    leadMid1: ' (the five-layer view and pipeline design), ',
+    leadB2: 'why they are designed this way',
+    leadMid2: ' (design principles and trade-offs), and ',
+    leadB3: 'why they are trustworthy',
+    leadMid3: ' (theoretical and practical evidence from standards, papers and open-source projects). Full derivations: ',
+    leadLinkPk: 'platform-knowledge/',
+    leadMid4: '; the open-source and paper registry: ',
+    leadLink15: 'docs/15',
+    leadPost: '.',
+    s1Eyebrow: '01 · Agent Execution',
+    s1Title: 'The agent execution model: a five-layer view',
+    s1Desc: '“How does AgentLab run an agent?” split along five orthogonal facets — each layer has its own config, event contract and code location; any single layer is replaceable and observable.',
+    s1Note: 'The runtime sequence of all five layers is exposed via the SSE event stream (',
+    s1NoteCode: 'run.started → agent.started → message.delta* → tool.call/tool.result → run.finished',
+    s1NoteMid: '); the event protocol and code map are on the ',
+    s1NoteLink: 'Implementation',
+    s1NotePost: ' page.',
+    s2Eyebrow: '02 · Ontology Engineering',
+    s2Title: 'Ontology engineering mechanics',
+    s2Desc: 'Six build paths, one destination: the entry may be chat, import or a wizard, but the exit is always the same spec_json asset and the same quality gate.',
+    s3Eyebrow: '03 · Knowledge Enhancement',
+    s3Title: 'Knowledge enhancement mechanics',
+    s3Desc: 'Three knowledge-base types coexist by corpus shape: chunk-level recall (RAG), graph-structured multi-hop (GraphRAG), page-level synthesis (LLM Wiki).',
+    s4Eyebrow: '04 · Design Principles',
+    s4Title: 'Design principles',
+    s4Desc: 'Four iron rules that run through every module trade-off.',
+    s5Eyebrow: '05 · Evidence & References',
+    s5Title: 'Evidence & references',
+    s5Desc: 'These mechanisms weren’t invented from nothing: standards define data shapes, papers provide methodology, open-source projects contribute engineering practice. Representative entries below; the full registry (seven categories, all 25 papers) is in docs/15.',
+    refStandards: 'Standards & protocols',
+    refPapers: 'Papers & methodology',
+    refIntegrated: 'Integrated open source',
+    badgeIntegrated: '✅ In production',
+    refInspired: 'Projects whose ideas we borrowed',
+    badgeInspired: '🔭 Idea adopted',
+    integratedHeadLicense: 'License',
+    note15Pre: 'Registry convention (',
+    note15Link: 'docs/15',
+    note15Mid: '): every new project / paper is registered as soon as it’s researched, with seven-category grading and a six-status lifecycle; this page shows only what entered production or influenced design.',
+    nextTitle: 'Keep reading',
+  },
+}
 
 function SectionTitle({ id, eyebrow, title, desc }: { id?: string; eyebrow: string; title: string; desc?: string }) {
   return (
@@ -206,39 +466,47 @@ function SectionTitle({ id, eyebrow, title, desc }: { id?: string; eyebrow: stri
 }
 
 export default function PrinciplesPage() {
+  const { locale } = useLocale()
+  const c = useCopy(COPY)
   return (
     <main className="page">
       <div className="page-inner">
         {/* ---------- 页头 ---------- */}
         <div className="page-hero">
-          <span className="eyebrow">Implementation Principles</span>
-          <h1>实现原理</h1>
+          <span className="eyebrow">{c.heroEyebrow}</span>
+          <h1>{c.title}</h1>
           <p className="lead">
-            这一页回答三个问题：<strong>机制如何工作</strong>（五层视角与管线设计）、
-            <strong>为什么这样设计</strong>（设计原则与取舍依据）、
-            <strong>凭什么可信</strong>（标准、论文与开源项目的理论和实践依据）。
-            完整推导过程见 <a href={`https://github.com/${REPO_SLUG}/tree/main/platform-knowledge`} target="_blank" rel="noreferrer">platform-knowledge/</a>
-            ，开源与论文台账见 <a href={`https://github.com/${REPO_SLUG}/blob/main/docs/15_开源项目及论文登记簿.md`} target="_blank" rel="noreferrer">docs/15 登记簿</a>。
+            {c.leadPre}
+            <strong>{c.leadB1}</strong>
+            {c.leadMid1}
+            <strong>{c.leadB2}</strong>
+            {c.leadMid2}
+            <strong>{c.leadB3}</strong>
+            {c.leadMid3}
+            <a href={`https://github.com/${REPO_SLUG}/tree/main/platform-knowledge`} target="_blank" rel="noreferrer">
+              {c.leadLinkPk}
+            </a>
+            {c.leadMid4}
+            <a href={`https://github.com/${REPO_SLUG}/blob/main/docs/15_开源项目及论文登记簿.md`} target="_blank" rel="noreferrer">
+              {c.leadLink15}
+            </a>
+            {c.leadPost}
           </p>
         </div>
 
         {/* ---------- 一、智能体执行模型：五层视角 ---------- */}
         <section className="sec">
-          <SectionTitle
-            eyebrow="01 · Agent Execution"
-            title="智能体执行模型：五层视角"
-            desc="把「AgentLab 如何运行一个智能体」沿五个正交切面拆开看——每层有独立配置、独立事件契约与代码落点，单层可替换、可观测。"
-          />
+          <SectionTitle eyebrow={c.s1Eyebrow} title={c.s1Title} desc={c.s1Desc} />
           <div className="layer-grid">
             {LAYERS.map((l) => (
               <article key={l.key} className="layer-card">
                 <header>
                   <span className="layer-key">{l.key}</span>
-                  <h3>{l.title}</h3>
-                  <span className="layer-scope">{l.scope}</span>
+                  <h3>{l.i18n[locale].title}</h3>
+                  <span className="layer-scope">{l.i18n[locale].scope}</span>
                 </header>
                 <ul>
-                  {l.points.map((p, i) => (
+                  {l.i18n[locale].points.map((p, i) => (
                     <li key={i}>{p}</li>
                   ))}
                 </ul>
@@ -246,30 +514,22 @@ export default function PrinciplesPage() {
             ))}
           </div>
           <p className="sec-note">
-            五层的运行时序统一由 SSE 事件流暴露（<code>run.started → agent.started → message.delta* → tool.call/tool.result → run.finished</code>），
-            事件协议与代码地图见 <a href="#/implementation">关键实现</a> 页。
+            {c.s1Note}
+            <code>{c.s1NoteCode}</code>
+            {c.s1NoteMid}
+            <a href="#/implementation">{c.s1NoteLink}</a>
+            {c.s1NotePost}
           </p>
         </section>
 
         {/* ---------- 二、本体工程机制 ---------- */}
         <section className="sec">
-          <SectionTitle
-            eyebrow="02 · Ontology Engineering"
-            title="本体工程机制"
-            desc="六条构建路径殊途同归：入口可以是对话、导入或向导，出口必然是同一份 spec_json 资产与同一套质量门禁。"
-          />
+          <SectionTitle eyebrow={c.s2Eyebrow} title={c.s2Title} desc={c.s2Desc} />
           <div className="onto-grid">
-            {ONTOLOGY.map((o) => (
-              <article key={o.title} className="onto-card">
-                <h3>{o.title}</h3>
-                <p>{o.desc}</p>
-                {o.points.length > 0 && (
-                  <ul>
-                    {o.points.map((p, i) => (
-                      <li key={i}>{p}</li>
-                    ))}
-                  </ul>
-                )}
+            {ONTOLOGY.map((o, oi) => (
+              <article key={oi} className="onto-card">
+                <h3>{o.i18n[locale].title}</h3>
+                <p>{o.i18n[locale].desc}</p>
               </article>
             ))}
           </div>
@@ -277,16 +537,12 @@ export default function PrinciplesPage() {
 
         {/* ---------- 三、知识增强机制 ---------- */}
         <section className="sec">
-          <SectionTitle
-            eyebrow="03 · Knowledge Enhancement"
-            title="知识增强机制"
-            desc="三类知识库按语料形态并存互补：块级召回（RAG）、图结构多跳（GraphRAG）、页面级合成（LLM Wiki）。"
-          />
+          <SectionTitle eyebrow={c.s3Eyebrow} title={c.s3Title} desc={c.s3Desc} />
           <div className="kb-grid">
-            {KNOWLEDGE.map((k) => (
-              <article key={k.title} className="kb-card">
-                <h3>{k.title}</h3>
-                <p>{k.desc}</p>
+            {KNOWLEDGE.map((k, ki) => (
+              <article key={ki} className="kb-card">
+                <h3>{k.i18n[locale].title}</h3>
+                <p>{k.i18n[locale].desc}</p>
               </article>
             ))}
           </div>
@@ -294,13 +550,13 @@ export default function PrinciplesPage() {
 
         {/* ---------- 四、设计原则 ---------- */}
         <section className="sec">
-          <SectionTitle eyebrow="04 · Design Principles" title="设计原则" desc="贯穿全部模块取舍的四条铁律。" />
+          <SectionTitle eyebrow={c.s4Eyebrow} title={c.s4Title} desc={c.s4Desc} />
           <div className="principle-grid">
             {PRINCIPLES.map((p, i) => (
-              <article key={p.title} className="principle-card">
+              <article key={i} className="principle-card">
                 <span className="principle-num">{String(i + 1).padStart(2, '0')}</span>
-                <h3>{p.title}</h3>
-                <p>{p.desc}</p>
+                <h3>{p.i18n[locale].title}</h3>
+                <p>{p.i18n[locale].desc}</p>
               </article>
             ))}
           </div>
@@ -308,73 +564,72 @@ export default function PrinciplesPage() {
 
         {/* ---------- 五、理论与实践依据 ---------- */}
         <section className="sec">
-          <SectionTitle
-            eyebrow="05 · Evidence & References"
-            title="理论与实践依据"
-            desc="平台机制不是凭空发明：标准与协议给数据形态，论文给方法论，开源项目给工程实践。以下为代表性条目，完整台账（含七类分级、全部 25 篇论文）见 docs/15 登记簿。"
-          />
+          <SectionTitle eyebrow={c.s5Eyebrow} title={c.s5Title} desc={c.s5Desc} />
 
-          <h3 className="ref-sub">标准与协议</h3>
+          <h3 className="ref-sub">{c.refStandards}</h3>
           <div className="ref-table">
             {STANDARDS.map((s) => (
               <a key={s.name} className="ref-row" href={s.url} target="_blank" rel="noreferrer">
                 <span className="ref-name">{s.name}</span>
                 <span className="ref-meta">{s.by}</span>
-                <span className="ref-use">{s.use}</span>
+                <span className="ref-use">{s.use[locale]}</span>
               </a>
             ))}
           </div>
 
-          <h3 className="ref-sub">论文与方法论</h3>
+          <h3 className="ref-sub">{c.refPapers}</h3>
           <div className="ref-table">
             {PAPERS.map((p) => (
               <a key={p.name} className="ref-row" href={p.url} target="_blank" rel="noreferrer">
                 <span className="ref-name">{p.name}</span>
                 <span className="ref-meta">{p.meta}</span>
-                <span className="ref-use">{p.use}</span>
+                <span className="ref-use">{p.use[locale]}</span>
               </a>
             ))}
           </div>
 
           <h3 className="ref-sub">
-            已集成开源项目 <span className="badge badge-integrated">✅ 生产在用</span>
+            {c.refIntegrated} <span className="badge badge-integrated">{c.badgeIntegrated}</span>
           </h3>
           <div className="ref-table">
             {INTEGRATED.map((o) => (
               <div key={o.name} className="ref-row">
                 <span className="ref-name">{o.name}</span>
                 <span className="ref-meta">{o.license}</span>
-                <span className="ref-use">{o.use}</span>
+                <span className="ref-use">{o.use[locale]}</span>
               </div>
             ))}
           </div>
 
           <h3 className="ref-sub">
-            借鉴思想的项目 <span className="badge badge-inspired">🔭 思想采纳</span>
+            {c.refInspired} <span className="badge badge-inspired">{c.badgeInspired}</span>
           </h3>
           <div className="inspired-grid">
             {INSPIRED.map((o) => (
               <article key={o.name} className="inspired-card">
                 <h4>{o.name}</h4>
-                <p>{o.takeaway}</p>
+                <p>{o.takeaway[locale]}</p>
               </article>
             ))}
           </div>
 
           <p className="sec-note">
-            台账维护约定（<a href={`https://github.com/${REPO_SLUG}/blob/main/docs/15_开源项目及论文登记簿.md`} target="_blank" rel="noreferrer">docs/15</a>）：
-            新项目 / 新论文一经调研即登记，七类分级 + 六状态流转；本页仅展示进入生产或影响设计的条目。
+            {c.note15Pre}
+            <a href={`https://github.com/${REPO_SLUG}/blob/main/docs/15_开源项目及论文登记簿.md`} target="_blank" rel="noreferrer">
+              {c.note15Link}
+            </a>
+            {c.note15Mid}
           </p>
         </section>
 
         {/* ---------- 延伸阅读 ---------- */}
         <section className="sec">
-          <SectionTitle eyebrow="Next" title="延伸阅读" />
+          <SectionTitle eyebrow="Next" title={c.nextTitle} />
           <div className="guide-grid">
             {GUIDES.map((g) => (
               <a key={g.hash} className="guide-card" href={g.hash}>
-                <h3>{g.title}</h3>
-                <p>{g.desc}</p>
+                <h3>{g.i18n[locale].title}</h3>
+                <p>{g.i18n[locale].desc}</p>
                 <span className="guide-arrow">→</span>
               </a>
             ))}
