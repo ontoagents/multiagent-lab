@@ -41,3 +41,4 @@ apps/desktop/src-tauri/platform-knowledge/
 apps/desktop/src-tauri/research/
 apps/desktop/src-tauri/tools/
 apps/desktop/src-tauri/.cargo/
+deploy/macos/.build-number

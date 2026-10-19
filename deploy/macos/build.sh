@@ -19,7 +19,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 MACOS_DIR="$PWD"
 REPO="$(cd "$MACOS_DIR/../.." && pwd)"
-VERSION="1.0.0"
+
+# ---- 版本口径（2026-10-15 定）：主版本 0；次版本随每次构建递增（.build-number 计数器，
+# gitignored——换机从 1 重计不追历史）；后缀=构建时 git 提交 id short。形如 0.3-425f096。
+BUILD_NUM_FILE="$MACOS_DIR/.build-number"
+PREV_NUM="$(cat "$BUILD_NUM_FILE" 2>/dev/null || echo 0)"
+BUILD_NUM=$((PREV_NUM + 1))
+SHORT_ID="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+VERSION_ID="0.${BUILD_NUM}-${SHORT_ID}"
+# semver 形态（tauri.conf version 校验须三段；prerelease 段即提交 id）：0.3.0-425f096
+VERSION_SEMVER="0.${BUILD_NUM}.0-${SHORT_ID}"
+echo "[build] 版本: ${VERSION_ID}（semver ${VERSION_SEMVER}；主版本 0 · 次版本每次成功构建 +1 · 后缀=提交 id）"
 
 SHELL_KIND="tauri"; SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0
 while [ $# -gt 0 ]; do
@@ -77,7 +87,7 @@ if [ "$SHELL_KIND" = "go" ]; then
   # ---- 遗留壳（REQ-324 首交付形态：ASOC + WKWebView，零编译器依赖）----
   if [ "$STAGE_ONLY" != "1" ]; then
     echo "[build] 编排器 mlabd 编译..."
-    (cd "$MACOS_DIR/launcher" && go build -trimpath -ldflags "-s -w" -o "$MACOS_DIR/build/bin/mlabd" .)
+    (cd "$MACOS_DIR/launcher" && go build -trimpath -ldflags "-s -w -X main.ShellVersion=${VERSION_ID}" -o "$MACOS_DIR/build/bin/mlabd" .)
   fi
 
   echo "[build] 组装 MultiAgentLab.app（go/ASOC 壳）..."
@@ -85,6 +95,8 @@ if [ "$SHELL_KIND" = "go" ]; then
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp "$MACOS_DIR/Info.plist" "$APP/Contents/Info.plist"
+  # 版本注入（CFBundleShortVersionString/CFBundleVersion 两处同源 1.0.0 模板值）
+  sed -i '' "s|<string>1.0.0</string>|<string>${VERSION_SEMVER}</string>|g" "$APP/Contents/Info.plist"
   RES="$APP/Contents/Resources"
   mkdir -p "$RES/bin" "$RES/shell" "$RES/migrations" "$RES/web" "$RES/tools/rdf-sidecar"
   cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \
@@ -159,7 +171,11 @@ EOF
       export RANLIB="$HOME/tools/bin/ranlib"
     fi
     (cd "$REPO/apps/desktop" && npm install --no-audit --no-fund >/dev/null 2>&1 || true)
-    (cd "$REPO/apps/desktop" && npx tauri build --bundles app)
+    # 版本注入：tauri.conf.json version 覆盖（semver 形如 0.3-425f096，prerelease 段即提交 id）
+    VCONF="$(mktemp -t mlabver)"
+    printf '{"version": "%s"}' "$VERSION_SEMVER" > "$VCONF"
+    (cd "$REPO/apps/desktop" && npx tauri build --bundles app -c "$VCONF")
+    rm -f "$VCONF"
     BUILT="$(ls -d "$TSRC/target/release/bundle/macos/MultiAgentLab.app" 2>/dev/null || true)"
     [ -n "$BUILT" ] || { echo "[build] 错误: tauri 产物缺失"; exit 1; }
     mkdir -p "$MACOS_DIR/dist"
@@ -172,8 +188,10 @@ fi
 if [ "$SKIP_DMG" != "1" ] && [ "$STAGE_ONLY" != "1" ]; then
   echo "[build] 打 DMG..."
   hdiutil create -volname MultiAgentLab -srcfolder "$MACOS_DIR/dist/MultiAgentLab.app" -ov -format UDZO \
-    "$MACOS_DIR/dist/MultiAgentLab_${VERSION}.dmg" >/dev/null
+    "$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg" >/dev/null
 fi
 
+# 计数器只在构建成功后落盘（失败尝试不消耗次版本号）
+echo "$BUILD_NUM" > "$BUILD_NUM_FILE"
 echo "[build] 完成（shell=${SHELL_KIND}）:"
 du -sh "$MACOS_DIR/dist"/MultiAgentLab.app "$MACOS_DIR/dist"/*.dmg 2>/dev/null | sed 's/^/  /' || true

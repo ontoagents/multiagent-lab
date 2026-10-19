@@ -36,7 +36,8 @@ import (
 )
 
 // ShellVersion 客户端壳版本（与 Info.plist CFBundleShortVersionString、build.sh DMG 文件名保持一致）。
-const ShellVersion = "1.0.0"
+// var 而非 const：build.sh 以 -ldflags -X 注入版本口径（0.<构建序>-<提交 id>）。
+var ShellVersion = "1.0.0"
 
 // appName 窗口标题与提示文案用名（Dock/菜单栏显示名取自 Info.plist CFBundleName）。
 const appName = "智能体构建平台"
