@@ -73,7 +73,7 @@ def main():
     with DSStore.open(os.path.join(mount, ".DS_Store"), "w+") as d:
         d["."]["bwsp"] = bwsp
         d["."]["icvp"] = icvp
-        d["."]["vstl"] = ("icnv",)
+        d["."]["vstl"] = ("type", "icnv")  # vstl 无 codec 注册，须 (类型, 值) 二元组
         d[APP_NAME]["Iloc"] = APP_POS
         d["Applications"]["Iloc"] = APPS_POS
     print(f"[layout] .DS_Store 写入完成（background={'图' if alias else '纯色'}）")
