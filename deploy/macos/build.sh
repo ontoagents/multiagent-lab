@@ -188,7 +188,10 @@ EOF
   fi
 fi
 
-if [ "$SKIP_DMG" != "1" ] && [ "$STAGE_ONLY" != "1" ]; then
+# DMG 段只受 -SkipDmg 控制（-StageOnly=跳过编译、仍打包）——client-release.yml macos job 三段式
+# 的第三段依赖本语义〔lipo 通用二进制 → -StageOnly 重组装 + DMG → mv 注入版本号〕；
+# 勿再收窄（ff8ce92 曾误加 STAGE_ONLY 条件致 workflow mv 无 DMG 可改名，2026-10-19 修复）。
+if [ "$SKIP_DMG" != "1" ]; then
   APP="$MACOS_DIR/dist/MultiAgentLab.app"
   DMG_OUT="$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg"
   LAYOUT_OK=0
