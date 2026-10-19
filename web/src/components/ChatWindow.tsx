@@ -11,6 +11,7 @@ import TraceDrawer from './TraceDrawer'
 import HighlightSpans from './HighlightSpans'
 import { AgentLogo } from './AgentLogo'
 import { groupToolPhases, ToolPhaseBlock, type ToolPhaseGroup } from './ToolPhase'
+import { groupRunBlocks, RunBlockView, isRunBlock } from './RunBlock'
 import type {
   Agent,
   Conversation,
@@ -302,6 +303,8 @@ function toInterruptState(payload: any) {
 /**
  * 单路事件流归约（REQ-19e/19f：单路消息区与对比窗格共用同一事件→条目翻译）。
  * runKey 为本次流的自定义合并键（reasoning 卡按它合并增量）。
+ * REQ-362 时间交错：运行中正文按模型步分段——过程事件到达时关闭当前正文段（空段弹出，
+ * 防幽灵打字气泡），后续正文增量另起新段；呈现「思考卡→工具行→中间回答段→…」真实时序。
  */
 function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: string): ChatItem[] {
   switch (event) {
@@ -310,12 +313,18 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
       const desc = describeEvent(event, payload)
       const next = [...prev]
       if (event === 'run.finished') {
-        const last = next[next.length - 1]
+        const ti = next.length - 1
+        const last = next[ti]
         if (last && last.kind === 'msg' && last.streaming) {
-          last.streaming = false
           if (!last.content) {
-            last.content =
-              payload.reason === 'stopped' ? '（已停止生成）' : payload.reason === 'interrupted' ? '（已暂停，等待你的答复）' : ''
+            // 空段：停止/挂起保留占位文案，其余弹出（无正文即无气泡）
+            if (payload.reason === 'stopped' || payload.reason === 'interrupted') {
+              next[ti] = { ...last, streaming: false, content: payload.reason === 'stopped' ? '（已停止生成）' : '（已暂停，等待你的答复）' }
+            } else {
+              next.pop()
+            }
+          } else {
+            next[ti] = { ...last, streaming: false }
           }
         }
       }
@@ -325,45 +334,57 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
         // 治「完成卡插答案上方、自动滚动钉尾时在视口外，切会话才可见」）
         next.push(ev)
       } else {
-        next.splice(next.length - 1, 0, ev) // run.started 卡在答案之前（回放同位）
+        next.splice(next.length - 1, 0, ev) // run.started 卡在答案之前（回放同位），保留尾部打字指示气泡
       }
       return next
     }
     case 'run.interrupted': {
       const desc = describeEvent(event, payload)
       const next = [...prev]
-      const ev: ChatItem = { kind: 'event', evType: event, eventText: desc.text, evData: payload }
-      next.splice(next.length - 1, 0, ev)
+      closeTailSegment(next)
+      next.push({ kind: 'event', evType: event, eventText: desc.text, evData: payload })
       return next
     }
     case 'reasoning.delta': {
       const next = [...prev]
-      for (let i = next.length - 1; i >= 0; i--) {
-        if (next[i].evType === 'reasoning' && next[i].streamKey === runKey) {
-          next[i] = { ...next[i], reasoning: (next[i].reasoning ?? '') + (payload.delta ?? '') }
-          return next
-        }
+      closeTailSegment(next)
+      const last = next[next.length - 1]
+      // REQ-362：思考卡按步拆分——仅当末项就是本次运行的思考卡才合并，否则新开一张
+      // （多步运行的步间工具事件天然隔开各步思考卡；evKey 带步序号保证展开状态稳定）
+      if (last && last.kind === 'event' && last.evType === 'reasoning' && last.streamKey === runKey) {
+        next[next.length - 1] = { ...last, reasoning: (last.reasoning ?? '') + (payload.delta ?? '') }
+        return next
       }
-      const card: ChatItem = { kind: 'event', evType: 'reasoning', reasoning: payload.delta ?? '', streamKey: runKey, evKey: runKey }
-      next.splice(Math.max(next.length - 1, 0), 0, card)
+      const step = next.filter((x) => x.kind === 'event' && x.evType === 'reasoning' && x.streamKey === runKey).length
+      next.push({ kind: 'event', evType: 'reasoning', reasoning: payload.delta ?? '', streamKey: runKey, evKey: `${runKey}-${step}` })
       return next
     }
     case 'message.delta': {
       const next = [...prev]
       const last = next[next.length - 1]
-      if (last && last.kind === 'msg' && last.streaming) last.content += payload.delta ?? ''
+      if (last && last.kind === 'msg' && last.streaming) {
+        next[next.length - 1] = { ...last, content: last.content + (payload.delta ?? '') }
+        return next
+      }
+      // 当前无开放正文段：另起新段（REQ-362 时间交错——新段总在最新过程事件之后）
+      next.push({ kind: 'msg', role: 'assistant', content: payload.delta ?? '', streaming: true })
       return next
     }
     case 'run.error': {
       const msg = payload.message ?? '运行失败'
       const next = [...prev]
-      const last = next[next.length - 1]
-      if (last && last.kind === 'msg' && last.streaming && !last.content) next.pop()
+      const ti = next.length - 1
+      const last = next[ti]
+      if (last && last.kind === 'msg' && last.streaming) {
+        if (!last.content) next.pop()
+        else next[ti] = { ...last, streaming: false }
+      }
       const ev: ChatItem = { kind: 'event', evType: 'run.error', eventErr: true, eventText: `⚠ ${msg}`, evData: payload }
       return [...next, ev]
     }
     default:
-      // 过程类事件（工具/技能/子智能体/知识召回/本体）：统一插到流式助手消息之前
+      // 过程类事件（工具/技能/子智能体/知识召回/本体）：REQ-362——关闭/弹出尾部正文段后
+      // 追加到流尾（正文段自此按事件边界分段，时间顺序即呈现顺序）
       // REQ-311 A1：Harness 审计族（审批决议/守卫拦截/验证背压/连接器降级）与产物/CLI/上下文账单
       // 进 live 流——事件本已随 SSE 到达，此前被白名单静默丢弃、运行中黑盒只能事后翻轨迹
       if (
@@ -377,12 +398,21 @@ function applyRunEvent(prev: ChatItem[], event: string, payload: any, runKey: st
       ) {
         const desc = describeEvent(event, payload)
         const next = [...prev]
-        const ev: ChatItem = { kind: 'event', evType: event, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: payload }
-        next.splice(next.length - 1, 0, ev) // 流式助手消息存在时插到其前
+        closeTailSegment(next)
+        next.push({ kind: 'event', evType: event, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: payload })
         return next
       }
       return prev
   }
+}
+
+/** REQ-362：关闭尾部开放正文段——有内容置为完结段（时间交错分段点），空段弹出（防幽灵打字气泡） */
+function closeTailSegment(list: ChatItem[]): void {
+  const ti = list.length - 1
+  const last = list[ti]
+  if (!last || last.kind !== 'msg' || !last.streaming) return
+  if (!last.content) list.pop()
+  else list[ti] = { ...last, streaming: false }
 }
 
 /** 会话配置 chip（渲染在 Sender footer 内）：ON = 品牌填充，OFF = 浅色描边；禁用置灰 + Tooltip 说明 */
@@ -1072,6 +1102,16 @@ export default function ChatWindow({
     })
   }
 
+  // REQ-330④：回放态伴生管线摘要行节点（listItems 平铺映射与 RunBlock 块体渲染共用）
+  const companionSummaryNode = (s: CompanionSummaryItem, key: string): ReactNode => {
+    const txt = `🧩 伴生沉淀 · ${s.n} 条过程${s.cand > 0 ? ` · 候选 ${s.cand} 条` : ''}${s.ingested > 0 ? ` · 自动入图 ${s.ingested} 条` : ''}${s.failed ? ' · 失败' : ''} · 过程详情见「调用轨迹」`
+    return (
+      <div key={key} className="event-card src-onto companion-summary-line" data-testid="companion-summary-line" style={{ '--sub-depth': s.subDepth } as CSSProperties}>
+        <span>{txt}</span>
+      </div>
+    )
+  }
+
   const renderEventCard = (it: ChatItem, i: number) => {
     if (it.evType === 'reasoning') {
       const len = it.reasoning?.length ?? 0
@@ -1388,60 +1428,104 @@ export default function ChatWindow({
   // REQ-323：连续 companion.* 沉淀过程卡再归组——处理中展开、完成自动收起（可手动展开），治多窗沉淀卡刷屏；
   // running 透传 groupToolPhases——运行期间最新工具组恒展开（叶级执行细节可见）
   // REQ-330④：companion 管线事件已不入流（live 归胶囊）——回放态折为轻量摘要行
-  const displayItems = useMemo(() => {
-    return summarizeCompanionPhases(
-      groupToolPhases(
-        withSubDepth(
-          items.filter((it) => {
-            if (it.evType && levelGated(it.evType, debugLevel)) return false
-            if (!showReasoning && it.evType === 'reasoning') return false
-            if (it.kind === 'msg' || !it.evType) return true
-            if (granularity === 'off') return false
-            if (granularity === 'key') {
-              return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
-                ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats'].includes(it.evType)
-            }
-            return true
-          }),
+  // REQ-362：groupRunBlocks 整轮归组——run.started…终态成功完成自动收起为一行任务小结，
+  // 最终回答外显其下（时间交错由 applyRunEvent 正文分段承载；异常态平铺不收起）
+  const displayItems = useMemo(
+    () =>
+      groupRunBlocks(
+        groupToolPhases(
+          summarizeCompanionPhases(
+            withSubDepth(
+              items.filter((it) => {
+                if (it.evType && levelGated(it.evType, debugLevel)) return false
+                if (!showReasoning && it.evType === 'reasoning') return false
+                if (it.kind === 'msg' || !it.evType) return true
+                if (granularity === 'off') return false
+                if (granularity === 'key') {
+                  return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
+                    ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats'].includes(it.evType)
+                }
+                return true
+              }),
+            ),
+          ),
+          running,
         ),
         running,
       ),
-    )
-  }, [items, debugLevel, granularity, showReasoning, running])
-  const listItems = useMemo(
-    () =>
-      displayItems.map((it, i) => {
+    [items, debugLevel, granularity, showReasoning, running],
+  )
+
+  // REQ-362：块体内回看条目→React 节点（中间正文段淡一档呈现/工具组/事件卡），与平铺映射共用
+  const renderStreamItem = (it: any, key: string): ReactNode => {
+    if (it.kind === 'msg') {
+      return (
+        <div key={key} className="run-seg" style={depthStyle(it.subDepth)}>
+          <XMarkdown className="chat-md" content={String(it.content ?? '')} openLinksInNewTab />
+        </div>
+      )
+    }
+    if ((it as unknown as { kind: string }).kind === '__tool_phase') {
+      return <ToolPhaseBlock key={key} group={it as unknown as ToolPhaseGroup} />
+    }
+    if ((it as unknown as { kind: string }).kind === '__companion_summary') {
+      return companionSummaryNode(it as unknown as CompanionSummaryItem, key)
+    }
+    return renderEventCard(it, Number(key) || 0)
+  }
+
+  // REQ-362：归组条目→Bubble.List 数据（done 运行块=收起摘要+外显最终回答；live/ended 块体平铺）
+  const toBubbleList = (grouped: any[], prefix: string): any[] => {
+    const out: any[] = []
+    let n = 0
+    const walk = (list: any[]) => {
+      for (const it of list) {
+        if (isRunBlock(it)) {
+          if (it.status === 'done') {
+            const bi = n++
+            out.push({ key: `${prefix}rb${bi}`, role: 'event', content: <RunBlockView block={it} renderItem={renderStreamItem} /> })
+            if (it.answer) {
+              out.push({
+                key: `${prefix}rba${bi}`,
+                role: 'ai',
+                content: it.answer.content ?? '',
+                loading: false,
+                extraInfo: { streaming: false },
+              })
+            }
+          } else {
+            walk(it.body) // live/ended：按时间顺序平铺（时间交错呈现）
+          }
+          continue
+        }
+        const ki = n++
         if (it.kind === 'msg') {
-          return {
-            key: `m${i}`,
+          out.push({
+            key: `${prefix}m${ki}`,
             role: it.role === 'user' ? 'user' : 'ai',
             content: it.content ?? '',
             loading: !!it.streaming && !it.content,
             extraInfo: { streaming: !!it.streaming }, // 供 contentRender 判断流式状态（尾部游标）
-          }
+          })
+          continue
         }
         if ((it as unknown as { kind: string }).kind === '__tool_phase') {
-          return { key: `t${i}`, role: 'event', content: <ToolPhaseBlock group={it as unknown as ToolPhaseGroup} /> }
+          out.push({ key: `${prefix}t${ki}`, role: 'event', content: <ToolPhaseBlock group={it as unknown as ToolPhaseGroup} /> })
+          continue
         }
         if ((it as unknown as { kind: string }).kind === '__companion_summary') {
-          const s = it as unknown as CompanionSummaryItem
-          const txt = `🧩 伴生沉淀 · ${s.n} 条过程${s.cand > 0 ? ` · 候选 ${s.cand} 条` : ''}${s.ingested > 0 ? ` · 自动入图 ${s.ingested} 条` : ''}${s.failed ? ' · 失败' : ''} · 过程详情见「调用轨迹」`
-          return {
-            key: `cs${i}`,
-            role: 'event',
-            content: (
-              <div className="event-card src-onto companion-summary-line" data-testid="companion-summary-line" style={{ '--sub-depth': s.subDepth } as CSSProperties}>
-                <span>{txt}</span>
-              </div>
-            ),
-          }
+          out.push({ key: `${prefix}cs${ki}`, role: 'event', content: companionSummaryNode(it as unknown as CompanionSummaryItem, `${prefix}cs${ki}`) })
+          continue
         }
-        return {
-          key: `e${i}`,
-          role: 'event',
-          content: renderEventCard(it, i),
-        }
-      }),
+        out.push({ key: `${prefix}e${ki}`, role: 'event', content: renderEventCard(it, ki) })
+      }
+    }
+    walk(grouped)
+    return out
+  }
+  const listItems = useMemo(
+    () => toBubbleList(displayItems, ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel],
   )
 
@@ -1469,27 +1553,13 @@ export default function ChatWindow({
     return 'done'
   }
 
-  // REQ-19e 窗格消息流条目（与单路 listItems 同构映射：消息走角色、事件卡无边框；REQ-174 同构归组）
+  // REQ-19e 窗格消息流条目（与单路 listItems 同构映射：消息走角色、事件卡无边框；
+  // REQ-174 同构归组 + REQ-362 整轮运行块同构——完成收起/最终回答外显与主区一致）
   const paneListItems = (i: number) =>
-    groupToolPhases(withSubDepth(paneItems[i] ?? [])).map((it, j) => {
-      if (it.kind === 'msg') {
-        return {
-          key: `p${i}m${j}`,
-          role: it.role === 'user' ? 'user' : 'ai',
-          content: it.content ?? '',
-          loading: !!it.streaming && !it.content,
-          extraInfo: { streaming: !!it.streaming },
-        }
-      }
-      if ((it as unknown as { kind: string }).kind === '__tool_phase') {
-        return { key: `p${i}t${j}`, role: 'event', content: <ToolPhaseBlock group={it as unknown as ToolPhaseGroup} /> }
-      }
-      return {
-        key: `p${i}e${j}`,
-        role: 'event',
-        content: renderEventCard(it, j),
-      }
-    })
+    toBubbleList(
+      groupRunBlocks(groupToolPhases(withSubDepth(paneItems[i] ?? []), running), running),
+      `p${i}`,
+    )
 
   // 中断恢复（M11 收尾 + REQ-14 审批）：会话挂起的 ask_human 提问 / 工具审批（随会话数据同步）
   const [interrupt, setInterrupt] = useState<{

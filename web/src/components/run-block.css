@@ -1,0 +1,42 @@
+/* REQ-362 运行块（执行详情完成收起）——缩进基准与 tool-phase/event-card 同列（44 = 头像 32 + 间距 12） */
+
+.run-block {
+  font-size: 12px;
+  margin: 4px 0 4px calc(44px + var(--sub-depth, 0) * 14px);
+  padding-left: 10px;
+  border-left: 2px solid var(--c-line, #e5e7eb);
+}
+
+.run-block-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ant-color-text-secondary, #6b7280);
+  user-select: none;
+}
+.run-block-head:hover { background: rgba(0, 0, 0, 0.035); }
+.run-block-head.open { margin-bottom: 2px; }
+.run-block-mark { font-weight: 600; }
+.run-block-mark.ok { color: #52c41a; }
+.run-block-mark.bad { color: var(--c-err, #dc2626); }
+.run-block-mark.warn { color: #d97706; }
+.run-block-title {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-block-body { display: flex; flex-direction: column; margin-top: 2px; }
+
+/* 块体内回看的中间正文段：比最终回答淡一档（最终回答走正常 ai 气泡） */
+.run-seg {
+  margin: 2px 0;
+  padding: 4px 10px;
+  border-left: 2px solid var(--c-line, #e5e7eb);
+  opacity: 0.88;
+}
+.run-seg .chat-md { font-size: 13px; }
