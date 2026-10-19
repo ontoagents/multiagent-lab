@@ -7,8 +7,8 @@
 
 | 产物 | 说明 |
 | --- | --- |
-| `dist/MultiAgentLab_1.0.0_setup.exe`（约 36 MB） | 自解压安装包（Go 引导器 + 附加 zip）；双击 → 控制台解压安装到 `%LOCALAPPDATA%\Programs\MultiAgentLab` + 开始菜单/桌面快捷方式 + HKCU 卸载注册项（「应用与功能」可见）。`MLAB_SILENT=1` 环境变量静默（冒烟自动化用） |
-| 安装后目录（约 93 MB） | `MultiAgentLab.exe`（壳）、`bin\`（backend/ontologyd/runtimed）、`web\dist`、`migrations\`、`docs\ + platform-knowledge\ + research\`（平台知识随包）、`tools\rdf-sidecar\`、`README.txt` |
+| `dist/MultiAgentLab_0.<N>-<git短id>_x64-setup.exe`（约 27~28 MB，NSIS/Tauri 壳，当前默认路径） | **版本口径（2026-10-16 定版，同 mac build.sh）**：主版本 0 固定；次版本随每次成功构建 +1（`build\.build-number` 计数器，失败尝试不消耗号；接续 mac 全局序列）；构建时 git 短提交 id 作后缀（tauri conf 注入 semver 形态 `0.<N>.0-<id>`，安装包文件名用展示名 `0.<N>-<id>`）。双击中文向导 per-user 安装；`/S` 静默〔Git Bash 下须 `cmd /c "... /S"` 传参，直呼会被 MSYS 路径转换吞参变交互向导〕。`-Shell go` 遗留路径产物仍为 `MultiAgentLab_1.0.0_setup.exe`（约 36 MB，Go 引导器 SFX/ISCC） |
+| 安装后目录（约 95 MB+） | `multiagentlab-desktop.exe`（Tauri 壳）+ `backend/ontologyd/runtimed/oxigraph.exe`（三服务+内置引擎，随包根目录）、`web-dist`、`migrations`、`docs/ + platform-knowledge/ + research/`（平台知识随包）、`tools\rdf-sidecar\`、`uninstall.exe` |
 | 数据目录 | `%LOCALAPPDATA%\multiagent-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 内置随包**（REQ-321 零捆绑口径 2026-10-15 反转）：壳首启把随包副本种子到 `multiagent-lab\bin`（已存在不覆盖——一键更新/手动换版本不被回滚），运行页引擎即装即用；后续版本更新仍走「一键安装」 |
 
 ## 构建

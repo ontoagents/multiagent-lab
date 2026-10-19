@@ -3,7 +3,9 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1                 # 全量：三服务+壳+前端+staging+setup.exe
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipWeb        # 跳过前端构建（web/dist 未变时）
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -StageOnly      # 只组装 staging，不编译安装包
-# 产物：deploy/windows/dist/MultiAgentLab_<版本>_setup.exe（per-user 免管理员安装）
+# 产物：deploy/windows/dist/MultiAgentLab_0.<N>-<git短id>_x64-setup.exe（per-user 免管理员；NSIS/Tauri 路径）
+#       版本引擎（2026-10-16 定版口径，同 mac build.sh）：主版本 0；次版本随成功构建 +1（build\.build-number，
+#       接续 mac 全局序列）；git 短提交 id 后缀。旧 -Shell go 路径产物名仍为 MultiAgentLab_<版本>_setup.exe
 # 依赖：Go 1.25+、Node 22+、ISCC（Inno Setup 6；env ISCC 或默认安装路径自动发现）
 
 param(
@@ -128,17 +130,42 @@ if ($Shell -eq "tauri") {
         if ($LASTEXITCODE -ne 0) { throw "apps/desktop npm ci 失败（exit $LASTEXITCODE）" }
     }
 
+    # ---- 版本引擎（2026-10-16 开发者定版口径，对齐 mac build.sh 同款机制）：主版本 0 固定；
+    # 次版本随每次成功构建 +1（build\.build-number 计数器，gitignored，失败尝试不消耗号——成功落地后才写回；
+    # 计数接续 mac 0.3-425f096 的全局序列）；后缀=构建时 git 提交 id short。双形态：
+    # 展示名 0.<N>-<sha>（安装包文件名）/ semver 形态 0.<N>.0-<sha>（tauri version 经 --config overlay
+    # 注入，不弄脏工作树；tauri 拒绝两段式版本须三段——mac 侧同坑先例）。
+    $counterFile = Join-Path $build ".build-number"
+    $verN = [int]((Get-Content $counterFile -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int])
+    if (-not $verN) { $verN = 3 }
+    $verN++
+    $sha = (& git -C $repo rev-parse --short HEAD).Trim()
+    $verLabel = "0.$verN-$sha"
+    $verSemver = "0.$verN.0-$sha"
+    Step "构建版本：$verLabel（tauri conf: $verSemver）"
+    $verOverride = Join-Path $build "version-override.json"
+    @{ version = $verSemver } | ConvertTo-Json | Set-Content $verOverride -Encoding Ascii
+
     Step "tauri build（NSIS per-user 安装包，首次编译 Rust 依赖需较长时间）"
     Push-Location "$repo\apps\desktop"
     # npx 的 stderr notice 会触发 PS5.1 ErrorActionPreference=Stop 误判，经 cmd 层合并流
-    cmd /c "npx tauri build --bundles nsis 2>&1"
-    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "tauri build 失败（exit $LASTEXITCODE）" }
+    cmd /c "npx tauri build --bundles nsis --config `"$verOverride`" 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        # NSIS VersionInfo 对 semver 预发布段兼容性兜底：回退纯数字三段版重试（文件名仍带 sha 展示名）
+        Step "semver 版本构建失败，回退纯数字版本重试（0.$verN.0）"
+        @{ version = "0.$verN.0" } | ConvertTo-Json | Set-Content $verOverride -Encoding Ascii
+        cmd /c "npx tauri build --bundles nsis --config `"$verOverride`" 2>&1"
+        if ($LASTEXITCODE -ne 0) { Pop-Location; throw "tauri build 失败（exit $LASTEXITCODE）" }
+    }
     Pop-Location
     $nsis = Get-ChildItem "$tsrc\target\release\bundle\nsis\*setup.exe" -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $nsis) { throw "Tauri NSIS 产物缺失（检查 tauri build 输出）" }
-    Copy-Item $nsis.FullName "$dist\" -Force
-    Step "完成：$($nsis.FullName)（$([math]::Round($nsis.Length/1MB,1)) MB）"
+    $distName = "MultiAgentLab_${verLabel}_x64-setup.exe"
+    Move-Item $nsis.FullName (Join-Path $dist $distName) -Force
+    # 成功落地才消耗版本号（失败尝试不消耗）
+    Set-Content $counterFile $verN -Encoding Ascii
+    Step "完成：$(Join-Path $dist $distName)（$([math]::Round((Get-Item (Join-Path $dist $distName)).Length/1MB,1)) MB）"
     exit 0
 }
 
