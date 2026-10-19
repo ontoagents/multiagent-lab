@@ -67,7 +67,9 @@ jobs:
         shell: bash
         env:
           VER: ${{ steps.ver.outputs.version }}
-        run: mv deploy/windows/dist/MultiAgentLab_*_setup.exe "deploy/windows/dist/MultiAgentLab_${VER}_setup.exe"
+        # 源名须匹配 build.ps1 tauri/NSIS 路径产物 *_x64-setup.exe（REQ-321 壳切换起，ISCC 时代 *_setup.exe 已退役）——
+        # 改产物名形态前先 grep 本 workflow 依赖面（660e941 mac mv 失配同教训，勿回改此 glob 为 *_setup.exe）
+        run: mv deploy/windows/dist/MultiAgentLab_*_x64-setup.exe "deploy/windows/dist/MultiAgentLab_${VER}_setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-setup
