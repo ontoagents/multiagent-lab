@@ -16,6 +16,10 @@
 
 ```bash
 deploy/macos/build.sh              # 全量（前端+三服务+编排器+组装+签名+DMG）
+#                                   DMG 默认拖拽安装排版（应用图标+Applications 别名+背景引导+固定窗口布局，
+#                                   dmg_layout.py 纯 Python 写 .DS_Store 零访达自动化权限；UDRW→UDZO 转换+
+#                                   挂只读 codesign 校验硬闸；降级链=无 Chrome 纯色背景/排版失败纯镜像/-PlainDmg 退回；
+#                                   依赖 pip install --user --break-system-packages dmgbuild〔带 ds_store/mac_alias〕）
 deploy/macos/build.sh -SkipWeb     # 跳过前端构建
 deploy/macos/build.sh -StageOnly   # 只重新组装/签名（复用 build/bin 与 web/dist）
 deploy/macos/build.sh -SkipDmg     # 只出 .app
