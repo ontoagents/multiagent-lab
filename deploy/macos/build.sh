@@ -30,6 +30,7 @@ VERSION_ID="0.${BUILD_NUM}-${SHORT_ID}"
 # semver 形态（tauri.conf version 校验须三段；prerelease 段即提交 id）：0.3.0-425f096
 VERSION_SEMVER="0.${BUILD_NUM}.0-${SHORT_ID}"
 echo "[build] 版本: ${VERSION_ID}（semver ${VERSION_SEMVER}；主版本 0 · 次版本每次成功构建 +1 · 后缀=提交 id）"
+PY3="${MLAB_PY3:-/usr/local/bin/python3.12}"
 
 SHELL_KIND="tauri"; SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0; PLAIN_DMG=0
 while [ $# -gt 0 ]; do
@@ -84,6 +85,27 @@ if [ "$STAGE_ONLY" != "1" ]; then
   [ -f "$OXI_BIN" ] && chmod +x "$OXI_BIN"
 fi
 
+# ---- NFD 文件名归一（HFS+/DMG 卷强制分解 UTF-8 文件名，与签名封印的 NFC 名不符会破 seal）----
+# 在 dist 落位后、codesign 前调用；重名碰撞（NFC/NFD 同现）诚实报错退出。
+normalize_nfd() {
+  "$PY3" - "$1" <<'PYEOF2'
+import os, sys, unicodedata
+root = sys.argv[1]
+n = 0
+for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+    for name in list(dirnames) + list(filenames):
+        nfd = unicodedata.normalize('NFD', name)
+        if nfd == name:
+            continue
+        src, dst = os.path.join(dirpath, name), os.path.join(dirpath, nfd)
+        if os.path.exists(dst):
+            sys.exit(f'NFD 归一撞名: {src} -> {dst}')
+        os.rename(src, dst)
+        n += 1
+print(f'[build] NFD 归一 {n} 个文件名（HFS+/DMG 卷兼容）')
+PYEOF2
+}
+
 if [ "$SHELL_KIND" = "go" ]; then
   # ---- 遗留壳（REQ-324 首交付形态：ASOC + WKWebView，零编译器依赖）----
   if [ "$STAGE_ONLY" != "1" ]; then
@@ -114,6 +136,7 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
   cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
+  normalize_nfd "$APP"
 
   echo "[build] ad-hoc 签名..."
   codesign --force --deep --sign - "$APP" 2>/dev/null || echo "[build] 警告: ad-hoc 签名失败（本机直接运行通常不受影响）"
@@ -182,6 +205,7 @@ EOF
     mkdir -p "$MACOS_DIR/dist"
     rm -rf "$MACOS_DIR/dist/MultiAgentLab.app"
     cp -R "$BUILT" "$MACOS_DIR/dist/MultiAgentLab.app"
+    normalize_nfd "$MACOS_DIR/dist/MultiAgentLab.app"
     codesign --force --deep --sign - "$MACOS_DIR/dist/MultiAgentLab.app" 2>/dev/null || true
   fi
 fi
