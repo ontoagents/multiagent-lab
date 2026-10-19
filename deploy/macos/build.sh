@@ -31,14 +31,15 @@ VERSION_ID="0.${BUILD_NUM}-${SHORT_ID}"
 VERSION_SEMVER="0.${BUILD_NUM}.0-${SHORT_ID}"
 echo "[build] 版本: ${VERSION_ID}（semver ${VERSION_SEMVER}；主版本 0 · 次版本每次成功构建 +1 · 后缀=提交 id）"
 
-SHELL_KIND="tauri"; SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0
+SHELL_KIND="tauri"; SKIP_WEB=0; STAGE_ONLY=0; SKIP_DMG=0; PLAIN_DMG=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -Shell) SHELL_KIND="$2"; shift 2 ;;
     -SkipWeb) SKIP_WEB=1; shift ;;
     -StageOnly) STAGE_ONLY=1; shift ;;
     -SkipDmg) SKIP_DMG=1; shift ;;
-    *) echo "未知参数: $1 (支持 -Shell tauri|go / -SkipWeb / -SkipDmg / -StageOnly)"; exit 1 ;;
+    -PlainDmg) PLAIN_DMG=1; shift ;;
+    *) echo "未知参数: $1 (支持 -Shell tauri|go / -SkipWeb / -SkipDmg / -StageOnly / -PlainDmg)"; exit 1 ;;
   esac
 done
 [ "$SHELL_KIND" = "tauri" ] || [ "$SHELL_KIND" = "go" ] || { echo "-Shell 只支持 tauri|go"; exit 1; }
@@ -186,9 +187,72 @@ EOF
 fi
 
 if [ "$SKIP_DMG" != "1" ] && [ "$STAGE_ONLY" != "1" ]; then
-  echo "[build] 打 DMG..."
-  hdiutil create -volname MultiAgentLab -srcfolder "$MACOS_DIR/dist/MultiAgentLab.app" -ov -format UDZO \
-    "$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg" >/dev/null
+  APP="$MACOS_DIR/dist/MultiAgentLab.app"
+  DMG_OUT="$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg"
+  PY3="${MLAB_PY3:-/usr/local/bin/python3.12}"
+  # ---- DMG 拖拽安装排版（2026-10-19 定为默认）：应用图标 + /Applications 别名 + 背景引导 +
+  # 固定窗口布局（dmgbuild 纯 Python 写 .DS_Store，挂载镜像内部排版，无需访达自动化权限）。
+  # 降级链：无 Chrome→无背景纯排版；无 dmgbuild / 排版失败→纯镜像 DMG（-PlainDmg 显式退回）。
+  if [ "$PLAIN_DMG" != "1" ] && command -v "$PY3" >/dev/null 2>&1 && "$PY3" -c 'import dmgbuild' >/dev/null 2>&1; then
+    echo "[build] 打 DMG（拖拽安装排版）..."
+    WORK="$(mktemp -d)"
+    BG=""
+    CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if [ -x "$CHROME" ]; then
+      cat > "$WORK/bg.html" <<'HTMLEOF'
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;width:660px;height:400px;background:linear-gradient(135deg,#eef3fb 0%,#dfe9f7 60%,#d3e2f5 100%);
+font-family:-apple-system,'PingFang SC',sans-serif;overflow:hidden}
+.arrow{position:absolute;top:44px;left:265px;font-size:120px;color:#3a6fd8;font-weight:300}
+.t1{position:absolute;top:196px;width:660px;text-align:center;font-size:26px;color:#1f3a68;font-weight:600}
+.t2{position:absolute;top:246px;width:660px;text-align:center;font-size:16px;color:#5a719c}
+.slot{position:absolute;border:2.5px dashed #9db8e0;border-radius:18px}
+.s1{top:30px;left:75px;width:130px;height:130px}
+.s2{top:30px;left:455px;width:130px;height:130px}
+.cap{position:absolute;width:280px;text-align:center;font-size:14px;color:#6d84ad}
+.c1{top:196px;left:0}.c2{top:196px;left:380px}
+</style></head><body>
+<div class="slot s1"></div><div class="slot s2"></div>
+<div class="cap c1">MultiAgentLab</div><div class="cap c2">Applications</div>
+<div class="arrow">→</div>
+<div class="t1">拖动「MultiAgentLab」到右侧 Applications</div>
+<div class="t2">完成永久安装（也可拖入其他位置；数据独立存放不受影响）</div>
+</body></html>
+HTMLEOF
+      if "$CHROME" --headless=new --disable-gpu --window-size=660,400 --screenshot="$WORK/bg.png" "file://$WORK/bg.html" >/dev/null 2>&1 && [ -s "$WORK/bg.png" ]; then
+        BG="$WORK/bg.png"
+      else
+        echo "[build] 警告: 背景图渲染失败 → 排版降级无背景"
+      fi
+    else
+      echo "[build] 警告: 未找到 Chrome → 排版降级无背景"
+    fi
+    {
+      echo "format = 'UDZO'"
+      echo "files = [r'''$APP''']"
+      echo "symlinks = {'Applications': '/Applications'}"
+      echo "default_view = 'icon-view'"
+      echo "window_rect = ((100, 100), (660, 400))"
+      echo "icon_size = 72"
+      echo "text_size = 13"
+      echo "icon_locations = {'MultiAgentLab.app': (140, 95), 'Applications': (520, 95)}"
+      [ -n "$BG" ] && echo "background = r'''$BG'''"
+    } > "$WORK/settings.py"
+    if "$PY3" -m dmgbuild -s "$WORK/settings.py" MultiAgentLab "$DMG_OUT" >/dev/null 2>&1; then
+      echo "[build] DMG 拖拽排版完成（${VERSION_ID}）"
+    else
+      echo "[build] 警告: dmgbuild 排版失败 → 回落纯镜像 DMG"
+      rm -f "$DMG_OUT"
+      hdiutil create -volname MultiAgentLab -srcfolder "$APP" -ov -format UDZO "$DMG_OUT" >/dev/null
+    fi
+    rm -rf "$WORK"
+  else
+    if [ "$PLAIN_DMG" != "1" ]; then
+      echo "[build] 警告: 缺 dmgbuild（$PY3 -m pip install --user --break-system-packages dmgbuild）→ 回落纯镜像 DMG"
+    fi
+    echo "[build] 打 DMG（纯镜像）..."
+    hdiutil create -volname MultiAgentLab -srcfolder "$MACOS_DIR/dist/MultiAgentLab.app" -ov -format UDZO "$DMG_OUT" >/dev/null
+  fi
 fi
 
 # 计数器只在构建成功后落盘（失败尝试不消耗次版本号）
