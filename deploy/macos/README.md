@@ -49,7 +49,7 @@ deploy/macos/build.sh -SkipDmg     # 只出 .app
 ## 诚实边界（v1.0.0）
 
 - 单机单实例；不支持开机自启/系统托盘/自动更新（沿 Windows 口径 P2）。
-- 应用图标为系统默认（P2）；未做 Apple 公证（Gatekeeper 首次打开若拦截，右键 → 打开；本机构建无 quarantine 问题）。
+- **公证就绪形态（2026-10-20）**：默认 ad-hoc 签名——从网络下载的包会被 Gatekeeper 拦截（本机构建直接拷贝不触发），收包解除=`xattr -dr com.apple.quarantine /Applications/MultiAgentLab.app` 一行（macOS 15 起「右键→打开」旁路已移除）；构建端配置 `MACOS_SIGN_IDENTITY`（Developer ID Application 证书，`--options runtime` 强化运行时）+ `NOTARY_PROFILE`（`xcrun notarytool store-credentials` 一次性存储）即自动切换 Developer ID 签名 + `notarytool submit --wait` + `stapler staple`——公证版收包人下载即用零提示。CI 接线（P12/API 密钥入 Secrets + keychain 导入步）待开通开发者账号后随首跑验证落库。应用图标为系统默认（P2）。
 - 菜单栏 App 名与 Dock 名取自 Info.plist（`MultiAgentLab`）；osascript 进程名在活动监视器可见（窗口/Dock/菜单形态不受影响）。
 - 壳若被 `kill -9` 强杀，服务树由 mlabd ppid 监视在 ≤2s 内回收（非系统级 Job Object 强保真）。
 - 本体 TTL/OWL 导入导出需 Python3+rdflib（探测失败自动降级，其余功能不受影响）；Docker 沙箱/Qdrant 需自行安装。

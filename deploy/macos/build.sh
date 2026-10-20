@@ -86,6 +86,17 @@ if [ "$STAGE_ONLY" != "1" ]; then
 fi
 
 
+# ---- 签名助手（公证就绪形态，2026-10-20）：MACOS_SIGN_IDENTITY 配置即用 Developer ID 签名
+#（--options runtime 强化运行时为公证前置要求）；未配置维持 ad-hoc（收包人需清隔离，见 README）。
+sign_app() {
+  if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+    echo "[build] Developer ID 签名（${MACOS_SIGN_IDENTITY}，hardened runtime）..."
+    codesign --force --deep --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$1"
+  else
+    codesign --force --deep --sign - "$1" 2>/dev/null || true
+  fi
+}
+
 if [ "$SHELL_KIND" = "go" ]; then
   # ---- 遗留壳（REQ-324 首交付形态：ASOC + WKWebView，零编译器依赖）----
   if [ "$STAGE_ONLY" != "1" ]; then
@@ -117,8 +128,7 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
   cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
 
-  echo "[build] ad-hoc 签名..."
-  codesign --force --deep --sign - "$APP" 2>/dev/null || echo "[build] 警告: ad-hoc 签名失败（本机直接运行通常不受影响）"
+  sign_app "$APP"
 else
   # ---- Tauri 2 壳（定案壳技术，对齐 deploy/windows/build.ps1 -Shell tauri 资源布局）----
   if [ -n "${GOARCH:-}" ] && [ "$GOARCH" != "$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" ]; then
@@ -184,7 +194,7 @@ EOF
     mkdir -p "$MACOS_DIR/dist"
     rm -rf "$MACOS_DIR/dist/MultiAgentLab.app"
     cp -R "$BUILT" "$MACOS_DIR/dist/MultiAgentLab.app"
-    codesign --force --deep --sign - "$MACOS_DIR/dist/MultiAgentLab.app" 2>/dev/null || true
+    sign_app "$MACOS_DIR/dist/MultiAgentLab.app"
   fi
 fi
 
@@ -277,6 +287,19 @@ HTMLEOF
     hdiutil detach "$VNT" >/dev/null
   else
     echo "[build] 警告: DMG 校验挂载失败（跳过在镜像签名断言）"
+  fi
+fi
+
+# ---- 公证 + staple（公证就绪形态）：NOTARY_PROFILE=已存储的 notarytool keychain profile
+#（一次性配置：xcrun notarytool store-credentials <profile> --apple-id … --team-id … --password …，
+#  或 API 密钥形态）。未配置跳过——收包人按 README 清隔离即可。
+if [ -n "${NOTARY_PROFILE:-}" ] && [ "${SKIP_DMG:-}" != "1" ] && [ "${STAGE_ONLY:-}" != "1" ] && [ -f "${DMG_OUT:-}" ]; then
+  echo "[build] 公证提交（notarytool，可能持续数分钟）..."
+  if xcrun notarytool submit "$DMG_OUT" --keychain-profile "$NOTARY_PROFILE" --wait; then
+    xcrun stapler staple "$DMG_OUT"
+    echo "[build] 公证+staple 完成——收包人下载后可直接打开"
+  else
+    echo "[build] 错误: 公证失败（DMG 保留未 staple 态供排查）"; exit 1
   fi
 fi
 

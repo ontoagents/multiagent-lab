@@ -15,4 +15,10 @@
   可 `pip3 install rdflib` 后重启客户端启用。
 - oxigraph 引擎不随包分发：首启后在「本体 - 运行」页一键下载安装（落数据目录 bin，即时生效）。
 - Docker 沙箱执行需自行安装 Docker Desktop；向量库默认 SQLite 后端（Qdrant 可选）。
-- 应用图标为系统默认（P2）；未做公证（Gatekeeper 首次打开若拦截，请右键 → 打开）。
+- 当前为 ad-hoc 签名未公证：从网络下载后首次打开会被 Gatekeeper 拦截（提示「无法验证开发者」
+  或「已损坏」——包本身没坏，是签名级别问题）。两种解除方式任选：
+  ① 终端执行：xattr -dr com.apple.quarantine /Applications/MultiAgentLab.app
+  ② 系统设置 → 隐私与安全性 → 底部「仍要打开」按钮（对「已损坏」提示无效时用①）。
+  注意：macOS 14 及以下「右键 → 打开」可用；15 起已移除该旁路。
+  （构建端配置 MACOS_SIGN_IDENTITY/NOTARY_PROFILE 环境变量后自动切换 Developer ID 签名+公证，
+  公证版无此步骤。）
