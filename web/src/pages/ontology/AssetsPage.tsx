@@ -44,6 +44,7 @@ import AssetListPage, { AssetSearchBox, orderedGroups } from './components/asset
 import QualityCardPane from './components/assets/QualityCardPane'
 import ImportMergeWizard from './components/assets/ImportMergeWizard'
 import ReferencesPane from './components/assets/ReferencesPane'
+import HierarchyPane, { type OntoSelection } from './components/assets/HierarchyPane'
 
 // ---------------------------------------------------------------------------
 // 本体资产（AssetsPage，REQ-104 ③）：全部已构建本体统一管理
@@ -89,6 +90,8 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
       title: '内容与编辑',
       items: [
         { key: 'spec', label: 'Spec 编辑' },
+        // REQ-363/M163：层级浏览（Protégé 式树形导航）——兼作 52 号 P-5 详情页签分组演进首个落点
+        { key: 'hierarchy', label: '层级浏览' },
         { key: 'graph-edit', label: '图形编辑' },
         { key: 'reltypes', label: '关系类型' },
         { key: 'dataprops', label: '数据属性' },
@@ -135,6 +138,9 @@ export default function AssetsPage() {
   const [specErr, setSpecErr] = useState<string | null>(null)
   const [specLoading, setSpecLoading] = useState(false)
   const [specTick, setSpecTick] = useState(0)
+  // REQ-363 E/REQ-253①：跨视图选择单源（详情域总线）——层级浏览树/描述面板与可视化 2D
+  // 共同消费：一处选中处处联动（59 号 P1 设计的实现形态=选择状态提升至详情页级单源）
+  const [ontoSel, setOntoSel] = useState<OntoSelection | null>(null)
 
   const [validations, setValidations] = useState<Record<string, ValidationState>>({})
   const [mergeOpen, setMergeOpen] = useState(false) // REQ-157 导入合并向导
@@ -176,8 +182,10 @@ export default function AssetsPage() {
   }
 
   // REQ-285⑤：切换本体重置分区——分型后两套模板键不相交，残留键（如 axioms）落空渲染
+  // REQ-363：切本体同步清空跨视图选择（旧实体身份不跨资产）
   useEffect(() => {
     setTabKey(null)
+    setOntoSel(null)
   }, [activeId])
 
   // REQ-216⑦：伴生绑定本体清单（详情页「伴生候选」页签「对话生长」徽标判定）
@@ -820,7 +828,11 @@ export default function AssetsPage() {
                       <OntologyCompanionGraph key={active.id} ontologyId={active.id} />
                     </div>
                   )
-                  : <VizTabs spec={spec} ontologyId={active.id} />)}
+                  : <VizTabs spec={spec} ontologyId={active.id} busFocus={ontoSel} onBusSelect={setOntoSel} />)}
+                {/* REQ-363/M163：层级浏览（Protégé 式树形导航；选择总线经 ontoSel 单源联动可视化 2D） */}
+                {secKey === 'hierarchy' && !isCompActive && (
+                  <HierarchyPane ontology={active} spec={spec} selection={ontoSel} onSelect={setOntoSel} />
+                )}
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'community' && isCompActive && <CommunityPane key={active.id} ontologyId={active.id} />}

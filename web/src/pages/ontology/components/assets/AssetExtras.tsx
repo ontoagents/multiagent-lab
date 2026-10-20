@@ -10,6 +10,7 @@ import WebVowlView from '../WebVowlView'
 import OntologyCompanionGraph from '../companion/OntologyCompanionGraph'
 import { useRuntimeSpec } from './RuntimeGraph'
 import Maximizeable from '../../../../components/Maximizeable'
+import type { OntoSelection } from './HierarchyPane'
 
 // ---------------------------------------------------------------------------
 // 资产页杂件（B1 拆分，REQ-145）：重命名弹窗 / 可视化多形态 Tab（M21/VIZ-1+VIZ-3，三维懒加载）
@@ -79,12 +80,30 @@ export function RenameModal({ ontology, onClose, onSaved }: { ontology: Ontology
  * REQ-179：全屏按钮——对整个可视化区 requestFullscreen（三视图共用）；3D 进出场时重挂载
  * （key 置换，WebGL 初始化按新容器尺寸），WebVOWL 由组件内部监听尺寸变化刷新画布。
  */
-export function VizTabs({ spec, ontologyId, isCompanion = false }: { spec: Spec | null; ontologyId: string; isCompanion?: boolean }) {
+export function VizTabs({
+  spec,
+  ontologyId,
+  isCompanion = false,
+  busFocus = null,
+  onBusSelect,
+}: {
+  spec: Spec | null
+  ontologyId: string
+  isCompanion?: boolean
+  /** REQ-363 E/REQ-253①：跨视图选择总线——层级浏览/搜索选中实体后切到可视化时 2D 自动聚焦 */
+  busFocus?: OntoSelection | null
+  /** 图内选中回传总线（图→树/描述面板反向联动；清空经 null） */
+  onBusSelect?: (s: OntoSelection | null) => void
+}) {
   // REQ-240⑤：运行态实渲并入三维浏览数据源切换（原第 5 形态退役，消除体验重复）——
   // 仓库=事实源全量直渲；运行态=引擎部署视图 TBox 实渲（REQ-87 两种视角，渐进通道仅仓库源可用）
   const [mode, setMode] = useState<'2d' | '3d' | 'webvowl' | 'companion'>('2d')
   const [src, setSrc] = useState<'repo' | 'runtime'>('repo')
   const [focus2d, setFocus2d] = useState<string | null>(null)
+  // REQ-363：总线选择 → 2D 聚焦（仅消费概念/实例身份；关系与数据属性无图节点不聚焦）
+  useEffect(() => {
+    if (busFocus && (busFocus.kind === 'concept' || busFocus.kind === 'instance')) setFocus2d(busFocus.name)
+  }, [busFocus])
   // VIZ-5（REQ-175）：含本体的 running 运行方案（渐进扩展 SPARQL 通道，REQ-163 同语义）
   const [sparqlProfile, setSparqlProfile] = useState<string | null>(null)
   useEffect(() => {
@@ -98,7 +117,7 @@ export function VizTabs({ spec, ontologyId, isCompanion = false }: { spec: Spec 
 
   const body =
     mode === '2d' ? (
-      <SpecGraph spec={spec} focusName={focus2d} />
+      <SpecGraph spec={spec} focusName={focus2d} onSelectEntity={onBusSelect} />
     ) : mode === '3d' ? (
       <div>
         {hasRuntime && (

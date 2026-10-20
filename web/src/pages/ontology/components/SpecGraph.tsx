@@ -243,7 +243,7 @@ function InstanceNode({ data, selected }: NodeProps<InstanceFlowNode>) {
 // nodeTypes 必须定义在组件外，避免每次渲染重建导致 React Flow 重挂载
 const nodeTypes: NodeTypes = { concept: ConceptNode, instance: InstanceNode }
 
-function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: string | null }) {
+function SpecGraphInner({ spec, focusName, onSelectEntity }: { spec: Spec | null; focusName?: string | null; onSelectEntity?: (sel: { kind: 'concept' | 'instance'; name: string } | null) => void }) {
   const hasConcepts = !!spec && (spec.concepts?.length ?? 0) > 0
   // REQ-240①：一等公民筛选（边类型/实例维度；与三维根过滤正交）
   const [filter, setFilter] = useState<SpecVizFilter>(DEFAULT_VIZ_FILTER)
@@ -255,11 +255,12 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
   const { setCenter } = useReactFlow()
 
   // R3（VIZ-2）：3D→2D 联动——focusName 变化时居中该概念并选中（bugfix：节点 id 无 c: 前缀）
+  // REQ-363 E：选择总线延伸——实例节点（i: 前缀 id）同样可聚焦
   useEffect(() => {
     if (!focusName) return
-    const n = initialNodes.find((x) => x.id === focusName || x.id === `c:${focusName}`)
+    const n = initialNodes.find((x) => x.id === focusName || x.id === `c:${focusName}` || x.id === `i:${focusName}`)
     if (!n) return
-    setSelectedId(focusName)
+    setSelectedId(n.id) // 概念节点 id=概念名；实例节点 id=i:实例名（详情面板按前缀分流）
     setCenter(n.position.x + NODE_W / 2, n.position.y + 40, { zoom: 1.1, duration: 600 })
   }, [focusName, initialNodes, setCenter])
 
@@ -368,8 +369,18 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
             minZoom={0.2}
             maxZoom={2}
             nodesConnectable={false}
-            onNodeClick={(_, n) => setSelectedId(n.id)}
-            onPaneClick={() => setSelectedId(null)}
+            onNodeClick={(_, n) => {
+              setSelectedId(n.id)
+              // REQ-363 E/REQ-253①：图→总线反向联动（概念节点 id=概念名；实例节点 id=i:实例名）
+              if (onSelectEntity) {
+                if (n.id.startsWith('i:')) onSelectEntity({ kind: 'instance', name: n.id.slice(2) })
+                else onSelectEntity({ kind: 'concept', name: n.id })
+              }
+            }}
+            onPaneClick={() => {
+              setSelectedId(null)
+              onSelectEntity?.(null)
+            }}
             className="onto-flow"
           >
             <Background variant={BackgroundVariant.Dots} gap={18} size={1.5} color="#c9cee0" />
@@ -464,8 +475,8 @@ function SpecGraphInner({ spec, focusName }: { spec: Spec | null; focusName?: st
   )
 }
 
-/** R3（VIZ-2）：Provider 包装（useReactFlow 需要上下文）；3D↔2D 联动经 focusName 传入 */
-export default function SpecGraph(props: { spec: Spec | null; focusName?: string | null }) {
+/** R3（VIZ-2）：Provider 包装（useReactFlow 需要上下文）；3D↔2D 联动经 focusName 传入；REQ-363 图→总线经 onSelectEntity */
+export default function SpecGraph(props: { spec: Spec | null; focusName?: string | null; onSelectEntity?: (sel: { kind: 'concept' | 'instance'; name: string } | null) => void }) {
   return (
     <ReactFlowProvider>
       <SpecGraphInner {...props} />

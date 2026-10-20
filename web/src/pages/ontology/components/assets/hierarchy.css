@@ -1,0 +1,119 @@
+/* REQ-363 层级浏览分区（Protégé 式树形导航）——随 HierarchyPane.tsx 引入 */
+
+.onto-hier-tree-wrap {
+  height: 100%;
+  overflow: hidden;
+  padding-right: 4px;
+}
+
+.onto-hier-tree .onto-hier-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.onto-hier-tree .onto-hier-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.onto-hier-tree .onto-hier-sub {
+  color: var(--c-ink-3, #999);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.onto-hier-tree .onto-hier-count {
+  color: var(--c-ink-3, #999);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.onto-hier-tree .onto-hier-badge {
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #f0f0ff;
+  color: #4a4ae0;
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.onto-hier-split {
+  border: 1px solid var(--c-border, #eee);
+  border-radius: 6px;
+}
+
+.onto-hier-desc {
+  padding: 4px 10px 12px;
+  overflow-y: auto;
+  height: 100%;
+  font-size: 12.5px;
+}
+
+.onto-hier-desc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.onto-hier-uri {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--c-ink-3, #888);
+  background: var(--c-bg-soft, #f6f7fb);
+  border-radius: 4px;
+  padding: 3px 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onto-hier-sec-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--c-ink-2, #555);
+  margin: 10px 0 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--c-border, #eee);
+}
+
+.onto-hier-def {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+}
+
+.onto-hier-def.muted {
+  color: var(--c-ink-3, #999);
+}
+
+.onto-hier-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  align-items: flex-start;
+}
+
+.onto-hier-label {
+  flex: none;
+  width: 64px;
+  color: var(--c-ink-3, #999);
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.onto-hier-usage-group {
+  margin-bottom: 2px;
+}
