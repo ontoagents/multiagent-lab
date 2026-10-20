@@ -13,15 +13,19 @@ import {
 } from '@ant-design/icons'
 import { Button, Tag } from 'antd'
 import { MODULES, REPO_URL, SEEDS, moduleText } from '../content'
+import { ChatWorkbenchMock, OntologyConsoleMock } from '../components/mockups'
 import { useCopy, useLocale } from '../i18n'
 import type { L10n } from '../locale'
 import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / platform-knowledge/
-// 01_整体设计/00_整体设计.md（摘编口径，深入阅读走模块页导读档，避免双源）。
-// 新人导览：Hero 后紧跟"30 秒了解"五步导览，覆盖 是什么→能做什么→长什么样→如何工作→上手。
+// 01_整体设计/00_整体设计.md（摘编口径，深入阅读走模块页，避免双源）。
+// 新人导览：Hero 后紧跟产品预览与"30 秒了解"五步导览，覆盖 长什么样→是什么→
+// 能做什么→如何工作→上手。
 // REQ-360：全页文案中英双份（zh 为事实源）。
+// REQ-364：新增产品预览区（mockups 界面示意图，不跑平台即可直观了解界面形态）；
+// "如何工作"导览随关键实现/实现原理合并改指 #/implementation。
 // ---------------------------------------------------------------------------
 
 const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
@@ -47,7 +51,7 @@ const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
     },
   },
   {
-    href: '#/principles',
+    href: '#/implementation',
     i18n: {
       zh: { title: '如何工作', desc: '五层执行模型 + 质量门禁机制，附论文与开源依据' },
       en: { title: 'How it works', desc: 'Five-layer execution model + quality gates, with papers and open-source evidence' },
@@ -102,12 +106,12 @@ const SCENES: { icon: ReactNode; href: string; i18n: L10n<{ title: string; desc:
       zh: {
         title: '智能体工程实验田',
         desc: '配置驱动装配、SSE 全事件流可观测、质量门禁与评估任务集——把 idea 推进为可复现的智能体方案。',
-        link: '看关键实现',
+        link: '看实现与原理',
       },
       en: {
         title: 'Agent engineering playground',
         desc: 'Config-driven assembly, fully observable SSE event streams, quality gates and eval task sets — push an idea into a reproducible agent design.',
-        link: 'See key implementations',
+        link: 'See implementation & principles',
       },
     },
   },
@@ -234,6 +238,8 @@ const COPY = {
     deploy: '部署运行 ↓',
     demo: '在线演示 →',
     ghRepo: 'GitHub 仓库',
+    previewTitle: '产品预览',
+    previewDesc: '两张界面示意图带你看清核心工作面：智能体对话工作台与本体工程控制台。以下为结构示意（按真实界面布局绘制），部署后即可得到同款界面。',
     tourTitle: '30 秒了解 AgentLab',
     scenesTitle: '使用场景',
     coresTitle: '双核心',
@@ -267,6 +273,8 @@ docker compose up -d
     deploy: 'Deploy & run ↓',
     demo: 'Online demo →',
     ghRepo: 'GitHub repo',
+    previewTitle: 'Product preview',
+    previewDesc: 'Two interface mockups show the core workspaces: the agent chat workbench and the ontology engineering console. These are structural mockups drawn from the real UI — deploy the platform and you get the same thing.',
     tourTitle: 'AgentLab in 30 seconds',
     scenesTitle: 'Use cases',
     coresTitle: 'Dual cores',
@@ -343,6 +351,16 @@ export default function HomePage() {
       </section>
 
       <div className="page-inner">
+        {/* 产品预览（REQ-364：界面示意图，直观了解界面形态） */}
+        <section className="sec">
+          <h2>{c.previewTitle}</h2>
+          <p className="preview-desc">{c.previewDesc}</p>
+          <div className="preview-grid">
+            <ChatWorkbenchMock />
+            <OntologyConsoleMock />
+          </div>
+        </section>
+
         {/* 30 秒了解（新人导览） */}
         <section className="sec">
           <h2>{c.tourTitle}</h2>

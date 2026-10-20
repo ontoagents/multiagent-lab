@@ -5,7 +5,6 @@ import HomePage from './pages/Home'
 import ModulePage from './pages/ModulePage'
 import ArchitecturePage from './pages/Architecture'
 import ImplementationPage from './pages/Implementation'
-import PrinciplesPage from './pages/Principles'
 import DeployPage from './pages/Deploy'
 import EcosystemPage from './pages/Ecosystem'
 import { MODULES, REPO_SLUG, REPO_URL } from './content'
@@ -17,11 +16,10 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 
 // ---------------------------------------------------------------------------
 // 官网壳（REQ-238）：hash 路由（GitHub Pages 子路径静态托管免 404 配置）
-//   #/                首页（项目概览 + 使用场景 + 全景导览）
-//   #/module/<key>    模块详细介绍（platform-knowledge 导读页渲染）
+//   #/                首页（产品预览 + 使用场景 + 全景导览）
+//   #/module/<key>    模块详细介绍（速览 + 图标功能卡，REQ-364 去文档化）
 //   #/architecture    整体架构（三平面 + 双代理 SVG 总图）
-//   #/implementation  关键实现（SSE 时序 / 质量门禁 / 伴生本体管线）
-//   #/principles      实现原理（五层视角 / 本体与知识机制 / 论文与开源依据）
+//   #/implementation  实现与原理（REQ-364 由关键实现+实现原理合并；旧 #/principles 重定向至此）
 //   #/ecosystem       开源生态（关联图谱 / 七类对比表 / 状态口径）
 //   #/deploy          部署运行（桌面客户端 / 服务端部署 web 访问 / 本地运行）
 //   #/demo            内置演示数据（种子本体可视化）
@@ -54,8 +52,7 @@ const NAVS: { hash: string; label: L10n<string>; match: (h: string) => boolean }
   { hash: '#/', label: { zh: '首页', en: 'Home' }, match: (h) => h === '#/' || h === '' },
   { hash: '#/module/agents', label: { zh: '功能模块', en: 'Modules' }, match: (h) => h.startsWith('#/module/') },
   { hash: '#/architecture', label: { zh: '整体架构', en: 'Architecture' }, match: (h) => h.startsWith('#/architecture') },
-  { hash: '#/implementation', label: { zh: '关键实现', en: 'Implementation' }, match: (h) => h.startsWith('#/implementation') },
-  { hash: '#/principles', label: { zh: '实现原理', en: 'Principles' }, match: (h) => h.startsWith('#/principles') },
+  { hash: '#/implementation', label: { zh: '实现与原理', en: 'How it works' }, match: (h) => h.startsWith('#/implementation') || h.startsWith('#/principles') },
   { hash: '#/ecosystem', label: { zh: '开源生态', en: 'Ecosystem' }, match: (h) => h.startsWith('#/ecosystem') },
   { hash: '#/deploy', label: { zh: '部署运行', en: 'Deploy' }, match: (h) => h.startsWith('#/deploy') },
   { hash: '#/demo', label: { zh: '在线演示', en: 'Demo' }, match: (h) => h.startsWith('#/demo') },
@@ -70,7 +67,7 @@ const COPY = {
     notFoundTitle: '页面不存在',
     backHome: '返回首页',
     footerRepo: '代码仓库',
-    footerLinks: { design: '整体设计', principles: '实现原理', ecosystem: '开源生态', deploy: '部署运行', demo: '在线演示' },
+    footerLinks: { design: '整体设计', impl: '实现与原理', ecosystem: '开源生态', deploy: '部署运行', demo: '在线演示' },
   },
   en: {
     brandSub: 'Agent Construction Platform',
@@ -80,7 +77,7 @@ const COPY = {
     notFoundTitle: 'Page not found',
     backHome: 'Back to home',
     footerRepo: 'Source',
-    footerLinks: { design: 'Overall Design', principles: 'Principles', ecosystem: 'Ecosystem', deploy: 'Deploy', demo: 'Demo' },
+    footerLinks: { design: 'Overall Design', impl: 'How it works', ecosystem: 'Ecosystem', deploy: 'Deploy', demo: 'Demo' },
   },
 }
 
@@ -91,8 +88,8 @@ function Body({ route }: { route: string }) {
     return mod ? <ModulePage info={mod} /> : <NotFound />
   }
   if (route.startsWith('#/architecture')) return <ArchitecturePage />
-  if (route.startsWith('#/implementation')) return <ImplementationPage />
-  if (route.startsWith('#/principles')) return <PrinciplesPage />
+  // REQ-364：关键实现 + 实现原理合并为一页；旧 #/principles 链接重定向
+  if (route.startsWith('#/implementation') || route.startsWith('#/principles')) return <ImplementationPage />
   if (route.startsWith('#/ecosystem')) return <EcosystemPage />
   if (route.startsWith('#/deploy')) return <DeployPage />
   if (route.startsWith('#/demo'))
@@ -180,7 +177,7 @@ export default function App() {
             {' · '}
             <a href="#/module/design">{c.footerLinks.design}</a>
             {' · '}
-            <a href="#/principles">{c.footerLinks.principles}</a>
+            <a href="#/implementation">{c.footerLinks.impl}</a>
             {' · '}
             <a href="#/ecosystem">{c.footerLinks.ecosystem}</a>
             {' · '}

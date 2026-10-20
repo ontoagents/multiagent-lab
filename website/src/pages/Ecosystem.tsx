@@ -365,7 +365,7 @@ function EcoGraph() {
 }
 
 const GUIDES: { hash: string; i18n: L10n<{ title: string; desc: string }> }[] = [
-  { hash: '#/principles', i18n: { zh: { title: '实现原理', desc: '机制设计、论文与代表性依据' }, en: { title: 'Principles', desc: 'Mechanism design, papers and representative evidence' } } },
+  { hash: '#/implementation', i18n: { zh: { title: '实现与原理', desc: '机制设计、论文与代表性依据' }, en: { title: 'How it works', desc: 'Mechanism design, papers and representative evidence' } } },
   { hash: '#/architecture', i18n: { zh: { title: '整体架构', desc: '三平面 + 双代理总图与技术栈' }, en: { title: 'Architecture', desc: 'Three planes + dual-proxy diagram and tech stack' } } },
   { hash: '#/deploy', i18n: { zh: { title: '部署运行', desc: '安装包 / 服务端 / 本地三种方式' }, en: { title: 'Deploy', desc: 'Installer / server / local — three ways to run' } } },
 ]
