@@ -752,8 +752,9 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 		tb.Warnings = append(tb.Warnings, "审批策略：all（全部工具需人工批准"+exemptNote(ag.ApprovalExempt)+"；生效来源："+approvalSource(sc.ToolApprovalOverride, ag.ToolApproval)+"）")
 	}
 	// 7) 空参数归一化包装（toolargs.go：GLM 等 Anthropic 兼容端点空入参 tool_use 致命解析失败的统一收口）
+	//    + 工具容错包装（toolerrors.go：执行失败错误回喂不炸 run，中断/取消透传）
 	for i, bt := range tb.Tools {
-		tb.Tools[i] = normalizeEmptyArgsTool(bt)
+		tb.Tools[i] = tolerantTool(normalizeEmptyArgsTool(bt))
 	}
 	// 8) REQ-213③ 装配期 gating：propose_assistant_config 为内置助手专属（apply 写内置行配置）——
 	// 非 builtin 行即使勾选/技能携带/MCP 同名也剔除并告警（治理收口，透明如实）。

@@ -94,7 +94,7 @@ func TestDelegateToolInterruptPassthrough(t *testing.T) {
 	if err == nil {
 		t.Fatal("中断错误必须上抛（挂起/checkpoint 恢复依赖）")
 	}
-	if !isMemberInterruptErr(err) {
+	if !isInterruptErr(err) {
 		t.Fatalf("StatefulInterrupt 产物应被判定为中断类: %v", err)
 	}
 	if findEvent(evts, "run.warning") != nil {

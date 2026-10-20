@@ -5,7 +5,7 @@ desc: harness 技术沉淀单一事实点——层职责与代码地图、已交
 req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-355, REQ-356, REQ-362]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-10-19
+synced: 2026-10-20
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -68,6 +68,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 对话建本体能力产品化（**能力开关**：Agent.OnchatMode 字段+侧板分区〔开关/默认模式/产出清单〕+装配自动并入四工具与手勾并集+**内置纪律段注入**〔instruction segment source=onchat 沿本体指引段先例，防误触发纪律内置〕——引导段手工粘贴退役；**页面渠道流程**：OntoChat 新建入口「在智能体对话中构建」显式选项〔channel-first 会话由智能体 start 保审计归因+预填不代发〕+中途携 session_id 转对话+渠道列表兜底〔已具能力置顶/平台助手/一键新建本体工程师预设〕；**平台助手默认挂载四件**〔92 号 §5.2 原则②默认关修订：显式引导面〕+**本体工程师预设智能体**〔演进位=内置本体专业能力触发驱动〕；产出清单=构建平面 List 增 agent_id 过滤；会话级工具注入不做〔方案 2/4 独立形态退役，与 REQ-336 收敛相逆〕） | REQ-360 | M161 | 📋 已立项待领取（03 §2.54，2026-10-18 开发者三轮拍板合并立项） | — |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
 | MCP 工具清单装配缓存（每轮消息装配重做 MCP 连接+Initialize+tools/list 的开销与失败面治理〔runner.go:261 每轮 Assemble→assembler.go:577 facade FetchTools+Agent 级连接器〕；FetchMCPTools 进程内缓存 serverName+URL+认证头指纹键·TTL 60s 起步·失败回退直连，降级/ontology__ 改名/审批面零变化；观察项=tool annotations/2025-06-18 structured output） | REQ-356 | M156 | 📋 已立项待领取 | — |
+| 工具失败容错回喂（执行失败不炸 run——错误转结构化 JSON tool result 回喂〔hint 含截断调参指引〕+run.warning 留痕；中断类〔审批/ask_human〕与 context.Canceled 原样透传保挂起/停止语义；流式工具保 StreamableTool 断言、调用期与流中途错误同口径；沿 REQ-319 A1 委派降级先例推广到全部工具；TodoCard 超长清单限高+折叠同轮） | 报障迭代 2026-10-20 | — | ✅ | chat 单测 6 组+UI headless 10/10 smoke/toolerr-iter/ |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 
 ## 二.5 体检结论归档（51 号，2026-10-01 清理轮吸收；原档已清理，本节为唯一留存）

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { BookOutlined, BulbOutlined, CheckSquareOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, PaperClipOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
+import { BookOutlined, BulbOutlined, CaretDownOutlined, CheckSquareOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, PaperClipOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -2571,19 +2571,30 @@ const TODO_STATUS_META: Record<string, { icon: string; color: string; label: str
 
 export function TodoCard({ todoJson }: { todoJson?: string | null }) {
   const todos = parseTodos(todoJson)
+  // 报障迭代（2026-10-20）：超长清单在固定高 .msg-list flex 列里 min-height:auto 不收缩，
+  // 卡片撑爆消息区且溢出部分压到发送区底下——列表限高滚动 + 头部点击折叠（全局记忆）双兜底
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eino.todo.cardCollapsed') === '1')
+  const toggle = () => {
+    setCollapsed((c) => {
+      localStorage.setItem('eino.todo.cardCollapsed', c ? '0' : '1')
+      return !c
+    })
+  }
   if (todos.length === 0) return null
   const done = todos.filter((t) => t.status === 'done').length
   const active = todos.filter((t) => t.status === 'in_progress').length
   return (
     <div className="todo-card" data-testid="todo-card">
-      <div className="todo-card-head">
+      <button type="button" className="todo-card-head" data-testid="todo-card-toggle" onClick={toggle} aria-expanded={!collapsed}>
         <CheckSquareOutlined style={{ color: 'var(--c-ink-2)' }} />
         <span>任务清单</span>
         <span className="todo-card-count">
           {done}/{todos.length} 完成{active > 0 ? ` · ${active} 进行中` : ''}
         </span>
-      </div>
-      <ul className="todo-card-list">
+        <CaretDownOutlined className={`todo-card-chevron${collapsed ? ' collapsed' : ''}`} aria-hidden="true" />
+      </button>
+      {!collapsed && (
+        <ul className="todo-card-list">
         {todos.map((t, i) => {
           const meta = TODO_STATUS_META[t.status] ?? TODO_STATUS_META.pending
           return (
@@ -2596,7 +2607,8 @@ export function TodoCard({ todoJson }: { todoJson?: string | null }) {
             </li>
           )
         })}
-      </ul>
+        </ul>
+      )}
     </div>
   )
 }

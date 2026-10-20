@@ -5,7 +5,7 @@ package chat
 //      作为 tool result 回喂协调者（可改道/重试/向用户说明）+ run.warning 事件留痕；
 //      **中断类错误（审批/ask_human 挂起，CompositeInterrupt 链路）必须原样上抛**——吞掉会破坏
 //      checkpoint 恢复语义（判定：adk.InterruptSignal 别名 errors.As + compose.ExtractInterruptInfo
-//      + IsInterruptRerunError 三重覆盖）；
+//      + IsInterruptRerunError 三重覆盖，isInterruptErr）；
 //   A2 per-member 超时——成员 agent 行 delegate_timeout_seconds>0 时对单次委派 context.WithTimeout，
 //      超时走同 A1 降级路径（此前成员可无限占用协调者迭代，78 号 G2）；
 //   A3 委派单事件——委派发起时发 subagent.delegate 结构化事件（成员+任务摘要），拓扑/审计一等数据
@@ -65,7 +65,7 @@ func (t delegateTool) InvokableRun(ctx context.Context, argsInJSON string, opts 
 		return text, nil
 	}
 	// REQ-319 A1：中断类（审批/ask_human 挂起）原样上抛——checkpoint 恢复依赖该错误形态穿透
-	if isMemberInterruptErr(err) {
+	if isInterruptErr(err) {
 		return "", err
 	}
 	detail := truncateRunes(err.Error(), 300)
@@ -82,8 +82,9 @@ func (t delegateTool) InvokableRun(ctx context.Context, argsInJSON string, opts 
 	return string(payload), nil
 }
 
-// isMemberInterruptErr 中断类错误判定（三重覆盖：InterruptSignal / 图级 interruptError / rerun 形态）。
-func isMemberInterruptErr(err error) bool {
+// isInterruptErr 中断类错误判定（三重覆盖：InterruptSignal / 图级 interruptError / rerun 形态）。
+// 委派包装与本包工具容错包装（toolerrors.go）共用。
+func isInterruptErr(err error) bool {
 	var sig *adk.InterruptSignal
 	if errors.As(err, &sig) {
 		return true
