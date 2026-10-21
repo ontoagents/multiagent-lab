@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"os"
 	"encoding/json"
 	"errors"
 	"log"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
+	comedata "github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion/evaldata"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kg"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontobuild"
@@ -46,6 +48,34 @@ type Server struct {
 func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *tool.Registry, kbSvc *kb.Service, onto *ontology.Service, dbPath, docsRoot, researchRoot, knowledgeRoot string) *Server {
 	comp := companion.NewService(st, box, nil)
 	chatSvc.Companion = comp // REQ-170 P2「KG 检索源并入」：伴生图检索源经接口反转注入 chat（companion→chat 包环约束）
+	// REQ-358/M158 B+C（EvoOntology 借鉴旁路面）：①伴生图按需语义检索工具（默认关——92 号
+	// §5.2，Agent 显式勾选生效）；②自动入图基准门控（事前评估旁挂，COMPANION_BENCHMARK_GATE=1
+	// 显式开启；默认 nil=现行为零变化——任意域无冻结验证集时门控无信号，诚实边界见 evaldata）
+	// ①工具注册（检索实现经闭包适配破 tool→companion 环，REQ-355 R2 先例）
+	semSearch := func(ctx context.Context, ontID, query string, topK int) ([]tool.CompanionSearchHit, error) {
+		hits, err := comp.SemanticSearch(ctx, ontID, query, topK)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]tool.CompanionSearchHit, 0, len(hits))
+		for _, h := range hits {
+			out = append(out, tool.CompanionSearchHit{Label: h.Label, Kind: h.Kind, Definition: h.Definition, Confidence: h.Confidence, Score: h.Score, Neighbors: h.Neighbors})
+		}
+		return out, nil
+	}
+	if err := tool.RegisterCompanionSearchTool(tools, tool.CompanionSearchDeps{Store: st, SemanticSearch: semSearch}); err != nil {
+		log.Printf("[companion] REQ-358 companion_search 注册失败（不影响启动）: %v", err)
+	}
+	// ②基准门控（COMPANION_BENCHMARK_GATE=1 显式开启；冻结问题向量缓存于门控闭包）
+	if os.Getenv("COMPANION_BENCHMARK_GATE") == "1" {
+		emb := &kb.Embedder{Store: st, Box: box}
+		comp.AutoIngestGate = comedata.RecallFloorGate(comedata.GateDeps{
+			LabelsOf: comp.LabelsFor,
+			Embed:    emb.EmbedTexts,
+			EmbedOne: emb.EmbedOne,
+		})
+		log.Printf("[companion] REQ-358 基准门控已开启（τ=%.2f，COMPANION_GATE_TAU 可调）", comedata.GateTau())
+	}
 	// REQ-216/M47：存量迁移幂等一次性——①旧 bool 绑定回填（创建空本体）→ ②旧 :9199 agent 图
 	// 跨实例复制到宿主方案引擎本体伴生子图 → ③conv 图收敛兜底（companion_meta 标记防重复；
 	// 构建平面/引擎不在位时日志告警、下次启动重试，不阻塞启动主链路）

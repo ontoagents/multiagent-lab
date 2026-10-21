@@ -446,6 +446,11 @@ func (s *Server) guide(w http.ResponseWriter, r *http.Request) {
 	// 概念发现职责移交 facade 工具 list_concepts 运行时按需拉取（本体消费=工具查询，非预载 TBox 进系统提示词）。
 	fmt.Fprintf(&b, "可用本体【%s】(ontology_id=%s, v%d)：%s\n", o.Name, o.ID, o.Version, o.Description)
 	fmt.Fprintf(&b, "规模：概念 %d 个、关系 %d 个、实例 %d 个。\n", len(sp.Concepts), len(sp.Relations), len(sp.Instances))
+	// REQ-357/M157：IRI 模板一行透出——attr: 数据属性断言约定此前仅 cq-sparql/NL2SPARQL 两处
+	// UI prompt 可见，对话动线 agent 侧零可发现来源（facade 工具结果 nameFromURI 全还原裸名，
+	// sparql_query 写数据属性查询只能靠猜）。与 NL2SPARQL prompt 同源文案；一行模板非概念
+	// 枚举，紧凑口径不破（TestGuideCompactNoEnumeration 语义不变）。
+	fmt.Fprintf(&b, "IRI 模板：概念=<urn:o:%s:concept:名称>，关系=<urn:o:%s:relation:名称>，实例=<urn:o:%s:instance:名称>，数据属性断言=<urn:o:%s:attr:名称>（sparql_query 按此构造 IRI；名称保持原文，URL 无需转义）。\n", o.ID, o.ID, o.ID, o.ID)
 	b.WriteString("查询工具使用：先用 list_concepts 获取概念名清单（指引不再预列概念），再 get_concept/get_instance 按名称精确查，list_instances 列出某概念全部实例，neighbors 查实例关系邻居，sparql_query 可执行自定义只读 SPARQL SELECT 查询（开放性问题如「哪些概念没有任何注释」，入参 query + 可选 limit，仅允许 SELECT 禁变更操作；graph=companion 时传 agent_id（或 conversation_id 自动解析所属智能体）可查询该智能体的伴生本体图——对话中沉淀的动态知识，全部会话与项目协作共享（跨会话记忆查询，REQ-211））。所有工具入参 ontology_id 固定为 " + o.ID + "。")
 	writeJSON(w, http.StatusOK, map[string]string{"ontology_id": o.ID, "guide": b.String()})
 }

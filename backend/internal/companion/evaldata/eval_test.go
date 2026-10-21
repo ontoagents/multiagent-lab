@@ -95,7 +95,7 @@ func TestRecallEval(t *testing.T) {
 			if f.Kind == "relation" {
 				q = companion.InsertRelationTriples(sess.ID, cid, f.RelName, f.Name, f.RelTarget, f.Definition, f.Confidence, "evalmsg", now)
 			} else {
-				q = companion.InsertNodeTriples(sess.ID, cid, f.Kind, f.Name, f.Definition, f.Confidence, "evalmsg", now)
+				q = companion.InsertNodeTriples(sess.ID, cid, f.Kind, f.Name, f.Definition, "", f.Confidence, "evalmsg", now) // timeScope 空串=无时间作用域（stub 事实面不模拟时效；签名随管线演进补参）
 			}
 			if err := sparqlUpdate(ctx, endpoint, q); err != nil {
 				t.Fatalf("事实入图失败（%s）: %v", f.Name, err)
@@ -206,13 +206,14 @@ func evalVector(ctx context.Context, emb *kb.Embedder, endpoint string, q Questi
 	return hits, neighbors, nil
 }
 
-// waitSPARQL 健康等待（评测引擎就绪）。
+// waitSPARQL 健康等待（评测引擎就绪）——SELECT 打 /query 端点（旧版探针误用 /update+SELECT，
+// 现 oxigraph 对 update 端点的 SELECT 回 400 导致健康等待恒超时——REQ-358 跑落轮修复）。
 func waitSPARQL(t *testing.T, endpoint string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err := sparqlUpdate(ctx, endpoint, "SELECT * WHERE {} LIMIT 1")
+		_, err := sparqlQuery(ctx, endpoint, "SELECT * WHERE {} LIMIT 1")
 		cancel()
 		if err == nil {
 			return

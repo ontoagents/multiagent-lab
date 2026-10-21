@@ -34,6 +34,9 @@ type CompanionCandidate struct {
 	Aligned string `json:"aligned,omitempty"`
 	// REQ-194/M34：审计注记（语义矛盾检测「疑似矛盾待人工」等）
 	Note string `json:"note,omitempty"`
+	// REQ-358/M158 随批小件（93 号 §7.2 Reject 归因留档）：拒绝归因——基准门控拒绝写
+	// benchmark_recall/gate:<detail>；人工拒绝空串=存量零变化
+	RejectReason string `json:"reject_reason,omitempty"`
 }
 
 // CompanionCursor 抽取游标（REQ-211/M44 复合键：会话 × agent——多 agent 共用项目会话
@@ -51,13 +54,13 @@ type CompanionGraphSource struct {
 	ConversationID string `json:"conversation_id"`
 }
 
-const companionCandidateCols = `id,conversation_id,agent_id,kind,name,rel_name,rel_target,definition,confidence,source_message_id,source_excerpt,status,created_at,decided_at,aligned,note,batch_rank,time_scope`
+const companionCandidateCols = `id,conversation_id,agent_id,kind,name,rel_name,rel_target,definition,confidence,source_message_id,source_excerpt,status,created_at,decided_at,aligned,note,batch_rank,time_scope,reject_reason`
 
 func scanCandidate(row interface{ Scan(...any) error }) (*CompanionCandidate, error) {
 	var c CompanionCandidate
-	var relName, relTarget, def, excerpt, decided, aligned, note, timeScope sql.NullString
+	var relName, relTarget, def, excerpt, decided, aligned, note, timeScope, rejectReason sql.NullString
 	var conf, batchRank sql.NullFloat64
-	err := row.Scan(&c.ID, &c.ConversationID, &c.AgentID, &c.Kind, &c.Name, &relName, &relTarget, &def, &conf, &c.SourceMessageID, &excerpt, &c.Status, &c.CreatedAt, &decided, &aligned, &note, &batchRank, &timeScope)
+	err := row.Scan(&c.ID, &c.ConversationID, &c.AgentID, &c.Kind, &c.Name, &relName, &relTarget, &def, &conf, &c.SourceMessageID, &excerpt, &c.Status, &c.CreatedAt, &decided, &aligned, &note, &batchRank, &timeScope, &rejectReason)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +75,7 @@ func scanCandidate(row interface{ Scan(...any) error }) (*CompanionCandidate, er
 	if decided.Valid {
 		c.DecidedAt = decided.String
 	}
+	c.RejectReason = rejectReason.String
 	return &c, nil
 }
 
@@ -92,7 +96,8 @@ func (s *Store) CreateCompanionCandidates(cands []*CompanionCandidate) error {
 		if c.Status == "" {
 			c.Status = "pending"
 		}
-		if _, err := tx.Exec(`INSERT INTO companion_candidate (`+companionCandidateCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		// REQ-358：reject_reason 不入插入列（新候选恒 pending 无归因；读列清单含之）
+		if _, err := tx.Exec(`INSERT INTO companion_candidate (id,conversation_id,agent_id,kind,name,rel_name,rel_target,definition,confidence,source_message_id,source_excerpt,status,created_at,decided_at,aligned,note,batch_rank,time_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			c.ID, c.ConversationID, c.AgentID, c.Kind, c.Name, c.RelName, c.RelTarget, c.Definition, c.Confidence, c.SourceMessageID, c.SourceExcerpt, c.Status, now(), nil, c.Aligned, c.Note, c.BatchRank, c.TimeScope); err != nil {
 			return err
 		}
@@ -231,6 +236,22 @@ func (s *Store) DecideCompanionCandidate(id, status string) (*CompanionCandidate
 		return nil, ErrConflict
 	}
 	res, err := s.DB.Exec(`UPDATE companion_candidate SET status=?, decided_at=? WHERE id=? AND status='pending'`, status, now(), id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetCompanionCandidate(id)
+}
+
+// RejectCompanionCandidateWithReason REQ-358/M158：带归因拒绝（基准门控拒绝等自动裁决路径；
+// 仅 pending 可裁决；reason 截断防滥用）。
+func (s *Store) RejectCompanionCandidateWithReason(id, reason string) (*CompanionCandidate, error) {
+	if len(reason) > 300 {
+		reason = reason[:300]
+	}
+	res, err := s.DB.Exec(`UPDATE companion_candidate SET status='rejected', decided_at=?, reject_reason=? WHERE id=? AND status='pending'`, now(), reason, id)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,16 @@ import (
 // MaxRoundsPerPass 轮次预算上限（一次进化 pass 内最多尝试轮数；防无限迭代）。
 const MaxRoundsPerPass = 3
 
+// 进化触发阈值纪律（REQ-358/M158 随批小件，EvoOntology 借鉴·93 号 §7.2——「何时值得开一轮」
+// 的运行纪律：任务数或天数任一达标方可开轮，避免高频空转演化；一期人工触发口径不变，
+// 本纪律作为人工触发的判断依据与后续自动化触发的预留参数）。
+const (
+	// EvolutionTriggerMinTasks 距上一轮 ≥30 个任务（对话任务累计）
+	EvolutionTriggerMinTasks = 30
+	// EvolutionTriggerMinDays 距上一轮 ≥7 天
+	EvolutionTriggerMinDays = 7
+)
+
 // ErrNotFound 未找到。
 var ErrNotFound = errors.New("not found")
 

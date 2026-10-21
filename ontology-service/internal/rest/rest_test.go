@@ -130,6 +130,9 @@ func TestGuideCompactNoEnumeration(t *testing.T) {
 		"规模：概念 2 个、关系 1 个、实例 3 个",
 		"list_concepts",
 		"ontology_id 固定为 ontest",
+		// REQ-357/M157：IRI 模板一行透出（attr: 数据属性断言对话动线可发现）
+		"IRI 模板：概念=<urn:o:ontest:concept:名称>",
+		"数据属性断言=<urn:o:ontest:attr:名称>",
 	} {
 		if !strings.Contains(out.Guide, want) {
 			t.Fatalf("guide 缺少 %q：\n%s", want, out.Guide)

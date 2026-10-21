@@ -190,6 +190,13 @@ type Service struct {
 	vecMu    sync.Mutex
 	vecCache map[string]*vecBucket
 
+	// AutoIngestGate REQ-358/M158 C（EvoOntology 借鉴·93 号 §五 P2④/§7.1「Gate −11.2 最大
+	// 承重件」）：自动入图基准门控——事前评估旁挂（阈值通过后追加征询；nil=现行为零变化，
+	// 主链路 diff=一个 nil 分支）。拒绝=候选不入图（reject_reason 落门控归因，93 号 §7.2），
+	// 非阻断报警。默认不装配（任意域无冻结验证集时门控无信号——激活前置条件见 evaldata
+	// RecallFloorGate）；旁路纪律=入图写路径（ConfirmCandidate 链）零改动。
+	AutoIngestGate GateFunc
+
 	// REQ-287②：实体定义投影缓存（label→definition，SelectEntityDefs；失效同 vecCache）
 	defCache map[string]map[string]string
 
@@ -545,6 +552,19 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 		if agent.CompanionAutoThreshold > 0 {
 			for _, c := range cands {
 				if c.Confidence >= agent.CompanionAutoThreshold && c.BatchRank >= 0.5 {
+					// REQ-358/M158 C：基准门控事前评估（旁挂——阈值通过后追加征询；nil=现行为）
+					if s.AutoIngestGate != nil {
+						if allow, reason := s.AutoIngestGate(wctx, GateCandidateInfo{ID: c.ID, Kind: c.Kind, Name: c.Name, Definition: c.Definition, Confidence: c.Confidence, OntologyID: ontID}); !allow {
+							emit("companion.decision", map[string]any{
+								"action": "auto_gate_rejected", "candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
+								"confidence": c.Confidence, "threshold": agent.CompanionAutoThreshold, "reason": reason,
+							})
+							if _, err := s.Store.RejectCompanionCandidateWithReason(c.ID, "gate:"+reason); err != nil {
+								log.Printf("[companion] 门控拒绝落库失败（候选 %s，留 pending 待人工）: %v", c.ID, err)
+							}
+							continue
+						}
+					}
 					// REQ-281：自动入图判定留痕（置信/阈值/批内分位三元组即判定依据）
 					emit("companion.decision", map[string]any{
 						"action": "auto_ingest", "candidate_id": c.ID, "kind": c.Kind, "name": companionCandTitle(c),
