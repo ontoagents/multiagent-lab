@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Result, Splitter } from 'antd'
 import { api } from '../api/client'
 import type { Agent, Conversation } from '../api/types'
@@ -22,6 +22,38 @@ export default function AgentsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   // REQ-103：右侧智能体侧边栏（配置视图）开合
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
+  // REQ-360/M161：跨模块预填启动消息（构建平面「在智能体对话中构建/转到对话继续」跳转载荷）——
+  // 挂载时一次性消费 eino.chat.preset：新建该智能体会话并预填（预填不代发，最后一脚留给用户）。
+  // 以会话 id 匹配下发，防后续手动新建会话吃到陈旧载荷。
+  const draftRef = useRef<{ convId: string; msg: string } | null>(null)
+
+  useEffect(() => {
+    const raw = localStorage.getItem('eino.chat.preset')
+    if (!raw) return
+    localStorage.removeItem('eino.chat.preset')
+    let agentId = ''
+    let msg = ''
+    try {
+      const p = JSON.parse(raw)
+      agentId = p?.agentId ?? ''
+      msg = p?.msg ?? ''
+    } catch {
+      return
+    }
+    if (!agentId || !msg) return
+    ;(async () => {
+      try {
+        const c = await api.createConversation({ scope: 'agent', agent_id: agentId, title: '新对话' })
+        bumpData()
+        setActiveAgentId(agentId)
+        setCurrentConv(c.id)
+        draftRef.current = { convId: c.id, msg }
+      } catch {
+        /* 建会话失败静默（跳转方已有 toast 语境） */
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const reload = () => {
     api.listAgents().then((as) => {
@@ -106,6 +138,7 @@ export default function AgentsPage() {
                 projects={[]}
                 onConversationUpdated={reload}
                 onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
+                initialDraft={draftRef.current?.convId === currentConv.id ? draftRef.current.msg : undefined}
               />
             ) : (
               <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -54,6 +54,10 @@ type Agent struct {
 	VerifyCommand string `json:"verify_command"`
 	// REQ-232/M59：agent 级 hooks 配置（fetchGuard 启停 + 自定义 deny 规则；零值=全默认）
 	Hooks AgentHooks `json:"hooks"`
+	// REQ-360/M161：对话建本体能力开关（''=关〔缺省，存量零变化〕| guided=访谈 | quick=快速）。
+	// 开启时装配层自动并入 ontochat_* 四工具（与 Tools 手勾取并集）+ 注入内置访谈纪律段
+	//（instruction segment source=onchat）——引导段从「用户手工粘贴」退役为系统内置（03 §2.54 A）。
+	OnchatMode string `json:"onchat_mode"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
 }

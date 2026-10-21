@@ -596,6 +596,7 @@ export default function ChatWindow({
   projects,
   onConversationUpdated,
   onToggleSidePanel,
+  initialDraft,
 }: {
   conversation: Conversation
   agents: Agent[]
@@ -603,6 +604,9 @@ export default function ChatWindow({
   onConversationUpdated: () => void
   /** REQ-336：侧板开合（⋮会话设置「智能体配置」入口复用；由页面持有状态与面板） */
   onToggleSidePanel?: () => void
+  /** REQ-360/M161：跨模块跳转预填启动消息（预填不代发——最后一脚留给用户按发送）。
+   *  经 useEffect 写入输入框（会话切换复用实例时也能到达），非挂载期一次性。 */
+  initialDraft?: string
 }) {
   const { bumpData, showToast } = useUI()
   const isProjectScope = conversation.scope === 'project'
@@ -631,6 +635,11 @@ export default function ChatWindow({
 
   const [items, setItems] = useState<ChatItem[]>([])
   const [input, setInput] = useState('')
+  // REQ-360/M161：跨模块预填启动消息（构建平面「在智能体对话中构建/转到对话继续」跳转；
+  // 预填不代发，用户可改后自行发送）
+  useEffect(() => {
+    if (initialDraft) setInput(initialDraft)
+  }, [initialDraft])
   const [running, setRunning] = useState(false)
   const [showRaw, setShowRaw] = useState(false) // 原始事件 JSON 调试开关（并入过程展示面板）
   // REQ-135②③：对话级过程展示配置——粒度 all|key|off + 深度思考显隐（localStorage 按会话记忆）

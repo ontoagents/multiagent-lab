@@ -11,12 +11,13 @@ import SessionTestCard from './components/ontochat/SessionTestCard'
 import DraftConfirmPanel from './components/ontochat/DraftConfirmPanel'
 import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Steps, Tag, Typography, Upload } from 'antd'
 import type { StepsProps } from 'antd'
-import { SafetyOutlined, ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { SafetyOutlined, ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined, RobotOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
+import AgentChannelModal from './components/ontochat/AgentChannelModal'
 
 const STAGE_TAG: Record<string, { color: string; text: string }> = {
   story: { color: 'geekblue', text: '① 用户故事访谈' },
@@ -55,6 +56,9 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   const [analyzeOpen, setAnalyzeOpen] = useState(false)
   const [analyzeMax, setAnalyzeMax] = useState<number | null>(null)
   const [storyTpl, setStoryTpl] = useState<{ label: string; text: string }[] | null>(null)
+  // REQ-360/M161 B：页面渠道弹窗（build=在智能体对话中构建 / handoff=转到智能体对话继续）
+  const [channelOpen, setChannelOpen] = useState(false)
+  const [channelMode, setChannelMode] = useState<'build' | 'handoff'>('build')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const jobRef = useRef<string | null>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
@@ -532,8 +536,17 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 items: [
                   { key: 'quick', label: '快速模式（直接描述领域）' },
                   { key: 'guided', label: '访谈模式（用户故事共创，REQ-275）' },
+                  { type: 'divider' as const },
+                  { key: 'agent', label: '在智能体对话中构建…（REQ-360 页面渠道）' },
                 ],
-                onClick: ({ key }) => newSession(key === 'guided' ? 'guided' : undefined),
+                onClick: ({ key }) => {
+                  if (key === 'agent') {
+                    setChannelMode('build')
+                    setChannelOpen(true)
+                    return
+                  }
+                  newSession(key === 'guided' ? 'guided' : undefined)
+                },
               }}
               trigger={['click']}
             >
@@ -601,6 +614,18 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 )}
                 <Button size="small" icon={<FileTextOutlined />} onClick={openPrompts}>
                   提示词
+                </Button>
+                {/* REQ-360/M161 B2：会话中途「转到智能体对话继续」——携 session_id 预填接手指令 */}
+                <Button
+                  size="small"
+                  icon={<RobotOutlined />}
+                  data-testid="ontochat-handoff-btn"
+                  onClick={() => {
+                    setChannelMode('handoff')
+                    setChannelOpen(true)
+                  }}
+                >
+                  转到智能体对话继续
                 </Button>
                 {active.ontology_id && (
                   <Tag color="green" style={{ margin: 0 }}>产物 {active.ontology_id}</Tag>
@@ -812,8 +837,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           )}
         </div>
       </div>
-      <Modal title="CQ 分析：去重与主题聚类" open={analyzeOpen} onCancel={() => setAnalyzeOpen(false)} footer={null}>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+      <Modal title="CQ 分析：去重与主题聚类" open={analyzeOpen} onCancel={() => setAnalyzeOpen(false)} footer={null}>        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           对当前会话已确认的 {active?.context?.cqs?.length ?? 0} 条能力问题做语义去重（等价合并保留最清晰表述）与主题聚类。
           诚实边界：聚类仅供参考分组、不能单独支撑完整分析——结果须人工确认后才应用写回。
         </Typography.Paragraph>
@@ -825,6 +849,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           </Button>
         </Space>
       </Modal>
+      {/* REQ-360/M161 B：页面渠道弹窗（在智能体对话中构建 / 转到智能体对话继续） */}
+      <AgentChannelModal
+        open={channelOpen}
+        mode={channelMode}
+        session={channelMode === 'handoff' ? { id: active?.id ?? '', title: active?.title, round: active?.round } : null}
+        initialTopic={channelMode === 'build' ? input : ''}
+        onClose={() => setChannelOpen(false)}
+      />
       <Drawer
         title="OntoChat 提示词（只读）"
         open={promptsOpen}

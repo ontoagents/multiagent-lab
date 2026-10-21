@@ -586,8 +586,14 @@ func ontoExportTTLFn(ctx context.Context, in ontoExportIn) (*ontoExportOut, erro
 
 // ---------------------------------------------------------------------------
 
-// registerOntoChatTools 注册 OntoChat 工具组（REQ-354）。仅注册——挂载由 Agent.Tools 显式勾选，
-// 不进任何内置助手默认工具集（92 号 §5.2 默认关原则）。
+// OnchatToolIDs REQ-360/M161：对话建本体能力开关（Agent.OnchatMode）开启时装配层自动并入的
+// 工具组清单——与 Agent.Tools 手勾取并集（assembler 装配期按此清单从注册表实例化，来源标注
+// onchat）。注册表仍仅注册不进任何默认工具集，挂载语义由能力开关承载（92 号 §5.2）。
+var OnchatToolIDs = []string{"ontochat_start", "ontochat_turn", "ontochat_save", "ontochat_export_ttl"}
+
+// registerOntoChatTools 注册 OntoChat 工具组（REQ-354）。仅注册——挂载由 Agent.Tools 显式勾选
+// 或 REQ-360 能力开关（onchat_mode）自动并入，不进任何内置助手默认工具集（92 号 §5.2 默认关原则；
+// REQ-360 决策注：平台助手 builtin 行迁移默认 onchat_mode=guided——显式引导面定位，例外见 03 §2.54）。
 func registerOntoChatTools(r *Registry) error {
 	entries := []*Entry{
 		{ID: "ontochat_start", Description: "开始一次对话式本体构建会话（OntoChat 引擎，对接本体构建平面）。topic=领域主题（必填）；mode 缺省 guided=分步访谈（story 起，推荐），quick=快速模式（cq 起）。返回 session_id 与开场首问——把首问转述给用户，一次只问一个问题。",

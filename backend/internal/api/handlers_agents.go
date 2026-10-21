@@ -43,6 +43,16 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agents)
 }
 
+// normalizeOnchatMode REQ-360/M161：对话建本体能力开关归一（''/guided/quick 之外 400——
+// 非法值静默归''会伪装成「保存成功但开关失效」；显式报错让人话可懂）。
+func normalizeOnchatMode(a *store.Agent) error {
+	switch a.OnchatMode {
+	case "", "guided", "quick":
+		return nil
+	}
+	return &store.HTTPError{Status: http.StatusBadRequest, Msg: "onchat_mode 仅支持空（关）/ guided（访谈）/ quick（快速）"}
+}
+
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	// REQ-131/M18：mcp_serve 开启时自动生成 Token 由 normalizeMcpServe 处理（见 updateAgent 同款逻辑）
 	var a store.Agent
@@ -52,6 +62,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(a.Name) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+	if err := normalizeOnchatMode(&a); err != nil {
+		writeErr(w, err)
 		return
 	}
 	if a.MaxIteration <= 0 {
@@ -140,6 +154,13 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		merged.Tools = builtinToolsUnion(a.Tools)
 		merged.Skills = a.Skills
 		merged.MCPServers = a.MCPServers
+		// REQ-360/M161：能力开关放行（内置行迁移已默认 guided——平台助手显式引导面定位，
+		// 03 §2.54 C1 决策注；此处允许经配置面关闭/切换，与普通智能体统一）
+		if err := normalizeOnchatMode(&a); err != nil {
+			writeErr(w, err)
+			return
+		}
+		merged.OnchatMode = a.OnchatMode
 		if a.MaxTokens != nil {
 			merged.MaxTokens = a.MaxTokens
 		}
@@ -155,6 +176,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.normalizeInferenceBackend(&a); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if err := normalizeOnchatMode(&a); err != nil { // REQ-360/M161：能力开关归一（PUT 全量替换语义）
 		writeErr(w, err)
 		return
 	}

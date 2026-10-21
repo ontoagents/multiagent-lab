@@ -24,9 +24,20 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
 )
 
-// listOntoChatSessions GET /api/ontochat/sessions → 会话列表（不含消息体）
-func (s *Server) listOntoChatSessions(w http.ResponseWriter, _ *http.Request) {
-	sessions, err := s.ontoChatStore().List()
+// listOntoChatSessions GET /api/ontochat/sessions[?agent_id=] → 会话列表（不含消息体）。
+// agent_id 过滤为 REQ-360/M161 D 产出清单数据源（REQ-354/P2·G4 归属审计两列的消费闭环）——
+// 侧板「对话建本体」分区列本智能体的构建会话；缺省=全量（页面流程列表行为零变化）。
+func (s *Server) listOntoChatSessions(w http.ResponseWriter, r *http.Request) {
+	agentID := strings.TrimSpace(r.URL.Query().Get("agent_id"))
+	var (
+		sessions []ontochat.Session
+		err      error
+	)
+	if agentID != "" {
+		sessions, err = s.ontoChatStore().ListByAgent(agentID)
+	} else {
+		sessions, err = s.ontoChatStore().List()
+	}
 	if err != nil {
 		writeErr(w, err)
 		return

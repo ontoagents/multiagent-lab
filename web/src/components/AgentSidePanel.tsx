@@ -23,7 +23,7 @@ import AIOptimizeButton from './AIOptimizeButton'
 import AgentCompanionManage from './AgentCompanionManage'
 import AssistantProposalBanner from './AssistantProposalBanner'
 import type { SandboxStatus } from '../api/client'
-import type { Agent, AgentConfigVersion, Connector, InferenceBackendStatus, McpServeInfo, ModelConnection, Ontology, Skill, ToolInfo } from '../api/types'
+import type { Agent, AgentConfigVersion, Connector, InferenceBackendStatus, McpServeInfo, ModelConnection, OntoChatSession, Ontology, Skill, ToolInfo } from '../api/types'
 import { companionApi } from '../api/companion'
 import { useUI } from '../store/ui'
 import { inferenceBackendOptions } from './inferenceOptions'
@@ -801,6 +801,8 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
     tools: v.tools ?? agent.tools ?? [],
     skills: v.skills ?? agent.skills ?? [],
     connectors: (v.connectors ?? agent.connectors ?? []) as string[], // REQ-214/M46：连接器授权白名单
+    // REQ-360/M161：对话建本体能力开关（''=关 | guided | quick）——full-replace 透传防清零
+    onchat_mode: v.onchat_mode ?? agent.onchat_mode ?? '',
     mcp_servers: agent.mcp_servers ?? [], // REQ-214：兼容残留透传（迁移后恒空）
     // REQ-131/M18：对外服务（token 原样保留——重置走专用端点）
     mcp_serve: {
@@ -829,6 +831,101 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
 // ---------------------------------------------------------------------------
 // 配置视图（REQ-132：四分类页签；字段/校验/提交逻辑不变）
 // ---------------------------------------------------------------------------
+
+/** REQ-360/M161：「对话建本体」开关+默认模式组合控件（Form.Item 受控——value=onchat_mode 字符串）。
+ *  开关语义在后端装配层：onchat_mode 非空 → 自动并入 ontochat_* 四工具+注入内置纪律段（03 §2.54 A），
+ *  前端只写字段不复制提示词——引导段从「用户手工粘贴」退役为系统内置。 */
+function OnchatModeControl({ value, onChange }: { value?: string; onChange?: (v: string) => void }) {
+  const on = !!value
+  return (
+    <Space size={8} wrap>
+      <Switch size="small" checked={on} onChange={(c) => onChange?.(c ? 'guided' : '')} data-testid="onchat-switch" aria-label="对话建本体开关" />
+      {on && (
+        <Segmented
+          size="small"
+          value={value}
+          onChange={(v) => onChange?.(v as string)}
+          options={[
+            { value: 'guided', label: '访谈模式' },
+            { value: 'quick', label: '快速模式' },
+          ]}
+        />
+      )}
+      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+        {on ? `已开启（默认${value === 'quick' ? '快速' : '访谈'}模式；运行时自动并入 ontochat_* 工具+注入内置访谈纪律段）` : '关闭——开启后自动并入工具与纪律段，无需手勾/粘贴'}
+      </Typography.Text>
+    </Space>
+  )
+}
+
+/** REQ-360/M161 D：产出清单——本智能体的 OntoChat 构建会话（进行中/已入库计数+「继续」深链）。
+ *  数据源=构建平面会话列表 agent_id 过滤（REQ-354/P2·G4 审计两列的消费闭环）；
+ *  生命周期口径：搁置为合法终态（半途会话在构建平面列表可删可续作，此处不暴露删除防误删）。 */
+function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInstance }) {
+  const { setPage } = useUI()
+  const mode = Form.useWatch('onchat_mode', form) ?? agent.onchat_mode ?? ''
+  const on = mode !== ''
+  const [sessions, setSessions] = useState<OntoChatSession[] | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    api.listOntoChatSessions(agent.id)
+      .then((l) => { if (alive) setSessions(Array.isArray(l) ? l : []) })
+      .catch(() => { if (alive) setSessions([]) })
+    return () => { alive = false }
+  }, [agent.id])
+
+  // 继续深链：写跨栏记忆 + onto-sidebar-change + 切本体模块（REQ-354/P2 同款四行动线）。
+  // 深链=显式路径选择，连带置 MIGRATED 标志——防 REQ-337 buildPath 一次性迁移把显式值吃回
+  // home（全新浏览器首次跳转必中；沿显式选择仍记忆的迁移语义补齐写入侧）。
+  const continueInBuild = (sid: string) => {
+    localStorage.setItem('eino.onto.buildPath', 'ontochat')
+    localStorage.setItem('eino.onto.buildPath.homeMigrated', '1')
+    localStorage.setItem('eino.ontochat.session.focus', sid)
+    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+    setPage('ontology')
+  }
+
+  const ongoing = (sessions ?? []).filter((s) => s.stage !== 'done').length
+  const saved = (sessions ?? []).filter((s) => s.stage === 'done' || !!s.ontology_id).length
+
+  return (
+    <>
+      <Divider titlePlacement="left" plain style={{ margin: '4px 0 12px' }}>对话建本体（OntoChat 能力开关，REQ-360）</Divider>
+      <div data-testid="onchat-section">
+        <Form.Item name="onchat_mode" style={{ marginBottom: 6 }}>
+          <OnchatModeControl />
+        </Form.Item>
+      </div>
+      {on && (
+        <div data-testid="onchat-sessions" style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+            产出清单：进行中 {ongoing} · 已入库 {saved}
+            {sessions && sessions.length === 0 ? '（暂无构建会话——对话中说「帮我构建一个本体」即可开始）' : ''}
+            {!sessions ? '（清单加载失败，稍后重试）' : ''}
+          </Typography.Text>
+          {(sessions ?? []).slice(0, 5).map((s) => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', minWidth: 0 }}>
+              <Tag {...(s.stage === 'done' ? { color: 'green' } : { color: 'processing' })} style={{ margin: 0, fontSize: 11 }}>
+                {s.stage === 'done' ? '已入库' : '进行中'}
+              </Tag>
+              <Typography.Text ellipsis style={{ flex: 1, fontSize: 12 }} title={s.title}>{s.title || s.id}</Typography.Text>
+              {s.source === 'agent_chat' && <Tag style={{ margin: 0, fontSize: 10 }}>对话渠道</Tag>}
+              <Button size="small" type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => continueInBuild(s.id)}>
+                继续
+              </Button>
+            </div>
+          ))}
+          {(sessions?.length ?? 0) > 5 && (
+            <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => continueInBuild('')}>
+              在构建平面查看全部 {sessions!.length} 条…
+            </Button>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
 
 function AgentConfigForm({
   agent,
@@ -1373,6 +1470,9 @@ function AgentConfigForm({
                   </Form.Item>
 
                   {/* REQ-219：work_dir/verify_command/tool_approval 迁 Harness 层页签 */}
+
+                  {/* REQ-360/M161：对话建本体能力开关分区（开关+默认模式+产出清单，03 §2.54 A/D） */}
+                  <OnchatCapabilitySection agent={agent} form={form} />
 
                   {/* REQ-218①/M49：外部连接器授权区块提级 activity bar「连接器」独立视图（connectors 页签） */}
                 </>

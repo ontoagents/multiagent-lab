@@ -99,6 +99,10 @@ function ontochatDeepLink(call: ToolCallRow): { label: string; go: () => void } 
   if (!out || out.error) return null
   const jump = (sidebar: string, pairs: Array<[string, string]>) => {
     localStorage.setItem('eino.onto.sidebar', sidebar)
+    // 深链=显式路径选择：置 MIGRATED 标志防 REQ-337 buildPath 一次性迁移吃掉显式值（REQ-360 顺修）
+    if (pairs.some(([k]) => k === 'eino.onto.buildPath')) {
+      localStorage.setItem('eino.onto.buildPath.homeMigrated', '1')
+    }
     for (const [k, v] of pairs) localStorage.setItem(k, v)
     window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
     useUI.getState().setPage('ontology')

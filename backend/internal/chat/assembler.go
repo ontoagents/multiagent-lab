@@ -465,6 +465,29 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 	}
 	tb.Warnings = append(tb.Warnings, composed.Warnings...)
 
+	// 1.5) 对话建本体能力开关（REQ-360/M161）：onchat_mode 非空 = 能力开启——装配层自动并入
+	// ontochat_* 四工具，与 Agent.Tools 手勾取并集（先到先得去重，存量手勾配置行为不变）；
+	// 来源标注 onchat（REQ-311 装配透镜可辨）。未开能力不装配=不静默改配置（03 §2.54 A）。
+	if ag.OnchatMode != "" && a.Tools != nil {
+		for _, id := range tool.OnchatToolIDs {
+			e, ok := a.Tools.Get(id)
+			if !ok {
+				tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 未注册，已跳过", id))
+				continue
+			}
+			if _, dup := tb.SourceOf[e.Name]; dup {
+				continue // 手勾或前序来源已装
+			}
+			bt, berr := e.New(ctx)
+			if berr != nil {
+				tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 实例化失败: %v", id, berr))
+				continue
+			}
+			tb.Tools = append(tb.Tools, bt)
+			tb.SourceOf[e.Name] = "onchat"
+		}
+	}
+
 	// 2) 技能白名单（M9 挂载生效）
 	if a.Composer != nil {
 		tb.LoadedSkills = a.Composer.LoadedSkills(ag)
@@ -801,11 +824,35 @@ func (a *Assembler) composeInstruction(ag *store.Agent) string {
 	return a.Composer.ComposeInstruction(ag)
 }
 
+// onchatDiscipline REQ-360/M161：对话建本体内置纪律段（92 号附录 A 六条 + 防误触发两条，
+// 03 §2.54 A——引导段从「用户手工粘贴」退役为系统内置）。能力开关 on 时随装配注入；
+// 段头「# 对话建本体纪律（OntoChat）」为固定文案，instructionSegments 按此切分标注 source=onchat。
+func onchatDiscipline(ag *store.Agent) string {
+	if ag == nil || ag.OnchatMode == "" {
+		return ""
+	}
+	mode := "guided=分步访谈（story 起，推荐）"
+	if ag.OnchatMode != "guided" {
+		mode = ag.OnchatMode + "=快速模式（cq 起）"
+	}
+	return "\n\n# 对话建本体纪律（OntoChat）\n" +
+		"你具备本体构建专项能力（ontochat_* 工具组，对接本体构建平面）。执行纪律：\n" +
+		"1. 防误触发：开始前必须确认对方确有构建意图与领域主题；对方仅在咨询本体概念或平台用法时，不得拉起构建会话。\n" +
+		"2. 接到「建本体/建知识结构」类请求：用 ontochat_start 建会话（mode 缺省 " + mode + "），按返回引导卡开场，一次只问一个问题。\n" +
+		"3. CQ 候选必须列号呈现（CQ-1、CQ-2…），逐条等用户确认/修改/删除，不得自行取舍后直接推进。\n" +
+		"4. 草稿生成后，向用户完整转述质量报告三维分与主要结构（概念/关系/实例数量与层级要点）。\n" +
+		"5. ontochat_save 前必须：展示入库内容清单 → 明确询问「确认入库吗」→ 得到肯定答复才可调用（confirm_note 必填）；入库失败时逐条转述门禁明细，不得隐瞒或淡化。\n" +
+		"6. 用户随时可跳出引导模板自由表达，你跟随用户节奏，但上述确认纪律不因自由对话豁免。\n" +
+		"7. 工具返回错误（如构建平面不可达）时如实转述错误信息与建议操作，不得编造结果；会话搁置为合法终态，不引导删除。"
+}
+
 // composeInstructionWithScope 技能注入 + 项目本地目录说明（REQ-101/102）。
 // 项目会话且绑定 local_dir 时，告知模型可通过 list_files/read_file/save_file 访问目录内文件，
 // 并给出绑定目录的绝对路径（与工具根解析同一归一化规则）。
 func (a *Assembler) composeInstructionWithScope(ag *store.Agent, sc assembleScope) string {
 	inst := a.composeInstruction(ag)
+	// REQ-360/M161：对话建本体能力开关 on 时注入内置纪律段（source=onchat，单 Agent/协调者/成员三路径共用）
+	inst += onchatDiscipline(ag)
 	if sc.ProjectID == "" || a.FilesRoot == "" || a.Store == nil {
 		return inst
 	}
@@ -1000,19 +1047,21 @@ func agentSnapshotEntry(role, name, modelLabel string, src map[string]string, sk
 }
 
 // instructionSegments REQ-311 A2：把最终系统提示词按装配来源切分为有序分段（提示词装配透镜）。
-// 四个注入段头为平台自有的固定文案（skill.Composer / composeInstructionWithScope / buildOne
-// guide 注入），按前缀匹配切分；未命中任何段头时退化为单一 base 段。文本=原文切片不加工，
-// chars=rune 数——前端装配卡逐段渲染「来源 · 字数 + 可展开全文」，治「四段拼接哪段来自哪全黑盒」。
+// 注入段头为平台自有的固定文案（skill.Composer / composeInstructionWithScope / buildOne
+// guide 注入 / REQ-360 onchatDiscipline），按前缀匹配切分；未命中任何段头时退化为单一 base 段。
+// 文本=原文切片不加工，chars=rune 数——前端装配卡逐段渲染「来源 · 字数 + 可展开全文」，
+// 治「四段拼接哪段来自哪全黑盒」。
 func instructionSegments(inst string) []map[string]any {
 	type mark struct {
 		source string
 		idx    int
 	}
-	marks := make([]mark, 0, 4)
+	marks := make([]mark, 0, 5)
 	for _, h := range []struct{ source, head string }{
 		{"skills", "\n# 启用技能（正文按需加载）"},
 		{"project_dir", "\n# 项目本地目录"},
 		{"ontology_guide", "\n# 本体运行方案指引"},
+		{"onchat", "\n# 对话建本体纪律（OntoChat）"},
 	} {
 		if i := strings.Index(inst, h.head); i >= 0 {
 			marks = append(marks, mark{h.source, i})

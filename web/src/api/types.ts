@@ -52,6 +52,9 @@ export interface Agent {
   verify_command?: string
   /** REQ-214/M46：连接器授权白名单（实例 id 数组；agent 级最小权限第一层） */
   connectors?: string[]
+  /** REQ-360/M161：对话建本体能力开关（''=关 | 'guided'=访谈 | 'quick'=快速）——
+   *  开启时装配自动并入 ontochat_* 四工具+注入内置纪律段；产出清单见侧板分区 */
+  onchat_mode?: string
   created_at: string
   updated_at: string
 }
@@ -728,6 +731,9 @@ export interface OntoChatSession {
   messages?: OntoChatMessage[]
   context?: OntoChatContext
   ontology_id?: string
+  /** REQ-354/P2·G4 归属审计两列（REQ-360 D 产出清单消费：agent_id 过滤+来源徽标） */
+  source?: 'page' | 'agent_chat'
+  agent_id?: string
   created_at: string
   updated_at: string
 }

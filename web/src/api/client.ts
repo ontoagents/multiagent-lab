@@ -727,7 +727,9 @@ export const api = {
     req<unknown>(`/api/ontologies/${id}/artifacts/layout_json/content`),
 
   // ---- OntoChat 多轮引导（REQ-103 模式 A；构建平面 /api/ontochat/*）----
-  listOntoChatSessions: () => req<OntoChatSession[]>('/api/ontochat/sessions'),
+  /** REQ-360/M161：agentId 传入时按归属智能体过滤（侧板产出清单数据源）；缺省全量 */
+  listOntoChatSessions: (agentId?: string) =>
+    req<OntoChatSession[]>(`/api/ontochat/sessions${agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ''}`),
   createOntoChatSession: (title?: string, mode?: 'quick' | 'guided') =>
     req<OntoChatSession>('/api/ontochat/sessions', { method: 'POST', body: JSON.stringify({ title, mode }) }),
   /** REQ-275：访气回退一步 */

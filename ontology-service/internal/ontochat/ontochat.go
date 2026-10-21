@@ -107,6 +107,30 @@ func (s *Store) Get(id string) (*Session, error) {
 	return &sess, nil
 }
 
+// ListByAgent 按归属智能体过滤的会话列表（REQ-360/M161 D 产出清单数据源；按更新时间倒序，
+// 不含消息体）。agentID 为空时行为同 List（防御性兜底，调用方应走 List）。
+func (s *Store) ListByAgent(agentID string) ([]Session, error) {
+	rows, err := s.db.Query(
+		`SELECT id, title, stage, round, ontology_id, source, agent_id, created_at, updated_at
+		 FROM ontochat_session WHERE agent_id = ? ORDER BY updated_at DESC, id DESC`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Session{}
+	for rows.Next() {
+		var sess Session
+		var ontoID sql.NullString
+		if err := rows.Scan(&sess.ID, &sess.Title, &sess.Stage, &sess.Round, &ontoID,
+			&sess.Source, &sess.AgentID, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+			return nil, err
+		}
+		sess.OntologyID = ontoID.String
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
 // List 会话列表（按更新时间倒序；不含消息体，列表页轻量）。
 func (s *Store) List() ([]Session, error) {
 	rows, err := s.db.Query(

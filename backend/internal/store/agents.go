@@ -18,7 +18,7 @@ func scanAgent(row interface{ Scan(...any) error }) (*Agent, error) {
 	var approvalExempt string
 	err := row.Scan(&a.ID, &a.Name, &a.Description, &a.Instruction, &modelConn, &temp, &maxTok,
 		&a.MaxIteration, &a.DelegateTimeoutSeconds, &tools, &skills, &mcp, &a.RuntimeBackend, &a.InferenceBackend, &a.LogoURL, &a.ToolApproval, &mcpServe, &a.SandboxMemory, &sandboxCPUs, &a.CompanionOntologyID,
-		&a.CompanionExtractHint, &a.CompanionExtractConnID, &a.CompanionAutoThreshold, &a.CompanionExtractCfg, &a.ContextMode, &a.WorkDir, &a.VerifyCommand, &approvalExempt, &a.ApprovalTimeoutHours, &isBuiltin, &a.CreatedAt, &a.UpdatedAt, &connectors, &hooksJSON)
+		&a.CompanionExtractHint, &a.CompanionExtractConnID, &a.CompanionAutoThreshold, &a.CompanionExtractCfg, &a.ContextMode, &a.WorkDir, &a.VerifyCommand, &approvalExempt, &a.ApprovalTimeoutHours, &isBuiltin, &a.CreatedAt, &a.UpdatedAt, &connectors, &hooksJSON, &a.OnchatMode)
 	a.IsBuiltin = isBuiltin == 1
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func scanAgent(row interface{ Scan(...any) error }) (*Agent, error) {
 	return &a, nil
 }
 
-const agentCols = `id,name,description,instruction,model_conn_id,temperature,max_tokens,max_iteration,delegate_timeout_seconds,tools,skills,mcp_servers,runtime_backend,inference_backend,logo_url,tool_approval,mcp_serve,sandbox_memory,sandbox_cpus,companion_ontology_id,companion_extract_hint,companion_extract_conn_id,companion_auto_threshold,companion_extract_cfg,context_mode,work_dir,verify_command,approval_exempt,approval_timeout_hours,is_builtin,created_at,updated_at,connectors,hooks_json`
+const agentCols = `id,name,description,instruction,model_conn_id,temperature,max_tokens,max_iteration,delegate_timeout_seconds,tools,skills,mcp_servers,runtime_backend,inference_backend,logo_url,tool_approval,mcp_serve,sandbox_memory,sandbox_cpus,companion_ontology_id,companion_extract_hint,companion_extract_conn_id,companion_auto_threshold,companion_extract_cfg,context_mode,work_dir,verify_command,approval_exempt,approval_timeout_hours,is_builtin,created_at,updated_at,connectors,hooks_json,onchat_mode`
 
 // ListAgents 返回全部 Agent（按创建时间升序）。
 func (s *Store) ListAgents() ([]*Agent, error) {
@@ -106,12 +106,12 @@ func (s *Store) CreateAgent(a *Agent) (*Agent, error) {
 	mcpServeJSON, _ := json.Marshal(a.McpServe)
 	connectorsJSON, _ := json.Marshal(a.Connectors)
 	// 显式列清单（不含 is_builtin——用户创建恒非内置；内置行仅由迁移 seed）
-	const createCols = `id,name,description,instruction,model_conn_id,temperature,max_tokens,max_iteration,delegate_timeout_seconds,tools,skills,mcp_servers,runtime_backend,inference_backend,logo_url,tool_approval,mcp_serve,sandbox_memory,sandbox_cpus,companion_ontology_id,companion_extract_hint,companion_extract_conn_id,companion_auto_threshold,companion_extract_cfg,context_mode,work_dir,verify_command,approval_exempt,approval_timeout_hours,connectors,hooks_json,created_at,updated_at`
+	const createCols = `id,name,description,instruction,model_conn_id,temperature,max_tokens,max_iteration,delegate_timeout_seconds,tools,skills,mcp_servers,runtime_backend,inference_backend,logo_url,tool_approval,mcp_serve,sandbox_memory,sandbox_cpus,companion_ontology_id,companion_extract_hint,companion_extract_conn_id,companion_auto_threshold,companion_extract_cfg,context_mode,work_dir,verify_command,approval_exempt,approval_timeout_hours,connectors,hooks_json,onchat_mode,created_at,updated_at`
 	approvalExemptJSON, _ := json.Marshal(a.ApprovalExempt)
 	hooksJSON, _ := json.Marshal(a.Hooks)
-	_, err := s.DB.Exec(`INSERT INTO agent (`+createCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.DB.Exec(`INSERT INTO agent (`+createCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.Name, a.Description, a.Instruction, a.ModelConnID, a.Temperature, a.MaxTokens,
-		a.MaxIteration, a.DelegateTimeoutSeconds, string(tools), string(skills), string(mcp), a.RuntimeBackend, a.InferenceBackend, a.LogoURL, a.ToolApproval, string(mcpServeJSON), a.SandboxMemory, a.SandboxCPUs, a.CompanionOntologyID, a.CompanionExtractHint, a.CompanionExtractConnID, a.CompanionAutoThreshold, a.CompanionExtractCfg, a.ContextMode, a.WorkDir, a.VerifyCommand, string(approvalExemptJSON), a.ApprovalTimeoutHours, string(connectorsJSON), string(hooksJSON), now(), now())
+		a.MaxIteration, a.DelegateTimeoutSeconds, string(tools), string(skills), string(mcp), a.RuntimeBackend, a.InferenceBackend, a.LogoURL, a.ToolApproval, string(mcpServeJSON), a.SandboxMemory, a.SandboxCPUs, a.CompanionOntologyID, a.CompanionExtractHint, a.CompanionExtractConnID, a.CompanionAutoThreshold, a.CompanionExtractCfg, a.ContextMode, a.WorkDir, a.VerifyCommand, string(approvalExemptJSON), a.ApprovalTimeoutHours, string(connectorsJSON), string(hooksJSON), a.OnchatMode, now(), now())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict
@@ -130,9 +130,9 @@ func (s *Store) UpdateAgent(a *Agent) (*Agent, error) {
 	connectorsJSON, _ := json.Marshal(a.Connectors)
 	approvalExemptJSON2, _ := json.Marshal(a.ApprovalExempt)
 	hooksJSON2, _ := json.Marshal(a.Hooks)
-	res, err := s.DB.Exec(`UPDATE agent SET name=?,description=?,instruction=?,model_conn_id=?,temperature=?,max_tokens=?,max_iteration=?,delegate_timeout_seconds=?,tools=?,skills=?,mcp_servers=?,runtime_backend=?,inference_backend=?,logo_url=?,tool_approval=?,mcp_serve=?,sandbox_memory=?,sandbox_cpus=?,companion_ontology_id=?,companion_extract_hint=?,companion_extract_conn_id=?,companion_auto_threshold=?,companion_extract_cfg=?,context_mode=?,work_dir=?,verify_command=?,approval_exempt=?,approval_timeout_hours=?,connectors=?,hooks_json=?,updated_at=? WHERE id=?`,
+	res, err := s.DB.Exec(`UPDATE agent SET name=?,description=?,instruction=?,model_conn_id=?,temperature=?,max_tokens=?,max_iteration=?,delegate_timeout_seconds=?,tools=?,skills=?,mcp_servers=?,runtime_backend=?,inference_backend=?,logo_url=?,tool_approval=?,mcp_serve=?,sandbox_memory=?,sandbox_cpus=?,companion_ontology_id=?,companion_extract_hint=?,companion_extract_conn_id=?,companion_auto_threshold=?,companion_extract_cfg=?,context_mode=?,work_dir=?,verify_command=?,approval_exempt=?,approval_timeout_hours=?,connectors=?,hooks_json=?,onchat_mode=?,updated_at=? WHERE id=?`,
 		a.Name, a.Description, a.Instruction, a.ModelConnID, a.Temperature, a.MaxTokens,
-		a.MaxIteration, a.DelegateTimeoutSeconds, string(tools), string(skills), string(mcp), a.RuntimeBackend, a.InferenceBackend, a.LogoURL, a.ToolApproval, string(mcpServeJSON), a.SandboxMemory, a.SandboxCPUs, a.CompanionOntologyID, a.CompanionExtractHint, a.CompanionExtractConnID, a.CompanionAutoThreshold, a.CompanionExtractCfg, a.ContextMode, a.WorkDir, a.VerifyCommand, string(approvalExemptJSON2), a.ApprovalTimeoutHours, string(connectorsJSON), string(hooksJSON2), now(), a.ID)
+		a.MaxIteration, a.DelegateTimeoutSeconds, string(tools), string(skills), string(mcp), a.RuntimeBackend, a.InferenceBackend, a.LogoURL, a.ToolApproval, string(mcpServeJSON), a.SandboxMemory, a.SandboxCPUs, a.CompanionOntologyID, a.CompanionExtractHint, a.CompanionExtractConnID, a.CompanionAutoThreshold, a.CompanionExtractCfg, a.ContextMode, a.WorkDir, a.VerifyCommand, string(approvalExemptJSON2), a.ApprovalTimeoutHours, string(connectorsJSON), string(hooksJSON2), a.OnchatMode, now(), a.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict
