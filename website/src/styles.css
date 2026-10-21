@@ -162,6 +162,19 @@ main { flex: 1; }
 /* SpecGraph/Graph3D 自带 clamp 高度（web/src pages.css 同款），此处仅统一画布底色 */
 .demo-viz .onto-flow-split { background: #fff; }
 
+/* REQ-365：spec 数据只读视图 */
+.demo-spec-hint { margin: 0 0 10px; font-size: 13px; }
+.demo-spec-json {
+  margin: 0; max-height: 520px; overflow: auto;
+  font-size: 12px; line-height: 1.55; tab-size: 2;
+  background: #f7f8fc; border: 1px solid #e3e6f0; border-radius: 8px;
+  padding: 12px 14px;
+}
+
+/* REQ-365：部署后完整界面预览（复用首页 preview-grid） */
+.demo-more { margin-top: 30px; }
+.demo-more-desc { max-width: 900px; color: #575e75; font-size: 13px; margin: 0 0 16px; }
+
 /* ===== 页脚 ===== */
 .footer { border-top: 1px solid var(--c-line); background: #fff; margin-top: 40px; }
 .footer-inner {
