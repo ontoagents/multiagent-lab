@@ -55,6 +55,9 @@ export interface Agent {
   /** REQ-360/M161：对话建本体能力开关（''=关 | 'guided'=访谈 | 'quick'=快速）——
    *  开启时装配自动并入 ontochat_* 四工具+注入内置纪律段；产出清单见侧板分区 */
   onchat_mode?: string
+  /** REQ-366/M164：本体操作工具能力开关（false=关 | true=开启）——开启时挂载本体的会话
+   *  装配自动并入 facade 13 件扩展工具（spec CRUD/校验/CQ 基准）；写类入 danger 档审批 */
+  onto_ops?: boolean
   created_at: string
   updated_at: string
 }

@@ -803,6 +803,8 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
     connectors: (v.connectors ?? agent.connectors ?? []) as string[], // REQ-214/M46：连接器授权白名单
     // REQ-360/M161：对话建本体能力开关（''=关 | guided | quick）——full-replace 透传防清零
     onchat_mode: v.onchat_mode ?? agent.onchat_mode ?? '',
+    // REQ-366/M164：本体操作工具能力开关——full-replace 透传防清零
+    onto_ops: v.onto_ops !== undefined ? !!v.onto_ops : !!agent.onto_ops,
     mcp_servers: agent.mcp_servers ?? [], // REQ-214：兼容残留透传（迁移后恒空）
     // REQ-131/M18：对外服务（token 原样保留——重置走专用端点）
     mcp_serve: {
@@ -858,11 +860,25 @@ function OnchatModeControl({ value, onChange }: { value?: string; onChange?: (v:
   )
 }
 
+/** REQ-366/M164：本体操作工具能力开关（OntoOps）——开启时挂载本体的会话装配自动并入
+ *  facade 13 件扩展工具（spec CRUD/校验/CQ 基准）；写类 upsert/delete 触发 danger 档审批。
+ *  开关语义在后端装配层（agent.onto_ops），前端只写字段；默认关=存量智能体装配零变化。 */
+function OntoOpsControl({ value, onChange }: { value?: boolean; onChange?: (v: boolean) => void }) {
+  const on = !!value
+  return (
+    <Space size={8} wrap>
+      <Switch size="small" checked={on} onChange={(c) => onChange?.(c)} data-testid="ontoops-switch" aria-label="本体操作工具开关" />
+      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+        {on ? '已开启——挂载本体的会话自动并入 spec CRUD/校验/CQ 基准 13 件工具（写类触发审批）' : '关闭——开启后挂载本体的会话可由智能体直接增删改本体资产（写类触发审批）'}
+      </Typography.Text>
+    </Space>
+  )
+}
+
 /** REQ-360/M161 D：产出清单——本智能体的 OntoChat 构建会话（进行中/已入库计数+「继续」深链）。
  *  数据源=构建平面会话列表 agent_id 过滤（REQ-354/P2·G4 审计两列的消费闭环）；
  *  生命周期口径：搁置为合法终态（半途会话在构建平面列表可删可续作，此处不暴露删除防误删）。 */
-function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInstance }) {
-  const { setPage } = useUI()
+function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInstance }) {  const { setPage } = useUI()
   const mode = Form.useWatch('onchat_mode', form) ?? agent.onchat_mode ?? ''
   const on = mode !== ''
   const [sessions, setSessions] = useState<OntoChatSession[] | null>(null)
@@ -1473,6 +1489,14 @@ function AgentConfigForm({
 
                   {/* REQ-360/M161：对话建本体能力开关分区（开关+默认模式+产出清单，03 §2.54 A/D） */}
                   <OnchatCapabilitySection agent={agent} form={form} />
+
+                  {/* REQ-366/M164：本体操作工具能力开关分区（默认关；写类触发审批） */}
+                  <Divider titlePlacement="left" plain style={{ margin: '4px 0 12px' }}>本体操作工具（OntoOps 能力开关，REQ-366）</Divider>
+                  <div data-testid="ontoops-section">
+                    <Form.Item name="onto_ops" style={{ marginBottom: 6 }}>
+                      <OntoOpsControl />
+                    </Form.Item>
+                  </div>
 
                   {/* REQ-218①/M49：外部连接器授权区块提级 activity bar「连接器」独立视图（connectors 页签） */}
                 </>

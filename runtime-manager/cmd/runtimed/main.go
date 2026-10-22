@@ -1,5 +1,7 @@
 // runtimed 运行平面服务（方案 04 §4，:8090）：
-// 运行方案编排 + Oxigraph 引擎适配 + 统一 MCP facade（/mcp，6 个 onto_* 工具：get_concept/get_instance/list_instances/neighbors/list_concepts/sparql_query——Q-14 契约 4→5→6）。
+// 运行方案编排 + Oxigraph 引擎适配 + 统一 MCP facade（/mcp，REQ-366 起工具面 6→19：
+// 既有 6 查询工具 get_concept/get_instance/list_instances/neighbors/list_concepts/sparql_query
+// + 13 件本体操作工具 spec CRUD/校验/CQ 基准——启用门控在平台 backend 装配层 agent.onto_ops）。
 package main
 
 import (

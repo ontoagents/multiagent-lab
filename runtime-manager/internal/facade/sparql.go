@@ -37,6 +37,47 @@ func platformAPIBase() string {
 	return "http://127.0.0.1:8080"
 }
 
+// execAsk 执行 ASK 查询（REQ-366/T1：布尔判定入只读查询面），随 exec 同口径记翻译透视
+// （ResultCount 记 0/1）。
+func (f *Facade) execAsk(ctx context.Context, tool, ontologyID, profileID, endpoint, sparql string) (bool, error) {
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(sparql))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/sparql-query")
+	req.Header.Set("Accept", "application/sparql-results+json")
+	resp, err := f.HTTP.Do(req)
+	var ask bool
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			err = fmt.Errorf("SPARQL 执行失败: %s", resp.Status)
+		} else {
+			var res struct {
+				Boolean bool `json:"boolean"`
+			}
+			if jerr := json.NewDecoder(resp.Body).Decode(&res); jerr != nil {
+				err = jerr
+			}
+			ask = res.Boolean
+		}
+	}
+	if f.TraceSparql {
+		n := 0
+		if ask {
+			n = 1
+		}
+		tr := &store.Trace{Tool: tool, ProfileID: profileID, OntologyID: ontologyID,
+			Sparql: sparql, TookMS: time.Since(start).Milliseconds(), ResultCount: n, Ok: err == nil}
+		if err != nil {
+			tr.Error = err.Error()
+		}
+		_ = f.Store.SaveTrace(tr)
+	}
+	return ask, err
+}
+
 // companionOntologyOf 会话/智能体 → 绑定伴生本体 id（REQ-216：伴生图=本体伴生子图，
 // 归属解析收敛到平台单点 /api/companion/graph-owner；结果进程内缓存——agent 绑定关系
 // 变更低频，缓存内 stale 影响仅限进程生命周期）。
@@ -76,12 +117,29 @@ var sparqlUpdateKeywords = map[string]bool{
 	"INSERT": true, "DELETE": true, "UPDATE": true,
 }
 
+// firstQueryKind 前导 PREFIX/BASE 声明后的首关键词（SELECT/ASK 判别用；无=空串）。
+func firstQueryKind(query string) string {
+	tokens := sparqlTokens(query)
+	i := 0
+	for i < len(tokens) {
+		t := strings.ToUpper(tokens[i])
+		if t == "PREFIX" {
+			i += 2 // 前缀名 + 被词法跳过的 <IRI>
+		} else if t == "BASE" {
+			i++ // 被词法跳过的 <IRI>
+		} else {
+			return strings.ToUpper(tokens[i])
+		}
+	}
+	return ""
+}
+
 func (f *Facade) addSparqlQueryTool(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("sparql_query",
-		mcp.WithDescription("对本体或伴生图执行自定义只读 SPARQL SELECT 查询（开放问题查询面，如「哪些概念没有注释」）：返回表格列与行。仅允许 SELECT，禁任何变更操作；默认返回 50 行，可用 limit 调整（上限 200）。graph=companion 时查询指定智能体绑定本体的伴生子图（对话动态沉淀的知识，REQ-216 资产化后归属本体资产）。"),
+		mcp.WithDescription("对本体或伴生图执行自定义只读 SPARQL 查询（开放问题查询面，如「哪些概念没有注释」）：SELECT 返回表格列与行，ASK 返回布尔判定。仅允许 SELECT/ASK，禁任何变更操作；SELECT 默认返回 50 行，可用 limit 调整（上限 200）。graph=companion 时查询指定智能体绑定本体的伴生子图（对话动态沉淀的知识，REQ-216 资产化后归属本体资产）。"),
 		requiredString("ontology_id", "本体仓库 id（graph=companion 时可留空）"),
-		mcp.WithString("query", mcp.Required(), mcp.Description("SPARQL SELECT 查询全文（可带 PREFIX 声明）")),
-		mcp.WithNumber("limit", mcp.Description("返回行数上限（可选，默认 50，最大 200）")),
+		mcp.WithString("query", mcp.Required(), mcp.Description("SPARQL SELECT 或 ASK 查询全文（可带 PREFIX 声明）")),
+		mcp.WithNumber("limit", mcp.Description("返回行数上限（可选，默认 50，最大 200；仅 SELECT 生效）")),
 		mcp.WithString("graph", mcp.Description("查询目标（可选）：default=本体运行方案默认图（缺省）；companion=伴生本体子图（对话生长的动态知识，挂本体伴生子图）")),
 		mcp.WithString("agent_id", mcp.Description("智能体 id（graph=companion 时与 conversation_id 二选一：解析其绑定本体的伴生子图）")),
 		mcp.WithString("conversation_id", mcp.Description("会话 id（graph=companion 时可选：解析所属智能体绑定的伴生子图；项目会话无唯一归属须改传 agent_id）")),
@@ -120,6 +178,14 @@ func (f *Facade) handleSparqlQuery() server.ToolHandlerFunc {
 		limit := clampLimit(args["limit"])
 		ctx, cancel := context.WithTimeout(ctx, sparqlQueryTimeout)
 		defer cancel()
+		// REQ-366/T1：ASK 布尔判定走引擎通道同封装（行数上限不适用；透视照记）
+		if firstQueryKind(q) == "ASK" {
+			ask, err := f.execAsk(ctx, "sparql_query", oid, p.ID, ep, q)
+			if err != nil {
+				return mcp.NewToolResultErrorf("查询失败: %v", err), nil
+			}
+			return jsonResult(map[string]any{"ask": ask, "query": q}), nil
+		}
 		bindings, err := f.exec(ctx, "sparql_query", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("查询失败: %v", err), nil
@@ -160,6 +226,14 @@ func (f *Facade) sparqlCompanion(ctx context.Context, oid, convID, agentID, q st
 	graphURI := fmt.Sprintf("http://eino-lab/graph/ont-%s", ontID)
 	endpoint := ep + "?default-graph-uri=" + url.QueryEscape(graphURI)
 	start := time.Now()
+	// REQ-366/T1：伴生图 ASK 与 default 图同口径（布尔判定；透视 ProfileID 记 companion:ont）
+	if firstQueryKind(q) == "ASK" {
+		ask, aerr := f.execAsk(ctx, "sparql_query", ontID, "companion:"+ontID, endpoint, q)
+		if aerr != nil {
+			return mcp.NewToolResultErrorf("COMPANION_GRAPH_QUERY_FAILED: 伴生子图查询失败（%v）", aerr)
+		}
+		return jsonResult(map[string]any{"ask": ask, "query": q, "graph": graphURI})
+	}
 	bindings, err := f.query(ctx, endpoint, q)
 	if f.TraceSparql {
 		tr := &store.Trace{Tool: "sparql_query", ProfileID: "companion:" + ontID, OntologyID: ontID,
@@ -208,27 +282,28 @@ func (f *Facade) companionOntology(agentID, convID string) (string, *mcp.CallToo
 // 服务端兜底与 facade tools/call 同一权威口径；此前校验仅在前端拦截+facade MCP 面）。
 func ValidateReadonlySelect(query string) error { return vetReadonlySelect(query) }
 
-// vetReadonlySelect 词法级只读校验：PREFIX/BASE 前导声明后首关键词必须是 SELECT，
-// 全文裸词不得命中变更关键字（字符串字面量、IRI、注释中的同形词不误伤）。
+// vetReadonlySelect 词法级只读校验：PREFIX/BASE 前导声明后首关键词必须是 SELECT 或 ASK
+// （REQ-366/T1：ASK 布尔判定入只读查询面），全文裸词不得命中变更关键字
+// （字符串字面量、IRI、注释中的同形词不误伤）。
 func vetReadonlySelect(query string) error {
 	tokens := sparqlTokens(query)
 	if len(tokens) == 0 {
 		return fmt.Errorf("空查询")
 	}
-	i := 0
-	for i < len(tokens) {
-		t := strings.ToUpper(tokens[i])
-		if t == "PREFIX" {
-			i += 2 // 前缀名 + 被词法跳过的 <IRI>
-		} else if t == "BASE" {
-			i++ // 被词法跳过的 <IRI>
-		} else {
-			break
+	head := firstQueryKind(query)
+	if head != "SELECT" && head != "ASK" {
+		i := 0
+		for i < len(tokens) {
+			t := strings.ToUpper(tokens[i])
+			if t == "PREFIX" {
+				i += 2
+			} else if t == "BASE" {
+				i++
+			} else {
+				break
+			}
 		}
-	}
-	if i >= len(tokens) || !strings.EqualFold(tokens[i], "select") {
-		head := tokens[min(i, len(tokens)-1)]
-		return fmt.Errorf("仅允许 SELECT 查询，得到首关键词 %q（REQ-151 只读白名单）", head)
+		return fmt.Errorf("仅允许 SELECT/ASK 查询，得到首关键词 %q（REQ-151 只读白名单）", tokens[min(i, len(tokens)-1)])
 	}
 	for _, t := range tokens {
 		if sparqlUpdateKeywords[strings.ToUpper(t)] {

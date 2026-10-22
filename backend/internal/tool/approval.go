@@ -55,15 +55,19 @@ var DangerousBuiltinTools = map[string]bool{
 
 // IsDangerousTool REQ-231①：danger 档判定——内置写类 + 连接器/mcp 非 read-only 前缀工具
 // （{连接器实例名}__{tool} 形态一律视为危险：装配侧已对 read_only 连接器摘除写工具，
-// 但 mcp 直通无法静态判定，保守全审；SSH/k8s 同口径）。ontology__ onto_* 与内置只读免审。
+// 但 mcp 直通无法静态判定，保守全审；SSH/k8s 同口径）。ontology__ onto_* 与内置只读免审，
+// 但 REQ-366/M164 本体 spec 写类工具（upsert/delete，资产变更面）例外入 danger 档。
 func IsDangerousTool(name string) bool {
 	if DangerousBuiltinTools[name] {
 		return true
 	}
-	// 连接器/MCP 前缀工具（oo onto_* 只读除外）
+	// 连接器/MCP 前缀工具（oo onto_* 只读除外；ontology 写类 spec_*_upsert/delete 入审）
 	if i := strings.Index(name, "__"); i > 0 {
 		prefix := name[:i]
 		if prefix == "ontology" || prefix == "oo" {
+			if prefix == "ontology" && IsOntoWriteTool(name) {
+				return true
+			}
 			return false
 		}
 		return true

@@ -161,6 +161,8 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		merged.OnchatMode = a.OnchatMode
+		// REQ-366/M164：本体操作能力开关放行（默认关无迁移默认；布尔值无归一需要）
+		merged.OntoOps = a.OntoOps
 		if a.MaxTokens != nil {
 			merged.MaxTokens = a.MaxTokens
 		}

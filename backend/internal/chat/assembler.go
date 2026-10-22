@@ -596,6 +596,8 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 
 	// 4) 本体 facade（M8 §6.10-1：挂载运行方案时并入 onto_* 工具；
 	// 单次失败即降级——ontology.unavailable 事件，不重试风暴，普通对话/知识库不受影响）
+	// REQ-366/M164 门控：facade 13 件扩展工具（spec CRUD/校验/CQ 基准）仅 Agent.OntoOps
+	// 开启时并入（默认关，存量零变化）；原 6 查询工具挂载即并入的既有语义不变。
 	if sc.Mount != "" && a.Ontology != nil {
 		bts, ferr := a.Ontology.FetchTools(ctx)
 		if ferr != nil {
@@ -604,6 +606,9 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			for _, bt := range bts {
 				ti, ierr := bt.Info(ctx)
 				if ierr != nil || ti == nil || ti.Name == "" {
+					continue
+				}
+				if tool.IsOntoOperationTool(ti.Name) && !ag.OntoOps {
 					continue
 				}
 				if _, dup := tb.SourceOf[ti.Name]; dup {
@@ -846,6 +851,22 @@ func onchatDiscipline(ag *store.Agent) string {
 		"7. 工具返回错误（如构建平面不可达）时如实转述错误信息与建议操作，不得编造结果；会话搁置为合法终态，不引导删除。"
 }
 
+// ontoOpsDiscipline REQ-366/M164：本体操作工具内置纪律段（能力开关 onto_ops on 时随装配注入）。
+// 段头「# 本体操作纪律（OntoOps）」为固定文案，instructionSegments 按此切分标注 source=onto_ops。
+func ontoOpsDiscipline(ag *store.Agent) string {
+	if ag == nil || !ag.OntoOps {
+		return ""
+	}
+	return "\n\n# 本体操作纪律（OntoOps）\n" +
+		"你具备本体操作专项能力（spec_* / cq_benchmark_* 工具组，操作本体构建平面资产）。执行纪律：\n" +
+		"1. 查询运行引擎用 get_concept/list_instances/sparql_query；修改资产用 spec_* 工具（读编辑态 spec，不是运行引擎图）。\n" +
+		"2. 修改前先 spec_get 了解现状；upsert 按名定位（不存在则新增、已存在只更新传入字段），删除被引用元素会被校验拒绝——按回喂的 path 定位明细逐条处理，不得隐瞒。\n" +
+		"3. 所有写操作经版本门禁与校验管线（若遇版本冲突 SPEC_VERSION_CONFLICT，重新发起即可基于最新版本重读再改）；写类操作会触发审批，等待期间不得重复调用。\n" +
+		"4. spec_validate/spec_quality_check 用于保存前自检；错误定位（path 如 concepts[2].parents[0]）如实转述给用户。\n" +
+		"5. cq_benchmark_run 报告三率如实转述：跨域本体 gold 对齐低是预期信号不是缺陷；等待超时用返回的 job_id 续查，不得编造评测结果。\n" +
+		"6. 工具返回错误（如构建平面不可达）时如实转述，不得编造保存成功。"
+}
+
 // composeInstructionWithScope 技能注入 + 项目本地目录说明（REQ-101/102）。
 // 项目会话且绑定 local_dir 时，告知模型可通过 list_files/read_file/save_file 访问目录内文件，
 // 并给出绑定目录的绝对路径（与工具根解析同一归一化规则）。
@@ -853,6 +874,8 @@ func (a *Assembler) composeInstructionWithScope(ag *store.Agent, sc assembleScop
 	inst := a.composeInstruction(ag)
 	// REQ-360/M161：对话建本体能力开关 on 时注入内置纪律段（source=onchat，单 Agent/协调者/成员三路径共用）
 	inst += onchatDiscipline(ag)
+	// REQ-366/M164：本体操作能力开关 on 时注入内置纪律段（source=onto_ops，三路径共用）
+	inst += ontoOpsDiscipline(ag)
 	if sc.ProjectID == "" || a.FilesRoot == "" || a.Store == nil {
 		return inst
 	}
@@ -1062,6 +1085,7 @@ func instructionSegments(inst string) []map[string]any {
 		{"project_dir", "\n# 项目本地目录"},
 		{"ontology_guide", "\n# 本体运行方案指引"},
 		{"onchat", "\n# 对话建本体纪律（OntoChat）"},
+		{"onto_ops", "\n# 本体操作纪律（OntoOps）"},
 	} {
 		if i := strings.Index(inst, h.head); i >= 0 {
 			marks = append(marks, mark{h.source, i})

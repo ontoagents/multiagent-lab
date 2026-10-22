@@ -58,8 +58,12 @@ type Agent struct {
 	// 开启时装配层自动并入 ontochat_* 四工具（与 Tools 手勾取并集）+ 注入内置访谈纪律段
 	//（instruction segment source=onchat）——引导段从「用户手工粘贴」退役为系统内置（03 §2.54 A）。
 	OnchatMode string `json:"onchat_mode"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	// REQ-366/M164：本体操作工具能力开关（false=关〔缺省，存量零变化〕| true=开启）。
+	// 开启时会话挂载本体时装配层并入 facade 13 件扩展工具（spec CRUD/校验/CQ 基准）；
+	// 原 6 查询工具挂载即并入的既有语义不变。写类 upsert/delete 入 danger 档审批。
+	OntoOps   bool   `json:"onto_ops"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // AgentHookDenyRule 自定义 deny 规则（REQ-232②）：工具名 glob 模式 + 参数子串（大小写不敏感），
