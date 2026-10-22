@@ -203,7 +203,7 @@ function parseFrontmatter(raw: string): { meta: Frontmatter; body: string } {
   return { meta, body: raw.slice(m[0].length) }
 }
 
-/** 源文档地图（frontmatter → 文末导读卡）：权威事实在 docs/ 与 research/，此处只做指路 */
+/** 源文档地图（frontmatter → 文末导读卡）：权威事实在 docs/ 与 platform-knowledge/，此处只做指路（research/ 已退役并入 platform-knowledge，REQ-184 收尾 2026-10-22） */
 function SourceMap({ meta, onOpenDoc }: { meta: Frontmatter; onOpenDoc: (path: string) => void }) {
   const rows: { label: string; items: string[] }[] = [
     { label: '需求编号', items: meta.req ?? [] },

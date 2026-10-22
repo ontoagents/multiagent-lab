@@ -213,7 +213,6 @@ func buildServices(root, dataDir string) []service {
 				{"WEB_DIST", p(root, "web", "dist")},
 				{"KB_VECTOR_BACKEND", "sqlite"}, // 单机零依赖默认（README 注明 qdrant 覆盖方式）
 				{"DOCS_ROOT", p(root, "docs")},
-				{"RESEARCH_ROOT", p(root, "research")},
 				{"KNOWLEDGE_ROOT", p(root, "platform-knowledge")},
 				{"BUILD_SVC_URL", ontURL},
 				{"RUNTIME_MGR_URL", rtURL},

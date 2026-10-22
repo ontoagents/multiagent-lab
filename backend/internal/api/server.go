@@ -34,7 +34,6 @@ type Server struct {
 	FilesRoot     string             // M11：项目文件根目录（上传/下载落盘）
 	DBPath        string             // REQ-113：SQLite 文件路径（数据与安全概览展示 DB 体积）
 	DocsRoot      string             // REQ-140：内部方案文档根目录（只读查看）
-	ResearchRoot  string             // REQ-150：research/ 立项依据层根目录（只读查看，2026-09-25 扩展）
 	KnowledgeRoot string             // REQ-161：platform-knowledge/ 平台知识根目录（只读查看，2026-09-25 扩展）
 	Companion     *companion.Service // REQ-170/M28：伴生本体旁路管线（Run/Resume 收尾触发，低侵入）
 	sched         *scheduler         // REQ-204/M39 C5：对话级定时续跑（REQ-224 起调度状态落库，重启 LoadSchedules 续装）
@@ -45,7 +44,7 @@ type Server struct {
 }
 
 // NewServer 构造并注册全部路由。
-func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *tool.Registry, kbSvc *kb.Service, onto *ontology.Service, dbPath, docsRoot, researchRoot, knowledgeRoot string) *Server {
+func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *tool.Registry, kbSvc *kb.Service, onto *ontology.Service, dbPath, docsRoot, knowledgeRoot string) *Server {
 	comp := companion.NewService(st, box, nil)
 	chatSvc.Companion = comp // REQ-170 P2「KG 检索源并入」：伴生图检索源经接口反转注入 chat（companion→chat 包环约束）
 	// REQ-358/M158 B+C（EvoOntology 借鉴旁路面）：①伴生图按需语义检索工具（默认关——92 号
@@ -86,7 +85,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	ontoBuildSvc := ontobuild.NewService(st, box, kbSvc)
 	ontoBuildSvc.BuildPlaneURL = onto.BuildURL                 // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
 	ontoBuildSvc.OnStage = buildflowTracePoster(onto.BuildURL) // REQ-340 A2：kb-extract 段留痕聚合到构建平面（fire-and-forget）
-	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, ResearchRoot: researchRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
+	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器
 	s.routes()

@@ -3,6 +3,8 @@
 // REQ-150 扩展（2026-09-25）：白名单由 docs/ 扩至 docs/ + research/。
 // REQ-161 扩展（2026-09-25）：白名单扩至 docs/ + research/ + platform-knowledge/——
 // 平台知识页（原参考资料中心）目录化后，文档互引相对路径点击查看覆盖平台知识目录。
+// REQ-184 收尾（2026-10-22）：research/ 白名单分支退役（G-5 已全量并入 platform-knowledge，
+// research/ 目录删除）——旧路径显式 400 诚实指路，不静默 404。
 package api
 
 import (
@@ -26,21 +28,24 @@ func (s *Server) docRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 .md 文档"})
 		return
 	}
-	// 白名单目录：docs/（方案/需求事实源）+ research/（立项依据层）；fsutil 双重防越界
+	// 白名单目录：docs/（方案/需求事实源）+ platform-knowledge/（平台知识）；fsutil 双重防越界。
+	// REQ-184 收尾（2026-10-22）：research/ 分支退役——G-5（2026-09-27）已全量并入 platform-knowledge，
+	// 目录删除；旧路径不静默 404，显式 400 指路新位置。
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	const docsPrefix = "docs/"
 	const researchPrefix = "research/"
 	const knowledgePrefix = "platform-knowledge/"
 	var root, sub string
 	switch {
+	case strings.HasPrefix(clean, researchPrefix):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "research/ 目录已退役（G-5 2026-09-27 并入 platform-knowledge/，REQ-184 收尾 2026-10-22 删除）——请改用 platform-knowledge/ 下的对应文档"})
+		return
 	case strings.HasPrefix(clean, docsPrefix):
 		root, sub = s.DocsRoot, strings.TrimPrefix(clean, docsPrefix)
-	case strings.HasPrefix(clean, researchPrefix):
-		root, sub = s.ResearchRoot, strings.TrimPrefix(clean, researchPrefix)
 	case strings.HasPrefix(clean, knowledgePrefix):
 		root, sub = s.KnowledgeRoot, strings.TrimPrefix(clean, knowledgePrefix)
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 docs/、research/ 或 platform-knowledge/ 目录下的文档"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 docs/ 或 platform-knowledge/ 目录下的文档"})
 		return
 	}
 	if strings.Contains(clean, "..") {

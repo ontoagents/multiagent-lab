@@ -110,9 +110,9 @@ func main() {
 		log.Printf("[backend] ensure assistant tools: %v", err)
 	}
 	svc.Inference = inference.NewRegistry() // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI）
-	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), getenv("RESEARCH_ROOT", "../research"), getenv("KNOWLEDGE_ROOT", "../platform-knowledge"))
+	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), getenv("KNOWLEDGE_ROOT", "../platform-knowledge"))
 	// REQ-186 阶段二：平台助手 L0 只读工具面（doc_read/列表×3/查配置；写类工具不开放）
-	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), ResearchRoot: getenv("RESEARCH_ROOT", "../research"), KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge"), DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {
+	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge"), DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {
 		log.Printf("[backend] assistant tools register: %v", err)
 	}
 	// REQ-186 阶段一/三（M-O14 流水线）：平台知识 KB 化工具（sync/search_platform_kb）与 L1 提案工具（propose_assistant_config 两段式）

@@ -23,7 +23,6 @@ import (
 type AssistantDeps struct {
 	Store         *store.Store
 	DocsRoot      string
-	ResearchRoot  string
 	KnowledgeRoot string
 	// DefaultPrompt REQ-213：内置提示词基座（api.AssistantDefaultPrompt 注入）——
 	// get_assistant_config 以「行内 instruction == 基座」判「未微调」（assistant_config 表退役后单源读行）。
@@ -48,13 +47,15 @@ func RegisterAssistantTools(r *tool.Registry, deps AssistantDeps) error {
 	return nil
 }
 
-// assistantDocRead L0：读白名单目录（docs/ + research/ + platform-knowledge/）下的 .md 全文。
-// 与 api.docRead 同一白名单与防越界口径（REQ-140/150/161 语义，供助手精读引用）。
+// assistantDocRead L0：读白名单目录（docs/ + platform-knowledge/）下的 .md 全文。
+// 与 api.docRead 同一白名单与防越界口径（REQ-140/161 语义，供助手精读引用）。
+// REQ-184 收尾（2026-10-22）：research/ 分支退役（G-5 并入 platform-knowledge，目录删除）——
+// 旧路径返回诚实指引（模型可自纠），不静默 404。
 func assistantDocRead(deps AssistantDeps) *tool.Entry {
 	return &tool.Entry{
 		ID:          "doc_read",
 		Name:        "doc_read",
-		Description: "读取平台内部文档全文（docs/、research/、platform-knowledge/ 下 .md，只读）——回答平台使用问题前先精读相关文档",
+		Description: "读取平台内部文档全文（docs/、platform-knowledge/ 下 .md，只读）——回答平台使用问题前先精读相关文档",
 		Source:      tool.SourceBuiltin,
 		New: func(ctx context.Context) (einotool.BaseTool, error) {
 			fn := func(ctx context.Context, in assistantDocReadIn) (string, error) {
@@ -68,14 +69,14 @@ func assistantDocRead(deps AssistantDeps) *tool.Entry {
 				}
 				var root, sub string
 				switch {
+				case strings.HasPrefix(clean, "research/"):
+					return "", fmt.Errorf("research/ 目录已退役（G-5 2026-09-27 并入 platform-knowledge/，REQ-184 收尾 2026-10-22 删除）——请改用 platform-knowledge/ 下的对应文档")
 				case strings.HasPrefix(clean, "docs/"):
 					root, sub = deps.DocsRoot, strings.TrimPrefix(clean, "docs/")
-				case strings.HasPrefix(clean, "research/"):
-					root, sub = deps.ResearchRoot, strings.TrimPrefix(clean, "research/")
 				case strings.HasPrefix(clean, "platform-knowledge/"):
 					root, sub = deps.KnowledgeRoot, strings.TrimPrefix(clean, "platform-knowledge/")
 				default:
-					return "", fmt.Errorf("仅支持 docs/、research/ 或 platform-knowledge/ 目录下的文档")
+					return "", fmt.Errorf("仅支持 docs/ 或 platform-knowledge/ 目录下的文档")
 				}
 				abs, err := fsutil.SafeJoin(root, sub)
 				if err != nil {
@@ -92,7 +93,7 @@ func assistantDocRead(deps AssistantDeps) *tool.Entry {
 				}
 				return content, nil
 			}
-			return utils.InferTool("doc_read", "读取平台内部文档（docs/、research/、platform-knowledge/ 下 .md）全文，用于精读后回答平台使用问题。入参 path 如 platform-knowledge/02_智能体/智能体模块导读.md", fn)
+			return utils.InferTool("doc_read", "读取平台内部文档（docs/、platform-knowledge/ 下 .md）全文，用于精读后回答平台使用问题。入参 path 如 platform-knowledge/02_智能体/智能体模块导读.md", fn)
 		},
 	}
 }

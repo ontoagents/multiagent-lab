@@ -207,7 +207,6 @@ func buildServices(root, dataDir string) []service {
 				{"WEB_DIST", filepath.Join(root, "web", "dist")},
 				{"KB_VECTOR_BACKEND", "sqlite"}, // 单机零依赖默认（README 注明 qdrant 覆盖方式）
 				{"DOCS_ROOT", filepath.Join(root, "docs")},
-				{"RESEARCH_ROOT", filepath.Join(root, "research")},
 				{"KNOWLEDGE_ROOT", filepath.Join(root, "platform-knowledge")},
 			},
 		},

@@ -123,7 +123,6 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp -R "$REPO/ontology-service/migrations" "$RES/migrations/ontology-service"
   cp -R "$REPO/runtime-manager/migrations" "$RES/migrations/runtime-manager"
   cp -R "$REPO/docs" "$RES/docs"
-  cp -R "$REPO/research" "$RES/research"
   cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
   cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
@@ -146,7 +145,6 @@ else
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$TRES/tools/rdf-sidecar/"
   cp -R "$REPO/docs" "$TRES/docs"
   cp -R "$REPO/platform-knowledge" "$TRES/platform-knowledge"
-  cp -R "$REPO/research" "$TRES/research"
   TRIPLE="$(rustc -vV 2>/dev/null | awk '/^host/{print $2}')"
   [ -n "$TRIPLE" ] || TRIPLE="$(uname -m)-apple-darwin"
   for svc in backend ontologyd runtimed oxigraph; do

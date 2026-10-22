@@ -75,7 +75,8 @@ export function resolveRef(href: string, base: string): string | null {
 
 export function docFileOf(ptr: string): string | null {
   const s = ptr.trim()
-  // 完整路径直传（docs/ platform-knowledge/ research/ 下的 .md）
+  // 完整路径直传（docs/ platform-knowledge/ 下的 .md；research/ 前缀保留直传——旧文档历史链接
+  // 点击后由后端退役指路报错承接（REQ-184 收尾 2026-10-22），不静默映射错文件）
   if (s.endsWith('.md') && (s.startsWith('docs/') || s.startsWith('research/') || s.startsWith('platform-knowledge/'))) return s
   // 编号指针（如 "02" / "02 §6.4" / "17 §2.2"）：取前两位编号映射
   const no = s.slice(0, 2)
