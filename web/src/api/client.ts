@@ -402,10 +402,12 @@ export const api = {
   updateSkill: (id: string, s: Partial<Skill>) => req<Skill>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(s) }),
   deleteSkill: (id: string) => req<{ deleted: string }>(`/api/skills/${id}`, { method: 'DELETE' }),
   skillPreview: (id: string) => req<{ instruction_block: string; enabled?: boolean }>(`/api/skills/${id}/preview`),
-  /** REQ-371：目录式技能包批量导入（zip，multipart 字段 file；同名跳过不覆盖） */
-  importSkills: (file: File) => {
+  /** REQ-371：目录式技能包批量导入（zip，multipart 字段 file；同名跳过不覆盖）。
+   * REQ-373：collectionName 非空时按包归集——新建件收进一张集合卡（跳过/失败不入集）。 */
+  importSkills: (file: File, collectionName?: string) => {
     const fd = new FormData()
     fd.append('file', file)
+    if (collectionName && collectionName.trim()) fd.append('collection_name', collectionName.trim())
     return reqMultipart<SkillImportReport>('/api/skills/import', fd)
   },
 

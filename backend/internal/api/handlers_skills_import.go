@@ -6,7 +6,9 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/skill"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
@@ -17,11 +19,20 @@ const skillImportListCap = 300
 
 type skillImportReport struct {
 	Created     int              `json:"created"`
+	CreatedIDs  []string         `json:"-"` // 新建成功件 id（按包归集用，不外露）
 	Names       []string         `json:"names,omitempty"`
 	Skipped     []skill.SkipItem `json:"skipped,omitempty"`
 	Failed      []skill.SkipItem `json:"failed,omitempty"`
 	Notes       []skillNoteItem  `json:"notes,omitempty"` // 资源超限/正文截断等诚实标注（仅列有标注的技能）
 	ListsShrunk bool             `json:"lists_shrunk,omitempty"`
+	Collection  *importCollect   `json:"collection,omitempty"` // REQ-373：按包归集结果
+}
+
+// importCollect 按包归集结果（REQ-373）：collection_name 非空时，本次新建成功的技能
+// 归集为一卡集合；跳过/失败件不入集（诚实计数）。
+type importCollect struct {
+	Name    string `json:"name"`
+	Members int    `json:"members"`
 }
 
 // skillNoteItem 单技能的导入标注（截断/资源跳过不静默）。
@@ -75,6 +86,7 @@ func (s *Server) importSkills(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		report.Created++
+		report.CreatedIDs = append(report.CreatedIDs, created.ID)
 		report.Names = append(report.Names, created.Name)
 		if len(p.Notes) > 0 {
 			if len(report.Notes) < skillImportListCap {
@@ -86,5 +98,29 @@ func (s *Server) importSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	report.Skipped = append(report.Skipped, imp.Skipped...)
 	report.Failed = append(report.Failed, imp.Failed...)
+	// REQ-373 按包归集：collection_name 非空且本次有新建成功件时，归集为一卡集合
+	//（同名集合已存在=不归集如实标注，沿同名跳过不覆盖口径；跳过/失败件不入集）。
+	if cname := strings.TrimSpace(r.FormValue("collection_name")); cname != "" {
+		if report.Created == 0 {
+			report.Notes = append(report.Notes, skillNoteItem{Skill: cname, Notes: []string{"无新建技能（全部跳过/失败），未创建集合"}})
+		} else if len(report.CreatedIDs) > store.MaxCollectionChildren {
+			report.Notes = append(report.Notes, skillNoteItem{Skill: cname, Notes: []string{fmt.Sprintf("新建 %d 件超过集合成员上限 %d，未创建集合", report.Created, store.MaxCollectionChildren)}})
+		} else if _, err := s.Store.CreateSkill(&store.Skill{
+			Name:        cname,
+			Description: fmt.Sprintf("技能包导入归集（新建 %d 件）", report.Created),
+			Kind:        "collection",
+			Children:    report.CreatedIDs,
+			Enabled:     true,
+		}); err != nil {
+			var heC *store.HTTPError
+			if errors.As(err, &heC) && heC.Status == http.StatusConflict {
+				report.Notes = append(report.Notes, skillNoteItem{Skill: cname, Notes: []string{"同名技能已存在，未创建集合（沿同名跳过口径）"}})
+			} else {
+				report.Notes = append(report.Notes, skillNoteItem{Skill: cname, Notes: []string{"创建集合失败：" + err.Error()}})
+			}
+		} else {
+			report.Collection = &importCollect{Name: cname, Members: report.Created}
+		}
+	}
 	writeJSON(w, http.StatusCreated, report)
 }

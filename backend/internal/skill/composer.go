@@ -15,17 +15,35 @@ type Composer struct {
 }
 
 // LoadedSkills 返回 Agent 挂载且已启用的技能（供 skill.loaded 事件）。
+// REQ-373：挂载项为技能集合（Kind=collection）时展开为其启用成员——集合自身不注入
+// （容器无正文）；集合停用=整体不展开，成员停用=单件跳过，子件已删=跳过（悬挂防御）。
+// visited 环防护兜底异常数据（写入口径已拦截集合嵌套，此处双保险）。
 func (c *Composer) LoadedSkills(a *store.Agent) []*store.Skill {
 	if c == nil || a == nil {
 		return nil
 	}
 	var out []*store.Skill
-	for _, sid := range a.Skills {
-		sk, err := c.Store.GetSkill(sid)
+	seen := map[string]bool{}
+	var expand func(id string)
+	expand = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		sk, err := c.Store.GetSkill(id)
 		if err != nil || sk == nil || !sk.Enabled {
-			continue
+			return
+		}
+		if sk.Kind == "collection" {
+			for _, cid := range sk.Children {
+				expand(cid)
+			}
+			return
 		}
 		out = append(out, sk)
+	}
+	for _, sid := range a.Skills {
+		expand(sid)
 	}
 	return out
 }

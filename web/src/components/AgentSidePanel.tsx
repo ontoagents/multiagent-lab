@@ -1010,6 +1010,7 @@ function AgentConfigForm({
   }, [agent.id, form])
 
   // REQ-164：技能注册表加载（勾选候选；失败静默，能力页签仍可用工具/MCP）
+  // REQ-373：集合入候选——label 带「集合」标注、title 附成员清单（挂载集合=按启用成员展开注入）
   useEffect(() => {
     api
       .listSkills()
@@ -1439,7 +1440,14 @@ function AgentConfigForm({
                       showSearch
                       optionFilterProp="label"
                       placeholder="不挂载技能"
-                      options={skills.map((k) => ({ value: k.id, label: k.name, title: k.description }))}
+                      options={skills.map((k) => ({
+                        value: k.id,
+                        label: k.kind === 'collection' ? `${k.name}（集合）` : k.name,
+                        title:
+                          k.kind === 'collection'
+                            ? `${k.description || '技能集合'} · 成员 ${k.children?.length ?? 0} 件（挂载后按启用成员展开注入）`
+                            : k.description,
+                      }))}
                       notFoundContent="技能注册表为空（到「技能」模块创建）"
                       optionRender={(opt) => (
                         <div className="tool-option">

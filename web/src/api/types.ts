@@ -481,6 +481,9 @@ export interface Skill {
   instruction: string
   tools: string[]
   resources: SkillResource[]
+  /** REQ-373：''=普通技能 | 'collection'=技能集合（一卡多子技能，挂载按成员展开注入） */
+  kind: string
+  children: string[]
   builtin: boolean
   enabled: boolean
   created_at: string
@@ -495,6 +498,8 @@ export interface SkillImportReport {
   failed?: { name: string; reason: string }[]
   notes?: { skill: string; notes: string[] }[]
   lists_shrunk?: boolean
+  /** REQ-373：按包归集结果（collection_name 非空且存在新建件时返回） */
+  collection?: { name: string; members: number }
 }
 
 // ---- M5 工具注册表（02 文档 §6.8：id/name/desc，前端勾选落 agent.tools） ----
