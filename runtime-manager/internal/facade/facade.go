@@ -93,6 +93,8 @@ func (f *Facade) addTools(s *server.MCPServer) {
 	), f.handleListConcepts())
 
 	f.addSparqlQueryTool(s)
+	// REQ-368/M166：伴生图时序化查询面（snapshot/evolution/evidence 三模式）——只读挂载即并入。
+	f.addCompanionHistoryTool(s)
 	// REQ-366/M164：T2/T3/T5 十三件扩展工具（spec CRUD/校验/CQ 基准）——无条件注册，
 	// MCP 标准面对外全量可枚举；内部智能体启用门控在平台 backend 装配层（agent.onto_ops）。
 	f.addOpsTools(s)

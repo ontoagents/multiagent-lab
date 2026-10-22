@@ -110,7 +110,43 @@ func nodeKind(kind string) string {
 	}
 }
 
-// InsertNodeTriples 概念/事件入图（同名 slug 归并；自带溯源三件套；timeScope 非空落 bot:timeScope）。
+// ValidFromOf REQ-368/M166：timeScope 宽松解析为有效性时间起点（vt，xsd:date）——
+// "2024"→2024-01-01；"2024-03"/"2024-Q1"→2024-03-01；"2024-03-05"原样；其余（自然语言/区间
+// 形态）不可解析=空串=不落 bot:validFrom（诚实缺省，vt 与 tt 语义分离见包注）。
+func ValidFromOf(timeScope string) string {
+	ts := strings.TrimSpace(timeScope)
+	if ts == "" {
+		return ""
+	}
+	// 完整日期
+	if len(ts) == 10 && ts[4] == '-' && ts[7] == '-' {
+		if _, err := time.Parse("2006-01-02", ts); err == nil {
+			return ts
+		}
+	}
+	// 年-月
+	if len(ts) == 7 && ts[4] == '-' {
+		if _, err := time.Parse("2006-01", ts); err == nil {
+			return ts + "-01"
+		}
+	}
+	// 季度（Q1~Q4，大小写不敏感）
+	if len(ts) == 7 && (ts[5] == 'Q' || ts[5] == 'q') && ts[6] >= '1' && ts[6] <= '4' {
+		if _, err := time.Parse("2006", ts[:4]); err == nil {
+			return fmt.Sprintf("%s-%02d-01", ts[:4], (ts[6]-'1')*3+1)
+		}
+	}
+	// 纯年份
+	if len(ts) == 4 {
+		if _, err := time.Parse("2006", ts); err == nil {
+			return ts + "-01-01"
+		}
+	}
+	return ""
+}
+
+// InsertNodeTriples 概念/事件入图（同名 slug 归并；自带溯源三件套；timeScope 非空落 bot:timeScope，
+// REQ-368：可解析为日期时另落 bot:validFrom=vt 有效性时间起点）。
 func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope string, confidence float64, msgID string, at time.Time) string {
 	g := GraphURI(graphID)
 	e := EntityURI(label)
@@ -123,6 +159,9 @@ func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope strin
 	}
 	if timeScope != "" {
 		fmt.Fprintf(&b, "      bot:timeScope %q ;\n", turtleEscape(timeScope))
+	}
+	if vf := ValidFromOf(timeScope); vf != "" {
+		fmt.Fprintf(&b, "      bot:validFrom %q ;\n", vf)
 	}
 	fmt.Fprintf(&b, "      bot:confidence %.2f ;\n      bot:extractedFrom <%s> ;\n      prov:generatedAtTime %q ;\n      prov:wasGeneratedBy <%sactivity-%s> .\n",
 		confidence, MessageURI(msgID), xsdTime(at), EntityNS, candID)
