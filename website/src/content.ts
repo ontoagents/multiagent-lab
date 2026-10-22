@@ -28,6 +28,8 @@ export interface ModuleText {
   tagline: string
   /** 速览要点（首屏直观化；3 条以内短句） */
   brief: string[]
+  /** 典型流程（REQ-374：3~5 步动线，短句祈使式；内容对齐平台真实动线） */
+  flow: string[]
 }
 
 /** 图标功能卡（REQ-364）：icon 为 @ant-design/icons 组件名，映射表见 ModulePage */
@@ -36,10 +38,17 @@ export interface ModuleFeature {
   i18n: L10n<{ title: string; desc: string }>
 }
 
+/** 延伸入口（REQ-374）：站内跨页深链（href 站内共用，label 双语） */
+export interface ModuleLink {
+  href: string
+  i18n: L10n<string>
+}
+
 export interface ModuleInfo {
   key: string
   i18n: L10n<ModuleText>
   features: ModuleFeature[]
+  links?: ModuleLink[]
 }
 
 /** 功能模块（目录序=导航序；整体设计放最后，作为深入了解入口） */
@@ -51,13 +60,19 @@ export const MODULES: ModuleInfo[] = [
         title: '智能体',
         tagline: '对话 · 多智能体协作 · 知识/技能/本体增强',
         brief: ['流式对话，工具/子智能体/检索/审批事件全留痕', '多智能体协作：项目空间编排、委派路由、隔离可观测', '五层执行模型：模型/上下文/沙箱/循环/协作全可配'],
+        flow: ['配置模型连接', '创建智能体（提示词/工具/知识库/沙箱）', '对话试用，事件轨迹全程可观测', '项目空间编排多智能体协作', '评估种子集回归保障质量'],
       },
       en: {
         title: 'Agents',
         tagline: 'Chat · Multi-agent collaboration · Knowledge/skill/ontology augmentation',
         brief: ['Streaming chat with full traces of tool / sub-agent / retrieval / approval events', 'Multi-agent collaboration: project-space orchestration, delegation routing, isolated observability', 'Five-layer execution model: model / context / harness / loop / graph all configurable'],
+        flow: ['Configure a model connection', 'Create an agent (prompt / tools / knowledge / sandbox)', 'Chat and watch the full event trace', 'Orchestrate multi-agent work in a project space', 'Regression-check with eval seed sets'],
       },
     },
+    links: [
+      { href: '#/implementation', i18n: { zh: '五层执行视角', en: 'Five-layer execution' } },
+      { href: '#/deploy', i18n: { zh: '部署运行', en: 'Deploy' } },
+    ],
     features: [
       {
         icon: 'CommentOutlined',
@@ -110,13 +125,19 @@ export const MODULES: ModuleInfo[] = [
         title: '本体',
         tagline: '构建 → 资产 → 运行 → 消费审计 全流程闭环',
         brief: ['六条构建路径殊途同归，LLM 生成必过质量门禁', 'spec_json 单一资产：版本 diff、进化候选受控生长', 'Oxigraph / Fuseki 运行平面，MCP facade 供智能体消费'],
+        flow: ['选构建路径（对话/向导/导入/知识库）', '过质量门禁生成版本化资产', '图形/层级浏览治理与演化', '编排运行方案（Oxigraph/Fuseki）', '智能体经 MCP facade 消费与审计'],
       },
       en: {
         title: 'Ontology',
         tagline: 'Build → Assets → Run → Consume & audit, a closed loop',
         brief: ['Six build paths converge on one asset store; every LLM generation passes the quality gate', 'spec_json as the single asset: version diff, controlled growth of evolution candidates', 'Oxigraph / Fuseki runtime plane with an MCP facade for agent consumption'],
+        flow: ['Pick a build path (chat / wizard / import / KB)', 'Pass the quality gate into a versioned asset', 'Govern and evolve via graph & hierarchy views', 'Stage a runtime plan (Oxigraph / Fuseki)', 'Agents consume via the MCP facade, fully audited'],
       },
     },
+    links: [
+      { href: '#/demo', i18n: { zh: '在线演示（层级浏览）', en: 'Online demo (hierarchy)' } },
+      { href: '#/implementation', i18n: { zh: '本体机制', en: 'Ontology mechanics' } },
+    ],
     features: [
       {
         icon: 'ApartmentOutlined',
@@ -169,13 +190,18 @@ export const MODULES: ModuleInfo[] = [
         title: '知识库',
         tagline: 'RAG / GraphRAG 双子模块（KG 自研内置）',
         brief: ['RAG：向量检索，Qdrant 主力 / SQLite 兜底可插拔', 'GraphRAG：导入即建 KG，向量命中 → 图一跳扩展', 'LLM Wiki：写时合成互链页面，零 embedding 依赖'],
+        flow: ['上传文档 / 网页 / 结构化数据', '切分向量化入库（Qdrant/SQLite）', 'GraphRAG 导入即建知识图谱', '检索调优（TopK/一跳扩展）', '挂载智能体增强回答'],
       },
       en: {
         title: 'Knowledge Base',
         tagline: 'RAG / GraphRAG twin sub-modules (built-in KG)',
         brief: ['RAG: vector retrieval with pluggable Qdrant primary / SQLite fallback', 'GraphRAG: KG built on import; vector hit → one-hop graph expansion', 'LLM Wiki: write-time synthesis of interlinked pages, zero embedding dependency'],
+        flow: ['Upload docs / pages / structured data', 'Chunk and embed into the store (Qdrant/SQLite)', 'GraphRAG builds a KG on import', 'Tune retrieval (TopK / one-hop expansion)', 'Mount on agents to ground answers'],
       },
     },
+    links: [
+      { href: '#/implementation', i18n: { zh: '知识增强机制', en: 'Knowledge augmentation' } },
+    ],
     features: [
       {
         icon: 'SearchOutlined',
@@ -214,13 +240,18 @@ export const MODULES: ModuleInfo[] = [
         title: '项目',
         tagline: '多智能体协作工作空间（目录绑定 / 文件 / Git）',
         brief: ['多智能体协作工作空间，成员编排与委派', '本地目录绑定，文件与 Git 资产纳管', '协作与工作流配置收敛于项目侧'],
+        flow: ['创建项目并绑定本地目录', '编排成员智能体与协作配置', '会话内委派任务，过程轨迹可查', '产物文件/Git 纳管沉淀'],
       },
       en: {
         title: 'Projects',
         tagline: 'Multi-agent collaboration workspace (directory binding / files / Git)',
-        brief: ['A collaboration workspace for multiple agents with member orchestration and delegation', 'Local directory binding; files and Git assets under management', 'Collaboration and workflow configuration converge on the project side'],
+        brief: ['Multi-agent collaboration workspace, member orchestration and delegation', 'Local directory binding; file and Git assets managed', 'Collaboration and workflow config converge on the project side'],
+        flow: ['Create a project bound to a local directory', 'Orchestrate member agents and collaboration config', 'Delegate tasks in sessions with traceable progress', 'Artifacts land as managed files / Git'],
       },
     },
+    links: [
+      { href: '#/deploy', i18n: { zh: '部署运行', en: 'Deploy' } },
+    ],
     features: [
       {
         icon: 'TeamOutlined',
@@ -259,13 +290,18 @@ export const MODULES: ModuleInfo[] = [
         title: '技能',
         tagline: '智能体能力扩展（提示词 / 工具包装）',
         brief: ['提示词 + 工具包装为可复用技能', '智能体一键暴露为 MCP Server（/mcp）', 'K8s / SSH / 自定义 MCP 三类外部连接器'],
+        flow: ['编写 / .zip 导入技能（SKILL.md）', '技能集合组织一卡多子技能', '智能体勾选挂载技能', '运行中按描述自动触发'],
       },
       en: {
         title: 'Skills',
         tagline: 'Agent capability extensions (prompts / tool wrapping)',
-        brief: ['Prompts + tool wrapping packaged as reusable skills', 'Expose any agent as an MCP Server (/mcp) in one click', 'Three kinds of external connectors: K8s / SSH / custom MCP'],
+        brief: ['Prompts + tool wrapping as reusable skills', 'Expose any agent as an MCP Server (/mcp) in one click', 'Three external connector types: K8s / SSH / custom MCP'],
+        flow: ['Write a skill or import a .zip (SKILL.md)', 'Group skills into collections (one card, many skills)', 'Mount skills on agents by checkbox', 'Auto-triggered by description at run time'],
       },
     },
+    links: [
+      { href: '#/deploy', i18n: { zh: '部署运行', en: 'Deploy' } },
+    ],
     features: [
       {
         icon: 'ThunderboltOutlined',
@@ -297,13 +333,18 @@ export const MODULES: ModuleInfo[] = [
         title: '设置',
         tagline: '模型连接 · 连接器 · 运行环境 · 使用统计',
         brief: ['模型连接双协议多厂商，Key 本地加密', '连接器凭据托管，agent 级授权白名单', '沙箱后端选择与 run 级用量统计'],
+        flow: ['配置供应商与模型连接（双协议）', '连接器凭据与 agent 级授权', '选择沙箱/本体引擎运行环境', '使用统计与配置导入导出'],
       },
       en: {
         title: 'Settings',
         tagline: 'Model connections · Connectors · Runtime · Usage stats',
-        brief: ['Dual-protocol multi-vendor model connections with locally encrypted keys', 'Connector credential hosting with agent-level authorization whitelists', 'Sandbox backend selection and per-run usage statistics'],
+        brief: ['Dual-protocol multi-vendor model connections, keys encrypted locally', 'Connector credentials hosted, per-agent authorization allowlists', 'Sandbox backend selection and per-run usage stats'],
+        flow: ['Configure vendors & model connections (dual protocol)', 'Connector credentials and per-agent authorization', 'Pick sandbox / ontology-engine runtime', 'Usage stats and config import / export'],
       },
     },
+    links: [
+      { href: '#/deploy', i18n: { zh: '部署运行', en: 'Deploy' } },
+    ],
     features: [
       {
         icon: 'KeyOutlined',
@@ -335,13 +376,19 @@ export const MODULES: ModuleInfo[] = [
         title: '整体设计',
         tagline: '产品定位 / 架构分层 / 技术栈 / 协议面 / 部署形态',
         brief: ['产品定位与三平面 + 双代理架构', '技术栈总表与 REST+SSE / MCP 协议面', '设计原则四条：开源优先 / 可插拔 / 诚实降级 / 低侵入'],
+        flow: ['读整体架构（三平面+双代理）', '五层执行模型与机制图', '设计原则与理论依据', '进入部署或在线演示'],
       },
       en: {
         title: 'Overall Design',
         tagline: 'Product positioning / architecture layers / tech stack / protocols / deployment',
-        brief: ['Product positioning; three planes + dual-proxy architecture', 'Tech stack table and the REST+SSE / MCP protocol surface', 'Four design principles: open source first / pluggable / honest degradation / low intrusion'],
+        brief: ['Product positioning and the three-plane + dual-agent architecture', 'Tech-stack table and REST+SSE / MCP protocol surfaces', 'Four design principles: open-source first / pluggable / honest degradation / low intrusion'],
+        flow: ['Read the architecture (three planes + dual agents)', 'Five-layer execution model with diagrams', 'Design principles and theoretical grounding', 'Head to deploy or the online demo'],
       },
     },
+    links: [
+      { href: '#/architecture', i18n: { zh: '整体架构图', en: 'Architecture' } },
+      { href: '#/ecosystem', i18n: { zh: '开源生态', en: 'Ecosystem' } },
+    ],
     features: [
       {
         icon: 'AimOutlined',

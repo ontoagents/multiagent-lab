@@ -21,6 +21,7 @@ import {
   KeyOutlined,
   LockOutlined,
   NodeIndexOutlined,
+  RightOutlined,
   SearchOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
@@ -32,17 +33,17 @@ import { MODULES, moduleText } from '../content'
 import { useCopy, useLocale } from '../i18n'
 
 // ---------------------------------------------------------------------------
-// 功能模块页（REQ-238 立项；REQ-364 去文档化重写；迭代批单页纵排改造）：
-// 旧版 = 每模块一页（#/module/<key>），页间仅靠底部 prev/next 翻页器切换——入口藏
-// 在页底且一次只见相邻两个，开发者反馈「切换方式隐藏地太深了，很难发现」。
-// 新版 = 七模块单页纵排 + 吸顶锚点条：全部模块名常驻可见（topnav 之下 sticky），
-// 点击平滑跳转对应区块、滚动时当前区块高亮（IntersectionObserver）——上下切换，
-// 一眼可见。旧深链 #/module/<key>（首页模块卡/页脚/实现页互引）兼容：挂载即定位
-// 到对应模块区块。页内跳转用 scrollIntoView（不能用 #hash 锚点，与 hash 路由冲突，
-// Implementation 页同款先例）。
-// 内容形态沿 REQ-364：速览要点 + 图标功能卡网格（icon + 标题 + 一句话说明），
-// 零文档链接；事实口径仍以 platform-knowledge 导读档为单源（content.ts 头注）；
-// 英文侧功能卡中英双份（REQ-360）。
+// 功能模块页（REQ-238 立项；REQ-364 去文档化重写；单页纵排迭代；REQ-374 左侧竖向导航
+// +内容丰富）：
+// 导航形态：v1 每模块一页+页底 prev/next 翻页器（入口藏页底难发现）→ v2 单页纵排+顶部
+// 横向吸顶条 → v3（本轮）**左侧竖向导航栏**：桌面端左侧 sticky 竖列（序号+模块名，当前
+// 区块高亮，点击平滑跳转），窄屏（≤900px）回落为顶部横向滚动条。滚动高亮沿用
+// IntersectionObserver；页内跳转 scrollIntoView 不写 hash（与 hash 路由冲突，先例）；
+// 旧深链 #/module/<key> 挂载即定位对应区块。
+// 内容丰富（REQ-374）：每模块新增「典型流程」步骤条（3~5 步动线，对齐平台真实动线，
+// content.ts 数据单源）与「继续了解」站内延伸链接（在线演示/实现与原理/部署/架构/生态）。
+// 内容形态沿 REQ-364：速览要点 + 图标功能卡网格，零文档链接；事实口径以
+// platform-knowledge 导读档为单源（content.ts 头注）；英文侧双语（REQ-360）。
 // ---------------------------------------------------------------------------
 
 /** 功能卡图标映射：content.ts 存组件名（.ts 纯数据无 JSX），渲染侧还原组件 */
@@ -79,18 +80,24 @@ const COPY = {
   zh: {
     crumbsHome: '首页',
     title: '功能模块',
-    tagline: '七个模块一页纵览——点击模块名直达对应区块，或直接向下滚动逐一了解。',
+    tagline: '七个模块一页纵览——左侧导航直达对应区块，或直接向下滚动逐一了解。',
     navAria: '模块导航',
     briefAria: '模块速览',
+    flowHead: '典型流程',
+    flowAria: '典型使用流程',
     featuresHead: '核心能力',
+    linksHead: '继续了解',
   },
   en: {
     crumbsHome: 'Home',
     title: 'Modules',
-    tagline: 'All seven modules on one page — click a module name to jump to it, or simply scroll.',
+    tagline: 'All seven modules on one page — use the left rail to jump, or simply scroll.',
     navAria: 'Module navigation',
     briefAria: 'Module at a glance',
+    flowHead: 'Typical flow',
+    flowAria: 'Typical usage flow',
     featuresHead: 'Core capabilities',
+    linksHead: 'Keep exploring',
   },
 }
 
@@ -106,16 +113,22 @@ export default function ModulePage({ initial }: { initial?: string }) {
     setActive(initial)
   }, [initial])
 
-  // 滚动高亮：区块进入「吸顶条下方视口带」即点亮对应 chip
+  // 滚动高亮：视口带内取「最贴近带起点」的区块为当前——已被滚过、尾部仍留在带内的
+  // 区块以很负的 top 在场，按几何最小 top 会错误胜出，故按到带起点（≈rootMargin top
+  // 100px）的距离最小者胜
   useEffect(() => {
     const obs = new IntersectionObserver(
       (entries) => {
+        let best: { id: string; dist: number } | null = null
         for (const e of entries) {
-          if (e.isIntersecting) setActive(String(e.target.id).replace('module-', ''))
+          if (!e.isIntersecting) continue
+          const dist = Math.abs(e.boundingClientRect.top - 100)
+          if (!best || dist < best.dist) best = { id: String(e.target.id).replace('module-', ''), dist }
         }
+        if (best) setActive(best.id)
       },
-      // 顶栏 56px + 吸顶条 ~52px + 余量；下沿收窄到视口上部 45%，保证「正在阅读的区块」胜出
-      { rootMargin: '-130px 0px -55% 0px' },
+      // 顶栏 56px + 余量；下沿收窄到视口上部 45%，保证「正在阅读的区块」胜出
+      { rootMargin: '-100px 0px -55% 0px' },
     )
     for (const m of MODULES) {
       const el = document.getElementById(`module-${m.key}`)
@@ -141,59 +154,88 @@ export default function ModulePage({ initial }: { initial?: string }) {
         <p className="module-tagline">{c.tagline}</p>
       </div>
 
-      {/* 吸顶模块锚点条：直接挂在 main 下（父容器纵贯整页才吸得住；7 个模块名常驻可见） */}
-      <nav className="module-nav" aria-label={c.navAria}>
-        <div className="module-nav-inner">
-          {MODULES.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              className={`module-nav-item${active === m.key ? ' active' : ''}`}
-              onClick={() => jump(m.key)}
-            >
-              {moduleText(m, locale).title}
-            </button>
-          ))}
+      <div className="page-inner modules-layout">
+        {/* 左侧竖向导航：桌面 sticky 竖列，窄屏回落顶部横向滚动条（CSS media query） */}
+        <aside className="modules-rail-wrap">
+          <nav className="modules-rail" aria-label={c.navAria}>
+            {MODULES.map((m, i) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`module-nav-item${active === m.key ? ' active' : ''}`}
+                onClick={() => jump(m.key)}
+              >
+                <span className="rail-num">{String(i + 1).padStart(2, '0')}</span>
+                <span className="rail-label">{moduleText(m, locale).title}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="modules-main">
+          {MODULES.map((m) => {
+            const mt = moduleText(m, locale)
+            return (
+              <section className="mod-section" id={`module-${m.key}`} key={m.key} aria-label={mt.title}>
+                <h2 className="mod-title">{mt.title}</h2>
+                <p className="mod-tagline">{mt.tagline}</p>
+
+                {/* 速览：30 秒看懂本模块 */}
+                <section className="module-brief" aria-label={c.briefAria}>
+                  <span className="eyebrow">Quick Glance</span>
+                  <ul>
+                    {mt.brief.map((b) => (
+                      <li key={b}>
+                        <CheckCircleFilled className="brief-check" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                {/* 典型流程（REQ-374）：编号步骤条，一眼看清本模块怎么用 */}
+                <section className="mod-flow" aria-label={c.flowAria}>
+                  <h3 className="mod-sub-head">{c.flowHead}</h3>
+                  <ol className="flow-strip">
+                    {mt.flow.map((step, i) => (
+                      <li className="flow-step" key={step}>
+                        <span className="flow-num">{i + 1}</span>
+                        <span className="flow-text">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+
+                {/* 核心能力：图标功能卡网格（REQ-364，替代原文档链接列表） */}
+                <section aria-label={c.featuresHead}>
+                  <h3 className="mod-sub-head">{c.featuresHead}</h3>
+                  <div className="mfeat-grid">
+                    {m.features.map((f) => (
+                      <article className="mfeat-card" key={f.icon}>
+                        <span className="mfeat-icon">{FEATURE_ICONS[f.icon]}</span>
+                        <h4 className="mfeat-title">{f.i18n[locale].title}</h4>
+                        <p className="mfeat-desc">{f.i18n[locale].desc}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                {/* 继续了解（REQ-374）：站内延伸入口 */}
+                {m.links && m.links.length > 0 && (
+                  <section className="mod-links" aria-label={c.linksHead}>
+                    <span className="mod-links-head">{c.linksHead}</span>
+                    {m.links.map((l) => (
+                      <a className="mod-link" key={l.href + l.i18n[locale]} href={l.href}>
+                        {l.i18n[locale]}
+                        <RightOutlined className="mod-link-arrow" />
+                      </a>
+                    ))}
+                  </section>
+                )}
+              </section>
+            )
+          })}
         </div>
-      </nav>
-
-      <div className="page-inner">
-        {MODULES.map((m) => {
-          const mt = moduleText(m, locale)
-          return (
-            <section className="mod-section" id={`module-${m.key}`} key={m.key} aria-label={mt.title}>
-              <h2 className="mod-title">{mt.title}</h2>
-              <p className="mod-tagline">{mt.tagline}</p>
-
-              {/* 速览：30 秒看懂本模块 */}
-              <section className="module-brief" aria-label={c.briefAria}>
-                <span className="eyebrow">Quick Glance</span>
-                <ul>
-                  {mt.brief.map((b) => (
-                    <li key={b}>
-                      <CheckCircleFilled className="brief-check" />
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              {/* 核心能力：图标功能卡网格（REQ-364，替代原文档链接列表） */}
-              <section aria-label={c.featuresHead}>
-                <h3 className="module-feat-head">{c.featuresHead}</h3>
-                <div className="mfeat-grid">
-                  {m.features.map((f) => (
-                    <article className="mfeat-card" key={f.icon}>
-                      <span className="mfeat-icon">{FEATURE_ICONS[f.icon]}</span>
-                      <h4 className="mfeat-title">{f.i18n[locale].title}</h4>
-                      <p className="mfeat-desc">{f.i18n[locale].desc}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </section>
-          )
-        })}
       </div>
     </main>
   )
