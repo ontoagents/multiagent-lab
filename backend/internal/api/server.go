@@ -3,13 +3,14 @@ package api
 
 import (
 	"context"
-	"os"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
 	comedata "github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion/evaldata"
@@ -27,6 +28,7 @@ type Server struct {
 	Store         *store.Store
 	Box           *secrets.Box
 	Chat          *chat.Service
+	A2A           *a2a.Service // REQ-369：A2A 协议端点服务
 	Tools         *tool.Registry
 	KB            *kb.Service
 	Ontology      *ontology.Service  // M8：本体对接（反代/facade 探测）
@@ -86,6 +88,30 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	ontoBuildSvc.BuildPlaneURL = onto.BuildURL                 // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
 	ontoBuildSvc.OnStage = buildflowTracePoster(onto.BuildURL) // REQ-340 A2：kb-extract 段留痕聚合到构建平面（fire-and-forget）
 	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
+	// REQ-369/M167：A2A 端点服务（运行执行器=chat.Run+伴生收尾+最终助手消息读取——与 SSE 路径
+	// 同一 runner 管线；伴生沉淀/命中追踪对 A2A 委派同样生效）
+	s.A2A = a2a.New(st)
+	s.A2A.RunFunc = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		res, rerr := chatSvc.Run(ctx, conv, agent, runID, input, 0, false, nil)
+		if rerr != nil {
+			return "", rerr
+		}
+		comp.OnRunComplete(conv, agent, runID)
+		comp.RecordHits(conv.ID, runID)
+		if res.Error != "" {
+			return "", errors.New(res.Error)
+		}
+		msgs, merr := st.ListMessages(conv.ID)
+		if merr == nil {
+			for i := len(msgs) - 1; i >= 0; i-- {
+				if msgs[i].ID == res.AssistantMessageID {
+					return msgs[i].Content, nil
+				}
+			}
+		}
+		return "", nil
+	}
+	s.A2A.Stop = chatSvc.Stop
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器
 	s.routes()
@@ -255,6 +281,14 @@ func (s *Server) routes() {
 
 	// 工具注册表（REQ-24 工具勾选）
 	m.HandleFunc("GET /api/tools", s.listTools)
+	// REQ-369/M167：A2A 端点暴露（发现面/Agent Card/JSON-RPC；鉴权沿全局 accessAuth）
+	m.HandleFunc("GET /api/a2a/agents", s.A2A.AgentsExposed)
+	m.HandleFunc("GET /api/a2a/agents/{id}/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		s.A2A.HandleCard(w, r, r.PathValue("id"))
+	})
+	m.HandleFunc("POST /api/a2a/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
+		s.A2A.HandleRPC(w, r, r.PathValue("id"))
+	})
 
 	// 技能库（M7，§6.12）
 	// Knowledge base（M6，§450）
