@@ -26,20 +26,20 @@ type ProbeResult struct {
 
 // Capabilities 能力矩阵（§6.16.4 能力降级表）。
 type Capabilities struct {
-	Chat        bool   `json:"chat"`         // 单 Agent 对话
-	Stream      bool   `json:"stream"`       // 流式输出
-	SkillsMode  string `json:"skills_mode"`  // tools=原生工具 | instruction=注入为提示 | none=不支持
-	MCPMode     string `json:"mcp_mode"`     // 同上（MCP 工具）
+	Chat        bool   `json:"chat"`          // 单 Agent 对话
+	Stream      bool   `json:"stream"`        // 流式输出
+	SkillsMode  string `json:"skills_mode"`   // tools=原生工具 | instruction=注入为提示 | none=不支持
+	MCPMode     string `json:"mcp_mode"`      // 同上（MCP 工具）
 	AgentAsTool bool   `json:"agent_as_tool"` // 多 Agent 编排（AgentAsTool/transfer）
-	Workflow    bool   `json:"workflow"`     // 工作流编排
-	Resume      bool   `json:"resume"`       // 中断恢复（Cancel 之外）
+	Workflow    bool   `json:"workflow"`      // 工作流编排
+	Resume      bool   `json:"resume"`        // 中断恢复（Cancel 之外）
 }
 
 // RunRequest 一次外部推理请求。Prompt 为 chat 层组装好的完整提示
 // （指令 + 技能/MCP 降级注入 + 知识库上下文 + 历史 + 用户输入）。
 type RunRequest struct {
 	Prompt    string
-	UserInput string            // 原始用户输入（事件展示用）
+	UserInput string // 原始用户输入（事件展示用）
 	// SessionID 平台会话标识（REQ-206/S2 ACP 通道：dshSessionId 映射源；其他后端忽略）
 	SessionID string
 	Cwd       string            // 子进程工作目录（空 = 继承）
@@ -139,6 +139,7 @@ func NewRegistry() *Registry {
 		r.Register(b)
 	}
 	r.Register(newACPAdapter()) // REQ-206/S2：dsh --profile acp 长驻通道（独立于 M24 headless cliAdapter）
+	r.Register(newSDKAdapter()) // REQ-206/S3：dsh --profile sdk 事件审计通道（session.event 全量落 run_event）
 	return r
 }
 

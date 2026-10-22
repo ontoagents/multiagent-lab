@@ -5,7 +5,7 @@ desc: harness 技术沉淀单一事实点——层职责与代码地图、已交
 req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-355, REQ-356, REQ-360, REQ-362]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-10-20
+synced: 2026-10-22
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -42,6 +42,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 装配预览 | `internal/api/handlers_toolpreview.go` | GET /api/agents/{id}/tool-preview（四源合并确定性预览+遮蔽告警，零 MCP 拨号）+ GET /api/hooks |
 | 分层侧板 | `web/src/components/AgentSidePanel.tsx` | Harness 页签：运行后端/沙箱资源/工作目录/验证命令/审批策略（三档+豁免+超时）/工具预览卡/hooks 卡（后端读取） |
 | 外部 harness 接口 | `internal/inference/acp.go` | dsh 通道面（ACP 长驻 stdio/session 语义转译/权限默认 deny；外部 CLI 后端不走装配链——harness 配置对其不生效） |
+| 外部 harness 接口（SDK 审计） | `internal/inference/sdk.go` | dsh `--profile sdk` 事件审计通道（REQ-206/M41 S3：session.event 全量转译 external.audit 落 run_event——治理面 sandbox/approval+请求面 request/header/context 仅此通道可见；无生命周期面〔resume/取消/权限/MCP 归 acp.go ACP 主通道〕；一次 Run=一进程一会话一轮，turn/end 或 idle 结算+静默收尾+shutdown） |
 
 ## 二、实现现状（已交付能力表）
 

@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,11 +41,11 @@ func (e *einoADK) Run(_ context.Context, _ *RunRequest, _ func(Event)) error {
 // cliAdapter 外部 CLI 适配器公共骨架：PATH 探测 + 子进程执行 + stdout 行解析。
 type cliAdapter struct {
 	name        string
-	bin         []string            // 候选可执行名（依次 LookPath）
-	versionArgs []string            // 探测版本参数
+	bin         []string // 候选可执行名（依次 LookPath）
+	versionArgs []string // 探测版本参数
 	buildArgs   func(req *RunRequest) []string
 	parseLine   func(line string, emit func(Event)) // 逐行解析 stdout（nil = 整段输出一条 delta）
-	linePrefix  string              // 非 nil 时每条 delta 追加的行尾符
+	linePrefix  string                              // 非 nil 时每条 delta 追加的行尾符
 }
 
 func (c *cliAdapter) Name() string { return c.name }

@@ -34,10 +34,10 @@ import (
 
 // acpSession 一次长驻 dsh 进程上的会话客户端（JSON-RPC 2.0 行分帧）。
 type acpSession struct {
-	proc  *streamingProc
-	mu    sync.Mutex
-	next  int64
-	pend  map[int64]chan acpResp
+	proc      *streamingProc
+	mu        sync.Mutex
+	next      int64
+	pend      map[int64]chan acpResp
 	toolNames map[string]string // toolCallID → 工具名（tool_call 时记；update 帧不带 title，回填 tool.result.name）
 	// notif 通知（无 id）回调；onRequest server→client request（带帧级 id，如 session/request_permission）
 	// 回调——id 必须经此透传，应答才能定向送回（S2 真机联调修正：此前帧级 id 丢失、应答从未发出）。
