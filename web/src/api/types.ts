@@ -683,12 +683,17 @@ export interface CqBenchmarkRun {
   version: number
   dataset: string
   ts: string
-  signals: { id: string; cq: string; translated: boolean; whitelist_ok: boolean; gold_aligned: boolean; query?: string; error?: string }[]
+  signals: { id: string; cq: string; kind?: string; difficulty?: string; translated: boolean; whitelist_ok: boolean; gold_aligned: boolean; query?: string; error?: string }[]
   translated: number
   whitelist: number
   gold_aligned: number
   total: number
   note?: string
+  /** REQ-367/M165：双维分层跑分（difficulty/kind 各档独立三率） */
+  by_difficulty?: Record<string, { total: number; translated: number; whitelist: number; gold_aligned: number }>
+  by_kind?: Record<string, { total: number; translated: number; whitelist: number; gold_aligned: number }>
+  /** REQ-352/M152：口径声明（判定口径/分层口径/数据集版本/评测器版本）——版本对比视图消费防口径漂移误读 */
+  metric_definition?: { translated?: string; whitelist?: string; gold_aligned?: string; stratified?: string; dataset_rev?: string; generator_ver?: string }
 }
 
 /** REQ-331/M131：资产级质量评分历史行（source=draft|ingest|manual；趋势线+三点对照取数源） */

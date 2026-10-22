@@ -76,6 +76,63 @@ function EvolutionTriple({ history }: { history: QualityScoreRow[] }) {
   )
 }
 
+
+/** REQ-352/M152：基准报告版本对比视图——选两 run 并排三率+口径声明对照；
+ *  dataset_rev/generator_ver 不一致 = 口径漂移，警示跨版本对比不可比（消费 metric_definition 字段面）。 */
+function BenchCompareView({ runs }: { runs: CqBenchmarkRun[] }) {
+  const sorted = [...runs].reverse() // 新在前
+  const label = (r: CqBenchmarkRun) => `${r.dataset}·v${r.version}·${r.ts.slice(5, 16).replace('T', ' ')}`
+  const keyOf = (r: CqBenchmarkRun) => `${r.dataset}-${r.ts}`
+  const [aId, setA] = useState<string>(() => (sorted[1] ? keyOf(sorted[1]) : ''))
+  const [bId, setB] = useState<string>(() => (sorted[0] ? keyOf(sorted[0]) : ''))
+  const find = (id: string) => runs.find((r) => keyOf(r) === id)
+  const ra = find(aId)
+  const rb = find(bId)
+  if (!ra || !rb) return null
+  const rate = (r: CqBenchmarkRun, k: 'translated' | 'whitelist' | 'gold_aligned') => (r.total ? Math.round((r[k] / r.total) * 100) : 0)
+  const drift = (ra.metric_definition?.dataset_rev ?? '') !== (rb.metric_definition?.dataset_rev ?? '')
+    || (ra.metric_definition?.generator_ver ?? '') !== (rb.metric_definition?.generator_ver ?? '')
+  const delta = (da: number, db: number) => {
+    const d = da - db
+    if (d === 0) return <Tag style={{ margin: 0 }}>持平</Tag>
+    return <Tag color={d > 0 ? 'green' : 'red'} style={{ margin: 0 }}>{d > 0 ? '+' : ''}{d}pp</Tag>
+  }
+  const rows: { k: string; va: string; vb: string; da?: number; db?: number }[] = [
+    { k: '翻译', va: `${ra.translated}/${ra.total}`, vb: `${rb.translated}/${rb.total}`, da: rate(ra, 'translated'), db: rate(rb, 'translated') },
+    { k: '白名单', va: `${ra.whitelist}/${ra.total}`, vb: `${rb.whitelist}/${rb.total}`, da: rate(ra, 'whitelist'), db: rate(rb, 'whitelist') },
+    { k: 'gold 对齐', va: `${ra.gold_aligned}/${ra.total}`, vb: `${rb.gold_aligned}/${rb.total}`, da: rate(ra, 'gold_aligned'), db: rate(rb, 'gold_aligned') },
+    { k: '数据集版本', va: ra.metric_definition?.dataset_rev ?? '—', vb: rb.metric_definition?.dataset_rev ?? '—' },
+    { k: '评测器口径', va: ra.metric_definition?.generator_ver ?? '—', vb: rb.metric_definition?.generator_ver ?? '—' },
+  ]
+  return (
+    <div data-testid="cq-bench-compare" style={{ margin: '4px 0 8px' }}>
+      <Space size={8} wrap style={{ marginBottom: 4 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>版本对比：</Typography.Text>
+        <Select size="small" style={{ minWidth: 220 }} value={aId} onChange={setA} data-testid="bench-compare-a"
+          options={sorted.map((r) => ({ value: keyOf(r), label: `A：${label(r)}` }))} />
+        <Select size="small" style={{ minWidth: 220 }} value={bId} onChange={setB} data-testid="bench-compare-b"
+          options={sorted.map((r) => ({ value: keyOf(r), label: `B：${label(r)}` }))} />
+      </Space>
+      {drift && (
+        <Alert type="warning" showIcon style={{ marginBottom: 4 }}
+          title="口径漂移：两次运行的数据集版本或评测器口径不同——三率差异含口径因素，跨版本对比不可比（REQ-352）。" />
+      )}
+      <Table
+        size="small"
+        pagination={false}
+        rowKey="k"
+        dataSource={rows}
+        columns={[
+          { title: '指标', dataIndex: 'k', width: 110 },
+          { title: `A（${label(ra)}）`, dataIndex: 'va', render: (v: string, row) => (row.da !== undefined ? <span>{v} <Tag style={{ margin: 0 }}>{row.da}%</Tag></span> : v) },
+          { title: `B（${label(rb)}）`, dataIndex: 'vb', render: (v: string, row) => (row.db !== undefined ? <span>{v} <Tag style={{ margin: 0 }}>{row.db}%</Tag></span> : v) },
+          { title: '差值', render: (_: unknown, row) => (row.da !== undefined && row.db !== undefined ? delta(row.da, row.db) : '—') },
+        ]}
+      />
+    </div>
+  )
+}
+
 export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }: { ontologyId: string; onReport?: (r: QualityReport | null) => void; onGoGraphEdit?: () => void }) {
   const [config, setConfig] = useState<{ strict: boolean; reasoning_check?: boolean } | null>(null)
   const [report, setReport] = useState<QualityReport | null>(null)
@@ -738,6 +795,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                 </div>
               )}
               {benchErr && <Alert type="error" showIcon style={{ marginBottom: 8 }} title={benchErr} onClose={() => setBenchErr(null)} />}
+              {benchRuns && benchRuns.length >= 2 && <BenchCompareView runs={benchRuns} />}
               {benchRuns && benchRuns.length > 0 && (
                 <Table
                   size="small"
