@@ -87,7 +87,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
   const [history, setHistory] = useState<QualityScoreRow[]>([])
   const [remediations, setRemediations] = useState<Record<string, string>>({})
   // REQ-346/M146：CQ 基准集「测我」（数据集清单/运行/报告历史）
-  const [benchDatasets, setBenchDatasets] = useState<{ name: string; ontology: string; count: number }[]>([])
+  const [benchDatasets, setBenchDatasets] = useState<{ name: string; ontology: string; count: number; revision?: string }[]>([]) // REQ-367：revision 透出（r2=60 条分层）
   const [benchDataset, setBenchDataset] = useState<string | undefined>(undefined)
   const [benchBusy, setBenchBusy] = useState(false)
   const [benchProgress, setBenchProgress] = useState('')
@@ -725,7 +725,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                   placeholder="选基准集…"
                   value={benchDataset}
                   onChange={setBenchDataset}
-                  options={benchDatasets.map((d) => ({ value: d.name, label: `${d.name}（${d.count} 条·${d.ontology} 域）` }))}
+                  options={benchDatasets.map((d) => ({ value: d.name, label: `${d.name}（${d.count} 条·${d.ontology} 域·${d.revision ?? 'r1'}）` }))} // REQ-367：revision 随选项透出
                   data-testid="cq-bench-dataset"
                 />
                 <Button size="small" type="primary" loading={benchBusy} disabled={benchBusy || !benchDataset} onClick={runBenchmark} data-testid="cq-bench-run-btn">

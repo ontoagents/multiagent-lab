@@ -1,5 +1,5 @@
 {
-  "note": "REQ-345/M145 CQ 基准集（orgs）· N2 扩容：每本体 10 条=4R+3E+3I 三层均衡（原 3 条全 R 层统计噪声过大）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应，I 层另有实例断言锚点）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/orgs.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "note": "REQ-367/M165 CQ 评测纵深扩容（r2）：12 条=既有 10 条（原文与 gold 不变，仅补双维标注）+2 条推理型/难档（填补分层空格）。双维标注：kind 题型（fact 事实型=模式枚举/relation 关系型=单跳关系/inference 推理型=多跳链或类层归约）×difficulty 难度（easy/medium/hard）；type 沿 81 号 CQ4OE 结构层口径（R=关系层/E=实体概念层/I=实例断言层）保留。r1=REQ-345/M145 50 条（N2 扩容 4R+3E+3I）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；与 internal/seed/examples/orgs.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345②）。",
   "ontology": "orgs",
   "cqs": [
     {
@@ -10,7 +10,9 @@
         "下设",
         "部门"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "orgs-cq-2",
@@ -20,7 +22,9 @@
         "担任",
         "岗位"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "orgs-cq-3",
@@ -30,7 +34,9 @@
         "承接",
         "项目"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "orgs-cq-4",
@@ -40,7 +46,9 @@
         "承接",
         "项目"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "orgs-cq-5",
@@ -53,7 +61,9 @@
         "人员",
         "项目"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
     },
     {
       "id": "orgs-cq-6",
@@ -63,7 +73,9 @@
         "部门",
         "岗位"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "medium"
     },
     {
       "id": "orgs-cq-7",
@@ -73,7 +85,9 @@
         "组",
         "项目"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "medium"
     },
     {
       "id": "orgs-cq-8",
@@ -83,7 +97,9 @@
         "下设",
         "部门"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
     },
     {
       "id": "orgs-cq-9",
@@ -93,7 +109,9 @@
         "参与",
         "项目"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
     },
     {
       "id": "orgs-cq-10",
@@ -103,7 +121,40 @@
         "承接",
         "项目"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "orgs-cq-11",
+      "cq": "星辰科技下设部门的内设组承接了哪些项目？",
+      "gold": [
+        "组织",
+        "下设",
+        "部门",
+        "内设",
+        "组",
+        "承接",
+        "项目"
+      ],
+      "type": "I",
+      "kind": "inference",
+      "difficulty": "hard"
+    },
+    {
+      "id": "orgs-cq-12",
+      "cq": "参与数据中台的人员都任职于哪里？",
+      "gold": [
+        "人员",
+        "参与",
+        "任职于",
+        "部门",
+        "组"
+      ],
+      "type": "I",
+      "kind": "inference",
+      "difficulty": "hard"
     }
-  ]
+  ],
+  "revision": "r2"
 }

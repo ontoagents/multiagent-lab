@@ -645,7 +645,7 @@ export const api = {
     }),
   /** REQ-346/M146：CQ 基准集清单（seeds/evaldata/ontology-cq/ 管理面） */
   cqBenchmarkDatasets: () =>
-    req<{ datasets: { name: string; ontology: string; count: number; note?: string }[]; count: number }>(
+    req<{ datasets: { name: string; ontology: string; count: number; revision?: string; note?: string }[]; count: number }>(
       '/api/ontology/cq-benchmark/datasets',
     ),
   /** REQ-346/M146：用基准集测我（202 job 轮询 aiDraftJob；报告落 artifact cq-benchmark-report） */

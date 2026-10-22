@@ -15,8 +15,9 @@ func TestListDatasets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("a.json", `{"ontology":"a","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R"}],"note":"n"}`)
-	write("b.json", `{"ontology":"b","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R"},{"id":"2","cq":"Q2?","gold":["Y"],"type":"E"}]}`)
+	// REQ-367 r2 schema：revision 非空 + 双维标注（kind/difficulty）齐备
+	write("a.json", `{"ontology":"a","revision":"r2","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"relation","difficulty":"easy"}],"note":"n"}`)
+	write("b.json", `{"ontology":"b","revision":"r2","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"relation","difficulty":"easy"},{"id":"2","cq":"Q2?","gold":["Y"],"type":"E","kind":"inference","difficulty":"hard"}],"note":"n"}`)
 	write("readme.md", "非 json 应跳过")
 	write("broken.json", `{invalid`)
 
@@ -33,6 +34,47 @@ func TestListDatasets(t *testing.T) {
 	}
 	if list[1].Count != 2 {
 		t.Fatalf("count 不符: %+v", list[1])
+	}
+	// REQ-367：revision 与分层分布透出
+	if list[1].Revision != "r2" {
+		t.Fatalf("revision 应透出: %+v", list[1])
+	}
+	if list[1].Kinds["relation"] != 1 || list[1].Kinds["inference"] != 1 {
+		t.Fatalf("kinds 分布不符: %+v", list[1].Kinds)
+	}
+	if list[1].Difficulties["easy"] != 1 || list[1].Difficulties["hard"] != 1 {
+		t.Fatalf("difficulties 分布不符: %+v", list[1].Difficulties)
+	}
+}
+
+// TestLoadDatasetValidation REQ-367 严格 schema 校验：缺 revision/非法枚举/空集拒绝（基准集是
+// 产品资产，漂移即缺陷；坏文件经 ListDatasets 跳过=诚实消失不炸清单）。
+func TestLoadDatasetValidation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ok := `{"ontology":"a","revision":"r2","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"relation","difficulty":"easy"}],"note":"n"}`
+	missingRev := `{"ontology":"a","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"relation","difficulty":"easy"}],"note":"n"}`
+	badKind := `{"ontology":"a","revision":"r2","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"quiz","difficulty":"easy"}],"note":"n"}`
+	badDiff := `{"ontology":"a","revision":"r2","cqs":[{"id":"1","cq":"Q?","gold":["X"],"type":"R","kind":"relation","difficulty":"简单"}],"note":"n"}`
+	empty := `{"ontology":"a","revision":"r2","cqs":[],"note":"n"}`
+
+	if _, err := LoadDataset(filepath.Join(dir, "x.json")); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("文件缺失应报错: %v", err)
+	}
+	for name, body := range map[string]string{"ok.json": ok, "missing_rev.json": missingRev, "bad_kind.json": badKind, "bad_diff.json": badDiff, "empty.json": empty} {
+		write(name, body)
+	}
+	if _, err := LoadDataset(filepath.Join(dir, "ok.json")); err != nil {
+		t.Fatalf("合法 r2 数据集应通过: %v", err)
+	}
+	for _, name := range []string{"missing_rev.json", "bad_kind.json", "bad_diff.json", "empty.json"} {
+		if _, err := LoadDataset(filepath.Join(dir, name)); err == nil {
+			t.Fatalf("%s 应被 schema 校验拒绝", name)
+		}
 	}
 }
 

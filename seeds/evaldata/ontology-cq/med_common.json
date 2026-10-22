@@ -1,5 +1,5 @@
 {
-  "note": "REQ-345/M145 CQ 基准集（med_common）· N2 扩容：每本体 10 条=4R+3E+3I 三层均衡（原 3 条全 R 层统计噪声过大）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应，I 层另有实例断言锚点）；type 沿 81 号 CQ4OE 标注口径（R=关系层/E=实体概念层/I=实例断言层）。与 internal/seed/examples/med_common.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345③）。",
+  "note": "REQ-367/M165 CQ 评测纵深扩容（r2）：12 条=既有 10 条（原文与 gold 不变，仅补双维标注）+2 条推理型/难档（填补分层空格）。双维标注：kind 题型（fact 事实型=模式枚举/relation 关系型=单跳关系/inference 推理型=多跳链或类层归约）×difficulty 难度（easy/medium/hard）；type 沿 81 号 CQ4OE 结构层口径（R=关系层/E=实体概念层/I=实例断言层）保留。r1=REQ-345/M145 50 条（N2 扩容 4R+3E+3I）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；与 internal/seed/examples/med_common.json 的 spec.CQ 由一致性测试锁定双端同步（REQ-345②）。",
   "ontology": "med_common",
   "cqs": [
     {
@@ -10,7 +10,9 @@
         "治疗",
         "疾病"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-2",
@@ -20,7 +22,9 @@
         "表现为",
         "症状"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-3",
@@ -30,7 +34,9 @@
         "禁忌于",
         "疾病"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-4",
@@ -39,7 +45,9 @@
         "药物",
         "相互作用"
       ],
-      "type": "R"
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-5",
@@ -50,7 +58,9 @@
         "钙通道阻滞剂",
         "利尿剂"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-6",
@@ -61,7 +71,9 @@
         "影像学检查",
         "体格检查"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-7",
@@ -72,7 +84,9 @@
         "大环内酯类抗生素",
         "喹诺酮类抗菌药"
       ],
-      "type": "E"
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
     },
     {
       "id": "med_common-cq-8",
@@ -82,7 +96,9 @@
         "禁忌于",
         "疾病"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
     },
     {
       "id": "med_common-cq-9",
@@ -92,7 +108,9 @@
         "治疗",
         "疾病"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
     },
     {
       "id": "med_common-cq-10",
@@ -102,7 +120,37 @@
         "缓解",
         "症状"
       ],
-      "type": "I"
+      "type": "I",
+      "kind": "relation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "med_common-cq-11",
+      "cq": "治疗痛风的药物有哪些用药禁忌疾病？",
+      "gold": [
+        "药物",
+        "治疗",
+        "禁忌于",
+        "疾病"
+      ],
+      "type": "I",
+      "kind": "inference",
+      "difficulty": "hard"
+    },
+    {
+      "id": "med_common-cq-12",
+      "cq": "可引起头痛的药物能治疗哪些疾病？",
+      "gold": [
+        "药物",
+        "可引起",
+        "症状",
+        "治疗",
+        "疾病"
+      ],
+      "type": "I",
+      "kind": "inference",
+      "difficulty": "hard"
     }
-  ]
+  ],
+  "revision": "r2"
 }
