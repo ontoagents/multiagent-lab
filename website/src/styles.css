@@ -152,8 +152,29 @@ main { flex: 1; }
 .md-body pre { background: #f2f4fb; border: 1px solid var(--c-line); border-radius: 8px; padding: 13px 15px; overflow: auto; }
 .md-body pre code { background: none; border: none; padding: 0; }
 .md-body blockquote { margin: 12px 0; padding: 4px 16px; border-left: 3px solid var(--c-brand); color: var(--c-ink-2); background: #fbfbfe; }
-.module-pager { display: flex; justify-content: space-between; margin-top: 18px; font-size: 14px; }
-.module-pager a { color: var(--c-brand); text-decoration: none; }
+/* ===== 功能模块页（迭代批：单页纵排+吸顶锚点条，替代页底 prev/next 翻页器） ===== */
+.module-nav {
+  position: sticky; top: 56px; z-index: 9; /* topnav 之下 */
+  background: rgba(251, 251, 254, 0.94); backdrop-filter: blur(8px);
+  border-top: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line);
+  margin: 16px 0 10px;
+}
+.module-nav-inner {
+  max-width: var(--maxw); margin: 0 auto; padding: 10px 24px;
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin;
+}
+.module-nav-item {
+  flex: none; border: 1px solid var(--c-line); background: #fff; color: var(--c-ink-2);
+  border-radius: 999px; padding: 5px 15px; font-size: 13.5px; line-height: 1.5; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.module-nav-item:hover { color: #4f46e5; border-color: #4f46e5; background: #eef0ff; }
+.module-nav-item.active { color: #fff; background: #4f46e5; border-color: #4f46e5; }
+.mod-section { padding-top: 10px; scroll-margin-top: 128px; } /* 顶栏 56 + 吸顶条 ~52 + 余量 */
+.mod-section + .mod-section { margin-top: 34px; border-top: 1px solid var(--c-line); }
+.mod-title { margin: 0 0 4px; font-size: 22px; }
+.mod-tagline { margin: 0 0 14px; color: var(--c-ink-2); font-size: 14px; }
+.mod-section .module-feat-head { margin-top: 18px; font-size: 15px; }
 
 /* ===== 演示页 ===== */
 .demo-bar { margin: 6px 0 10px; }

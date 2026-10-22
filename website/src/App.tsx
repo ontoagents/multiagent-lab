@@ -17,7 +17,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 // ---------------------------------------------------------------------------
 // 官网壳（REQ-238）：hash 路由（GitHub Pages 子路径静态托管免 404 配置）
 //   #/                首页（产品预览 + 使用场景 + 全景导览）
-//   #/module/<key>    模块详细介绍（速览 + 图标功能卡，REQ-364 去文档化）
+//   #/module/<key>    功能模块（七模块单页纵排+吸顶锚点条；<key> 定位到对应区块，迭代批）
 //   #/architecture    整体架构（三平面 + 双代理 SVG 总图）
 //   #/implementation  实现与原理（REQ-364 由关键实现+实现原理合并；旧 #/principles 重定向至此）
 //   #/ecosystem       开源生态（关联图谱 / 七类对比表 / 状态口径）
@@ -84,8 +84,9 @@ const COPY = {
 function Body({ route }: { route: string }) {
   const moduleMatch = route.match(/^#\/module\/([\w-]+)/)
   if (moduleMatch) {
+    // 迭代批：模块页单页纵排——#/module/<key> 定位到对应模块区块（旧深链/模块卡/页脚互引兼容）
     const mod = MODULES.find((m) => m.key === moduleMatch[1])
-    return mod ? <ModulePage info={mod} /> : <NotFound />
+    return mod ? <ModulePage initial={mod.key} /> : <NotFound />
   }
   if (route.startsWith('#/architecture')) return <ArchitecturePage />
   // REQ-364：关键实现 + 实现原理合并为一页；旧 #/principles 链接重定向
