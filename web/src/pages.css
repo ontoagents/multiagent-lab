@@ -118,6 +118,13 @@
   padding: 12px 14px; max-height: 52vh; overflow: auto;
 }
 
+/* ---- REQ-371 技能导入结果明细 ---- */
+.import-detail-list {
+  margin-top: 6px; max-height: 200px; overflow: auto;
+  background: var(--c-bg); border: 1px solid var(--c-hover-soft); border-radius: 8px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; line-height: 1.6;
+}
+
 /* ---- 本体：七阶段步骤条 + 阶段配置卡 ---- */
 .onto-steps { background: var(--c-panel); border: 1px solid var(--c-line); border-radius: 12px; padding: 18px 20px 6px; }
 .onto-steps .ant-steps-item.onto-step-selected .ant-steps-item-title { color: var(--c-brand); font-weight: 600; }

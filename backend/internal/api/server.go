@@ -304,6 +304,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/skills", s.listSkills)
 	m.HandleFunc("POST /api/skills", s.createSkill)
+	m.HandleFunc("POST /api/skills/import", s.importSkills) // REQ-371：目录式技能包批量导入（zip）
 	m.HandleFunc("GET /api/skills/{id}", s.getSkill)
 	m.HandleFunc("PUT /api/skills/{id}", s.updateSkill)
 	m.HandleFunc("GET /api/skills/{id}/preview", s.previewSkill)

@@ -487,6 +487,16 @@ export interface Skill {
   updated_at: string
 }
 
+/** REQ-371：目录式技能包导入报告（同名跳过不覆盖；failed 为解析/落库失败明细） */
+export interface SkillImportReport {
+  created: number
+  names?: string[]
+  skipped?: { name: string; reason: string }[]
+  failed?: { name: string; reason: string }[]
+  notes?: { skill: string; notes: string[] }[]
+  lists_shrunk?: boolean
+}
+
 // ---- M5 工具注册表（02 文档 §6.8：id/name/desc，前端勾选落 agent.tools） ----
 
 export interface ToolInfo {

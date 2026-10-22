@@ -15,6 +15,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
 } from 'antd'
 import {
   EllipsisOutlined,
@@ -23,10 +24,11 @@ import {
   PlusOutlined,
   SearchOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
 import EmptyGuide from '../components/EmptyGuide'
-import type { Agent, Skill, ToolInfo } from '../api/types'
+import type { Agent, Skill, SkillImportReport, ToolInfo } from '../api/types'
 import { useUI } from '../store/ui'
 
 type FilterKey = 'all' | 'mounted' | 'unmounted'
@@ -48,6 +50,8 @@ export default function SkillsPage() {
   const [q, setQ] = useState('')
   const [modal, setModal] = useState<Skill | 'new' | undefined>(undefined)
   const [preview, setPreview] = useState<{ skill: Skill; instruction: string } | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importRep, setImportRep] = useState<SkillImportReport | null>(null)
 
   const reload = () => {
     api.listSkills()
@@ -110,6 +114,24 @@ export default function SkillsPage() {
     }
   }
 
+  // REQ-371：目录式技能包导入（zip；同名跳过不覆盖，结果弹窗呈现汇总）
+  const doImport = async (options: any) => {
+    setImporting(true)
+    try {
+      const rep = await api.importSkills(options.file as File)
+      setImportRep(rep)
+      showToast(`导入完成：新建 ${rep.created} · 跳过 ${rep.skipped?.length ?? 0} · 失败 ${rep.failed?.length ?? 0}`)
+      bumpData()
+      reload()
+      options.onSuccess?.(rep)
+    } catch (e: any) {
+      showToast(e?.message ?? '导入失败', 'err')
+      options.onError?.(e)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   return (
     // REQ-326④：技能左栏退役——筛选上移内容区顶部工具条，主体满高（与其他单主区页一致）
     <div className="main">
@@ -168,7 +190,14 @@ export default function SkillsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
                 <Button size="small" disabled>技能分组 / 标签</Button>
                 <Button size="small" disabled>版本历史</Button>
-                <Button size="small" disabled>技能市场导入</Button>
+                {/* REQ-371：目录式技能包导入（业界 Agent Skills 标准 SKILL.md zip）；
+                    原「技能市场导入」占位保留规划语义，本地 zip 导入先行落地 */}
+                <Upload accept=".zip" showUploadList={false} disabled={importing} customRequest={doImport}>
+                  <Button size="small" icon={<UploadOutlined />} loading={importing} data-testid="skills-import-btn">
+                    导入技能（.zip）
+                  </Button>
+                </Upload>
+                <Button size="small" disabled>技能市场分享</Button>
               </div>
             }
           >
@@ -287,6 +316,7 @@ export default function SkillsPage() {
           />
         )}
         {preview && <PreviewModal skill={preview.skill} instruction={preview.instruction} onClose={() => setPreview(null)} />}
+        {importRep && <ImportResultModal rep={importRep} onClose={() => setImportRep(null)} />}
       </div>
     </div>
   )
@@ -448,6 +478,83 @@ function PreviewModal({ skill, instruction, onClose }: { skill: Skill; instructi
         <Typography.Text code>{'<skill name="…">…</skill>'}</Typography.Text>（§6.12）。
       </Typography.Paragraph>
       <pre className="preview-pre">{instruction || '（空）'}</pre>
+    </Modal>
+  )
+}
+
+/** REQ-371 导入结果：计数徽标 + 跳过/失败明细（人话原因，诚实呈现；新建名单不逐条铺陈） */
+function ImportResultModal({ rep, onClose }: { rep: SkillImportReport; onClose: () => void }) {
+  const skipped = rep.skipped ?? []
+  const failed = rep.failed ?? []
+  return (
+    <Modal
+      open
+      centered
+      title="导入技能结果"
+      width={560}
+      onCancel={onClose}
+      footer={
+        <Button type="primary" onClick={onClose} data-testid="import-done">
+          完成
+        </Button>
+      }
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size={10}>
+        <Space size={8} wrap>
+          <Tag color="green" style={{ margin: 0 }} data-testid="import-created">
+            新建 {rep.created}
+          </Tag>
+          <Tag color="orange" style={{ margin: 0 }} data-testid="import-skipped">
+            跳过 {skipped.length}
+          </Tag>
+          <Tag color={failed.length ? 'red' : 'default'} style={{ margin: 0 }} data-testid="import-failed">
+            失败 {failed.length}
+          </Tag>
+          {rep.lists_shrunk && <Tag color="purple">明细超限截断（计数完整）</Tag>}
+        </Space>
+        {skipped.length > 0 && (
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              跳过明细：同名已存在不覆盖 / 包内重名
+            </Typography.Text>
+            <div className="import-detail-list" data-testid="import-skip-list">
+              {skipped.map((s, i) => (
+                <div key={i} style={{ fontSize: 12 }}>
+                  <Typography.Text code>{s.name}</Typography.Text> — {s.reason}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {failed.length > 0 && (
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              失败明细
+            </Typography.Text>
+            <div className="import-detail-list" data-testid="import-fail-list">
+              {failed.map((f, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--c-danger, #cf1322)' }}>
+                  <Typography.Text code>{f.name}</Typography.Text> — {f.reason}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {(rep.notes ?? []).length > 0 && (
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              导入标注：截断 / 资源超限跳过（诚实呈现）
+            </Typography.Text>
+            <div className="import-detail-list" data-testid="import-notes-list">
+              {(rep.notes ?? []).map((n, i) => (
+                <div key={i} style={{ fontSize: 12 }}>
+                  <Typography.Text code>{n.skill}</Typography.Text> — {n.notes.join('；')}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Space>
     </Modal>
   )
 }

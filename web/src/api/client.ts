@@ -53,6 +53,7 @@ import type {
   RunEventDTO,
   RuntimeProfile,
   Skill,
+  SkillImportReport,
   Spec,
   ToolInfo,
   TraceResponse,
@@ -401,6 +402,12 @@ export const api = {
   updateSkill: (id: string, s: Partial<Skill>) => req<Skill>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(s) }),
   deleteSkill: (id: string) => req<{ deleted: string }>(`/api/skills/${id}`, { method: 'DELETE' }),
   skillPreview: (id: string) => req<{ instruction_block: string; enabled?: boolean }>(`/api/skills/${id}/preview`),
+  /** REQ-371：目录式技能包批量导入（zip，multipart 字段 file；同名跳过不覆盖） */
+  importSkills: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return reqMultipart<SkillImportReport>('/api/skills/import', fd)
+  },
 
   // ---- M5 工具注册表（§6.8：前端勾选落 agent.tools） ----
   listTools: () => req<ToolInfo[]>('/api/tools'),
