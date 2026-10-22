@@ -36,10 +36,11 @@ import { useCopy, useLocale } from '../i18n'
 // 功能模块页（REQ-238 立项；REQ-364 去文档化重写；单页纵排迭代；REQ-374 左侧竖向导航
 // +内容丰富）：
 // 导航形态：v1 每模块一页+页底 prev/next 翻页器（入口藏页底难发现）→ v2 单页纵排+顶部
-// 横向吸顶条 → v3（本轮）**左侧竖向导航栏**：桌面端左侧 sticky 竖列（序号+模块名，当前
-// 区块高亮，点击平滑跳转），窄屏（≤900px）回落为顶部横向滚动条。滚动高亮沿用
-// IntersectionObserver；页内跳转 scrollIntoView 不写 hash（与 hash 路由冲突，先例）；
-// 旧深链 #/module/<key> 挂载即定位对应区块。
+// 横向吸顶条 → v3 左侧 sticky 竖列 → v4（同日回修）**左侧悬浮导航**：fixed 悬浮视口左缘、
+// 不占内容宽度（内容恢复通栏），默认仅 7 枚圆点、鼠标悬停展开名称（CSS group-hover 展开
+// max-width+opacity）；窄屏（≤900px）回落为顶部横向滚动条（名称常显，触屏无 hover）。
+// 滚动高亮沿用 IntersectionObserver；页内跳转 scrollIntoView 不写 hash（与 hash 路由冲突，
+// Implementation 页同款先例）；旧深链 #/module/<key> 挂载即定位对应区块。
 // 内容丰富（REQ-374）：每模块新增「典型流程」步骤条（3~5 步动线，对齐平台真实动线，
 // content.ts 数据单源）与「继续了解」站内延伸链接（在线演示/实现与原理/部署/架构/生态）。
 // 内容形态沿 REQ-364：速览要点 + 图标功能卡网格，零文档链接；事实口径以
@@ -155,17 +156,18 @@ export default function ModulePage({ initial }: { initial?: string }) {
       </div>
 
       <div className="page-inner modules-layout">
-        {/* 左侧竖向导航：桌面 sticky 竖列，窄屏回落顶部横向滚动条（CSS media query） */}
+        {/* 左侧悬浮导航（REQ-374 回修）：fixed 悬浮于视口左缘、不占内容宽度——默认仅圆点，
+            悬停展开名称；窄屏回落顶部横向条 */}
         <aside className="modules-rail-wrap">
           <nav className="modules-rail" aria-label={c.navAria}>
-            {MODULES.map((m, i) => (
+            {MODULES.map((m) => (
               <button
                 key={m.key}
                 type="button"
                 className={`module-nav-item${active === m.key ? ' active' : ''}`}
                 onClick={() => jump(m.key)}
               >
-                <span className="rail-num">{String(i + 1).padStart(2, '0')}</span>
+                <span className="rail-dot" aria-hidden="true" />
                 <span className="rail-label">{moduleText(m, locale).title}</span>
               </button>
             ))}
