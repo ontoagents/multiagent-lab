@@ -252,11 +252,12 @@ func (f *Facade) companionEvidence(ctx context.Context, oid, profileID, ep, g, e
 	nodeQ := fmt.Sprintf(`PREFIX bot: <%s>
 PREFIX prov: <%s>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?kind ?label ?conf ?msg ?tt ?vf WHERE {
+SELECT ?kind ?label ?conf ?msg ?tt ?vf ?et WHERE {
   GRAPH <%s> {
     ?e a ?kind ; rdfs:label ?label ; bot:confidence ?conf ; bot:extractedFrom ?msg ; prov:generatedAtTime ?tt .
     FILTER(?kind != bot:Relation)
-    OPTIONAL { ?e bot:validFrom ?vf }%s
+    OPTIONAL { ?e bot:validFrom ?vf }
+    OPTIONAL { ?e bot:evidenceText ?et }%s
   }
 } ORDER BY DESC(?tt) LIMIT %d`, histBotNS, histProvNS, g, entityFilter, limit)
 	nodeBindings, err := f.query(ctx, ep, nodeQ)
@@ -266,11 +267,12 @@ SELECT ?kind ?label ?conf ?msg ?tt ?vf WHERE {
 	edgeQ := fmt.Sprintf(`PREFIX bot: <%s>
 PREFIX prov: <%s>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?src ?rel ?dst ?conf ?msg ?tt ?inv WHERE {
+SELECT ?src ?rel ?dst ?conf ?msg ?tt ?inv ?et WHERE {
   GRAPH <%s> {
     ?edge a bot:Relation ; bot:subject ?s ; bot:object ?o ; bot:relName ?rel ; bot:confidence ?conf ; bot:extractedFrom ?msg ; prov:generatedAtTime ?tt .
     ?s rdfs:label ?src . ?o rdfs:label ?dst .
     OPTIONAL { ?edge bot:invalidAt ?inv }
+    OPTIONAL { ?edge bot:evidenceText ?et }
     %s
   }
 } ORDER BY DESC(?tt) LIMIT %d`, histBotNS, histProvNS, g, edgeEntityFilter(entity), limit)
@@ -287,6 +289,9 @@ SELECT ?src ?rel ?dst ?conf ?msg ?tt ?inv WHERE {
 		if b["vf"] != nil {
 			a["valid_from"] = lit(b["vf"])
 		}
+		if b["et"] != nil {
+			a["evidence_text"] = lit(b["et"])
+		}
 		assertions = append(assertions, a)
 	}
 	for _, b := range edgeBindings {
@@ -296,6 +301,9 @@ SELECT ?src ?rel ?dst ?conf ?msg ?tt ?inv WHERE {
 		}
 		if b["inv"] != nil {
 			a["invalidated_at"] = lit(b["inv"])
+		}
+		if b["et"] != nil {
+			a["evidence_text"] = lit(b["et"])
 		}
 		assertions = append(assertions, a)
 	}

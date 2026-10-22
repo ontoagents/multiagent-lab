@@ -94,12 +94,12 @@ func TestGraphEngineSmoke(t *testing.T) {
 	}
 
 	// ② 概念入图
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k1", "concept", "Pod 扩容", "副本水平伸缩", "", 0.86, "m1", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k1", "concept", "Pod 扩容", "副本水平伸缩", "", "Pod 扩容进行副本水平伸缩", 0.86, "m1", testTime())); err != nil {
 		t.Fatalf("概念入图失败: %v", err)
 	}
 
 	// ③ 关系入图（两端实体薄建）
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k2", "引发", "Pod 扩容", "HPA 调整", "", 0.8, "m2", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k2", "引发", "Pod 扩容", "HPA 调整", "", "扩容引发 HPA 调整", 0.8, "m2", testTime())); err != nil {
 		t.Fatalf("关系入图失败: %v", err)
 	}
 
@@ -203,13 +203,13 @@ func TestRetrievalVectorFallbackSmoke(t *testing.T) {
 	if err := svc.graphUpdate(ctx, "ont_smoke", SeedSchema()); err != nil {
 		t.Fatalf("种子 schema 失败: %v", err)
 	}
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k1", "concept", "阿司匹林", "非甾体抗炎药", "", 0.9, "m1", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k1", "concept", "阿司匹林", "非甾体抗炎药", "", "阿司匹林是非甾体抗炎药", 0.9, "m1", testTime())); err != nil {
 		t.Fatalf("概念入图失败: %v", err)
 	}
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k2", "抑制", "阿司匹林", "前列腺素", "", 0.85, "m1", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k2", "抑制", "阿司匹林", "前列腺素", "", "阿司匹林抑制前列腺素", 0.85, "m1", testTime())); err != nil {
 		t.Fatalf("关系入图失败: %v", err)
 	}
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k3", "预防", "前列腺素", "血栓形成", "", 0.8, "m2", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertRelationTriples("ont_smoke", "k3", "预防", "前列腺素", "血栓形成", "", "前列腺素预防血栓形成", 0.8, "m2", testTime())); err != nil {
 		t.Fatalf("二级关系入图失败: %v", err)
 	}
 	conv := &store.Conversation{ID: "conv-s", Scope: "agent", AgentID: strPtr("s-agt")}

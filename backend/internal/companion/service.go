@@ -888,7 +888,7 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID, mode string) (*s
 		}
 		// REQ-194⑤：语义矛盾二分类（LLM 增强路径，失败/无连接静默跳过）
 		s.semanticConflictCheck(ctx, ontID, c, now)
-		if err := s.graphUpdate(ctx, ontID, InsertRelationTriples(ontID, c.ID, c.RelName, cnSrc.Canonical, cnDst.Canonical, c.Definition, c.Confidence, c.SourceMessageID, now)); err != nil {
+		if err := s.graphUpdate(ctx, ontID, InsertRelationTriples(ontID, c.ID, c.RelName, cnSrc.Canonical, cnDst.Canonical, c.Definition, c.SourceExcerpt, c.Confidence, c.SourceMessageID, now)); err != nil {
 			return nil, fmt.Errorf("关系入图失败: %w", err)
 		}
 		emitIngest("conflict_replace", 0)
@@ -907,7 +907,7 @@ func (s *Service) ConfirmCandidate(ctx context.Context, candID, mode string) (*s
 				return nil, fmt.Errorf("实体印证合写失败: %w", err)
 			}
 			log.Printf("[companion] REQ-298 印证合写：候选 %s 并入已有实体「%s」（仅补缺失定义）", c.ID, cnSrc.Canonical)
-		} else if err := s.graphUpdate(ctx, ontID, InsertNodeTriples(ontID, c.ID, c.Kind, cnSrc.Canonical, c.Definition, c.TimeScope, c.Confidence, c.SourceMessageID, now)); err != nil {
+		} else if err := s.graphUpdate(ctx, ontID, InsertNodeTriples(ontID, c.ID, c.Kind, cnSrc.Canonical, c.Definition, c.TimeScope, c.SourceExcerpt, c.Confidence, c.SourceMessageID, now)); err != nil {
 			return nil, fmt.Errorf("入图失败: %w", err)
 		}
 		emitIngest("insert", 0)

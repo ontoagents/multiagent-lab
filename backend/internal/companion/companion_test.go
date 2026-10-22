@@ -116,7 +116,7 @@ func TestGraphURIs(t *testing.T) {
 }
 
 func TestInsertAndInvalidate(t *testing.T) {
-	ins := InsertNodeTriples("c1", "cand1", "concept", "Pod 扩容", "副本伸缩", "2026-09", 0.86, "m9", testTime())
+	ins := InsertNodeTriples("c1", "cand1", "concept", "Pod 扩容", "副本伸缩", "2026-09", "滚动更新会触发副本重建", 0.86, "m9", testTime())
 	if !strings.Contains(ins, `bot:timeScope "2026-09"`) {
 		t.Fatalf("timeScope 应落 bot:timeScope:\n%s", ins)
 	}
@@ -125,7 +125,7 @@ func TestInsertAndInvalidate(t *testing.T) {
 			t.Fatalf("INSERT 缺少 %q:\n%s", want, ins)
 		}
 	}
-	relIns := InsertRelationTriples("c1", "cand2", "引发", "Pod 扩容", "HPA", "", 0.8, "m9", testTime())
+	relIns := InsertRelationTriples("c1", "cand2", "引发", "Pod 扩容", "HPA", "", "扩容引发 HPA", 0.8, "m9", testTime())
 	for _, want := range []string{"a bot:Relation", `bot:relName "引发"`, "bot:subject <http://eino-lab/e/Pod_扩容>", "bot:object <http://eino-lab/e/HPA>"} {
 		if !strings.Contains(relIns, want) {
 			t.Fatalf("关系 INSERT 缺少 %q:\n%s", want, relIns)

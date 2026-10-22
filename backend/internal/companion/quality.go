@@ -579,7 +579,7 @@ func (s *Service) AddRelationManual(ctx context.Context, ontID, source, relName,
 		return &store.HTTPError{Status: 400, Msg: "端点须为图内已有实体（" + source + " / " + target + " 未找到）"}
 	}
 	candID := "manual-" + store.NewID()
-	if err := s.graphUpdate(ctx, ontID, InsertRelationTriples(ontID, candID, relName, src, dst, definition, 1.0, "", time.Now())); err != nil {
+	if err := s.graphUpdate(ctx, ontID, InsertRelationTriples(ontID, candID, relName, src, dst, definition, "", 1.0, "", time.Now())); err != nil {
 		return err
 	}
 	s.invalidateLabelCache(ontID)

@@ -334,7 +334,7 @@ func TestDisambiguationNote(t *testing.T) {
 	}
 	svc := NewService(st, nil, smokePlans(base))
 	// 图内已有同名实体（定义 A）
-	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k0", "concept", "部署", "将应用发布到集群运行的过程", "", 0.9, "m0", testTime())); err != nil {
+	if err := svc.graphUpdate(ctx, "ont_smoke", InsertNodeTriples("ont_smoke", "k0", "concept", "部署", "将应用发布到集群运行的过程", "", "部署是指将应用发布到集群", 0.9, "m0", testTime())); err != nil {
 		t.Fatal(err)
 	}
 	// 新候选同名但定义完全不同

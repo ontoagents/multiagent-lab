@@ -146,8 +146,9 @@ func ValidFromOf(timeScope string) string {
 }
 
 // InsertNodeTriples 概念/事件入图（同名 slug 归并；自带溯源三件套；timeScope 非空落 bot:timeScope，
-// REQ-368：可解析为日期时另落 bot:validFrom=vt 有效性时间起点）。
-func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope string, confidence float64, msgID string, at time.Time) string {
+// REQ-368：可解析为日期时另落 bot:validFrom=vt 有效性时间起点；REQ-359 A：evidenceText 非空落
+// bot:evidenceText=原文支撑片段——provenance 事实仅随首次 INSERT 写入，印证合写不覆盖）。
+func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope, evidenceText string, confidence float64, msgID string, at time.Time) string {
 	g := GraphURI(graphID)
 	e := EntityURI(label)
 	var b strings.Builder
@@ -163,6 +164,9 @@ func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope strin
 	if vf := ValidFromOf(timeScope); vf != "" {
 		fmt.Fprintf(&b, "      bot:validFrom %q ;\n", vf)
 	}
+	if ev := strings.TrimSpace(evidenceText); ev != "" {
+		fmt.Fprintf(&b, "      bot:evidenceText %q ;\n", turtleEscape(ev))
+	}
 	fmt.Fprintf(&b, "      bot:confidence %.2f ;\n      bot:extractedFrom <%s> ;\n      prov:generatedAtTime %q ;\n      prov:wasGeneratedBy <%sactivity-%s> .\n",
 		confidence, MessageURI(msgID), xsdTime(at), EntityNS, candID)
 	b.WriteString("  }\n}")
@@ -171,7 +175,7 @@ func InsertNodeTriples(graphID, candID, kind, label, definition, timeScope strin
 
 // InsertRelationTriples 关系边入图：边 = bot:Relation 实例节点（subject/object/relName）。
 // 冲突语义：同 subject + 同 relName + 不同 object 的旧边由调用方先发 InvalidateEdge。
-func InsertRelationTriples(graphID, candID, relName, sourceLabel, targetLabel, definition string, confidence float64, msgID string, at time.Time) string {
+func InsertRelationTriples(graphID, candID, relName, sourceLabel, targetLabel, definition, evidenceText string, confidence float64, msgID string, at time.Time) string {
 	g := GraphURI(graphID)
 	edge := EdgeURI(candID)
 	var b strings.Builder
@@ -183,8 +187,12 @@ func InsertRelationTriples(graphID, candID, relName, sourceLabel, targetLabel, d
 		fmt.Fprintf(&b, "      bot:definition %q ;\n", turtleEscape(definition))
 	}
 	// REQ-227①：首建即计数（确认次数语义——印证聚合在其上递增）
-	fmt.Fprintf(&b, "      bot:confidence %.2f ;\n      bot:confirmCount 1 ;\n      bot:extractedFrom <%s> ;\n      prov:generatedAtTime %q ;\n      prov:wasGeneratedBy <%sactivity-%s> .\n",
-		confidence, MessageURI(msgID), xsdTime(at), EntityNS, candID)
+	fmt.Fprintf(&b, "      bot:confidence %.2f ;\n      bot:confirmCount 1 ;\n      bot:extractedFrom <%s> ;\n      prov:generatedAtTime %q ;\n",
+		confidence, MessageURI(msgID), xsdTime(at))
+	if ev := strings.TrimSpace(evidenceText); ev != "" {
+		fmt.Fprintf(&b, "      bot:evidenceText %q ;\n", turtleEscape(ev))
+	}
+	fmt.Fprintf(&b, "      prov:wasGeneratedBy <%sactivity-%s> .\n", EntityNS, candID)
 	// 边两端实体不存在则薄建（label 锚定，同名归并）
 	fmt.Fprintf(&b, "    <%s> a bot:Concept ; rdfs:label %q .\n", EntityURI(sourceLabel), turtleEscape(sourceLabel))
 	fmt.Fprintf(&b, "    <%s> a bot:Concept ; rdfs:label %q .\n", EntityURI(targetLabel), turtleEscape(targetLabel))
