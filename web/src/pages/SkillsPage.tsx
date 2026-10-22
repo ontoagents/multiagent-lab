@@ -148,9 +148,17 @@ export default function SkillsPage() {
               技能是<strong>配置级能力包</strong>（提示词 + 工具白名单），不提供脚本执行环境；装配期按「主指令 + # 启用技能」拼接注入（§6.12）。
             </p>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal('new')}>
-            新建技能
-          </Button>
+          {/* REQ-371 迭代：导入入口从工具条「更多」弹层上移至头部动作区（与新建并排，高频操作直达） */}
+          <Space size={8}>
+            <Upload accept=".zip" showUploadList={false} disabled={importing} customRequest={doImport}>
+              <Button icon={<UploadOutlined />} loading={importing} data-testid="skills-import-btn">
+                导入技能（.zip）
+              </Button>
+            </Upload>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setModal('new')}>
+              新建技能
+            </Button>
+          </Space>
         </div>
 
         {/* REQ-326④：上方筛选 + 搜索组件（三态 + 计数徽标 + 关键词搜索；预留区收进「更多」Popover） */}
@@ -190,13 +198,7 @@ export default function SkillsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
                 <Button size="small" disabled>技能分组 / 标签</Button>
                 <Button size="small" disabled>版本历史</Button>
-                {/* REQ-371：目录式技能包导入（业界 Agent Skills 标准 SKILL.md zip）；
-                    原「技能市场导入」占位保留规划语义，本地 zip 导入先行落地 */}
-                <Upload accept=".zip" showUploadList={false} disabled={importing} customRequest={doImport}>
-                  <Button size="small" icon={<UploadOutlined />} loading={importing} data-testid="skills-import-btn">
-                    导入技能（.zip）
-                  </Button>
-                </Upload>
+                {/* 原「技能市场导入」占位保留规划语义；本地 zip 导入已上移头部动作区 */}
                 <Button size="small" disabled>技能市场分享</Button>
               </div>
             }
