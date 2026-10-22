@@ -156,6 +156,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/projects/{id}/git-commit-patch", s.gitProjectCommitPatch)
 	m.HandleFunc("GET /api/projects/{id}/git-working", s.gitProjectWorking)
 	m.HandleFunc("POST /api/agents", s.createAgent)
+	// REQ-370/M168：多 Agent 协作本体工程流水线一键创建（幂等——同名智能体/项目复用）
+	m.HandleFunc("POST /api/ontology/collab-pipeline", s.createOntologyPipeline)
 	m.HandleFunc("GET /api/agents/{id}", s.getAgent)
 	m.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
 	m.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)
