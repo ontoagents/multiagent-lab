@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
 )
@@ -110,29 +110,9 @@ func (f *Facade) companionOntologyOf(agentID, convID string) (string, error) {
 	return body.OntologyID, nil
 }
 
-// sparqlUpdateKeywords SPARQL 1.1 Update + LOAD 等变更关键字（大小写不敏感）。
-var sparqlUpdateKeywords = map[string]bool{
-	"LOAD": true, "CLEAR": true, "CREATE": true, "DROP": true,
-	"MOVE": true, "COPY": true, "ADD": true,
-	"INSERT": true, "DELETE": true, "UPDATE": true,
-}
-
 // firstQueryKind 前导 PREFIX/BASE 声明后的首关键词（SELECT/ASK 判别用；无=空串）。
-func firstQueryKind(query string) string {
-	tokens := sparqlTokens(query)
-	i := 0
-	for i < len(tokens) {
-		t := strings.ToUpper(tokens[i])
-		if t == "PREFIX" {
-			i += 2 // 前缀名 + 被词法跳过的 <IRI>
-		} else if t == "BASE" {
-			i++ // 被词法跳过的 <IRI>
-		} else {
-			return strings.ToUpper(tokens[i])
-		}
-	}
-	return ""
-}
+// REQ-380/M176：词法面单源化 pkg/sparqlguard。
+func firstQueryKind(query string) string { return sparqlguard.FirstQueryKind(query) }
 
 func (f *Facade) addSparqlQueryTool(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("sparql_query",
@@ -282,92 +262,10 @@ func (f *Facade) companionOntology(agentID, convID string) (string, *mcp.CallToo
 // 服务端兜底与 facade tools/call 同一权威口径；此前校验仅在前端拦截+facade MCP 面）。
 func ValidateReadonlySelect(query string) error { return vetReadonlySelect(query) }
 
-// vetReadonlySelect 词法级只读校验：PREFIX/BASE 前导声明后首关键词必须是 SELECT 或 ASK
-// （REQ-366/T1：ASK 布尔判定入只读查询面），全文裸词不得命中变更关键字
-// （字符串字面量、IRI、注释中的同形词不误伤）。
-func vetReadonlySelect(query string) error {
-	tokens := sparqlTokens(query)
-	if len(tokens) == 0 {
-		return fmt.Errorf("空查询")
-	}
-	head := firstQueryKind(query)
-	if head != "SELECT" && head != "ASK" {
-		i := 0
-		for i < len(tokens) {
-			t := strings.ToUpper(tokens[i])
-			if t == "PREFIX" {
-				i += 2
-			} else if t == "BASE" {
-				i++
-			} else {
-				break
-			}
-		}
-		return fmt.Errorf("仅允许 SELECT/ASK 查询，得到首关键词 %q（REQ-151 只读白名单）", tokens[min(i, len(tokens)-1)])
-	}
-	for _, t := range tokens {
-		if sparqlUpdateKeywords[strings.ToUpper(t)] {
-			return fmt.Errorf("含变更关键字 %q，已拒绝（REQ-151 只读白名单）", t)
-		}
-	}
-	return nil
-}
+// vetReadonlySelect 内部调用面（薄包装，REQ-380/M176 单源化 pkg/sparqlguard——
+// 本包原实现为四处副本之一；统一 SELECT|ASK 最宽只读口径，REQ-366/T1 语义不变）。
+func vetReadonlySelect(query string) error { return sparqlguard.Vet(query) }
 
-// sparqlTokens 词法扫描：收集裸词 token；字符串字面量（含 ”'/""" 长串与反斜杠转义）、
-// IRI <…>、注释 #… 的内容不产出 token。
-func sparqlTokens(q string) []string {
-	var toks []string
-	var cur strings.Builder
-	flush := func() {
-		if cur.Len() > 0 {
-			toks = append(toks, cur.String())
-			cur.Reset()
-		}
-	}
-	r := []rune(q)
-	n := len(r)
-	for i := 0; i < n; i++ {
-		c := r[i]
-		switch {
-		case c == '#':
-			flush()
-			for i < n && r[i] != '\n' {
-				i++
-			}
-		case c == '"' || c == '\'':
-			flush()
-			if i+2 < n && r[i+1] == c && r[i+2] == c {
-				i += 3
-				for i < n && !(r[i] == c && i+2 < n && r[i+1] == c && r[i+2] == c) {
-					if r[i] == '\\' {
-						i++
-					}
-					i++
-				}
-				i += 2
-			} else {
-				i++
-				for i < n && r[i] != c {
-					if r[i] == '\\' {
-						i++
-					}
-					i++
-				}
-			}
-		case c == '<':
-			flush()
-			for i < n && r[i] != '>' {
-				i++
-			}
-		case unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_':
-			cur.WriteRune(c)
-		default:
-			flush()
-		}
-	}
-	flush()
-	return toks
-}
 
 // clampLimit 行数上限：缺省/非正数回默认值，超 maxQueryLimit 截到上限。
 func clampLimit(v any) int {

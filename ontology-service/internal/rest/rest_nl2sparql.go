@@ -12,109 +12,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"unicode"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
 )
 
-// ---- 只读白名单（facade ValidateReadonlySelect 同口径的本地词法实现）----
+// ---- 只读白名单（REQ-380/M176 单源化 pkg/sparqlguard——原「facade 同口径本地实现」收口）----
 
-var nlSparqlUpdateKeywords = map[string]bool{
-	"LOAD": true, "CLEAR": true, "CREATE": true, "DROP": true,
-	"MOVE": true, "COPY": true, "ADD": true,
-	"INSERT": true, "DELETE": true, "UPDATE": true,
-}
+// vetReadonlySelect 词法级只读校验（薄包装；统一 SELECT|ASK 口径——生成面仍只产 SELECT）。
+func vetReadonlySelect(query string) error { return sparqlguard.Vet(query) }
 
-// vetReadonlySelect 词法级只读校验：PREFIX/BASE 前导声明后首关键词必须是 SELECT，
-// 全文裸词不得命中变更关键字（字符串字面量、IRI、注释不产出 token）。
-// 与 runtime-manager facade 同口径（双闸：此处生成预检，执行侧代理权威兜底）。
-func vetReadonlySelect(query string) error {
-	tokens := sparqlTokens(query)
-	if len(tokens) == 0 {
-		return fmt.Errorf("空查询")
-	}
-	i := 0
-	for i < len(tokens) {
-		t := strings.ToUpper(tokens[i])
-		if t == "PREFIX" {
-			i += 2
-		} else if t == "BASE" {
-			i++
-		} else {
-			break
-		}
-	}
-	if i >= len(tokens) || !strings.EqualFold(tokens[i], "select") {
-		head := tokens[min(i, len(tokens)-1)]
-		return fmt.Errorf("仅允许 SELECT 查询，得到首关键词 %q", head)
-	}
-	for _, t := range tokens {
-		if nlSparqlUpdateKeywords[strings.ToUpper(t)] {
-			return fmt.Errorf("含变更关键字 %q，已拒绝", t)
-		}
-	}
-	return nil
-}
-
-// sparqlTokens 词法扫描（facade 同思路）：收集裸词；字符串字面量/IRI/注释内容不产出。
-func sparqlTokens(q string) []string {
-	var toks []string
-	var cur strings.Builder
-	flush := func() {
-		if cur.Len() > 0 {
-			toks = append(toks, cur.String())
-			cur.Reset()
-		}
-	}
-	runes := []rune(q)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		switch {
-		case r == '#': // 注释到行尾
-			for i < len(runes) && runes[i] != '\n' {
-				i++
-			}
-		case r == '"' || r == '\'': // 字符串字面量（含三引号长串与转义）
-			quote := r
-			if i+2 < len(runes) && runes[i+1] == quote && runes[i+2] == quote {
-				i += 3
-				for i < len(runes) {
-					if runes[i] == '\\' {
-						i += 2
-						continue
-					}
-					if runes[i] == quote && i+2 < len(runes) && runes[i+1] == quote && runes[i+2] == quote {
-						i += 2
-						break
-					}
-					i++
-				}
-			} else {
-				i++
-				for i < len(runes) {
-					if runes[i] == '\\' {
-						i += 2
-						continue
-					}
-					if runes[i] == quote {
-						break
-					}
-					i++
-				}
-			}
-		case r == '<': // IRI
-			for i < len(runes) && runes[i] != '>' {
-				i++
-			}
-		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_':
-			cur.WriteRune(r)
-		default:
-			flush()
-		}
-	}
-	flush()
-	return toks
-}
 
 // ---- 生成端点 ----
 

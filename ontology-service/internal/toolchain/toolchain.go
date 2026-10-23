@@ -20,6 +20,7 @@ import (
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
 )
 
 // Validation validate 工具结果：结构错误 + 质量报告（复用 qualitygate 三维评分）。
@@ -71,10 +72,6 @@ func Lint(sp *pkgspec.Spec) *LintReport {
 
 // 变更关键字（与 facade sparql.go 同清单）；字面量/IRI 内同形词不误伤；
 // 「?delete 变量按裸词 delete 命中」与 facade 一致，为受控查询面的已知取舍（教学点）。
-var changeKeywords = map[string]bool{
-	"UPDATE": true, "INSERT": true, "DELETE": true, "LOAD": true, "CLEAR": true,
-	"CREATE": true, "DROP": true, "MOVE": true, "COPY": true, "ADD": true,
-}
 
 func isWordChar(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == ':' || c == '.'
@@ -130,43 +127,9 @@ func scanBareWords(q string) []string {
 	return words
 }
 
-// VetReadonlySelect 只读 SELECT 门禁：PREFIX/BASE 前导声明（任意次序）之后首关键词须为
-// SELECT；全文裸词命中变更关键字即拒绝。带冒号的词（前缀名 ex:xxx）不作关键字判定。
-func VetReadonlySelect(q string) error {
-	words := scanBareWords(q)
-	first := ""
-	for k := 0; k < len(words); k++ {
-		w := words[k]
-		up := strings.ToUpper(w)
-		if up == "PREFIX" {
-			k++ // 跳过前缀名参数（ex: / ex:a 形态）
-			continue
-		}
-		if up == "BASE" {
-			continue // 其 IRI 参数在扫描期已被 <…> 吞掉
-		}
-		if strings.Contains(w, ":") {
-			continue // 前缀名不作结构关键字
-		}
-		first = up
-		break
-	}
-	if first == "" {
-		return errors.New("查询为空或缺少关键词")
-	}
-	if first != "SELECT" {
-		return fmt.Errorf("只读面仅允许 SELECT，收到 %q", first)
-	}
-	for _, w := range words {
-		if strings.Contains(w, ":") {
-			continue
-		}
-		if changeKeywords[strings.ToUpper(w)] {
-			return fmt.Errorf("变更关键字 %q 被拒绝（只读查询面）", strings.ToUpper(w))
-		}
-	}
-	return nil
-}
+// VetReadonlySelect 只读门禁（REQ-380/M176 单源化 pkg/sparqlguard——原独立词法扫描收口；
+// 统一 SELECT|ASK 口径，工具链生成面仍只产 SELECT）。
+func VetReadonlySelect(q string) error { return sparqlguard.Vet(q) }
 
 // Table 查询结果表格（facade toTable 同口径：列名字母序稳定、缺键补空、total+truncated 诚实标注）。
 type Table struct {

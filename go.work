@@ -7,5 +7,6 @@ use (
 	./deploy/windows/setup
 	./ontology-service
 	./pkg/ontology/spec
+	./pkg/sparqlguard
 	./runtime-manager
 )

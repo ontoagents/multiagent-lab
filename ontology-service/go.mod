@@ -8,3 +8,5 @@ require (
 )
 
 replace github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec => ../pkg/ontology/spec
+
+replace github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard => ../pkg/sparqlguard

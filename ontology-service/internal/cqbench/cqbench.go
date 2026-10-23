@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
 )
@@ -322,78 +322,10 @@ func translate(ctx context.Context, llm *llmcreate.Creator, ontologyID string, c
 	return t, nil
 }
 
-// VetReadonlySelect 只读白名单（rest.vetReadonlySelect 同口径的服务化副本——bench 包不依赖 rest）。
-func VetReadonlySelect(query string) error {
-	toks := tokens(query)
-	if len(toks) == 0 {
-		return fmt.Errorf("空查询")
-	}
-	i := 0
-	for i < len(toks) {
-		u := strings.ToUpper(toks[i])
-		if u == "PREFIX" {
-			i += 2
-		} else if u == "BASE" {
-			i++
-		} else {
-			break
-		}
-	}
-	if i >= len(toks) || !strings.EqualFold(toks[i], "select") {
-		return fmt.Errorf("仅允许 SELECT 查询，得到首关键词 %q", toks[min(i, len(toks)-1)])
-	}
-	for _, t := range toks {
-		switch strings.ToUpper(t) {
-		case "LOAD", "CLEAR", "CREATE", "DROP", "MOVE", "COPY", "ADD", "INSERT", "DELETE", "UPDATE":
-			return fmt.Errorf("含变更关键字 %q，已拒绝", t)
-		}
-	}
-	return nil
-}
+// VetReadonlySelect 只读白名单（REQ-380/M176 单源化 pkg/sparqlguard——原「rest 同口径服务化
+// 副本」四处副本之一收口；统一 SELECT|ASK 口径，翻译面仍只生成 SELECT 不受放宽影响）。
+func VetReadonlySelect(query string) error { return sparqlguard.Vet(query) }
 
-func tokens(q string) []string {
-	var toks []string
-	var cur strings.Builder
-	flush := func() {
-		if cur.Len() > 0 {
-			toks = append(toks, cur.String())
-			cur.Reset()
-		}
-	}
-	runes := []rune(q)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		switch {
-		case r == '#':
-			for i < len(runes) && runes[i] != '\n' {
-				i++
-			}
-		case r == '"' || r == '\'':
-			qc := r
-			i++
-			for i < len(runes) {
-				if runes[i] == '\\' {
-					i += 2
-					continue
-				}
-				if runes[i] == qc {
-					break
-				}
-				i++
-			}
-		case r == '<':
-			for i < len(runes) && runes[i] != '>' {
-				i++
-			}
-		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_':
-			cur.WriteRune(r)
-		default:
-			flush()
-		}
-	}
-	flush()
-	return toks
-}
 
 // SanitizeURN 与 pkg/ontology/spec.Sanitize 同规则（URN IRI 对齐口径的服务化副本）。
 func SanitizeURN(s string) string {
