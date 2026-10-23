@@ -29,6 +29,7 @@ type draftJob struct {
 	Dedup     int                    `json:"dedup,omitempty"`  // REQ-308：与既有 CQ 重复被滤除条数
 	Purify    *ontochat.PurifyStats  `json:"purify,omitempty"` // REQ-342/OC-1：净化统计（拆分/抽象率）
 	RAG       *cqragDraftResult      `json:"rag,omitempty"`    // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
+	Diagnose  *diagnoseResult        `json:"diagnose,omitempty"` // REQ-207 余项：进化诊断→归因→补丁候选 job 结果
 	Error     string                 `json:"error,omitempty"`
 	CreatedAt time.Time              `json:"created_at"`
 }

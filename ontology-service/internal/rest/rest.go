@@ -90,6 +90,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/gate", s.gateEvolutionCandidate)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/accept", s.acceptEvolutionCandidate)
 	m.HandleFunc("POST /api/ontologies/{id}/evolution/candidates/{cid}/reject", s.rejectEvolutionCandidate)
+	// REQ-207 余项：进化诊断→归因→补丁 LLM 自动产出（人工触发一键化；候选仍走 gate/accept 人工链）
+	m.HandleFunc("POST /api/ontology/evolution/diagnose", s.evolutionDiagnose)
 	m.HandleFunc("GET /api/ontology/quality/report", s.qualityReport)
 	m.HandleFunc("GET /api/ontology/quality/remediations", s.qualityRemediations) // REQ-331②：检查项修复指引
 	m.HandleFunc("GET /api/ontologies/{id}/quality-history", s.qualityHistory)    // REQ-331①：评分历史（趋势线+三点对照）

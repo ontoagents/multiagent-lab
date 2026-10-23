@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Badge, Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { ExperimentOutlined, ReloadOutlined } from '@ant-design/icons'
 
 // ---------------------------------------------------------------------------
 // REQ-207/M43：本体自进化「进化」页签——候选 vN-cK 列表（proposed/accepted/rejected
 // 三桶）+ 配对门控（gate 后展示双信号对照）+ 采纳/拒绝。一期人工触发（无自动循环）；
-// 提交候选由「诊断→归因→补丁」LLM 侧产出（后续轮接线 ai-draft 同类端点），本页签先
-// 承载门控-采纳-回溯的治理闭环（验收：候选未经门控不得转正）。
+// REQ-207 余项（2026-10-23）：「AI 诊断」按钮接线 POST /api/ontology/evolution/diagnose
+// （202 job 轮询 ai-draft-jobs）——诊断→归因→补丁 LLM 一键产出候选（Evidence 机械锚定
+// 校验在服务端），产出后仍走下方门控-采纳人工链（LLM 产物不自动转正）。
 // ---------------------------------------------------------------------------
 
 interface EvoCandidate {
@@ -41,6 +42,10 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
   const [bucket, setBucket] = useState<'proposed' | 'accepted' | 'rejected'>('proposed')
   const [busy, setBusy] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
+  // REQ-207 余项：AI 诊断（诊断→归因→补丁一键产出候选；202 job 轮询）
+  const [diagBusy, setDiagBusy] = useState(false)
+  const [diagProgress, setDiagProgress] = useState('')
+  const [diagMsg, setDiagMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -54,6 +59,40 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
   useEffect(() => {
     load()
   }, [load])
+
+  const runDiagnose = async () => {
+    setDiagBusy(true)
+    setDiagMsg(null)
+    setDiagProgress('诊断发起中')
+    try {
+      const r0 = await req('/api/ontology/evolution/diagnose', { method: 'POST', body: JSON.stringify({ ontology_id: ontologyId }) })
+      const jobId = r0.job_id as string
+      // 轮询 ai-draft-jobs（ai-draft 202+轮询先例；2s 间隔，10 分钟上限）
+      const deadline = Date.now() + 10 * 60 * 1000
+      for (;;) {
+        if (Date.now() > deadline) throw new Error('诊断超时（10 分钟）——可稍后重试')
+        await new Promise((r) => setTimeout(r, 2000))
+        const job = await req(`/api/ai-draft-jobs/${jobId}`)
+        setDiagProgress(job.progress || job.status)
+        if (job.status === 'failed') throw new Error(job.error || '诊断失败')
+        if (job.status === 'done') {
+          const d = job.diagnose
+          if (!d?.candidate) {
+            setDiagMsg({ kind: 'info', text: d?.note || '诊断完成：无进化建议' })
+          } else {
+            setDiagMsg({ kind: 'ok', text: `已产出候选 ${d.candidate.label}（${d.candidate.layer} 层）——请在「待裁决」桶门控后采纳（LLM 产物不自动转正）` })
+            load()
+          }
+          break
+        }
+      }
+    } catch (e: any) {
+      setDiagMsg({ kind: 'err', text: e?.message ?? '诊断失败' })
+    } finally {
+      setDiagBusy(false)
+      setDiagProgress('')
+    }
+  }
 
   const gate = async (id: string) => {
     setBusy(id)
@@ -127,8 +166,26 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
           ))}
         </Space>
         <span style={{ flex: 1 }} />
+        <Popconfirm
+          title="发起一轮 AI 诊断？"
+          description="基准评测当前本体（消耗模型调用）→ LLM 归因三层产出类型化补丁候选；Evidence 未锚定评测信号会被服务端拒绝。候选产出后仍需人工门控采纳。"
+          okText="发起诊断"
+          cancelText="取消"
+          onConfirm={runDiagnose}
+        >
+          <Button size="small" icon={<ExperimentOutlined />} loading={diagBusy} data-testid="evo-diagnose-btn">AI 诊断</Button>
+        </Popconfirm>
         <Button size="small" icon={<ReloadOutlined />} onClick={load} aria-label="刷新进化候选" />
       </div>
+
+      {diagBusy && diagProgress && (
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }} data-testid="evo-diagnose-progress">⚙ {diagProgress}</Typography.Text>
+      )}
+      {diagMsg && (
+        <Typography.Text type={diagMsg.kind === 'err' ? 'danger' : diagMsg.kind === 'ok' ? 'success' : 'secondary'} style={{ fontSize: 12, display: 'block', marginBottom: 8 }} data-testid="evo-diagnose-msg">
+          {diagMsg.text}
+        </Typography.Text>
+      )}
 
       {actionErr && (
         <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>{actionErr}</Typography.Text>
