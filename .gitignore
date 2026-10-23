@@ -12,6 +12,7 @@ tools/bin/
 web/tools/
 runtime-manager/data/
 runtime-manager/run/
+runtime-manager/internal/data/
 web/public/vendor/
 backend/internal/companion/data/
 smoke
