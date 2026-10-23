@@ -109,6 +109,30 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       const n = subagentName(d)
       return { text: n ? `↳ 子智能体 ${n} 完成` : '↳ 子智能体已完成' }
     }
+    // REQ-208/M42 余项：后台委派生命周期（started/completed/failed/stopped/steered）
+    case 'subagent.delegate': {
+      const who = d?.member ? ` ${d.member}` : ''
+      const head = d?.result_head ? ` · ${String(d.result_head).slice(0, 60)}` : ''
+      switch (d?.phase) {
+        case 'started':
+          return { text: `🚀 后台委派${who} · ${String(d?.task ?? '').slice(0, 60)}（不阻塞，可插话/收取）` }
+        case 'completed':
+          return { text: `✅ 后台委派${who} 完成${head}` }
+        case 'failed':
+          return { text: `❌ 后台委派${who} 失败 · ${String(d?.error ?? '').slice(0, 80)}`, warn: true }
+        case 'stopped':
+          return { text: `⏸ 后台委派${who} 已停止（子会话历史完整可恢复）`, warn: true }
+        case 'steered':
+          return { text: `💬 后台委派${who} 插话 · ${String(d?.note ?? '').slice(0, 60)}` }
+        default:
+          return { text: `🚀 后台委派${who} · ${d?.phase ?? ''}` }
+      }
+    }
+    // REQ-224 H10：本体消费命中 / ①状态机变更
+    case 'ontology.hit':
+      return { text: `⚡ 本体命中 · ${d?.tool ?? ''}${d?.target ? ` · ${d.target}` : ''}（${d?.ontology_id ?? ''}）` }
+    case 'state.changed':
+      return { text: `⏱ 状态变更 · ${d?.field ?? ''} · ${d?.reason ?? ''}${d?.kind ? `（${d.kind}）` : ''}` }
     // M6：知识召回（引用块展开由 renderEventCard 处理）；REQ-194②：伴生图来源单列
     case 'retrieval': {
       if (d?.source === 'companion') {
@@ -220,7 +244,7 @@ type EventSource = 'builtin' | 'skill' | 'mcp' | 'onto' | 'subagent' | 'retrieva
  */
 function eventSource(evType: string | undefined, evData: any): EventSource {
   if (evType === 'skill.loaded') return 'skill'
-  if (evType === 'subagent.enter' || evType === 'subagent.exit') return 'subagent'
+  if (evType === 'subagent.enter' || evType === 'subagent.exit' || evType === 'subagent.delegate') return 'subagent'
   if (evType === 'retrieval') return 'retrieval'
   if (evType?.startsWith('companion.')) return 'onto' // REQ-281：伴生沉淀归本体青色族（伴生图=本体域资产）
   if (evType === 'ontology.query' || evType === 'ontology.unavailable') return 'onto'

@@ -45,6 +45,9 @@ type Assembler struct {
 	// REQ-214/M46：连接器插件服务基址（如 http://127.0.0.1:8093）——kubernetes/ssh 连接器
 	// 经此走标准 MCP 客户端管线；空 = 插件服务未启用（k8s/ssh 连接器装配降级告警）。
 	PluginEndpoint string
+	// REQ-208/M42 余项：可继续子 Agent 后台委派管理器（nil=不装配 delegate_* 工具族——
+	// 单测/旧调用路径兼容；生产装配在 main.go，运行执行器与 A2A RunFunc 同管线）。
+	Delegates *DelegateManager
 }
 
 // BuildResult 装配产物。
@@ -276,6 +279,25 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		allWarns = append(allWarns, sb.Meta.Warnings...)
 		loaded = appendLoadedSkills(loaded, sb.Meta.LoadedSkills)
 		src[s.Name] = fmt.Sprintf("agent:%s", s.ID) // AgentTool 的 function name = 成员名
+	}
+
+	// REQ-208/M42 余项：可继续子 Agent 工具族（后台委派/steer/collect/打断/冷恢复）——
+	// 与上方一次性同步委派并列，长任务走 delegate_background 不阻塞协调者
+	if a.Delegates != nil {
+		if dts := delegateBackgroundTools(DelegateToolDeps{
+			Manager: a.Delegates, Store: a.Store, ParentConvID: sc.ConversationID, Members: subs,
+		}); len(dts) > 0 {
+			for _, dt := range dts {
+				if ti, ierr := dt.Info(ctx); ierr == nil && ti != nil && ti.Name != "" {
+					if _, dup := src[ti.Name]; dup {
+						continue
+					}
+					src[ti.Name] = "builtin:delegate"
+				}
+				tools = append(tools, normalizeEmptyArgsTool(dt))
+			}
+			allWarns = append(allWarns, "已装配后台委派工具族（delegate_background/status/steer/collect/interrupt/continue）——长任务建议后台委派，可插话引导与冷恢复")
+		}
 	}
 
 	coordInstruction := a.composeInstructionWithScope(coord, sc)

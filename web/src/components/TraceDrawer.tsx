@@ -4,6 +4,7 @@ import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { RunEventDTO } from '../api/types'
 import { describeEvent, levelGated } from './ChatWindow'
+import DelegatesPanel from './DelegatesPanel'
 import EventReplayDrawer from './EventReplayDrawer'
 import { DRAWER_SIZES, drawerSizeProps } from '../lib/layout'
 
@@ -29,7 +30,7 @@ const TYPE_GROUPS = [
   { value: 'approval', label: '审批挂起', types: ['run.interrupted'] },
   // REQ-224/M52（51 号 W1）：harness 事件域（结构化审计）
   { value: 'harness', label: 'Harness 审计', types: ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded'] },
-  { value: 'subagent', label: '子智能体', types: ['subagent.enter', 'subagent.exit'] },
+  { value: 'subagent', label: '子智能体', types: ['subagent.enter', 'subagent.exit', 'subagent.delegate'] },
   { value: 'retrieval', label: '知识召回', types: ['retrieval'] },
   // REQ-281：伴生沉淀过程事件域（抽取/候选/入图判定/拒绝镜像）
   { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
@@ -159,6 +160,9 @@ export default function TraceDrawer({
       }
     >
       {/* REQ-336：原「显示设置/运行治理」两区退役（与头部过程面板/会话设置重合），轨迹页只呈现轨迹 */}
+
+      {/* REQ-208/M42 余项：后台委派面板（可继续子 Agent——插话/打断/冷恢复人工动作面） */}
+      <DelegatesPanel conversationId={conversationId} />
 
       {/* 过滤 */}
       <Typography.Text strong style={{ fontSize: 12 }}>过滤</Typography.Text>

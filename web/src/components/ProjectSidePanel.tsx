@@ -897,6 +897,14 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
         <Form.Item label="协作模式" className="item-inline">
           <Select value={collabMode} options={COLLAB_OPTIONS} onChange={setCollabMode} />
         </Form.Item>
+        {collabMode === 'transfer' && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 8, fontSize: 12 }}
+            title="transfer 为官方 NOT RECOMMENDED 路线（REQ-208 定案保留对照）：控制权转移后协调者失去编排权，委派韧性（错误降级/超时/可继续）仅 agent_as_tool 承载——新项目建议 agent_as_tool。"
+          />
+        )}
         <Form.Item label="工作流模式" className="item-inline">
           <Select value={workflowMode} options={WORKFLOW_OPTIONS} onChange={setWorkflowMode} />
         </Form.Item>

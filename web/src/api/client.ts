@@ -1,6 +1,7 @@
 import type {
   AgentConfigVersion,
   Agent,
+  ConversationDelegate,
   ConversationStateLogRow,
   ConversationStateSnapshot,
   OntoContribution,
@@ -470,6 +471,19 @@ export const api = {
   conversationState: (id: string) => req<ConversationStateSnapshot>(`/api/conversations/${id}/state`),
   /** REQ-224①：会话状态变更留痕（prev→next 快照，倒序） */
   conversationStateLog: (id: string, limit = 200) => req<ConversationStateLogRow[]>(`/api/conversations/${id}/state-log?limit=${limit}`),
+  /** REQ-208：后台委派列表（父会话视角） */
+  listDelegates: (convId: string) => req<ConversationDelegate[]>(`/api/conversations/${convId}/delegates`),
+  /** REQ-208：委派详情+子会话最终回复全文 */
+  getDelegate: (id: string) => req<{ delegate: ConversationDelegate; result: string }>(`/api/delegates/${id}`),
+  /** REQ-208：中途引导（运行中→轮界续跑消费；已收束→直接续跑） */
+  steerDelegate: (id: string, message: string) =>
+    req<ConversationDelegate>(`/api/delegates/${id}/steer`, { method: 'POST', body: JSON.stringify({ message }) }),
+  /** REQ-208：打断 */
+  interruptDelegate: (id: string) => req<ConversationDelegate>(`/api/delegates/${id}/interrupt`, { method: 'POST' }),
+  /** REQ-208：冷恢复/续跑 */
+  continueDelegate: (id: string, instruction?: string) =>
+    req<ConversationDelegate>(`/api/delegates/${id}/continue`, { method: 'POST', body: JSON.stringify({ instruction: instruction ?? '' }) }),
+
 
   setQualityConfig: (id: string, patch: { strict?: boolean; reasoning_check?: boolean }) =>
     req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify(patch) }),

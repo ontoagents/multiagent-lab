@@ -1228,3 +1228,20 @@ export interface ConversationStateLogRow {
   reason?: string
   created_at: string
 }
+
+// REQ-208/M42 余项：可继续子 Agent（continuation）后台委派
+export interface ConversationDelegate {
+  id: string
+  parent_conversation_id: string
+  child_conversation_id: string
+  member_agent_id: string
+  member_name?: string
+  task: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  run_id?: string
+  steer_note?: string
+  result_digest?: string
+  error?: string
+  created_at: string
+  finished_at?: string
+}

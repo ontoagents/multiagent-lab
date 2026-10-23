@@ -28,6 +28,8 @@ type Server struct {
 	Store         *store.Store
 	Box           *secrets.Box
 	Chat          *chat.Service
+	// Delegates REQ-208/M42 余项：可继续子 Agent 后台委派管理器（nil=未启用）
+	Delegates     *chat.DelegateManager
 	A2A           *a2a.Service // REQ-369：A2A 协议端点服务
 	Tools         *tool.Registry
 	KB            *kb.Service
@@ -112,6 +114,16 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 		return "", nil
 	}
 	s.A2A.Stop = chatSvc.Stop
+	// REQ-208/M42 余项：可继续子 Agent 后台委派管理器（运行执行器与 A2A RunFunc 同管线；
+	// 装配器经 chatSvc.Assembler.Delegates 拿到同实例——delegate_* 工具族挂 agent_as_tool 模式）
+	s.Delegates = chat.NewDelegateManager(st)
+	s.Delegates.StartRun = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		text, rerr := s.A2A.RunFunc(ctx, conv, agent, runID, input)
+		return text, rerr
+	}
+	s.Delegates.StopRun = chatSvc.Stop
+	chatSvc.Assembler.Delegates = s.Delegates
+	s.Delegates.LoadOrphans()
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器
 	s.routes()
@@ -236,6 +248,12 @@ func (s *Server) routes() {
 	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
 	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)
 	m.HandleFunc("GET /api/conversations/{id}/state-log", s.conversationStateLog)
+	// REQ-208/M42 余项：可继续子 Agent——人工侧委派查看/插话/打断/恢复（模型侧走 delegate_* 工具族）
+	m.HandleFunc("GET /api/conversations/{id}/delegates", s.listDelegates)
+	m.HandleFunc("GET /api/delegates/{id}", s.getDelegate)
+	m.HandleFunc("POST /api/delegates/{id}/steer", s.steerDelegate)
+	m.HandleFunc("POST /api/delegates/{id}/interrupt", s.interruptDelegate)
+	m.HandleFunc("POST /api/delegates/{id}/continue", s.continueDelegate)
 	// REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批人工决议
 	m.HandleFunc("POST /api/conversations/{id}/ext-approval", s.extApproval)
 
