@@ -74,7 +74,7 @@ ex:hpa a skos:Concept ; skos:prefLabel "水平扩缩" .
 
 func TestSidecarParsesSKOSVocabulary(t *testing.T) {
 	sc := sidecarAvailable(t)
-	sp, rep, err := Import(sc, "vocab.ttl", skosFixture)
+	sp, rep, err := parseViaSidecar(sc, FormatTurtle, skosFixture)
 	if err != nil {
 		t.Fatalf("SKOS 导入失败: %v", err)
 	}
@@ -146,7 +146,7 @@ ex:pod1 a owl:NamedIndividual, ex:Pod ; rdfs:label "frontend" ; ex:replicas "3" 
 // range 缺省 string、domain 映射注册概念；声明不再计 lossy。
 func TestSidecarDatatypeDeclarationCaptured(t *testing.T) {
 	sc := sidecarAvailable(t)
-	sp, rep, err := Import(sc, "dt.ttl", datatypeFixture)
+	sp, rep, err := parseViaSidecar(sc, FormatTurtle, datatypeFixture)
 	if err != nil {
 		t.Fatalf("datatype 导入失败: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestSidecarDatatypeExportRoundTrip(t *testing.T) {
 		}
 	}
 	// 回读：导出 TTL 再导入，声明与断言往返保留
-	sp2, _, err := Import(sc, "rt.ttl", ttl)
+	sp2, _, err := parseViaSidecar(sc, FormatTurtle, ttl)
 	if err != nil {
 		t.Fatalf("回读导入失败: %v", err)
 	}

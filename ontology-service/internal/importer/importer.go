@@ -148,7 +148,22 @@ func Import(sidecar *Sidecar, filename, content string) (*pkgspec.Spec, *Report,
 	case FormatGraphML:
 		sp, rep := parseGraphML(content)
 		return sp, rep, nil
-	case FormatOWLRDF, FormatTurtle, FormatJSONLD:
+	case FormatTurtle:
+		// REQ-378①/M174：Turtle 先走 Go 读入端（零 Python，round-trip+教学主路径）；
+		// 解析失败回落 sidecar（可选组件——复杂形态承载），双路错误如实透出
+		if res, gerr := ReadTurtleSpec(content); gerr == nil {
+			rep := &Report{Format: format, Reconciliation: &res.Recon}
+			rep.Warnings = append(rep.Warnings, res.Warning...)
+			rep.Warnings = append(rep.Warnings, "TTL 读入端=Go 原生（REQ-378，零 Python；余量为未投影计数非精确 N-Triples 账本）")
+			return &res.Spec, rep, nil
+		} else {
+			sp, rep, serr := parseViaSidecar(sidecar, format, content)
+			if serr != nil {
+				return nil, nil, fmt.Errorf("Go TTL 读入端解析失败（%v）；sidecar 回落亦失败: %w", gerr, serr)
+			}
+			return sp, rep, nil
+		}
+	case FormatOWLRDF, FormatJSONLD:
 		return parseViaSidecar(sidecar, format, content)
 	}
 	return nil, nil, fmt.Errorf("unsupported format %q", format)
@@ -416,7 +431,8 @@ type sidecarParseOut struct {
 
 func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Report, error) {
 	if sc == nil || sc.Python == "" || sc.Script == "" {
-		return nil, nil, fmt.Errorf("sidecar 未配置（SIDECAR_PYTHON / SIDECAR_SCRIPT）")
+		// REQ-378②/M174：sidecar 可选组件化——缺失给人话指引（缺什么/怎么装/当前哪些格式仍可用）
+		return nil, nil, fmt.Errorf("RDF 解析组件（sidecar）未配置，无法解析该格式。缺什么：python3 + rdflib 库（环境变量 SIDECAR_PYTHON 指定解释器、SIDECAR_SCRIPT 指定 tools/rdf-sidecar/sidecar.py）。怎么装：安装 python3 后执行 pip install rdflib，或改用 run-dev.sh 启动（自动探测可用解释器）。当前仍可用格式：spec_json / Turtle（Go 原生读入端 REQ-378）/ CSV / GraphML；OWL/RDF-XML 与 JSON-LD 需 sidecar 在场")
 	}
 	cmd := exec.Command(sc.Python, sc.Script, "parse", "--format", format)
 	cmd.Stdin = strings.NewReader(content)

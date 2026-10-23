@@ -31,7 +31,7 @@ ex:penicillin a owl:NamedIndividual ; a ex:Drug .
 // A：纯 ABox 用法推断——概念/实例/数据属性三推断补齐（投影从 0/0/0 到全捕获）。
 func TestUsageInferenceABox(t *testing.T) {
 	sc := sidecarAvailable(t)
-	sp, rep, err := Import(sc, "abox.ttl", aboxFixture)
+	sp, rep, err := parseViaSidecar(sc, FormatTurtle, aboxFixture)
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestUsageInferenceABox(t *testing.T) {
 // E：xsd:decimal 不再崩溃（Decimal → float），值保真。
 func TestDecimalLiteralNoCrash(t *testing.T) {
 	sc := sidecarAvailable(t)
-	sp, _, err := Import(sc, "dec.ttl", aboxFixture)
+	sp, _, err := parseViaSidecar(sc, FormatTurtle, aboxFixture)
 	if err != nil {
 		t.Fatalf("decimal 字面量导入崩溃（REQ-328/E 顺修失效）: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestDecimalLiteralNoCrash(t *testing.T) {
 // 标准声明形态回归：显式投影不受推断干扰（概念不重复、关系/实例/对账全保真）。
 func TestRichFormNoRegression(t *testing.T) {
 	sc := sidecarAvailable(t)
-	sp, rep, err := Import(sc, "rich.ttl", richFixture)
+	sp, rep, err := parseViaSidecar(sc, FormatTurtle, richFixture)
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestRemainderLedgerCapturesBlankRestrictions(t *testing.T) {
 ex:Thing a owl:Class .
 ex:Thing rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasPart ; owl:someValuesFrom ex:Part ] .
 `
-	sp, rep, err := Import(sc, "bnode.ttl", fixture)
+	sp, rep, err := parseViaSidecar(sc, FormatTurtle, fixture)
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}

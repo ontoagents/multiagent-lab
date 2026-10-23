@@ -15,7 +15,8 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-# 本体侧可选依赖提示（缺了不阻塞：影响的是本体导入/AI草稿/运行方案启动）
+# 本体侧可选依赖提示（REQ-378/M174：sidecar=可选组件——缺失仅影响 OWL/RDF-XML/JSON-LD 导入
+# 与导出对拍；Turtle 导入走 Go 原生读入端零依赖，核心链路不阻塞）
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[run-dev] 警告: 未找到 python3，本体导入(OWL/TTL)与导出不可用" >&2
 elif ! python3 -c "import rdflib" >/dev/null 2>&1; then
