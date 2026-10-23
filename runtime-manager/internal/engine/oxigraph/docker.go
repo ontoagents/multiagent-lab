@@ -18,7 +18,7 @@ import (
 //   装载：数据目录准备与 native 同源（写 load_*.ttl → 容器内 oxigraph load，数据目录挂载）；
 //   服务：官方镜像 oxigraph/oxigraph serve --location /data（端口映射宿主 port → 容器 8080）；
 //   生命周期：docker rm -f 回收（Process.Stop）；容器名 rt-{profileID} 便于对账与排查。
-// Fuseki docker 后置（REQ-146 口径：fuseki 仅手动指引，docker 化随需求推进）。
+// Fuseki docker 后置（REQ-379③/M175 评估：社区镜像缺平台灌入链工具链——fuseki 经 manager per-profile 降级 native，docker 化随镜像适配专项轮）。
 // ---------------------------------------------------------------------------
 
 const (

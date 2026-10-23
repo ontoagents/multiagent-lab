@@ -694,6 +694,15 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 	}
 	switch m.Store.GetConfig().ExecutionMethod {
 	case "docker":
+		// REQ-379③/M175：fuseki docker 形态评估结论（详设「优先 docker 化，不可行则 per-profile
+		// 降级 native 兜底」）——fuseki 无官方 Docker 镜像，社区镜像（secoresearch/fuseki）不含
+		// 平台灌入链依赖的宿主 tdbloader 离线装载工具链，容器化适配未真机验证；本分支落
+		// **降级 native 兜底**（治「默认 docker 配置 × fuseki=必失败」组合矛盾），docker 化
+		// 随镜像适配专项轮（含 per-graph 装载容器内等价物评估）。
+		if p.Engine == "fuseki" {
+			log.Printf("[manager] 方案 %s：fuseki 引擎 docker 形态未验证（社区镜像缺平台灌入链工具链），per-profile 降级 native（REQ-379③）", p.ID)
+			break
+		}
 		// docker 不可用的运行期降级对所有引擎生效（REQ-325 顺修：原实现降级 break 仅包住
 		// oxigraph 分支，fuseki 等其他引擎在「默认 docker + 未装 docker」的 fresh 环境恒报错
 		// ——D-O20 v0.73「未安装 docker 时启动期降级进程内 native」本意即全引擎兜底）
@@ -704,7 +713,7 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 		if ox, ok := eng.(*oxigraph.Runtime); ok {
 			return ox.DockerStartOpts(ctx, p.ID, port, ttls, opts)
 		}
-		return nil, fmt.Errorf("执行方式 docker 当前仅支持 oxigraph 引擎（fuseki docker 化随需求推进）")
+		return nil, fmt.Errorf("执行方式 docker 下引擎 %s 不支持（REQ-379③：fuseki 已降级 native 兜底，此处为未知引擎防御）", p.Engine)
 	case "k8s":
 		return nil, fmt.Errorf("执行方式 k8s 为接口预留（复用 M10 10d K8sBackend 模式，随集群环境落地）——当前请在系统配置切换 docker 容器或内置二进制")
 	}
