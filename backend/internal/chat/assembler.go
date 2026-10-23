@@ -50,6 +50,13 @@ type Assembler struct {
 	Delegates *DelegateManager
 }
 
+// WorkflowMeta 工作流装配元数据（REQ-205/M40：workflow_mode 兑现——节点清单与模式，
+// 消费侧 workflow.node 事件与前端进度高亮的数据源）。
+type WorkflowMeta struct {
+	Mode  string   `json:"mode"`  // sequential | parallel | loop
+	Nodes []string `json:"nodes"` // 节点（成员）名清单，按项目成员序
+}
+
 // BuildResult 装配产物。
 type BuildResult struct {
 	Runner          *adk.Runner
@@ -62,6 +69,8 @@ type BuildResult struct {
 	OntoUnavailable *ontology.Issue   // M8：本体挂载降级（ontology.unavailable 事件，§6.10-4）
 	Snapshot        map[string]any    // REQ-117/M17 装配快照（mode + agents[]：模型/工具/技能/MCP/最终指令），调试模式随 run.started 透出
 	MaxIteration    int               // REQ-311 A4：根 Agent 归一后的迭代上限（run.started max_iteration_effective——生效值可感知）
+	// Workflow REQ-205/M40：工作流装配元数据（nil=非工作流；消费侧 workflow.node 事件与前端进度高亮数据源）
+	Workflow *WorkflowMeta
 }
 
 // Runtime 兼容别名（历史调用方）。
@@ -213,9 +222,33 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 		warns = append(warns, fmt.Sprintf("项目协调者 %q 不在成员列表，已回退首个成员", p.Coordinator))
 	}
 
-	// workflow_mode 预留（P1：Sequential/Parallel/Loop 包裹）
-	if p.WorkflowMode != "" && p.WorkflowMode != "free" {
-		warns = append(warns, fmt.Sprintf("工作流模式 %q 暂未启用，按自由协作处理", p.WorkflowMode))
+	// REQ-205/M40：workflow_mode 兑现——sequential/parallel/loop 走 ADK 工作流原语
+	//（确定性编排，成员即节点；free=自由协作按 collab_mode 分发）
+	if p.WorkflowMode != "" && p.WorkflowMode != "free" && p.WorkflowMode != "sequential" && p.WorkflowMode != "parallel" && p.WorkflowMode != "loop" {
+		warns = append(warns, fmt.Sprintf("未知工作流模式 %q，按自由协作处理", p.WorkflowMode))
+	}
+	if p.WorkflowMode == "sequential" || p.WorkflowMode == "parallel" || p.WorkflowMode == "loop" {
+		// 工作流节点=协调者首个 + 其余按成员名稳定序（确定性拓扑，无 LLM 路由；
+		// agent_id 为随机十六进制不可作序——名字序对用户可预期）
+		var coordNode *store.Agent
+		rest := make([]*store.Agent, 0, len(members))
+		for _, m := range members {
+			ag, gerr := a.Store.GetAgent(m.AgentID)
+			if gerr != nil {
+				return nil, fmt.Errorf("load workflow node %s: %w", m.AgentID, gerr)
+			}
+			if m.AgentID == coordID {
+				coordNode = sc.skillGated(ag)
+				continue
+			}
+			rest = append(rest, sc.skillGated(ag))
+		}
+		sort.Slice(rest, func(i, j int) bool { return rest[i].Name < rest[j].Name })
+		wfMembers := rest
+		if coordNode != nil {
+			wfMembers = append([]*store.Agent{coordNode}, rest...)
+		}
+		return a.assembleWorkflow(ctx, p.WorkflowMode, wfMembers, warns, sc)
 	}
 
 	mode := p.CollabMode
@@ -312,7 +345,72 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		ModelLabel: label, ConnID: connID,
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
 		MaxIteration: normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
-		Snapshot:     snapshotOf("agent_as_tool", entries),
+			Snapshot:     snapshotOf("agent_as_tool", entries),
+	}, nil
+}
+
+// assembleWorkflow 工作流编排兑现（REQ-205/M40，38 号 D 阶段）：workflow_mode
+// sequential/parallel/loop 以 Eino ADK 官方工作流原语装配（adk.NewSequentialAgent/
+// ParallelAgent/LoopAgent，transfer 基座全上下文共享）——确定性编排，无协调者 LLM 路由。
+// 口径复核（立项条款）：44 号「官方 NOT RECOMMENDED」在 eino v0.9.19 仍成立
+//（adk/workflow.go 三构造器注释原文推荐 ChatModelAgent+AgentTool）——本兑现如实保留
+// 官方注记（快照 Warning+前端提示），agent_as_tool 仍为推荐默认（Q-4 不变）；
+// 工作流价值定位=确定性顺序/并行/循环拓扑（LG-7 理解确定性编排）。
+// 成员即节点（项目成员序）；loop 迭代上限固定 3（防无限循环，快照告警注明）。
+func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, members []*store.Agent, warns []string, sc assembleScope) (*BuildResult, error) {
+	insts := make([]adk.Agent, 0, len(members))
+	nodeNames := make([]string, 0, len(members))
+	entries := make([]map[string]any, 0, len(members)+1)
+	src := map[string]string{}
+	allWarns := append(append([]string{}, warns...),
+		fmt.Sprintf("工作流模式 %q：官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——本模式定位确定性编排（LG-7），推荐默认仍为 agent_as_tool", mode))
+	if mode == "loop" {
+		allWarns = append(allWarns, "loop 迭代上限固定 3（防无限循环）")
+	}
+	loaded := []*store.Skill{}
+	for _, m := range members {
+		if err := requireAgentToolFields(m); err != nil {
+			return nil, err
+		}
+		mb, berr := a.buildOne(ctx, m, sc)
+		if berr != nil {
+			return nil, fmt.Errorf("build workflow node %q: %w", m.Name, berr)
+		}
+		insts = append(insts, mb.Inst)
+		nodeNames = append(nodeNames, m.Name)
+		entries = append(entries, agentSnapshotEntry("node", m.Name, mb.Meta.ModelLabel, mb.Meta.SourceOf, mb.Meta.LoadedSkills, a.mcpSnapshotOf(m), mb.Meta.Instruction))
+		for k, v := range mb.Meta.SourceOf {
+			if _, dup := src[k]; !dup {
+				src[k] = v
+			}
+		}
+		allWarns = append(allWarns, mb.Meta.Warnings...)
+		loaded = appendLoadedSkills(loaded, mb.Meta.LoadedSkills)
+	}
+	var wf adk.ResumableAgent
+	var err error
+	switch mode {
+	case "sequential":
+		wf, err = adk.NewSequentialAgent(ctx, &adk.SequentialAgentConfig{Name: "workflow_sequential", Description: "按成员顺序执行的工作流", SubAgents: insts})
+	case "parallel":
+		wf, err = adk.NewParallelAgent(ctx, &adk.ParallelAgentConfig{Name: "workflow_parallel", Description: "成员并行执行的工作流", SubAgents: insts})
+	case "loop":
+		wf, err = adk.NewLoopAgent(ctx, &adk.LoopAgentConfig{Name: "workflow_loop", Description: "成员循环执行的工作流", SubAgents: insts, MaxIterations: 3})
+	default:
+		return nil, fmt.Errorf("不支持的工作流模式 %q", mode)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("build workflow agent: %w", err)
+	}
+	entries = append(entries, map[string]any{"role": "workflow", "mode": mode, "nodes": nodeNames})
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: wf, EnableStreaming: true, CheckPointStore: a.CheckPoints})
+	return &BuildResult{
+		Runner: runner, AgentName: "workflow_" + mode,
+		ModelLabel: "workflow(" + mode + ")", ConnID: "",
+		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
+		MaxIteration: 0,
+		Snapshot:     snapshotOf("workflow_"+mode, entries),
+		Workflow:     &WorkflowMeta{Mode: mode, Nodes: nodeNames},
 	}, nil
 }
 

@@ -128,6 +128,12 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
           return { text: `🚀 后台委派${who} · ${d?.phase ?? ''}` }
       }
     }
+    // REQ-205/M40：工作流节点开始/完成（进度高亮数据源）
+    case 'workflow.node': {
+      const idx = typeof d?.index === 'number' && d.index > 0 ? `（${d.index}/${d.total}）` : ''
+      if (d?.phase === 'completed') return { text: `☑ 工作流节点完成 · ${d?.node ?? ''}${idx}` }
+      return { text: `▶ 工作流节点开始 · ${d?.node ?? ''}${idx}［${d?.mode ?? ''}］` }
+    }
     // REQ-224 H10：本体消费命中 / ①状态机变更
     case 'ontology.hit':
       return { text: `⚡ 本体命中 · ${d?.tool ?? ''}${d?.target ? ` · ${d.target}` : ''}（${d?.ontology_id ?? ''}）` }
@@ -244,7 +250,7 @@ type EventSource = 'builtin' | 'skill' | 'mcp' | 'onto' | 'subagent' | 'retrieva
  */
 function eventSource(evType: string | undefined, evData: any): EventSource {
   if (evType === 'skill.loaded') return 'skill'
-  if (evType === 'subagent.enter' || evType === 'subagent.exit' || evType === 'subagent.delegate') return 'subagent'
+  if (evType === 'subagent.enter' || evType === 'subagent.exit' || evType === 'subagent.delegate' || evType === 'workflow.node') return 'subagent'
   if (evType === 'retrieval') return 'retrieval'
   if (evType?.startsWith('companion.')) return 'onto' // REQ-281：伴生沉淀归本体青色族（伴生图=本体域资产）
   if (evType === 'ontology.query' || evType === 'ontology.unavailable') return 'onto'

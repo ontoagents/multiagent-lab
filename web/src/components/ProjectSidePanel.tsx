@@ -908,6 +908,14 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
         <Form.Item label="工作流模式" className="item-inline">
           <Select value={workflowMode} options={WORKFLOW_OPTIONS} onChange={setWorkflowMode} />
         </Form.Item>
+        {workflowMode && workflowMode !== 'free' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 8, fontSize: 12 }}
+            title={`${{ sequential: '顺序', parallel: '并行', loop: '循环' }[workflowMode] ?? workflowMode}工作流已兑现（REQ-205/M40，Eino ADK 工作流原语）：成员即节点（主智能体首个，余按名称序）、确定性拓扑无 LLM 路由；官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——推荐默认仍为 free + agent_as_tool。loop 迭代上限固定 3。`}
+          />
+        )}
       </Form>
       <Section>成员智能体</Section>
       <div className="member-block">

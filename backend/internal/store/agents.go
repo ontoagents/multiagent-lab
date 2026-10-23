@@ -188,7 +188,7 @@ type ProjectMember struct {
 
 // ListProjectAgents 返回项目成员。
 func (s *Store) ListProjectAgents(projectID string) ([]ProjectMember, error) {
-	rows, err := s.DB.Query(`SELECT agent_id, role FROM project_agent WHERE project_id = ?`, projectID)
+	rows, err := s.DB.Query(`SELECT agent_id, role FROM project_agent WHERE project_id = ? ORDER BY agent_id`, projectID) // 稳定序：工作流节点拓扑（REQ-205）与快照可复现依赖
 	if err != nil {
 		return nil, err
 	}

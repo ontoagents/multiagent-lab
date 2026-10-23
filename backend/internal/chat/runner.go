@@ -708,6 +708,9 @@ type interruptState struct {
 	ToolName     string   `json:"tool_name,omitempty"`
 	Arguments    string   `json:"arguments,omitempty"`
 	RunID        string   `json:"run_id"`
+	// Node REQ-205③：工作流挂起节点（HITL 闸门节点化——会话级单槽载体上的节点标注；
+	// 空=非工作流或未知节点。恢复仍沿 CheckpointID/TargetID 定向，本字段为进度呈现与回放定位）
+	Node string `json:"node,omitempty"`
 }
 
 // handleInterrupted 捕获运行中断（ask_human / 工具审批）：提取根因中断点信息，
@@ -737,14 +740,14 @@ func effectiveApprovalPolicy(agent *store.Agent, conv *store.Conversation) (mode
 	return mode, source
 }
 
-func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversation, runID string, ii *adk.InterruptInfo, emit EmitFn) {
+func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversation, runID string, ii *adk.InterruptInfo, emit EmitFn, nodeName string) {
 	cpID := checkPointIDOf(runID)
 	if anchor, ok := s.cpAnchors.Load(conv.ID); ok {
 		if a, ok2 := anchor.(string); ok2 && a != "" {
 			cpID = a
 		}
 	}
-	st := interruptState{CheckpointID: cpID, RunID: runID}
+	st := interruptState{CheckpointID: cpID, RunID: runID, Node: nodeName}
 	if ii != nil {
 		var chosen *adk.InterruptCtx
 		for _, c := range ii.InterruptContexts {
@@ -791,6 +794,7 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 		"kind": st.Kind, "checkpoint_id": st.CheckpointID, "target_id": st.TargetID,
 		"question": st.Question, "choices": st.Choices,
 		"tool_name": st.ToolName, "arguments": st.Arguments,
+		"node":      st.Node, // REQ-205③：工作流挂起节点（节点级 HITL 定位）
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.interrupted", runID, data), emit)
 }
@@ -856,6 +860,13 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		if name != "" && name != rc.rootAgent {
 			s.emitAndRecord(rc.ctx, conv, runID, newEvent("subagent.exit", runID, map[string]any{"agent": name}), emit)
 		}
+		// REQ-205/M40：工作流节点完成事件（节点级进度持久化——回放/进度高亮/中断节点定位）
+		if rt.Workflow != nil {
+			s.emitAndRecord(rc.ctx, conv, runID, newEvent("workflow.node", runID, map[string]any{
+				"mode": rt.Workflow.Mode, "node": name, "phase": "completed",
+				"index": workflowNodeIndex(rt.Workflow, name), "total": len(rt.Workflow.Nodes),
+			}), emit)
+		}
 	}
 	rc.trackAgent = func(name string) {
 		if name == "" || name == rc.lastAgent {
@@ -866,6 +877,13 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		}
 		if name != rc.rootAgent {
 			s.emitAndRecord(rc.ctx, conv, runID, newEvent("subagent.enter", runID, map[string]any{"agent": name}), emit)
+		}
+		// REQ-205/M40：工作流节点开始事件
+		if rt.Workflow != nil && name != "" {
+			s.emitAndRecord(rc.ctx, conv, runID, newEvent("workflow.node", runID, map[string]any{
+				"mode": rt.Workflow.Mode, "node": name, "phase": "started",
+				"index": workflowNodeIndex(rt.Workflow, name), "total": len(rt.Workflow.Nodes),
+			}), emit)
 		}
 		rc.lastAgent = name
 	}
@@ -932,7 +950,7 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 		// 中断恢复（M11 收尾）：挂起运行等待用户答复（Output 通常为空，须在 Output 判空前处理）
 		if ev.Action != nil && ev.Action.Interrupted != nil {
 			rc.interrupted = true
-			s.handleInterrupted(runCtx, conv, runID, ev.Action.Interrupted, emit)
+			s.handleInterrupted(runCtx, conv, runID, ev.Action.Interrupted, emit, rc.lastAgent)
 			continue
 		}
 		// transfer 模式：动作级转移提示
@@ -1256,6 +1274,16 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 		ctx = rc.ctx
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("tool.call", runID, data), emit)
+}
+
+// workflowNodeIndex REQ-205/M40：节点在清单中的序（1 起；未知节点 0）。
+func workflowNodeIndex(wf *WorkflowMeta, node string) int {
+	for i, n := range wf.Nodes {
+		if n == node {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // messagesChars REQ-311 A6：消息序列内容字符量（Content + 工具调用名与参数），上下文账单口径。

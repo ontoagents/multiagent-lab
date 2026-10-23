@@ -31,6 +31,7 @@ const TYPE_GROUPS = [
   // REQ-224/M52（51 号 W1）：harness 事件域（结构化审计）
   { value: 'harness', label: 'Harness 审计', types: ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded'] },
   { value: 'subagent', label: '子智能体', types: ['subagent.enter', 'subagent.exit', 'subagent.delegate'] },
+  { value: 'workflow', label: '工作流节点', types: ['workflow.node'] }, // REQ-205/M40：节点开始/完成进度
   { value: 'retrieval', label: '知识召回', types: ['retrieval'] },
   // REQ-281：伴生沉淀过程事件域（抽取/候选/入图判定/拒绝镜像）
   { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
@@ -522,10 +523,34 @@ function RunBlock({
       </Tooltip>
     )
   })()
+  // REQ-205/M40：工作流节点进度条带（workflow.node 事件推导——started=高亮进行/完成=✓；
+  // 只读示意不引入编辑器，Q-7 口径不变）
+  const wfStrip = useMemo(() => {
+    const nodes = run.allEvents.filter((e) => e.type === 'workflow.node')
+    if (nodes.length === 0) return null
+    const states = new Map<string, { phase: string; index: number; total: number; mode: string }>()
+    for (const e of nodes) {
+      const d = safeParse(e.data)
+      if (!d?.node) continue
+      states.set(d.node, { phase: d.phase, index: d.index ?? 0, total: d.total ?? 0, mode: d.mode ?? '' })
+    }
+    const mode = nodes.length > 0 ? safeParse(nodes[0].data)?.mode ?? '' : ''
+    return { mode, items: [...states.entries()] }
+  }, [run.allEvents])
   // REQ-284①：流式输出归并段（列表主视图——delta 不再逐条渲染）
   const segs = useMemo(() => buildSegments(run.events), [run.events])
   return (
     <div style={{ marginBottom: 14, border: '1px solid var(--c-border, #e3e6f0)', borderRadius: 8, overflow: 'hidden' }}>
+      {wfStrip && (
+        <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--c-border, #e3e6f0)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: 'var(--c-bg-soft, #f6f7fb)' }} data-testid="wf-progress">
+          <Tag color="geekblue" style={{ margin: 0, fontSize: 10 }}>工作流 · {wfStrip.mode}</Tag>
+          {wfStrip.items.map(([name, st]) => (
+            <Tag key={name} style={{ margin: 0, fontSize: 10 }} color={st.phase === 'completed' ? 'success' : 'processing'} data-testid={`wf-node-${name}`}>
+              {st.phase === 'completed' ? '✓ ' : '▶ '}{name}{st.index > 0 ? ` ${st.index}/${st.total}` : ''}
+            </Tag>
+          ))}
+        </div>
+      )}
       <div style={{ background: 'var(--c-bg-soft, #f6f7fb)', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Typography.Text strong style={{ fontSize: 12 }}>运行 {index + 1}</Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(run.startedAt)}</Typography.Text>

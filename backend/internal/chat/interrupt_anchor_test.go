@@ -43,21 +43,21 @@ func TestInterruptCheckpointAnchor(t *testing.T) {
 	noemit := func(*Event) {}
 
 	// ① 新 Run 挂起：checkpoint id = runID 派生
-	s.handleInterrupted(ctx, conv, "run-1", nil, noemit)
+	s.handleInterrupted(ctx, conv, "run-1", nil, noemit, "")
 	if got := anchorCPID(t, s, conv.ID); got != "ckpt_run-1" {
 		t.Fatalf("新 Run 应 runID 派生, got %s", got)
 	}
 
 	// ② Run 清锚点语义：再次 Run 前 cpAnchors 无该会话
 	s.cpAnchors.Delete(conv.ID)
-	s.handleInterrupted(ctx, conv, "run-2", nil, noemit)
+	s.handleInterrupted(ctx, conv, "run-2", nil, noemit, "")
 	if got := anchorCPID(t, s, conv.ID); got != "ckpt_run-2" {
 		t.Fatalf("清锚点后应 runID 派生, got %s", got)
 	}
 
 	// ③ Resume 后再次挂起：ADK 沿用锚点 id 覆盖保存——平台须记录同一 id
 	s.cpAnchors.Store(conv.ID, "ckpt_run-2")
-	s.handleInterrupted(ctx, conv, "run-3", nil, noemit)
+	s.handleInterrupted(ctx, conv, "run-3", nil, noemit, "")
 	if got := anchorCPID(t, s, conv.ID); got != "ckpt_run-2" {
 		t.Fatalf("恢复链二次挂起应沿用锚点 id, got %s", got)
 	}
