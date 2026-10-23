@@ -81,6 +81,7 @@ func (s *Server) evolutionDiagnose(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
+	s.persistDraftJob(job)
 	go s.runEvolutionDiagnose(job, req.OntologyID, version, specMap, ds, rounds+1)
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "dataset": ds.Name, "total": fmt.Sprint(len(ds.CQs))})
 }
@@ -92,6 +93,7 @@ func (s *Server) runEvolutionDiagnose(job *draftJob, ontologyID string, version 
 		draftJobsMu.Lock()
 		job.Status, job.Error = "failed", fmt.Sprintf(format, args...)
 		draftJobsMu.Unlock()
+		s.persistDraftJob(job) // REQ-381②：失败写穿
 	}
 	setProgress := func(msg string) {
 		draftJobsMu.Lock()
@@ -113,6 +115,7 @@ func (s *Server) runEvolutionDiagnose(job *draftJob, ontologyID string, version 
 		draftJobsMu.Lock()
 		job.Status, job.Diagnose = "done", &diagnoseResult{Report: rep, Note: "基准全绿（三率满格）——本次诊断无进化建议，未产出候选（不为改而改）"}
 		draftJobsMu.Unlock()
+		s.persistDraftJob(job)
 		return
 	}
 
@@ -172,6 +175,7 @@ func (s *Server) runEvolutionDiagnose(job *draftJob, ontologyID string, version 
 		Note:        fmt.Sprintf("候选 %s 已产出（proposed）——门控/采纳走既有 REST 人工链（一期口径：LLM 产物不自动转正）", c.Label),
 	}
 	draftJobsMu.Unlock()
+	s.persistDraftJob(job) // REQ-381②：完成写穿
 }
 
 // failingSignals 提取失评测信号（翻译/白名单/gold 任一不过；上限 12 条防 prompt 膨胀）。

@@ -97,6 +97,7 @@ func (s *Server) cqragDraft(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
+	s.persistDraftJob(job)
 	go s.runCQRAGDraft(job, oid, target, ontorag.SpecFingerprint(raw), cqs, profile, topK, req.SkipPrecheck)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(cqs)})
 }
@@ -208,7 +209,10 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 		}},
 	)
 	draftJobsMu.Lock()
-	defer draftJobsMu.Unlock()
+	defer func() {
+		draftJobsMu.Unlock()
+		s.persistDraftJob(job) // REQ-381②：终态写穿
+	}()
 	if perr != nil {
 		job.Status = "failed"
 		job.Error = perr.Error()

@@ -70,11 +70,24 @@ func (s *Store) migrate() error {
 		}
 	}
 	sort.Strings(files)
+	// 版本表先行就绪（011/047 迁移文件为显式声明；新库/存量库统一此处 CREATE IF NOT EXISTS）
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("ensure schema_migrations: %w", err)
+	}
+	// REQ-381①/M177：显式版本管理——已记录版本跳过；未记录的执行后补记。
+	// 兼容口径：存量库升级时既有迁移已生效但未记录，执行遇 duplicate column 视为
+	// legacy 已应用并补记（一次性收敛；此后 rename/drop 类迁移不再被重放误伤）。
 	for _, f := range files {
+		var applied int
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=?`, f).Scan(&applied)
+		if applied > 0 {
+			continue
+		}
 		bts, err := os.ReadFile(filepath.Join(s.migrationsDir, f))
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
+		legacy := false
 		for _, stmt := range splitSQL(string(bts)) {
 			if strings.TrimSpace(stmt) == "" {
 				continue
@@ -83,11 +96,16 @@ func (s *Store) migrate() error {
 				// 幂等容忍：重放式迁移下 ALTER ADD COLUMN 无法 IF NOT EXISTS，
 				// 重复启动时列已存在视为已应用（REQ-156/M-O15 005 起的 ALTER 类迁移依赖此语义）
 				if strings.Contains(err.Error(), "duplicate column name") {
+					legacy = true
 					continue
 				}
 				return fmt.Errorf("apply migration %s: %w", f, err)
 			}
 		}
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))`, f); err != nil {
+			return fmt.Errorf("record migration %s: %w", f, err)
+		}
+		_ = legacy
 	}
 	return nil
 }

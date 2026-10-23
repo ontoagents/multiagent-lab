@@ -52,6 +52,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("打开仓库失败: %v", err)
 	}
+	// REQ-381②/M177：启动对账——悬挂 async_job running 标 error（进程重启 goroutine 消失，诚实报错重新发起）
+	if n, err := st.MarkOrphanAsyncJobs(); err == nil && n > 0 {
+		log.Printf("[ontologyd] 启动对账：%d 条悬挂异步任务标 error（重启中断，可重新发起）", n)
+	}
 	sc := &importer.Sidecar{Python: python, Script: script}
 	llm := llmcreate.New(platformURL)
 

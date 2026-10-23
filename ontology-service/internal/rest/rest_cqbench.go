@@ -87,6 +87,7 @@ func (s *Server) cqBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
+	s.persistDraftJob(job)
 	go s.runCQBenchmark(job, req.OntologyID, version, target, ds)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "total": len(ds.CQs)})
 }
@@ -132,7 +133,10 @@ func (s *Server) runCQBenchmark(job *draftJob, oid string, version int, target *
 		_ = s.Store.PutArtifact(oid, "cq-benchmark-report", string(b), false)
 	}
 	draftJobsMu.Lock()
-	defer draftJobsMu.Unlock()
+	defer func() {
+		draftJobsMu.Unlock()
+		s.persistDraftJob(job) // REQ-381②：终态写穿
+	}()
 	if perr != nil {
 		job.Status = "failed"
 		job.Error = perr.Error()

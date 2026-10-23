@@ -65,7 +65,18 @@ func (s *Store) migrate(dir string) error {
 		}
 	}
 	sort.Strings(files)
+	// 版本表先行就绪（011/047 迁移文件为显式声明；新库/存量库统一此处 CREATE IF NOT EXISTS）
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("ensure schema_migrations: %w", err)
+	}
+	// REQ-381①/M177：显式版本管理（同 ontology-service repo 口径）——已记录版本跳过；
+	// duplicate column 视为 legacy 已应用（存量库一次性收敛，此后 rename/drop 类迁移不被重放误伤）。
 	for _, f := range files {
+		var applied int
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=?`, f).Scan(&applied)
+		if applied > 0 {
+			continue
+		}
 		bts, err := os.ReadFile(filepath.Join(dir, f))
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
@@ -81,6 +92,9 @@ func (s *Store) migrate(dir string) error {
 				}
 				return fmt.Errorf("apply migration %s: %w", f, err)
 			}
+		}
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))`, f); err != nil {
+			return fmt.Errorf("record migration %s: %w", f, err)
 		}
 	}
 	return nil

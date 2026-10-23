@@ -18,6 +18,7 @@ import (
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
 )
 
 type draftJob struct {
@@ -45,6 +46,19 @@ var (
 	draftJobs   = map[string]*draftJob{}
 )
 
+// persistDraftJob REQ-381②/M177：job 写穿 async_job 表（进程内 map 仍为热路径缓存；
+// 重启后轮询回读 DB——done/failed 结果不丢）。落库失败仅日志（旁路不阻断任务）。
+func (s *Server) persistDraftJob(j *draftJob) {
+	if s.Store == nil || j == nil {
+		return
+	}
+	b, err := json.Marshal(j)
+	if err != nil {
+		return
+	}
+	_ = s.Store.UpsertAsyncJob(&repo.AsyncJobRow{ID: j.ID, Kind: "draft", Status: j.Status, Progress: j.Progress, ResultJSON: string(b), Error: j.Error, CreatedAt: j.CreatedAt.Format(time.RFC3339Nano)})
+}
+
 // aiDraftAsync POST /api/ontologies/ai-draft-async → 202 {job_id}。
 func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	if s.LLM == nil {
@@ -64,6 +78,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 	draftJobsMu.Lock()
 	draftJobs[job.ID] = job
 	draftJobsMu.Unlock()
+	s.persistDraftJob(job)
 	go func() {
 		// REQ-340 A2：管线段留痕（source→extract/draft→gate；审查=前端确认卡、入库=通用 create+saveSpec，不在本端点）
 		desc := req.Description
@@ -85,6 +100,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 						draftJobsMu.Lock()
 						job.Progress = msg
 						draftJobsMu.Unlock()
+						s.persistDraftJob(job)
 					}) // REQ-248/242：CQ 回写+质量透出
 				if err != nil {
 					return "", err
@@ -120,6 +136,7 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 			job.Status = "done"
 		}
 		draftJobsMu.Unlock()
+		s.persistDraftJob(job)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }
@@ -167,13 +184,25 @@ func (s *Server) aiCQExtract(w http.ResponseWriter, r *http.Request) {
 }
 
 // aiDraftJob GET /api/ai-draft-jobs/{id} 轮询。
+// REQ-381②/M177：进程内 map 未命中回读 async_job 表（重启后 done/failed 结果仍可查；
+// running 行已被启动对账标 error）。
 func (s *Server) aiDraftJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 	draftJobsMu.Lock()
-	job, ok := draftJobs[r.PathValue("id")]
+	job, ok := draftJobs[id]
 	draftJobsMu.Unlock()
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job 不存在（或服务重启丢失——请重新发起）"})
+	if ok {
+		writeJSON(w, http.StatusOK, job)
 		return
 	}
-	writeJSON(w, http.StatusOK, job)
+	if s.Store != nil {
+		if row, gerr := s.Store.GetAsyncJob(id); gerr == nil && row != nil {
+			var j draftJob
+			if json.Unmarshal([]byte(row.ResultJSON), &j) == nil && j.ID != "" {
+				writeJSON(w, http.StatusOK, &j)
+				return
+			}
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "job 不存在（或服务重启丢失——请重新发起）"})
 }

@@ -170,8 +170,12 @@ func (s *Server) ontoChatTurn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 生成轮（draft/refine 任意输入、domain 生成意图）→ 异步；其余同步
-	async := strings.TrimSpace(req.Feedback) != "" || ontochat.WillGenerate(sess.Stage, req.Text)
+	// 生成轮（draft/refine 任意输入、domain 生成意图）→ 异步；其余同步。
+	// REQ-381③/M177：story 精修轮（已有用户故事后文本即 LLM 修订意见 reviseStory）收编异步
+	// ——同步轮 LLM 调用清零（cq 首轮/analysis 轮为纯本地不涉 LLM），backend 反代
+	// ResponseHeaderTimeout 脆弱点消除。
+	async := strings.TrimSpace(req.Feedback) != "" || ontochat.WillGenerate(sess.Stage, req.Text) ||
+		(sess.Stage == "story" && sess.Context.DraftStory != "")
 	if !async {
 		res, err := s.OntoChat.Turn(r.Context(), st, sess, req.Text)
 		if err != nil {
