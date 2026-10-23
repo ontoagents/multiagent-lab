@@ -23,9 +23,12 @@ import (
 type Server struct {
 	Store   *store.Store
 	Manager *manager.Manager
+	Facade  *facade.Facade // REQ-382/M178：执行级对齐通道（nil=不可用，调用方降级）
 }
 
-func New(st *store.Store, mg *manager.Manager) *Server { return &Server{Store: st, Manager: mg} }
+func New(st *store.Store, mg *manager.Manager, fc *facade.Facade) *Server {
+	return &Server{Store: st, Manager: mg, Facade: fc}
+}
 
 func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/runtime-profiles", s.list)
@@ -40,6 +43,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/runtime-config", s.runtimeConfigGet)
 	m.HandleFunc("PUT /api/runtime-config", s.runtimeConfigPut)
 	m.HandleFunc("GET /api/runtime-profiles/route-ambiguities", s.routeAmbiguities) // REQ-384/M180：多本体路由歧义观测面
+	m.HandleFunc("POST /api/ontology-sparql", s.ontologySparql)                     // REQ-382/M178：按本体路由执行只读 SPARQL（cqbench 执行级对齐通道）
 	m.HandleFunc("GET /api/runtime-profiles/{id}/logs", s.logs)
 	m.HandleFunc("GET /api/runtime-profiles/{id}/trace", s.trace)    // 翻译透视（REQ-94）
 	m.HandleFunc("GET /api/runtime-profiles/{id}/sparql", s.sparql)  // SPARQL 工作台端点（REQ-92，Yasgui）

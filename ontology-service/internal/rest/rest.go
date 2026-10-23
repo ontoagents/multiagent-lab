@@ -30,6 +30,8 @@ type Server struct {
 	Sidecar  *importer.Sidecar
 	LLM      *llmcreate.Creator
 	OntoChat *ontochat.Engine
+	// RuntimeURL REQ-382/M178：运行平面基址（RUNTIME_MGR_URL；空=cqbench 执行级对齐回落文本子串口径）
+	RuntimeURL string
 
 	ontoChatDB *ontochat.Store     // 惰性初始化（rest_ontochat.go）
 	pipelineDB *pipeline.Store     // 惰性初始化（rest_pipeline.go）
@@ -44,9 +46,14 @@ type Server struct {
 	jobCancels map[string]context.CancelFunc
 }
 
-func New(st *repo.Store, sc *importer.Sidecar, llm *llmcreate.Creator) *Server {
-	return &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm},
+func New(st *repo.Store, sc *importer.Sidecar, llm *llmcreate.Creator, runtimeURL ...string) *Server {
+	s := &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm},
 		vecCache: ontorag.NewVectorCache(0), jobCancels: map[string]context.CancelFunc{}}
+	// REQ-382/M178：运行平面基址（cqbench 执行级对齐通道；variadic 保持既有调用零破坏）
+	if len(runtimeURL) > 0 {
+		s.RuntimeURL = runtimeURL[0]
+	}
+	return s
 }
 
 // Mount 注册到主平台兼容的 1.22 pattern mux。

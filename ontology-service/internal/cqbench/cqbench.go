@@ -153,6 +153,12 @@ type Signal struct {
 	GoldAligned bool   `json:"gold_aligned"`
 	Query       string `json:"query,omitempty"`
 	Error       string `json:"error,omitempty"`
+	// REQ-382/M178：执行级对齐证据（Executor 非 nil 时产出）
+	Executed     bool    `json:"executed,omitempty"`       // 查询已实际执行
+	ExecError    string  `json:"exec_error,omitempty"`     // 执行失败原因（对齐判定回落文本子串口径并如实标注）
+	GoldHitCount int     `json:"gold_hit_count,omitempty"` // gold URN 在执行结果集中出现数
+	GoldTotal    int     `json:"gold_total,omitempty"`     // gold URN 总数
+	GoldOverlap  float64 `json:"gold_overlap,omitempty"`   // 重合度=hit/total（0~1；执行级对齐率口径）
 }
 
 // Stratum 单档分层跑分（三率同总口径）。
@@ -172,6 +178,9 @@ type MetricDefinition struct {
 	Stratified   string `json:"stratified"`    // 分层口径（双维定义）
 	DatasetRev   string `json:"dataset_rev"`   // 数据集版本（本报告所用）
 	GeneratorVer string `json:"generator_ver"` // 评测器口径版本（r2=REQ-367 分层跑分）
+	// REQ-382/M178：gold 对齐口径版本——执行级（查询实际执行、gold URN 于结果集重合度）或
+	// 文本子串回落（执行通道不可用/执行失败；跨域低对齐负信号注记维持）
+	GoldAlignMode string `json:"gold_align_mode,omitempty"` // executed | text-substring-fallback
 }
 
 // Report 一次「测我」运行报告（落 artifact cq-benchmark-report，runs 追加式历史）。
@@ -196,7 +205,23 @@ type Report struct {
 // Run 「用基准集测我」：对目标本体逐条翻译数据集 CQ（其 schema 上下文）→白名单→gold 对齐。
 // gold 对齐语义=查询引用了基准 CQ 答案依赖的概念/关系 URN——跨域本体该率低是预期信号
 // （基准集按种子域编写，域外本体不覆盖该域=合理的负信号，非缺陷）。
-func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, ontologyID string, version int, ds *Dataset, onProgress func(string)) *Report {
+// Executor 执行通道（REQ-382/M178）：按本体路由执行只读 SPARQL 返回 bindings。
+// 注入方=rest 层（RUNTIME_MGR_URL /api/ontology-sparql）；nil=维持文本子串口径。
+type Executor func(ctx context.Context, ontologyID, query string) ([]map[string]any, error)
+
+// RunOption 可选项（向后兼容：既有调用不传即旧行为）。
+type RunOption func(*runOpts)
+
+type runOpts struct{ executor Executor }
+
+// WithExecutor 注入执行通道（执行级对齐开启）。
+func WithExecutor(e Executor) RunOption { return func(o *runOpts) { o.executor = e } }
+
+func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, ontologyID string, version int, ds *Dataset, onProgress func(string), opts ...RunOption) *Report {
+	var ro runOpts
+	for _, o := range opts {
+		o(&ro)
+	}
 	rep := &Report{OntologyID: ontologyID, Version: version, Dataset: ds.Name, TS: time.Now().UTC().Format(time.RFC3339), Total: len(ds.CQs)}
 	conc := make([]string, 0, len(target.Concepts))
 	for _, c := range target.Concepts {
@@ -229,13 +254,38 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 				sig.Error = verr.Error()
 			} else {
 				sig.WhitelistOK = true
-				aligned := 0
-				for _, g := range dc.Gold {
-					if strings.Contains(query, SanitizeURN(g)) {
-						aligned++
+				// REQ-382/M178：执行级对齐——查询实际执行，gold URN 于结果集重合度；
+				// 执行通道不可用/执行失败回落文本子串口径并如实标注（零回归）
+				sig.GoldTotal = len(dc.Gold)
+				if ro.executor != nil {
+					bindings, eerr := ro.executor(ctx, ontologyID, query)
+					if eerr != nil {
+						sig.ExecError = eerr.Error()
+					} else {
+						sig.Executed = true
+						hay := serializeBindings(bindings)
+						aligned := 0
+						for _, g := range dc.Gold {
+							if strings.Contains(hay, SanitizeURN(g)) {
+								aligned++
+							}
+						}
+						sig.GoldHitCount = aligned
+						if sig.GoldTotal > 0 {
+							sig.GoldOverlap = float64(aligned) / float64(sig.GoldTotal)
+						}
+						sig.GoldAligned = aligned > 0
 					}
 				}
-				sig.GoldAligned = aligned > 0
+				if !sig.Executed {
+					aligned := 0
+					for _, g := range dc.Gold {
+						if strings.Contains(query, SanitizeURN(g)) {
+							aligned++
+						}
+					}
+					sig.GoldAligned = aligned > 0
+				}
 			}
 		}
 		rep.tally(sig)
@@ -249,7 +299,28 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 		DatasetRev:   ds.Revision,
 		GeneratorVer: "r2-req367",
 	}
+	// 口径按实测收敛：有任一信号真实执行→executed（个别执行失败以 exec_error 逐信号标注）；
+	// 通道缺失或全部执行失败→text-substring-fallback（诚实标注回落）
+	executedAny := false
+	for _, sig := range rep.Signals {
+		if sig.Executed {
+			executedAny = true
+			break
+		}
+	}
+	if executedAny {
+		rep.MetricDefinition.GoldAlignMode = "executed"
+		rep.MetricDefinition.GoldAligned = "执行级对齐（REQ-382）：生成查询经只读白名单后实际执行，gold URN 在答案结果集中的重合度（GoldOverlap=hit/total；任一命中即对齐）——非答案内容语义比对；跨域本体该率低为预期负信号非缺陷"
+	} else {
+		rep.MetricDefinition.GoldAlignMode = "text-substring-fallback"
+	}
 	return rep
+}
+
+// serializeBindings bindings 结果集序列化（URN containment 判定的搜索面——IRI/字面量值统一入面）。
+func serializeBindings(bindings []map[string]any) string {
+	b, _ := json.Marshal(bindings)
+	return string(b)
 }
 
 // tally 三率总账+双维分层分账+信号追加（REQ-367：分层可观测——difficulty/kind 各档独立计数）。

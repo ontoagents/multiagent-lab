@@ -17,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
 )
 
@@ -49,6 +50,26 @@ var ownerCacheTTL = OwnerCacheTTL
 
 func New(st *store.Store, endpoint func(string) (string, error)) *Facade {
 	return &Facade{Store: st, Endpoint: endpoint, HTTP: &http.Client{Timeout: 15 * time.Second}, TraceSparql: true, ownerCache: map[string]ownerEntry{}}
+}
+
+// QueryOntology REQ-382/M178：按本体路由执行只读 SPARQL（REST 面用——cqbench 执行级对齐
+// 的执行通道；与 MCP sparql_query 同一 RunningByOntology 路由语义，default 图无伴生限定）。
+// 返回 bindings 原始结果集；路由失败/执行失败返回错误。
+func (f *Facade) QueryOntology(ctx context.Context, ontologyID, query string) ([]map[string]any, error) {
+	if err := sparqlguard.Vet(query); err != nil {
+		return nil, err
+	}
+	p, err := f.Store.RunningByOntology(ontologyID)
+	if err != nil || p == nil {
+		return nil, fmt.Errorf("本体 %s 未挂载到任何运行中的方案", ontologyID)
+	}
+	ep, err := f.Endpoint(p.ID)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return f.query(cctx, ep, query)
 }
 
 // Mount 挂载到 /mcp（Streamable HTTP，沿用 Q-14）。

@@ -107,7 +107,7 @@ func (s *Server) runCQBenchmark(job *draftJob, oid string, version int, target *
 		}},
 		buildflow.Segment{Stage: buildflow.StageExtract, Skip: true}, // 无抽取段（CQ 来自数据集非材料抽取）
 		buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
-			rep = cqbench.Run(ctx, s.LLM, target, oid, version, ds, setProgress)
+			rep = cqbench.Run(ctx, s.LLM, target, oid, version, ds, setProgress, cqbench.WithExecutor(s.benchExecutor()))
 			return fmt.Sprintf("翻译 %d/%d · 白名单 %d/%d · gold 对齐 %d/%d",
 				rep.Translated, rep.Total, rep.Whitelist, rep.Total, rep.GoldAlign, rep.Total), nil
 		}},
@@ -115,7 +115,7 @@ func (s *Server) runCQBenchmark(job *draftJob, oid string, version int, target *
 	// buildflow.Run 会因 registry 未声明「cq-benchmark」跳过未登记段——登记见 buildflow.go；
 	// 若未登记则上面段全 skip，rep 为 nil——兜底直接跑（注册与执行解耦的保守路径）
 	if rep == nil {
-		rep = cqbench.Run(context.Background(), s.LLM, target, oid, version, ds, setProgress)
+		rep = cqbench.Run(context.Background(), s.LLM, target, oid, version, ds, setProgress, cqbench.WithExecutor(s.benchExecutor()))
 	}
 	draftJobsMu.Lock()
 	job.Result = &draftResult{}

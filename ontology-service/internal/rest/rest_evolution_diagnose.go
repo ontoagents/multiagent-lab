@@ -108,7 +108,7 @@ func (s *Server) runEvolutionDiagnose(job *draftJob, ontologyID string, version 
 		fail("spec 解析失败: %v", err)
 		return
 	}
-	rep := cqbench.Run(ctx, s.LLM, target, ontologyID, version, ds, setProgress)
+	rep := cqbench.Run(ctx, s.LLM, target, ontologyID, version, ds, setProgress, cqbench.WithExecutor(s.benchExecutor()))
 	failed := failingSignals(rep)
 	if len(failed) == 0 {
 		// 全绿：如实产出「无进化建议」结论，不出候选（门控最承重——无问题不硬造补丁）

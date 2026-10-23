@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/cqbench"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
@@ -149,6 +150,9 @@ func signalOf(m map[string]any) gateSignal {
 
 // gateEvolutionCandidate POST 配对门控：base spec vs apply(patch) spec 双信号对照。
 // 质量分下降>5 或结构破坏 → 不过（候选留 proposed 可改；对照报告落 gate_report）。
+// REQ-382/M178 第三信号：body {with_benchmark?:bool, dataset?:string} 显式开启时，
+// base/patched 各跑一轮 cqbench 三率（LLM 评测，成本高故默认关），gold 对齐率或
+// 白名单率回退计入门控回归——「诊断用基准、门控不用」的不对称收口。
 func (s *Server) gateEvolutionCandidate(w http.ResponseWriter, r *http.Request) {
 	cid := r.PathValue("cid")
 	c, err := s.evoStore().Get(cid)
@@ -160,7 +164,12 @@ func (s *Server) gateEvolutionCandidate(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "仅 proposed 候选可门控"})
 		return
 	}
-	base, _, err := s.getSpecMap(c.OntologyID)
+	var opt struct {
+		WithBenchmark bool   `json:"with_benchmark"`
+		Dataset       string `json:"dataset"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&opt) // 空体=默认双信号（兼容既有前端）
+	base, version, err := s.getSpecMap(c.OntologyID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -174,12 +183,63 @@ func (s *Server) gateEvolutionCandidate(w http.ResponseWriter, r *http.Request) 
 	}
 	patchSig := signalOf(patched)
 	regressed := !patchSig.StructOK || patchSig.Overall < baseSig.Overall-5.0
+	verdict := map[bool]string{true: "门控不过（质量回退或结构破坏）", false: "门控通过"}[regressed]
+	note := "配对门控：补丁前后同题对照（qualitygate 三维加权 + 结构断言双信号）"
+
+	// REQ-382 第三信号：cqbench 三率增量（显式开启；LLM 评测两次，成本提示在前端）
+	var bench map[string]any
+	if opt.WithBenchmark && s.LLM != nil {
+		ds := (*cqbench.Dataset)(nil)
+		if strings.TrimSpace(opt.Dataset) != "" {
+			if d, derr := cqbench.LoadDataset(cqBenchDir() + "/" + opt.Dataset + ".json"); derr == nil {
+				ds = d
+			}
+		}
+		if ds == nil {
+			if metas, lerr := cqbench.ListDatasets(cqBenchDir()); lerr == nil && len(metas) > 0 {
+				if d, derr := cqbench.LoadDataset(cqBenchDir() + "/" + metas[0].Name + ".json"); derr == nil {
+					ds = d
+				}
+			}
+		}
+		if ds == nil {
+			bench = map[string]any{"error": "无基准数据集——第三信号跳过"}
+		} else {
+			toSpec := func(m map[string]any) *pkgspec.Spec {
+				b, _ := json.Marshal(m)
+				sp := &pkgspec.Spec{}
+				_ = json.Unmarshal(b, sp)
+				return sp
+			}
+			runBench := func(sp *pkgspec.Spec) *cqbench.Report {
+				return cqbench.Run(r.Context(), s.LLM, sp, c.OntologyID, version, ds, nil, cqbench.WithExecutor(s.benchExecutor()))
+			}
+			baseRep := runBench(toSpec(base))
+			patchRep := runBench(toSpec(patched))
+			baseRate := benchRate(baseRep)
+			patchRate := benchRate(patchRep)
+			benchRegressed := patchRate.gold < baseRate.gold || patchRate.whitelist < baseRate.whitelist
+			if benchRegressed {
+				regressed = true
+				verdict = "门控不过（基准三率回退——gold 对齐率或白名单率下降）"
+			}
+			bench = map[string]any{
+				"dataset": ds.Name, "total": ds_revided(ds),
+				"base":   map[string]any{"translated": baseRep.Translated, "whitelist": baseRep.Whitelist, "gold_aligned": baseRep.GoldAlign, "rate": baseRate.gold},
+				"patched": map[string]any{"translated": patchRep.Translated, "whitelist": patchRep.Whitelist, "gold_aligned": patchRep.GoldAlign, "rate": patchRate.gold},
+				"regressed": benchRegressed,
+				"note":      "第三信号（REQ-382）：进化诊断用基准、门控同用——gold 对齐率/白名单率回退即回归（执行级对齐口径随执行通道可用性）",
+			}
+			note = "配对门控：补丁前后同题对照（qualitygate 三维加权 + 结构断言 + cqbench 三率增量三信号）"
+		}
+	}
 	report, _ := json.Marshal(map[string]any{
 		"base": baseSig, "patched": patchSig,
 		"regressed": regressed,
 		"passed":    !regressed,
-		"verdict":   map[bool]string{true: "门控不过（质量回退或结构破坏）", false: "门控通过"}[regressed],
-		"note":      "配对门控：补丁前后同题对照（qualitygate 三维加权 + 结构断言双信号）",
+		"verdict":   verdict,
+		"note":      note,
+		"benchmark": bench,
 	})
 	c.GateReport = string(report)
 	if err := s.evoStore().UpdateGateReport(c.ID, c.GateReport); err != nil {
@@ -272,6 +332,19 @@ func (s *Server) rejectEvolutionCandidate(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, c)
 }
+
+// benchRate cqbench 三率（gold 对齐率=gold/total）。
+func benchRate(rep *cqbench.Report) (r struct{ gold, whitelist float64 }) {
+	if rep == nil || rep.Total == 0 {
+		return
+	}
+	r.gold = float64(rep.GoldAlign) / float64(rep.Total)
+	r.whitelist = float64(rep.Whitelist) / float64(rep.Total)
+	return
+}
+
+// ds_revided 数据集条数（占位命名避免与局部遮蔽冲突）。
+func ds_revided(ds *cqbench.Dataset) int { return len(ds.CQs) }
 
 // deepCopyMap JSON 往返深拷贝。
 func deepCopyMap(m map[string]any) map[string]any {

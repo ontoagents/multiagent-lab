@@ -84,7 +84,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", fc.Mount())
-	rest.New(st, mg).Mount(mux)
+	rest.New(st, mg, fc).Mount(mux)
 
 	log.Printf("[runtimed] 运行平面监听 %s (build=%s, oxigraph=%s)", addr, buildURL, oxigraphBin)
 	log.Fatal(http.ListenAndServe(addr, mux))

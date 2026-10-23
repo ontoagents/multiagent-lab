@@ -64,7 +64,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	rest.New(st, sc, llm).Mount(mux)
+	rest.New(st, sc, llm, env("RUNTIME_MGR_URL", "")).Mount(mux)
 
 	log.Printf("[ontologyd] 构建平面监听 %s (db=%s, platform=%s, sidecar=%s %s)", addr, dbPath, platformURL, python, script)
 	log.Fatal(http.ListenAndServe(addr, mux))
