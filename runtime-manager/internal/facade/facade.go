@@ -41,7 +41,11 @@ type ownerEntry struct {
 }
 
 // ownerCacheTTL 归属缓存有效期（换绑收敛上限；解析是每查询一次平台 HTTP，TTL 不宜过短；var 便于测试收紧）。
-var ownerCacheTTL = 60 * time.Second
+// OwnerCacheTTL 归属缓存有效期的导出形态（REQ-384：换绑收敛窗口透出——观测面
+// route-ambiguities 返回该值；ownerCacheTTL 为内部 var 便于测试收紧）。
+const OwnerCacheTTL = 60 * time.Second
+
+var ownerCacheTTL = OwnerCacheTTL
 
 func New(st *store.Store, endpoint func(string) (string, error)) *Facade {
 	return &Facade{Store: st, Endpoint: endpoint, HTTP: &http.Client{Timeout: 15 * time.Second}, TraceSparql: true, ownerCache: map[string]ownerEntry{}}

@@ -570,6 +570,8 @@ export const api = {
 
   // ---- M8 运行平面 :8090 /api/runtime-profiles* ----
   listRuntimeProfiles: () => req<RuntimeProfile[]>('/api/runtime-profiles'),
+  /** REQ-384/M180：多本体路由歧义观测面（resolved=created_at 最早的实际路由目标） */
+  routeAmbiguities: () => req<{ ambiguities: { ontology_id: string; profiles: { id: string; name: string; created_at: string }[]; resolved_profile_id: string }[]; count: number; owner_cache_ttl_seconds: number }>('/api/runtime-profiles/route-ambiguities'),
   // REQ-179/M-O16：全局运行配置（执行方式；系统级）
   runtimeConfig: () => req<{ execution_method: 'docker' | 'native' | 'k8s'; docker_available: boolean; options: { value: string; label: string }[] }>('/api/runtime-config'),
   setRuntimeConfig: (execution_method: string) => req<{ execution_method: string }>('/api/runtime-config', { method: 'PUT', body: JSON.stringify({ execution_method }) }),

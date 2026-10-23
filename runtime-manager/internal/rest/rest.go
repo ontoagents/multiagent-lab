@@ -39,6 +39,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	// REQ-179/M-O16：全局运行配置（执行方式；系统级）
 	m.HandleFunc("GET /api/runtime-config", s.runtimeConfigGet)
 	m.HandleFunc("PUT /api/runtime-config", s.runtimeConfigPut)
+	m.HandleFunc("GET /api/runtime-profiles/route-ambiguities", s.routeAmbiguities) // REQ-384/M180：多本体路由歧义观测面
 	m.HandleFunc("GET /api/runtime-profiles/{id}/logs", s.logs)
 	m.HandleFunc("GET /api/runtime-profiles/{id}/trace", s.trace)    // 翻译透视（REQ-94）
 	m.HandleFunc("GET /api/runtime-profiles/{id}/sparql", s.sparql)  // SPARQL 工作台端点（REQ-92，Yasgui）
@@ -76,6 +77,25 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// routeAmbiguities GET /api/runtime-profiles/route-ambiguities：REQ-384/M180 路由语义收口
+// 观测面——同本体多运行方案命中清单（resolved=既定确定序 created_at 最早的实际路由目标）
+// + facade ownerCache 换绑收敛窗口（owner_cache_ttl_seconds）透出。
+func (s *Server) routeAmbiguities(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Store.RouteAmbiguities()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if list == nil {
+		list = []store.RouteAmbiguity{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ambiguities":              list,
+		"count":                    len(list),
+		"owner_cache_ttl_seconds":  int(facade.OwnerCacheTTL / time.Second),
+	})
 }
 
 // engines 引擎自检汇总（REQ-146）：GET /api/engines → {engines:[EngineStatus]}。

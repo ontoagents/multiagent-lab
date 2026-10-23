@@ -289,14 +289,19 @@ function EngineProfilesPage({
       })
   }
 
+  // REQ-384/M180：路由歧义观测（同本体多运行方案命中——确定序已保证可复现，此处仅提示收敛）
+  const [routeAmbigs, setRouteAmbigs] = useState<{ ontology_id: string; profiles: { id: string; name: string }[]; resolved_profile_id: string }[]>([])
+  const loadAmbigs = () => api.routeAmbiguities().then((r) => setRouteAmbigs(r.ambiguities ?? [])).catch(() => setRouteAmbigs([]))
+
   useEffect(() => {
     reload()
+    loadAmbigs()
     api.listOntologies().then(setOntos).catch(() => setOntos([]))
   }, [])
 
   // 运行分组页 5s 轮询（14 v0.3 §6 刷新策略）
   useEffect(() => {
-    const t = setInterval(reload, 5000)
+    const t = setInterval(() => { reload(); loadAmbigs() }, 5000)
     return () => clearInterval(t)
   }, [])
 
@@ -370,6 +375,17 @@ function EngineProfilesPage({
               重试
             </Button>
           }
+        />
+      )}
+      {routeAmbigs.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          data-testid="route-ambiguity-alert"
+          title={`路由歧义：${routeAmbigs.length} 个本体被多个运行方案同时加载（REQ-384）`}
+          description={`工具调用路由按「创建最早」确定序执行（可复现），建议停用多余方案收敛：${routeAmbigs
+            .map((a) => `${a.ontology_id.slice(0, 8)} → ${a.resolved_profile_id.slice(0, 8)}（共 ${a.profiles.length} 方案）`)
+            .join('；')}。facade 归属缓存换绑最迟 60s 收敛。`}
         />
       )}
       {engineMissing && (

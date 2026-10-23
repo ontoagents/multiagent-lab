@@ -13,6 +13,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"log"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -230,25 +231,91 @@ func (s *Store) Delete(id string) error {
 
 // RunningByOntology 返回加载了指定本体且处于 running 状态的方案（facade 路由用）。
 // REQ-236②/M63：同本体多方案时取**最早创建**（created_at 升序，并列按 id 字典序）——
-// 消除「取第一个匹配」的任意性，路由结果确定可复现（显式绑定语义随需求推进）。
+// 消除「取第一个匹配」的任意性，路由结果确定可复现。
+// REQ-384/M180：多方案命中同一本体时不再静默——歧义告警日志（路由仍按既定确定序，
+// 提示停用多余方案或等待显式优先级语义）；观测面见 RouteAmbiguities。
 func (s *Store) RunningByOntology(ontologyID string) (*Profile, error) {
 	rows, err := s.db.Query(`SELECT ` + profileCols + ` FROM runtime_profile WHERE status='running' ORDER BY created_at ASC, id ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	var first *Profile
+	hits := 0
 	for rows.Next() {
 		p, err := scanProfile(rows)
 		if err != nil {
 			return nil, err
 		}
 		for _, oid := range p.OntologyIDs {
-			if oid == ontologyID {
-				return p, nil
+			if oid != ontologyID {
+				continue
+			}
+			hits++
+			if first == nil {
+				cp := *p
+				first = &cp
 			}
 		}
 	}
-	return nil, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if hits > 1 {
+		log.Printf("[route] REQ-384 路由歧义：本体 %s 命中 %d 个运行中方案，按 created_at 最早路由至 %s（%s）——建议停用多余方案（观测面 GET /api/runtime-profiles/route-ambiguities）",
+			ontologyID, hits, first.ID, first.Name)
+	}
+	return first, nil
+}
+
+// RouteAmbiguity 同本体多方案命中记录（REQ-384 观测面；resolved=既定确定序的实际路由目标）。
+type RouteAmbiguity struct {
+	OntologyID string       `json:"ontology_id"`
+	Profiles   []ProfileRef `json:"profiles"`
+	ResolvedID string       `json:"resolved_profile_id"`
+}
+
+// ProfileRef 方案引用摘要。
+type ProfileRef struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+}
+
+// RouteAmbiguities 扫描全部 running 方案，返回多方案命中的本体清单（无歧义返回空表）。
+func (s *Store) RouteAmbiguities() ([]RouteAmbiguity, error) {
+	rows, err := s.db.Query(`SELECT ` + profileCols + ` FROM runtime_profile WHERE status='running' ORDER BY created_at ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byOnto := map[string][]ProfileRef{}
+	order := []string{}
+	for rows.Next() {
+		p, err := scanProfile(rows)
+		if err != nil {
+			return nil, err
+		}
+		ref := ProfileRef{ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt}
+		for _, oid := range p.OntologyIDs {
+			if _, seen := byOnto[oid]; !seen {
+				order = append(order, oid)
+			}
+			byOnto[oid] = append(byOnto[oid], ref)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var out []RouteAmbiguity
+	for _, oid := range order {
+		refs := byOnto[oid]
+		if len(refs) < 2 {
+			continue
+		}
+		out = append(out, RouteAmbiguity{OntologyID: oid, Profiles: refs, ResolvedID: refs[0].ID})
+	}
+	return out, nil
 }
 
 // ---- 翻译透视（REQ-94，docs/04 v0.8 §4.8.2）----
