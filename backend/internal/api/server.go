@@ -248,6 +248,10 @@ func (s *Server) routes() {
 	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
 	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)
 	m.HandleFunc("GET /api/conversations/{id}/state-log", s.conversationStateLog)
+	// REQ-372 P2：知识体系 L2 图谱层（graph/path 查询+refresh 摄取——卡为事实源 KG 为投影）
+	m.HandleFunc("GET /api/knowledge/graph", s.knowledgeGraph)
+	m.HandleFunc("GET /api/knowledge/graph/path", s.knowledgeGraphPath)
+	m.HandleFunc("POST /api/knowledge/graph/refresh", s.knowledgeGraphRefresh)
 	// REQ-208/M42 余项：可继续子 Agent——人工侧委派查看/插话/打断/恢复（模型侧走 delegate_* 工具族）
 	m.HandleFunc("GET /api/conversations/{id}/delegates", s.listDelegates)
 	m.HandleFunc("GET /api/delegates/{id}", s.getDelegate)

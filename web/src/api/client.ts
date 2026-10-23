@@ -570,6 +570,12 @@ export const api = {
 
   // ---- M8 运行平面 :8090 /api/runtime-profiles* ----
   listRuntimeProfiles: () => req<RuntimeProfile[]>('/api/runtime-profiles'),
+  /** REQ-372 P2：知识图谱投影（节点=卡三型、边=prereq） */
+  knowledgeGraph: () => req<{ nodes: { id: string; kind: string; domain: string; topic: string; desc?: string; sources?: string[] }[]; edges: { src: string; dst: string; kind: string }[] }>('/api/knowledge/graph'),
+  /** REQ-372 P2：学习路径（prereq 闭包拓扑序） */
+  knowledgeGraphPath: (target: string) => req<{ target: string; path: string[]; count: number }>(`/api/knowledge/graph/path?target=${encodeURIComponent(target)}`),
+  /** REQ-372 P2：重新摄取（全量重建投影+断链检测） */
+  knowledgeGraphRefresh: () => req<{ nodes: number; edges: number; broken?: string[] }>('/api/knowledge/graph/refresh', { method: 'POST' }),
   /** REQ-384/M180：多本体路由歧义观测面（resolved=created_at 最早的实际路由目标） */
   routeAmbiguities: () => req<{ ambiguities: { ontology_id: string; profiles: { id: string; name: string; created_at: string }[]; resolved_profile_id: string }[]; count: number; owner_cache_ttl_seconds: number }>('/api/runtime-profiles/route-ambiguities'),
   // REQ-179/M-O16：全局运行配置（执行方式；系统级）

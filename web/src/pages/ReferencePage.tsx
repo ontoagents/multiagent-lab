@@ -1,6 +1,7 @@
+import { api } from '../api/client'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
-import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
-import { Card, Menu, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { Alert, Button, Card, Input, Menu, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
 import {
   ApartmentOutlined,
   FileTextOutlined,
@@ -343,6 +344,8 @@ export default function ReferencePage() {
 
   return (
     <>
+    {/* REQ-372 P2：知识体系 L2 图谱层——前置图投影面板（仅知识体系组挂载；卡为事实源 KG 为投影） */}
+    {group.label === '知识体系' && <KnowledgeGraphPanel />}
     <div className="module-shell">
       {/* REQ-341：一级目录 → 内容区顶部水平页签（学习中心等分区收尾）；溢出横向滚动兜底 */}
       <div className="module-tabs ref-tabs" role="tablist" aria-label="平台知识分区导航" data-testid="ref-tabs" style={{ overflowX: 'auto' }}>
@@ -425,5 +428,78 @@ export default function ReferencePage() {
         混入其他组件会被吞成一个空白面板（REQ-169「右侧空白栏/链接无反应」的根因） */}
     <DocViewerModal path={viewDoc} open={!!viewDoc} onClose={() => setViewDoc(null)} onNavigate={setViewDoc} />
     </>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// REQ-372 P2：知识体系 L2 图谱层面板——前置图投影（节点=卡三型、边=prereq）+学习路径
+// （prereq 闭包拓扑序，依赖先行）+断链警示（refresh 摄取时检测）。卡为事实源单源，
+// KG 为投影（每次刷新全量重建）——语义检索/GraphRAG 归 L3（P3 待验证拍板）。
+// ---------------------------------------------------------------------------
+function KnowledgeGraphPanel() {
+  const [data, setData] = useState<{ nodes: { id: string; kind: string; domain: string; topic: string }[]; edges: { src: string; dst: string }[] } | null>(null)
+  const [broken, setBroken] = useState<string[]>([])
+  const [target, setTarget] = useState('')
+  const [path, setPath] = useState<string[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = () => {
+    api.knowledgeGraph().then((r) => { setData(r); setBroken([]) }).catch(() => setData(null))
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [])
+
+  const refresh = async () => {
+    try {
+      const r = await api.knowledgeGraphRefresh()
+      setBroken(r.broken ?? [])
+      load()
+    } catch (e: any) {
+      setErr(e?.message ?? '刷新失败')
+    }
+  }
+
+  const queryPath = async () => {
+    if (!target.trim()) return
+    setErr(null)
+    try {
+      const r = await api.knowledgeGraphPath(target.trim())
+      setPath(r.path)
+    } catch (e: any) {
+      setPath(null)
+      setErr(e?.message ?? '查询失败')
+    }
+  }
+
+  return (
+    <Card size="small" style={{ margin: '8px 12px 0' }} data-testid="knowledge-graph-panel"
+      title={<Space size={8}><span>知识图谱 · 前置图投影</span><Tag color="purple" style={{ margin: 0 }}>L2</Tag></Space>}
+      extra={<Button size="small" onClick={refresh}>重新摄取</Button>}>
+      {data && (
+        <Space size={16} wrap style={{ marginBottom: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>节点 {data.nodes.length}（概念/决策/实践卡）· 边 {data.edges.length}（prereq 前置）</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>卡为事实源、图谱为投影（每次摄取全量重建）</Typography.Text>
+        </Space>
+      )}
+      {broken.length > 0 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+          title={`prereq 断链 ${broken.length} 条（目标卡不存在——补卡或修链接）`}
+          description={broken.slice(0, 5).join('；')} />
+      )}
+      <Space.Compact style={{ width: '100%', maxWidth: 720 }}>
+        <Input size="small" placeholder="输入卡 id 查学习路径（如 platform-knowledge/09_知识体系/01_本体线/cards/06_决策_单引擎Oxigraph.md）"
+          value={target} onChange={(e) => setTarget(e.target.value)} onPressEnter={queryPath} />
+        <Button size="small" onClick={queryPath}>查前置路径</Button>
+      </Space.Compact>
+      {err && <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>{err}</Typography.Text>}
+      {path && (
+        <ol style={{ fontSize: 12, margin: '8px 0 0', paddingLeft: 20 }}>
+          {path.map((p, i) => (
+            <li key={i} style={{ fontSize: 12 }}>{p.split('/').pop()?.replace('.md', '')}</li>
+          ))}
+        </ol>
+      )}
+    </Card>
   )
 }
