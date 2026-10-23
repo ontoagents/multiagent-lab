@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -111,4 +112,72 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	writeJSON(w, http.StatusOK, events)
+}
+
+// conversationState GET /api/conversations/{id}/state：REQ-224① 状态机抽象读模型——
+// 状态族（interrupt_state/context_state/todo_json/schedule）收敛为单一快照+派生 phase。
+// phase 优先级=waiting_approval / waiting_human（挂起中断，最需人注意）> running >
+// scheduled > idle；家族各成员全量透出不隐藏（治理面可核对派生依据）。
+func (s *Server) conversationState(w http.ResponseWriter, r *http.Request) {
+	conv, err := s.Store.GetConversation(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	running := s.Chat != nil && s.Chat.IsRunning(conv.ID)
+	var interrupt json.RawMessage
+	if conv.InterruptState != "" {
+		interrupt = json.RawMessage(conv.InterruptState)
+	}
+	var schedule *store.ConversationSchedule
+	if sc, err := s.Store.GetSchedule(conv.ID); err == nil {
+		schedule = sc
+	}
+	phase := "idle"
+	if running {
+		phase = "running"
+	}
+	if schedule != nil && phase == "idle" {
+		phase = "scheduled"
+	}
+	if interrupt != nil {
+		var st struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal([]byte(conv.InterruptState), &st) == nil && st.Kind == "approval" {
+			phase = "waiting_approval"
+		} else {
+			phase = "waiting_human"
+		}
+	}
+	todoHead := conv.TodoJSON
+	if n := len(todoHead); n > 300 {
+		todoHead = todoHead[:300] + "…"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"conversation_id": conv.ID,
+		"phase":           phase,
+		"running":         running,
+		"interrupt_state": interrupt,
+		"scheduled":       schedule != nil,
+		"schedule":        schedule,
+		"todo_present":    conv.TodoJSON != "",
+		"todo_head":       todoHead,
+		"context_state":   conv.ContextState != "",
+		"updated_at":      conv.UpdatedAt,
+	})
+}
+
+// conversationStateLog GET /api/conversations/{id}/state-log?limit=：REQ-224① 状态变更留痕
+// （interrupt_state/context_state/todo_json/schedule 四族 prev→next 快照，倒序）。
+func (s *Server) conversationStateLog(w http.ResponseWriter, r *http.Request) {
+	logs, err := s.Store.ListConversationStateLog(r.PathValue("id"), atoiDefault(r.URL.Query().Get("limit"), 200))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if logs == nil {
+		logs = []*store.ConversationStateLog{}
+	}
+	writeJSON(w, http.StatusOK, logs)
 }

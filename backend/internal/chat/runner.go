@@ -782,7 +782,10 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 		st.Kind = "ask_human" // 未知中断信息形态的兜底（答复卡至少可展示并定向续跑）
 	}
 	if b, err := json.Marshal(st); err == nil {
-		_ = s.Store.SetConversationInterruptState(conv.ID, string(b))
+		_ = s.Store.SetConversationInterruptState(conv.ID, string(b), "interrupt:"+runID)
+		s.emitAndRecord(ctx, conv, runID, newEvent("state.changed", runID, map[string]any{
+			"field": "interrupt_state", "reason": "interrupt", "kind": st.Kind,
+		}), emit)
 	}
 	data := map[string]any{
 		"kind": st.Kind, "checkpoint_id": st.CheckpointID, "target_id": st.TargetID,
@@ -798,7 +801,10 @@ func (s *Service) abandonInterrupt(ctx context.Context, conv *store.Conversation
 	if json.Unmarshal([]byte(conv.InterruptState), &st) == nil && st.CheckpointID != "" && s.Assembler.CheckPoints != nil {
 		_ = s.Assembler.CheckPoints.Delete(ctx, st.CheckpointID)
 	}
-	_ = s.Store.SetConversationInterruptState(conv.ID, "")
+	_ = s.Store.SetConversationInterruptState(conv.ID, "", "abandon:"+runID)
+	s.emitAndRecord(ctx, conv, runID, newEvent("state.changed", runID, map[string]any{
+		"field": "interrupt_state", "reason": "abandon",
+	}), emit)
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 		"message": "已有挂起的提问未答复，本次新消息按新问题运行（原提问已放弃）",
 	}), emit)
@@ -832,6 +838,7 @@ type runConsumer struct {
 	lastFinish  string
 	toolAgg     map[int]*pendingToolCall
 	toolCallAt  map[string]time.Time // REQ-117：tool.call 发出时刻 → tool.result 计算执行耗时
+	toolCallArg map[string]string    // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
 	lastAgent   string
 }
 
@@ -843,6 +850,7 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		rootAgent:     rt.AgentName,
 		toolAgg:       map[int]*pendingToolCall{},
 		toolCallAt:    map[string]time.Time{},
+		toolCallArg:   map[string]string{},
 	}
 	rc.subagentLeave = func(name string) {
 		if name != "" && name != rc.rootAgent {
@@ -994,7 +1002,8 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 					delete(rc.toolCallAt, mo.Message.ToolCallID)
 				}
 			}
-			if src := rt.SourceOf[mo.Message.ToolName]; src != "" {
+			src := rt.SourceOf[mo.Message.ToolName]
+			if src != "" {
 				data["source"] = src
 			}
 			// REQ-224/M52（51 号 W1）：tool.result 落库截断——32KB 头 24+尾 8+truncated 标记
@@ -1015,6 +1024,10 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 				}
 			}
 			s.emitAndRecord(runCtx, conv, runID, newEvent("tool.result", runID, data), emit)
+			// REQ-224 H10：onto_* facade 工具消费命中——逐次落库+ontology.hit 事件（companion.hit 先例推广）
+			if src == "ontology:facade" {
+				s.recordOntologyHit(rc, conv, runID, mo.Message, emit)
+			}
 		case mo.Message != nil && mo.Role == schema.Assistant && !mo.IsStreaming:
 			// 非流式完整输出（兜底）
 			if mo.Message.ReasoningContent != "" {
@@ -1106,7 +1119,10 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	}
 	s.emitAndRecord(runCtx, conv, runID, newEvent("run.started", runID, startData), emit)
 	// 先清挂起状态：恢复过程中若再次中断，handleInterrupted 会写入新状态
-	_ = s.Store.SetConversationInterruptState(conv.ID, "")
+	_ = s.Store.SetConversationInterruptState(conv.ID, "", "resume:"+runID)
+	s.emitAndRecord(runCtx, conv, runID, newEvent("state.changed", runID, map[string]any{
+		"field": "interrupt_state", "reason": "resume",
+	}), emit)
 
 	iter, err := rt.Runner.ResumeWithParams(runCtx, st.CheckpointID, &adk.ResumeParams{
 		Targets: map[string]any{st.TargetID: answer},
@@ -1216,6 +1232,9 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 		rc.toolCalls++
 		if tc.ID != "" && rc.toolCallAt != nil {
 			rc.toolCallAt[tc.ID] = time.Now()
+			if rc.toolCallArg != nil {
+				rc.toolCallArg[tc.ID] = tc.Function.Arguments
+			}
 		}
 	}
 	data := map[string]any{"tool_name": tc.Function.Name, "arguments": tc.Function.Arguments}
@@ -1261,6 +1280,62 @@ func contextModeLabel(mode string) string {
 	default:
 		return "standard"
 	}
+}
+
+// recordOntologyHit REQ-224 H10（60 号搭车件）：本体消费贡献度量——onto_* facade 工具
+// tool.result 到达时，从配对 tool.call 入参抽取 ontology_id 与目标（概念/实例名/SPARQL 首段），
+// 落 ontology_hit 表 + 发 ontology.hit 事件（companion.hit 先例推广；最小消费信号非深度归因）。
+// 命中口径=工具调用发生（ok 标记结果错误），不含「回答是否用了该结果」的深度归因。
+func (s *Service) recordOntologyHit(rc *runConsumer, conv *store.Conversation, runID string, msg *schema.Message, emit EmitFn) {
+	if s == nil || s.Store == nil || msg == nil {
+		return
+	}
+	ok := msg.Content == "" || (!strings.Contains(msg.Content, "ONTOLOGY_SERVICE_UNAVAILABLE") && !strings.Contains(msg.Content, "TOOL_RESULT_ERROR"))
+	var argsJSON string
+	if msg.ToolCallID != "" && rc != nil && rc.toolCallArg != nil {
+		argsJSON = rc.toolCallArg[msg.ToolCallID]
+		delete(rc.toolCallArg, msg.ToolCallID)
+	}
+	var args struct {
+		OntologyID string `json:"ontology_id"`
+		Name       string `json:"name"`
+		Concept    string `json:"concept"`
+		Query      string `json:"query"`
+	}
+	_ = json.Unmarshal([]byte(argsJSON), &args)
+	if args.OntologyID == "" {
+		return // 无本体归属（异常入参）不记——度量按本体聚合
+	}
+	target := args.Name
+	if target == "" {
+		target = args.Concept
+	}
+	if target == "" && args.Query != "" {
+		target = truncateRunes(args.Query, 80)
+		if strings.HasSuffix(target, "…[截断]") {
+			target = strings.TrimSuffix(target, "[截断]")
+		}
+	}
+	h := &store.OntologyHit{
+		OntologyID: args.OntologyID, ConversationID: conv.ID, RunID: runID,
+		Tool: msg.ToolName, Target: target, OK: ok,
+	}
+	if err := s.Store.InsertOntologyHit(h); err != nil {
+		log.Printf("[ontology.hit] 落库失败: %v", err)
+		return
+	}
+	data, _ := json.Marshal(map[string]any{
+		"ontology_id": h.OntologyID, "tool": h.Tool, "target": h.Target, "ok": h.OK,
+	})
+	s.emitAndRecord(rc.ctx, conv, runID, newEvent("ontology.hit", runID, json.RawMessage(data)), emit)
+}
+
+// IsRunning 会话是否有进行中的运行（REQ-224① 状态机抽象 phase=running 判据；cancels 注册即活跃）。
+func (s *Service) IsRunning(conversationID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.cancels[conversationID]
+	return ok
 }
 
 // Stop 停止对话正在进行的运行。

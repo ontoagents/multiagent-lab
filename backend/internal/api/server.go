@@ -158,6 +158,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/agents", s.createAgent)
 	// REQ-370/M168：多 Agent 协作本体工程流水线一键创建（幂等——同名智能体/项目复用）
 	m.HandleFunc("POST /api/ontology/collab-pipeline", s.createOntologyPipeline)
+	// REQ-224 H10/60 号搭车件：本体消费贡献度量（onto_* 工具命中次数/被引用概念 TopN；
+	// 精确路由压过 /api/ontology/ 反代前缀，沿 collab-pipeline 先例）
+	m.HandleFunc("GET /api/ontology/{id}/contribution", s.ontologyContribution)
+	m.HandleFunc("GET /api/ontology/contribution/summary", s.ontologyContributionSummary)
 	m.HandleFunc("GET /api/agents/{id}", s.getAgent)
 	m.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
 	m.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)
@@ -229,6 +233,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation)        // REQ-136：对话自动命名
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
+	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
+	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)
+	m.HandleFunc("GET /api/conversations/{id}/state-log", s.conversationStateLog)
 	// REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批人工决议
 	m.HandleFunc("POST /api/conversations/{id}/ext-approval", s.extApproval)
 

@@ -53,7 +53,7 @@ func (sc *scheduler) load() {
 	armed := 0
 	for _, r := range rows {
 		if r.Done >= r.MaxRuns { // 已达 cap 的残留行：清掉
-			_ = sc.api.Store.DeleteSchedule(r.ConversationID)
+			_ = sc.api.Store.DeleteSchedule(r.ConversationID, "schedule.cap_reached")
 			continue
 		}
 		sc.arm(r.ConversationID, r.IntervalMinutes, r.MaxRuns)
@@ -95,7 +95,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	convID := r.PathValue("id")
 	s.sched.disarm(convID)
-	if err := s.Store.DeleteSchedule(convID); err != nil {
+	if err := s.Store.DeleteSchedule(convID, "schedule.cancel"); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -158,7 +158,7 @@ func (sc *scheduler) loop(convID string, e *scheduleEntry) {
 			sc.fire(convID, done, e.MaxRuns)
 			if done >= e.MaxRuns { // cap 达到：fire 后立即摘除（Cap Before You Ship）
 				sc.disarm(convID)
-				_ = sc.api.Store.DeleteSchedule(convID)
+				_ = sc.api.Store.DeleteSchedule(convID, "schedule.cap_reached")
 				return
 			}
 		}

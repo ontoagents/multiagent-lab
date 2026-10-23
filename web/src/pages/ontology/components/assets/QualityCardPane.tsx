@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, QuestionCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
-import type { CqBenchmarkRun, OntoChatCQVerdict, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
+import type { CqBenchmarkRun, OntoChatCQVerdict, OntoContribution, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
@@ -150,6 +150,8 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
   const [benchProgress, setBenchProgress] = useState('')
   const [benchErr, setBenchErr] = useState<string | null>(null)
   const [benchRuns, setBenchRuns] = useState<CqBenchmarkRun[] | null>(null)
+  // REQ-224 H10：本体消费贡献（onto_* 工具命中次数/被引用概念 TopN 入质量卡）
+  const [contribution, setContribution] = useState<OntoContribution | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -182,6 +184,10 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
       .cqBenchmarkReport(ontologyId)
       .then((r) => setBenchRuns(r.report?.runs ?? []))
       .catch(() => setBenchRuns(null))
+    api
+      .ontologyContribution(ontologyId)
+      .then(setContribution)
+      .catch(() => setContribution(null))
   }, [ontologyId])
 
   useEffect(load, [load])
@@ -921,6 +927,52 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                         { title: '错误/告警', width: 90, render: (_: unknown, r: QualityScoreRow) => `${r.error_count}/${r.warning_count}` },
                       ]}
                     />
+                  ),
+                },
+              ]}
+              style={{ marginTop: 12 }}
+            />
+          )}
+
+          {/* REQ-224 H10：本体消费贡献（onto_* 工具命中次数/被引用概念 TopN；companion.hit 先例推广） */}
+          {contribution && contribution.total_hits > 0 && (
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: 'onto-contribution',
+                  label: (
+                    <Space size={8}>
+                      <ThunderboltOutlined />
+                      <Typography.Text strong>消费贡献（被智能体消费 {contribution.total_hits} 次）</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        onto_* 工具命中统计；最近 {contribution.last_hit_at?.slice(0, 16).replace('T', ' ') ?? '—'}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                  children: (
+                    <div data-testid="onto-contribution-body">
+                      <Space size={6} wrap style={{ marginBottom: 8 }}>
+                        {(contribution.by_tool ?? []).map((t) => (
+                          <Tooltip key={t.tool} title={`${t.tool} 工具命中 ${t.count} 次`}>
+                            <Tag color="purple" style={{ margin: 0 }}>{t.tool} × {t.count}</Tag>
+                          </Tooltip>
+                        ))}
+                        {contribution.ok_hits < contribution.total_hits && (
+                          <Tag color="orange" style={{ margin: 0 }}>失败 {contribution.total_hits - contribution.ok_hits} 次</Tag>
+                        )}
+                      </Space>
+                      {(contribution.top_targets?.length ?? 0) > 0 && (
+                        <>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>被引用概念/实例 TopN（按成功命中计）：</Typography.Text>
+                          <div style={{ marginTop: 4 }}>
+                            {contribution.top_targets!.map((t) => (
+                              <Tag key={t.target} style={{ margin: '2px 6px 2px 0' }}>{t.target} <b>×{t.count}</b></Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   ),
                 },
               ]}

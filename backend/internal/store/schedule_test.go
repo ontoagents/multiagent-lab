@@ -69,7 +69,7 @@ func TestScheduleCRUD(t *testing.T) {
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("list: %v %d", err, len(rows))
 	}
-	if err := st.DeleteSchedule("conv-x"); err != nil {
+	if err := st.DeleteSchedule("conv-x", "test.cancel"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if sc, _ := st.GetSchedule("conv-x"); sc != nil {

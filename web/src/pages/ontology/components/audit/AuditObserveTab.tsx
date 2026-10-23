@@ -1,21 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, InputNumber, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ExportOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { ExportOutlined, ReloadOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import LoadErrorAlert from '../../../../components/LoadErrorAlert'
 import { api } from '../../../../api/client'
-import type { RuntimeProfile } from '../../../../api/types'
+import type { OntoContribution, OntoContributionSummaryRow, RuntimeProfile } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
 
 // ---------------------------------------------------------------------------
 // 消费与审计 · 消费观测页签（REQ-290/M94 内容置换新增：本栏自 KB 抽取 KG 观测
-// 切换为本体消费面观测）。三卡：
+// 切换为本体消费面观测）。四卡：
 //   1 运行方案消费一览（装载版本 loaded_status + 质量快照 loaded_quality 低分橙标，
 //     口径与 RuntimePage qualityWarn/REQ-234① 同源——只警示不阻断）
 //   2 TTL 关键词快查（跨谓词字面量包含检索，原 KG 检索页签 TTL 臂迁入；
 //     KB 文本抽取对照源退役归知识库「全局问答」）
 //   3 消费面导航（运行态实渲/SPARQL 工作台/AI 消费/CQ 验收 栏级指路 +
 //     知识库抽取 KG 出口——D-O19 边界②的显式出口）
+//   4 消费贡献一览（REQ-224 H10/60 号搭车件：onto_* facade 工具命中次数/被引用概念
+//     TopN 跨本体概览——companion.hit 先例推广，点行展开单本体 TopN 画像）
 // ---------------------------------------------------------------------------
 
 /** TTL 链路：跨谓词字面量包含检索（不绑定具体词表——装载 TTL 的谓词形态由导入器决定） */
@@ -109,6 +111,19 @@ export default function AuditObserveTab({
   const [querying, setQuerying] = useState(false)
   const [rows, setRows] = useState<{ uri: string; label: string }[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // REQ-224 H10：消费贡献一览（跨本体概览 + 点行展开单本体 TopN）
+  const [hitSummary, setHitSummary] = useState<OntoContributionSummaryRow[]>([])
+  const [hitDetail, setHitDetail] = useState<OntoContribution | null>(null)
+  useEffect(() => {
+    api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
+  }, [])
+  const loadHitDetail = (oid: string) => {
+    if (hitDetail?.ontology_id === oid) {
+      setHitDetail(null)
+      return
+    }
+    api.ontologyContribution(oid).then(setHitDetail).catch(() => setHitDetail(null))
+  }
 
   const doQuery = async () => {
     const pid = profileId || running[0]?.id
@@ -358,6 +373,80 @@ export default function AuditObserveTab({
             </p>
           </Card>
         </div>
+      </Card>
+
+      <Card
+        size="small"
+        className="work-card sema-card"
+        title={
+          <Space size={8}>
+            <span className="sema-card-no">4</span>
+            <span>消费贡献一览 · onto_* 工具命中</span>
+            <ThunderboltOutlined style={{ color: 'var(--c-brand)' }} />
+          </Space>
+        }
+        extra={
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
+              setHitDetail(null)
+            }}
+          >
+            刷新
+          </Button>
+        }
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 10 }}
+          title="智能体经 onto_* 工具消费本体的命中统计（REQ-224 H10，companion.hit 先例推广）——「本体被消费成什么样」的量化观测：命中次数按本体/工具聚合，被引用概念 TopN 仅计成功命中；深度归因（回答是否采用了该结果）不在口径内。"
+        />
+        {hitSummary.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无工具命中——智能体挂载本体并发起 onto_* 查询后此处出数" />
+        ) : (
+          <>
+            <Table<OntoContributionSummaryRow>
+              rowKey="ontology_id"
+              size="small"
+              pagination={false}
+              dataSource={hitSummary}
+              data-testid="onto-contribution-table"
+              onRow={(r) => ({ onClick: () => loadHitDetail(r.ontology_id), style: { cursor: 'pointer' } })}
+              columns={[
+                { title: '本体', dataIndex: 'ontology_id', ellipsis: true },
+                { title: '命中次数', dataIndex: 'total_hits', width: 100, render: (v: number) => <b>{v}</b> },
+                { title: '成功', dataIndex: 'ok_hits', width: 70 },
+                { title: '最近工具', dataIndex: 'last_tool', width: 130, render: (v: string) => (v ? <Tag color="purple" style={{ margin: 0 }}>{v}</Tag> : '—') },
+                { title: '最近命中', dataIndex: 'last_hit_at', width: 150, render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '—') },
+              ]}
+            />
+            {hitDetail && (
+              <Card
+                type="inner"
+                size="small"
+                title={`被引用概念/实例 TopN · ${hitDetail.ontology_id}`}
+                style={{ marginTop: 10 }}
+                data-testid="onto-contribution-detail"
+              >
+                {(hitDetail.top_targets?.length ?? 0) === 0 ? (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无成功命中的目标（或全部为列表类查询）" />
+                ) : (
+                  <Space size={6} wrap>
+                    {hitDetail.top_targets!.map((t) => (
+                      <Tag key={t.target} style={{ margin: 0 }}>{t.target} <b>×{t.count}</b></Tag>
+                    ))}
+                  </Space>
+                )}
+                <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+                  按工具分布：{(hitDetail.by_tool ?? []).map((t) => `${t.tool}×${t.count}`).join(' · ') || '—'}
+                </Typography.Paragraph>
+              </Card>
+            )}
+          </>
+        )}
       </Card>
     </div>
   )

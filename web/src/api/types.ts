@@ -1183,3 +1183,48 @@ export interface OverlayRow {
   missing?: boolean
   kind_label?: string
 }
+
+// REQ-224 H10/60 号搭车件：本体消费贡献度量（onto_* facade 工具命中统计）
+export interface OntoContributionTarget {
+  target: string
+  count: number
+}
+export interface OntoContribution {
+  ontology_id: string
+  total_hits: number
+  ok_hits: number
+  first_hit_at?: string
+  last_hit_at?: string
+  by_tool?: { tool: string; count: number }[]
+  top_targets?: OntoContributionTarget[]
+  recent?: { id: string; tool: string; target?: string; ok: boolean; created_at: string; run_id?: string; conversation_id?: string }[]
+}
+export interface OntoContributionSummaryRow {
+  ontology_id: string
+  total_hits: number
+  ok_hits: number
+  last_hit_at?: string
+  last_tool?: string
+}
+// REQ-224①：会话状态机读模型与变更留痕
+export interface ConversationStateSnapshot {
+  conversation_id: string
+  phase: 'waiting_approval' | 'waiting_human' | 'running' | 'scheduled' | 'idle'
+  running: boolean
+  interrupt_state?: Record<string, unknown>
+  scheduled: boolean
+  schedule?: { interval_minutes: number; max_runs: number; done: number } | null
+  todo_present: boolean
+  todo_head?: string
+  context_state: boolean
+  updated_at: string
+}
+export interface ConversationStateLogRow {
+  id: string
+  conversation_id: string
+  field: 'interrupt_state' | 'context_state' | 'todo_json' | 'schedule'
+  prev?: string
+  next?: string
+  reason?: string
+  created_at: string
+}

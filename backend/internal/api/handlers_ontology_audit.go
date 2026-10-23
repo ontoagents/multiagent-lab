@@ -114,3 +114,37 @@ func (r *passthroughRecorder) Flush() {
 		f.Flush()
 	}
 }
+
+// ontologyContribution GET /api/ontology/{id}/contribution?top_n=：REQ-224 H10 消费贡献画像
+// ——onto_* facade 工具命中次数、按工具分布、被引用概念 TopN（仅成功命中计）、最近 20 条。
+func (s *Server) ontologyContribution(w http.ResponseWriter, r *http.Request) {
+	c, err := s.Store.OntologyContribution(r.PathValue("id"), atoiDefault(r.URL.Query().Get("top_n"), 10))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if c.ByTool == nil {
+		c.ByTool = []store.OntologyToolStat{}
+	}
+	if c.TopTargets == nil {
+		c.TopTargets = []store.OntologyTargetStat{}
+	}
+	if c.Recent == nil {
+		c.Recent = []store.OntologyHit{}
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+// ontologyContributionSummary GET /api/ontology/contribution/summary?limit=：跨本体命中概览
+// （消费审计栏一览；倒序按命中数）。
+func (s *Server) ontologyContributionSummary(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Store.OntologyContributionSummary(atoiDefault(r.URL.Query().Get("limit"), 20))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if rows == nil {
+		rows = []*store.OntologyContributionSummaryRow{}
+	}
+	writeJSON(w, http.StatusOK, rows)
+}

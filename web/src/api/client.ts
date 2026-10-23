@@ -1,6 +1,10 @@
 import type {
   AgentConfigVersion,
   Agent,
+  ConversationStateLogRow,
+  ConversationStateSnapshot,
+  OntoContribution,
+  OntoContributionSummaryRow,
   AiDraftJobState,
   AiDraftResult,
   BuildQualitySummary,
@@ -458,6 +462,15 @@ export const api = {
   qualityReport: (id: string) =>
     req<{ ontology_id: string; imported_at: string; report: QualityReport | null }>(`/api/ontology/quality/report?ontology_id=${encodeURIComponent(id)}`),
   qualityConfig: (id: string) => req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`),
+  /** REQ-224 H10：本体消费贡献画像（onto_* 工具命中次数/被引用概念 TopN） */
+  ontologyContribution: (id: string, topN = 10) => req<OntoContribution>(`/api/ontology/${id}/contribution?top_n=${topN}`),
+  /** REQ-224 H10：跨本体命中概览（消费审计栏一览） */
+  ontologyContributionSummary: (limit = 20) => req<OntoContributionSummaryRow[]>(`/api/ontology/contribution/summary?limit=${limit}`),
+  /** REQ-224①：会话状态机读模型（phase 派生 + 状态族全量） */
+  conversationState: (id: string) => req<ConversationStateSnapshot>(`/api/conversations/${id}/state`),
+  /** REQ-224①：会话状态变更留痕（prev→next 快照，倒序） */
+  conversationStateLog: (id: string, limit = 200) => req<ConversationStateLogRow[]>(`/api/conversations/${id}/state-log?limit=${limit}`),
+
   setQualityConfig: (id: string, patch: { strict?: boolean; reasoning_check?: boolean }) =>
     req<{ ontology_id: string; strict: boolean; reasoning_check?: boolean }>(`/api/ontologies/${id}/quality-config`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** REQ-255/H2：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走 profileSparql） */

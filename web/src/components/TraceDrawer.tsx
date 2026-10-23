@@ -33,6 +33,8 @@ const TYPE_GROUPS = [
   { value: 'retrieval', label: '知识召回', types: ['retrieval'] },
   // REQ-281：伴生沉淀过程事件域（抽取/候选/入图判定/拒绝镜像）
   { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
+  { value: 'ontohit', label: '本体消费', types: ['ontology.hit'] }, // REQ-224 H10：onto_* 工具命中
+  { value: 'state', label: '状态机', types: ['state.changed'] }, // REQ-224①：会话状态变更（中断挂起/放弃/恢复）
   { value: 'artifact', label: '产物', types: ['artifact.saved'] },
   { value: 'cli', label: 'CLI 输出', types: ['debug.cli'] },
   { value: 'run', label: '运行始末', types: ['run.started', 'run.finished', 'run.error', 'context.stats'] },

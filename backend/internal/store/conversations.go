@@ -192,7 +192,9 @@ func (s *Store) DeleteConversation(id string) error {
 }
 
 // SetConversationInterruptState 更新会话中断挂起状态（"" = 清除；M11 收尾中断恢复）。
-func (s *Store) SetConversationInterruptState(id, stateJSON string) error {
+// reason 为变更动因（REQ-224① 留痕；如 "interrupt:run_xxx" / "abandon" / "resume"）。
+func (s *Store) SetConversationInterruptState(id, stateJSON, reason string) error {
+	prev := s.conversationField(id, "interrupt_state")
 	res, err := s.DB.Exec(`UPDATE conversation SET interrupt_state=?,updated_at=? WHERE id=?`, stateJSON, now(), id)
 	if err != nil {
 		return err
@@ -200,19 +202,37 @@ func (s *Store) SetConversationInterruptState(id, stateJSON string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	s.recordStateChange(id, "interrupt_state", prev, stateJSON, reason)
 	return nil
 }
 
 // SaveConversationTodo 持久化 todo_write 任务清单（REQ-202/M38：模型自写进度，机器可读侧）。
 func (s *Store) SaveConversationTodo(convID, todoJSON string) error {
-	_, err := s.DB.Exec(`UPDATE conversation SET todo_json=?,updated_at=? WHERE id=?`, todoJSON, now(), convID)
-	return err
+	prev := s.conversationField(convID, "todo_json")
+	if _, err := s.DB.Exec(`UPDATE conversation SET todo_json=?,updated_at=? WHERE id=?`, todoJSON, now(), convID); err != nil {
+		return err
+	}
+	s.recordStateChange(convID, "todo_json", prev, todoJSON, "todo_write")
+	return nil
 }
 
 // SaveContextState 持久化上下文压缩状态（REQ-201/M37：摘要+覆盖消息 ID；消息只追加，前缀状态长期有效）。
 func (s *Store) SaveContextState(convID, stateJSON string) error {
-	_, err := s.DB.Exec(`UPDATE conversation SET context_state=?,updated_at=? WHERE id=?`, stateJSON, now(), convID)
-	return err
+	prev := s.conversationField(convID, "context_state")
+	if _, err := s.DB.Exec(`UPDATE conversation SET context_state=?,updated_at=? WHERE id=?`, stateJSON, now(), convID); err != nil {
+		return err
+	}
+	s.recordStateChange(convID, "context_state", prev, stateJSON, "context_compact")
+	return nil
+}
+
+// conversationField 读会话单列原文（留痕 prev 快照用；列不存在/行不存在返回空）。
+func (s *Store) conversationField(id, field string) string {
+	var v string
+	if err := s.DB.QueryRow(`SELECT `+field+` FROM conversation WHERE id = ?`, id).Scan(&v); err != nil {
+		return ""
+	}
+	return v
 }
 
 func boolInt(b bool) int {

@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // REQ-224/M52：C5 定时续跑调度持久化（迁移 038 conversation_schedule）。
 // 调度状态出进程入 DB：backend 重启后 LoadSchedules 重新装配定时器（18 v1.91 诚实边界收口）。
@@ -17,10 +20,15 @@ type ConversationSchedule struct {
 
 // UpsertSchedule 写入/覆盖调度配置（done 归零——重设即新一轮）。
 func (s *Store) UpsertSchedule(convID string, intervalMinutes, maxRuns int) error {
+	prev := s.scheduleSnapshot(convID)
 	_, err := s.DB.Exec(`INSERT INTO conversation_schedule (conversation_id, interval_minutes, max_runs, done, created_at, updated_at)
 		VALUES (?,?,?,?,?,?)
 		ON CONFLICT(conversation_id) DO UPDATE SET interval_minutes=excluded.interval_minutes, max_runs=excluded.max_runs, done=0, updated_at=excluded.updated_at`,
 		convID, intervalMinutes, maxRuns, 0, now(), now())
+	if err == nil {
+		// REQ-224①：调度族并入状态变更留痕（field=schedule）
+		s.recordStateChange(convID, "schedule", prev, scheduleSnapshotOf(intervalMinutes, maxRuns), "schedule.set")
+	}
 	return err
 }
 
@@ -43,10 +51,27 @@ func (s *Store) GetSchedule(convID string) (*ConversationSchedule, error) {
 	return &sc, nil
 }
 
-// DeleteSchedule 摘除调度（用户取消 / cap 达到）。
-func (s *Store) DeleteSchedule(convID string) error {
-	_, err := s.DB.Exec(`DELETE FROM conversation_schedule WHERE conversation_id = ?`, convID)
-	return err
+// DeleteSchedule 摘除调度（用户取消 / cap 达到）。REQ-224①：reason 区分动因落留痕。
+func (s *Store) DeleteSchedule(convID, reason string) error {
+	prev := s.scheduleSnapshot(convID)
+	if _, err := s.DB.Exec(`DELETE FROM conversation_schedule WHERE conversation_id = ?`, convID); err != nil {
+		return err
+	}
+	s.recordStateChange(convID, "schedule", prev, "", reason)
+	return nil
+}
+
+// scheduleSnapshot 读当前调度配置摘要（无行返回空——留痕 prev 用）。
+func (s *Store) scheduleSnapshot(convID string) string {
+	sc, err := s.GetSchedule(convID)
+	if err != nil || sc == nil {
+		return ""
+	}
+	return scheduleSnapshotOf(sc.IntervalMinutes, sc.MaxRuns)
+}
+
+func scheduleSnapshotOf(intervalMinutes, maxRuns int) string {
+	return fmt.Sprintf("interval=%dm max_runs=%d", intervalMinutes, maxRuns)
 }
 
 // IncrementScheduleDone fire 一次：done+1 落库，返回新计数。
