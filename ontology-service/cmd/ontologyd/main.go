@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
 	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
@@ -20,8 +21,24 @@ func env(k, def string) string {
 	return def
 }
 
+// resolveListenAddr REQ-383/M179：卫星服务默认回环监听——构建平面含未鉴权的治理/代理面
+//（导入/LLM 生成/审计），默认仅 127.0.0.1 可达；局域网/容器部署显式 opt-in：
+// LISTEN_ALL=1（绑全接口）或 ADDR 显式覆盖（显式值恒尊重，容器编排走此口）。
+func resolveListenAddr(addrEnv, listenAll, port string) string {
+	if addrEnv != "" {
+		return addrEnv
+	}
+	if listenAll == "1" || listenAll == "true" {
+		return ":" + port
+	}
+	return "127.0.0.1:" + port
+}
+
 func main() {
-	addr := env("ADDR", ":8091")
+	addr := resolveListenAddr(os.Getenv("ADDR"), os.Getenv("LISTEN_ALL"), "8091")
+	if !strings.HasPrefix(addr, "127.0.0.1") {
+		log.Printf("[ontologyd] 监听 %s（非回环暴露——本服务管理面未鉴权，请确认网络隔离/反代；REQ-383）", addr)
+	}
 	dbPath := env("DB_PATH", "data/ontology.db")
 	migrationsDir := env("MIGRATIONS_DIR", "migrations")
 	platformURL := env("PLATFORM_URL", "http://127.0.0.1:8080")

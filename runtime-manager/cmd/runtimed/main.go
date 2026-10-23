@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/fuseki"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
@@ -25,8 +26,24 @@ func env(k, def string) string {
 	return def
 }
 
+// resolveListenAddr REQ-383/M179：卫星服务默认回环监听——运行平面含未鉴权的引擎启停/
+// SPARQL 代理面（引擎进程/容器端口本已回环，本服务自身补位），默认仅 127.0.0.1 可达；
+// 局域网/容器部署显式 opt-in：LISTEN_ALL=1 或 ADDR 显式覆盖（容器编排走此口）。
+func resolveListenAddr(addrEnv, listenAll, port string) string {
+	if addrEnv != "" {
+		return addrEnv
+	}
+	if listenAll == "1" || listenAll == "true" {
+		return ":" + port
+	}
+	return "127.0.0.1:" + port
+}
+
 func main() {
-	addr := env("ADDR", ":8090")
+	addr := resolveListenAddr(os.Getenv("ADDR"), os.Getenv("LISTEN_ALL"), "8090")
+	if !strings.HasPrefix(addr, "127.0.0.1") {
+		log.Printf("[runtimed] 监听 %s（非回环暴露——本服务含引擎启停/SPARQL 代理面未鉴权，请确认网络隔离/反代；REQ-383）", addr)
+	}
 	dbPath := env("DB_PATH", "data/runtime.db")
 	migrationsDir := env("MIGRATIONS_DIR", "migrations")
 	buildURL := env("BUILD_SVC_URL", "http://127.0.0.1:8091")

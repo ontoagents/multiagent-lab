@@ -52,6 +52,7 @@ services:
       dockerfile: ontology-service/Dockerfile
     environment:
       PLATFORM_URL: http://backend:8080
+      ADDR: ":8091" # REQ-383：容器网络内互通需绑全接口（宿主机直跑默认 127.0.0.1）
     volumes:
       - ontology-data:/app/data
     healthcheck:
@@ -66,6 +67,7 @@ services:
       dockerfile: runtime-manager/Dockerfile
     environment:
       BUILD_SVC_URL: http://ontology-service:8091
+      ADDR: ":8090" # REQ-383：同上
     volumes:
       - runtime-data:/app/data
       - runtime-logs:/app/logs
