@@ -62,6 +62,7 @@ func main() {
 	}
 	eng := oxigraph.New(oxigraphBin, dataDir, logDir)
 	mg := manager.New(st, buildURL, logDir, env("ENGINE_INSTALL_DIR", "data/bin"))
+	mg.SnapshotDir = env("COMPANION_GRAPH_SNAPSHOT_DIR", "data/companion-graph-snapshots") // REQ-377/M173
 	mg.RegisterEngine("oxigraph", eng)
 	// O6：Fuseki 引擎（FUSEKI_BIN 指向 fuseki-server 启动脚本；REQ-307 起常注册——未配置时经
 	// 候选序动态解析（FUSEKI_BIN → PATH → data/bin），一键安装写入 data/bin 后即时命中无需重启）

@@ -30,6 +30,9 @@ type Manager struct {
 	BuildURL      string                    // 构建平面地址（拉取本体形态）
 	LogDir        string
 	InstallBinDir string // 一键安装落点目录（REQ-146，默认 data/bin）
+	// SnapshotDir REQ-377/M173：伴生子图快照目录（默认 data/companion-graph-snapshots；
+	// Stop/Reload 前快照、Start 后回放——伴生数据与引擎数据目录解耦存活）
+	SnapshotDir string
 	HTTP          *http.Client
 	HealthTries   int // 启动健康检查重试次数
 
@@ -609,6 +612,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 					_ = m.Store.SetLoadedQuality(pid, string(b))
 				}
 			}(p.OntologyIDs, id)
+			// REQ-377/M173：伴生子图回放恢复（快照存在才动作；失败仅日志不阻断启动）
+			m.restoreCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
 			_ = m.Store.SetStatus(id, "running", "", "")
 			return nil
 		}
@@ -622,7 +627,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	return fmt.Errorf("方案启动后健康检查失败: %v", lastErr)
 }
 
-// Stop 停止方案。
+// Stop 停止方案。REQ-377/M173：停止前自动快照伴生子图（数据/代码分离——本体图可重建，
+// 伴生沉淀不可重建；快照失败仅日志不阻断停止）。
 func (m *Manager) Stop(id string) error {
 	if _, err := m.Store.Get(id); err != nil {
 		return err
@@ -632,6 +638,9 @@ func (m *Manager) Stop(id string) error {
 	delete(m.procs, id)
 	m.mu.Unlock()
 	if proc != nil {
+		if p, gerr := m.Store.Get(id); gerr == nil {
+			m.snapshotCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
+		}
 		_ = proc.Stop()
 	}
 	return m.Store.SetStatus(id, "stopped", "", "")
