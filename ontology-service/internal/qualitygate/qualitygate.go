@@ -113,6 +113,66 @@ func defaultChecks() []checkDef {
 		{id: "dangling_dataprop_domain", title: "数据属性定义域引用不存在的概念", dimension: DimConsistency, sev: SevError, run: checkDanglingDataPropDomain},
 		{id: "dangling_axiom_ref", title: "公理主体/目标引用不存在的概念", dimension: DimConsistency, sev: SevError, run: checkDanglingAxiomRef},
 		{id: "undeclared_attribute_key", title: "实例属性键未声明为数据属性", dimension: DimCompleteness, sev: SevInfo, run: checkUndeclaredAttribute},
+		// REQ-376①②/M172：限制公理承载配套检查（dangling 引用 + 基数约束 vs 实例断言）
+		{id: "dangling_restriction", title: "限制公理属性/值域引用不存在", dimension: DimConsistency, sev: SevError, run: checkDanglingRestriction},
+		{id: "restriction_cardinality", title: "实例断言违反基数限制（min/max/cardinality）", dimension: DimConsistency, sev: SevError, run: checkRestrictionCardinality},
+	}
+}
+
+// checkDanglingRestriction REQ-376②：限制公理 Property 须引用已定义关系、Target 须引用已定义概念。
+func checkDanglingRestriction(sp *pkgspec.Spec, add func(path string)) {
+	relNames := map[string]bool{}
+	for _, r := range sp.Relations {
+		relNames[r.Name] = true
+	}
+	conNames := map[string]bool{}
+	for _, c := range sp.Concepts {
+		conNames[c.Name] = true
+	}
+	for _, c := range sp.Concepts {
+		for j, rst := range c.Restrictions {
+			if !relNames[rst.Property] {
+				add(fmt.Sprintf("concepts[%s].restrictions[%d].property", c.Name, j))
+			}
+			if rst.Target != "" && !conNames[rst.Target] {
+				add(fmt.Sprintf("concepts[%s].restrictions[%d].target", c.Name, j))
+			}
+		}
+	}
+}
+
+// checkRestrictionCardinality REQ-376②：实例断言数量 vs 概念限制基数（min/max/cardinality）——
+// 属性约束建模面的质量门禁兑现（实例对属性 p 的断言次数 < min 或 > max 或 ≠ cardinality 即命中）。
+func checkRestrictionCardinality(sp *pkgspec.Spec, add func(path string)) {
+	for _, c := range sp.Concepts {
+		for _, rst := range c.Restrictions {
+			if rst.Type != "cardinality" && rst.Type != "min_cardinality" && rst.Type != "max_cardinality" {
+				continue
+			}
+			for _, it := range sp.Instances {
+				if it.Concept != c.Name {
+					continue
+				}
+				n := 0
+				for _, ir := range it.Relations {
+					if ir.Rel == rst.Property {
+						n++
+					}
+				}
+				violate := false
+				switch rst.Type {
+				case "cardinality":
+					violate = n != rst.Value
+				case "min_cardinality":
+					violate = n < rst.Value
+				case "max_cardinality":
+					violate = n > rst.Value
+				}
+				if violate {
+					add(fmt.Sprintf("instances[%s].relations[%s]（断言 %d 次 vs %s=%d）", it.Name, rst.Property, n, rst.Type, rst.Value))
+				}
+			}
+		}
 	}
 }
 

@@ -25,9 +25,18 @@ import (
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 )
 
+// specExternalRatio 「spec 外比例」一等指标（REQ-376③）。
+type specExternalRatio struct {
+	TriplesIn int     `json:"triples_in"`
+	Remainder int     `json:"remainder"`
+	Ratio     float64 `json:"ratio"`
+	Note      string  `json:"note,omitempty"`
+}
+
 // diagnoseResult 进化诊断 job 结果。
 type diagnoseResult struct {
-	Candidate   *evolution.Candidate `json:"candidate,omitempty"`   // 产出的候选补丁（proposed，待人门控）
+	SpecExternalRatio *specExternalRatio   `json:"spec_external_ratio,omitempty"` // REQ-376③：spec 外比例一等指标
+	Candidate         *evolution.Candidate `json:"candidate,omitempty"`           // 产出的候选补丁（proposed，待人门控）
 	Report      *cqbench.Report      `json:"report,omitempty"`     // 诊断评测报告（三率+分层；不落测我历史）
 	Attribution map[string]any       `json:"attribution,omitempty"` // 归因产出（layer/summary/evidence）
 	Note        string               `json:"note,omitempty"`
@@ -94,6 +103,26 @@ func (s *Server) runEvolutionDiagnose(job *draftJob, ontologyID string, version 
 		job.Status, job.Error = "failed", fmt.Sprintf(format, args...)
 		draftJobsMu.Unlock()
 		s.persistDraftJob(job) // REQ-381②：失败写穿
+	}
+	// REQ-376③：「spec 外比例」透出（诊断报告注记——余量占比越高=门禁/进化/编辑作用面越窄）
+	if b, _, gerr := s.Store.GetArtifact(ontologyID, "import-reconciliation"); gerr == nil {
+		var rc struct {
+			TriplesIn int `json:"triples_in"`
+			Remainder int `json:"remainder"`
+		}
+		if json.Unmarshal([]byte(b), &rc) == nil && rc.TriplesIn > 0 {
+			ratio := float64(rc.Remainder) / float64(rc.TriplesIn)
+			draftJobsMu.Lock()
+			if job.Diagnose == nil {
+				job.Diagnose = &diagnoseResult{}
+			}
+			job.Diagnose.SpecExternalRatio = &specExternalRatio{
+				TriplesIn: rc.TriplesIn, Remainder: rc.Remainder,
+				Ratio:    ratio,
+				Note:     fmt.Sprintf("spec 外比例 %.1f%%——余量越高，门禁/进化补丁/overlay 编辑的作用面越窄（REQ-376③ 诚实信号）", ratio*100),
+			}
+			draftJobsMu.Unlock()
+		}
 	}
 	setProgress := func(msg string) {
 		draftJobsMu.Lock()

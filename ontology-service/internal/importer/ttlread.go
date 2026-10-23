@@ -833,6 +833,70 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		res.Spec.DataProperties = append(res.Spec.DataProperties, dp)
 	}
 
+	// REQ-376①：限制公理投影——BNode[rdf:type owl:Restriction; onProperty; 值元] →
+	// subClassOf 指向它的具名概念.Constraints（五型；导出端 ttlexport 对偶 round-trip）
+	restrType := ttlTerm{Kind: "iri", Value: nsOWL + "Restriction"}
+	onPropT := ttlTerm{Kind: "iri", Value: nsOWL + "onProperty"}
+	svfT := ttlTerm{Kind: "iri", Value: nsOWL + "someValuesFrom"}
+	avfT := ttlTerm{Kind: "iri", Value: nsOWL + "allValuesFrom"}
+	cardT := ttlTerm{Kind: "iri", Value: nsOWL + "cardinality"}
+	minT := ttlTerm{Kind: "iri", Value: nsOWL + "minCardinality"}
+	maxT := ttlTerm{Kind: "iri", Value: nsOWL + "maxCardinality"}
+	// BNode → Restriction
+	restrByBNode := map[string]pkgspec.Restriction{}
+	for _, t := range triples {
+		if !eq(t.P, typeT) || !eq(t.O, restrType) || t.S.Kind != "bnode" {
+			continue
+		}
+		rst := pkgspec.Restriction{}
+		for _, tp := range triples {
+			if !eq(tp.S, t.S) {
+				continue
+			}
+			switch {
+			case eq(tp.P, onPropT) && tp.O.Kind == "iri":
+				rst.Property = relNameByURI[tp.O.Value]
+				if rst.Property == "" {
+					rst.Property = localOf(tp.O.Value)
+				}
+			case eq(tp.P, svfT) && tp.O.Kind == "iri":
+				rst.Type, rst.Target = "some_values_from", nameByURI[tp.O.Value]
+			case eq(tp.P, avfT) && tp.O.Kind == "iri":
+				rst.Type, rst.Target = "all_values_from", nameByURI[tp.O.Value]
+			case eq(tp.P, cardT) && tp.O.Kind == "literal":
+				rst.Type = "cardinality"
+				rst.Value, _ = strconv.Atoi(tp.O.Value)
+			case eq(tp.P, minT) && tp.O.Kind == "literal":
+				rst.Type = "min_cardinality"
+				rst.Value, _ = strconv.Atoi(tp.O.Value)
+			case eq(tp.P, maxT) && tp.O.Kind == "literal":
+				rst.Type = "max_cardinality"
+				rst.Value, _ = strconv.Atoi(tp.O.Value)
+			}
+		}
+		if rst.Type != "" && rst.Property != "" {
+			restrByBNode[t.S.Value] = rst
+		}
+	}
+	if len(restrByBNode) > 0 {
+		subClassOfT := subClassT
+		for _, t := range triples {
+			if !eq(t.P, subClassOfT) || t.O.Kind != "bnode" || t.S.Kind != "iri" {
+				continue
+			}
+			if rst, ok := restrByBNode[t.O.Value]; ok {
+				if cName := nameByURI[t.S.Value]; cName != "" {
+					for i := range res.Spec.Concepts {
+						if res.Spec.Concepts[i].Name == cName {
+							res.Spec.Concepts[i].Restrictions = append(res.Spec.Concepts[i].Restrictions, rst)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// 实例：rdf:type 指向已注册概念的主体（非类自身）
 	instNameByURI := map[string]string{}
 	type instDraft struct {

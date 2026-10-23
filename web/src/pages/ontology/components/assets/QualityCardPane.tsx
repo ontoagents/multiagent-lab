@@ -152,6 +152,8 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
   const [benchRuns, setBenchRuns] = useState<CqBenchmarkRun[] | null>(null)
   // REQ-224 H10：本体消费贡献（onto_* 工具命中次数/被引用概念 TopN 入质量卡）
   const [contribution, setContribution] = useState<OntoContribution | null>(null)
+  // REQ-376③：「spec 外比例」一等指标（导入对账 artifact → 质量卡常驻）
+  const [recon, setRecon] = useState<{ triples_in: number; remainder: number } | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -188,6 +190,10 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
       .ontologyContribution(ontologyId)
       .then(setContribution)
       .catch(() => setContribution(null))
+    api
+      .getArtifactContent(ontologyId, 'import-reconciliation')
+      .then((t) => setRecon(JSON.parse(t)))
+      .catch(() => setRecon(null))
   }, [ontologyId])
 
   useEffect(load, [load])
@@ -980,6 +986,18 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
             />
           )}
         </>
+      )}
+
+      {/* REQ-376③：「spec 外比例」一等指标常驻——余量占比越高=门禁/进化补丁/overlay 编辑作用面越窄 */}
+      {recon && recon.triples_in > 0 && (
+        <Alert
+          type={recon.remainder / recon.triples_in > 0.3 ? 'warning' : 'info'}
+          showIcon
+          style={{ marginTop: 12 }}
+          data-testid="spec-external-ratio"
+          title={`spec 外比例 ${Math.round((recon.remainder / recon.triples_in) * 1000) / 10}%（${recon.remainder}/${recon.triples_in} 三元组在余量账本）——质量门禁/进化补丁/overlay 编辑仅作用于 spec 内形态`}
+          description="来自最近一次导入对账（REQ-328 恒等式：triples_in = vocabulary + projected + remainder）；占比高时建议在源系统补具名结构声明后重新导入。"
+        />
       )}
     </div>
   )

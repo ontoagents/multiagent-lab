@@ -390,6 +390,13 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// REQ-376③/M172：「spec 外比例」一等指标数据源——导入对账块落 artifact（质量卡常驻指标
+	// 与进化诊断透出消费；remainder/triples_in=门禁/进化/编辑作用面外的诚实信号）
+	if rc := rep.Reconciliation; rc != nil {
+		if b, jerr := json.Marshal(rc); jerr == nil {
+			_ = s.Store.PutArtifact(id, "import-reconciliation", string(b), false)
+		}
+	}
 	// REQ-318/M120：未投影公理透传存档（artifact axioms-raw）——77 号 §6 设计；
 	// 导出 TTL 时拼接还原（三要素编辑无损 + 高级公理透传）；spec_json 结构零改动（LLM 契约零影响）
 	if len(rep.Unprojected) > 0 {

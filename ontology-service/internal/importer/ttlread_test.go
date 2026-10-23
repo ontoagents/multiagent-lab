@@ -121,6 +121,45 @@ ex:host-1 a ex:Server ; rdfs:label "主机一" ; ex:coreCount "16" ; ex:runs ex:
 	}
 }
 
+func TestTTLRestrictionRoundTrip(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name: "restr", Concepts: []pkgspec.Concept{
+			{Name: "服务器", Restrictions: []pkgspec.Restriction{
+				{Type: "min_cardinality", Property: "挂载", Value: 1},
+				{Type: "some_values_from", Property: "挂载", Target: "存储节点"},
+			}},
+			{Name: "存储节点"},
+		},
+		Relations: []pkgspec.Relation{{Name: "挂载", From: "服务器", To: "存储节点"}},
+	}
+	ttl, _, err := TTLGoExport("o1", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ttl, "owl:Restriction") || !strings.Contains(ttl, "owl:minCardinality") {
+		t.Fatalf("导出应含限制公理: %.400s", ttl)
+	}
+	res, err := ReadTurtleSpec(ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *pkgspec.Concept
+	for i := range res.Spec.Concepts {
+		if res.Spec.Concepts[i].Name == "服务器" {
+			got = &res.Spec.Concepts[i]
+		}
+	}
+	if got == nil || len(got.Restrictions) != 2 {
+		t.Fatalf("限制公理应还原 2 条: %+v", got)
+	}
+	if got.Restrictions[0].Type != "min_cardinality" || got.Restrictions[0].Value != 1 || got.Restrictions[0].Property != "挂载" {
+		t.Fatalf("基数限制还原不符: %+v", got.Restrictions[0])
+	}
+	if got.Restrictions[1].Type != "some_values_from" || got.Restrictions[1].Target != "存储节点" {
+		t.Fatalf("someValuesFrom 还原不符: %+v", got.Restrictions[1])
+	}
+}
+
 func TestTTLUnregisteredPrefixFails(t *testing.T) {
 	_, err := ReadTurtleSpec("ex:a ex:b ex:c .")
 	if err == nil || !strings.Contains(err.Error(), "未声明前缀") {

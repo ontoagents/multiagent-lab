@@ -18,6 +18,25 @@ type Concept struct {
 	Label      string   `json:"label,omitempty"`
 	Definition string   `json:"definition,omitempty"`
 	Parents    []string `json:"parents,omitempty"` // 父概念名（多继承）
+	// Restrictions 匿名限制公理承载（REQ-376①/M172 详设拍板子集五型）——自「丢弃入余量账本
+	// +warning」升档为建模面保留层。承载路径=人工 spec 编辑+TTL 导入导出 round-trip（Go 读入端
+	// REQ-378 对偶）；LLM 生成面不扩（SpecRulesPrompt/SchemaHint 不含 restrictions——77 号
+	// 「不做 spec_json 全面 OWL 化」维持，LLM 契约闸门边界随详设拍板留痕）。
+	Restrictions []Restriction `json:"restrictions,omitempty"`
+}
+
+// Restriction 匿名限制公理（owl:Restriction 承载子集）。
+type Restriction struct {
+	Type     string `json:"type"`             // some_values_from | all_values_from | cardinality | min_cardinality | max_cardinality
+	Property string `json:"property"`         // 对象属性名（引用 relations.name）
+	Target   string `json:"target,omitempty"` // some/all_values_from 值域概念名（基数型可空）
+	Value    int    `json:"value,omitempty"`  // 基数（基数型必填 ≥0）
+}
+
+// RestrictionTypes 限制公理合法类型（详设拍板子集五型）。
+var RestrictionTypes = map[string]bool{
+	"some_values_from": true, "all_values_from": true,
+	"cardinality": true, "min_cardinality": true, "max_cardinality": true,
 }
 
 // Relation 对象属性/关系（概念层，From/To 为概念名）。
@@ -124,6 +143,30 @@ func (s *Spec) Validate() []ValidationError {
 			continue
 		}
 		cn[c.Name] = i
+	}
+	// REQ-376①：限制公理校验（Type 枚举/Property 引用关系/基数型 Value≥0/some·all Target 引用概念）
+	relNames := map[string]bool{}
+	for _, r := range s.Relations {
+		relNames[r.Name] = true
+	}
+	for i, c := range s.Concepts {
+		for j, rst := range c.Restrictions {
+			p := fmt.Sprintf("concepts[%d].restrictions[%d]", i, j)
+			if !RestrictionTypes[rst.Type] {
+				add(p+".type", "限制公理类型非法: "+rst.Type+"（合法=some_values_from|all_values_from|cardinality|min_cardinality|max_cardinality）")
+			}
+			if rst.Property == "" || !relNames[rst.Property] {
+				add(p+".property", "限制公理属性必须引用已定义关系: "+rst.Property)
+			}
+			if (rst.Type == "cardinality" || rst.Type == "min_cardinality" || rst.Type == "max_cardinality") && rst.Value < 0 {
+				add(p+".value", "基数型限制 Value 须 ≥0")
+			}
+			if (rst.Type == "some_values_from" || rst.Type == "all_values_from") && rst.Target != "" {
+				if _, ok := cn[rst.Target]; !ok {
+					add(p+".target", "限制公理值域引用不存在的概念: "+rst.Target)
+				}
+			}
+		}
 	}
 	for i, c := range s.Concepts {
 		if _, ok := cn[c.Name]; !ok {

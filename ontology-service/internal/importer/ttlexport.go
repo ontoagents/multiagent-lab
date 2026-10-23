@@ -122,6 +122,33 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 			line += fmt.Sprintf(" ;\n    rdfs:subClassOf <%s>", w.concept(p))
 			n++
 		}
+		// REQ-376①：限制公理写出——owl:Restriction 匿名父类形态（round-trip 写出端；
+		// Go 读入端 ttlread 对偶投影）。计数=每限制 3 条（type/onProperty + 值元）。
+		for _, rst := range c.Restrictions {
+			if len(c.Parents) == 0 && rst == c.Restrictions[0] {
+				// 无具名父类时限制仍是匿名节点（subClassOf 指向 BNode）——行内续写
+			}
+			line += fmt.Sprintf(" ;\n    rdfs:subClassOf [ rdf:type owl:Restriction ; owl:onProperty <%s>", w.relation(rst.Property))
+			n += 2
+			switch rst.Type {
+			case "some_values_from":
+				line += fmt.Sprintf(" ; owl:someValuesFrom <%s>", w.concept(rst.Target))
+				n++
+			case "all_values_from":
+				line += fmt.Sprintf(" ; owl:allValuesFrom <%s>", w.concept(rst.Target))
+				n++
+			case "cardinality":
+				line += fmt.Sprintf(" ; owl:cardinality \"%d\"^^xsd:nonNegativeInteger", rst.Value)
+				n++
+			case "min_cardinality":
+				line += fmt.Sprintf(" ; owl:minCardinality \"%d\"^^xsd:nonNegativeInteger", rst.Value)
+				n++
+			case "max_cardinality":
+				line += fmt.Sprintf(" ; owl:maxCardinality \"%d\"^^xsd:nonNegativeInteger", rst.Value)
+				n++
+			}
+			line += " ]"
+		}
 		L = append(L, line+" .")
 	}
 	for _, r := range sp.Relations {
