@@ -5,7 +5,7 @@ desc: harness 技术沉淀单一事实点——层职责与代码地图、已交
 req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-355, REQ-356, REQ-360, REQ-362]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-10-22
+synced: 2026-10-24
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -70,7 +70,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 伴生图语义检索工具+自动入图基准门控（companion_search 内置工具〔browse/resolve 式：NL→语义匹配→实体+邻域；默认关 92 号 §5.2，Caller 缺省解析伴生绑定；tool→companion 环经装配闭包破 REQ-355 R2〕+Service.AutoIngestGate 钩子〔nil=零变化，主链路 diff=一个 nil 分支〕+evaldata RecallFloorGate 冻结验证集地板门控〔τ∈[0.60,0.80] 默认 0.60，COMPANION_BENCHMARK_GATE 显式开启；任意域无信号诚实放行〕+迁移 051 reject_reason 归因；EvoOntology 借鉴 D-O26 署名 93 号 §7.4） | REQ-358 | M158 | ✅（2026-10-21 清账批：A 基准跑落词法 0.033/向量 0.967/向量+2跳 1.000〔31 号三轮挂账清账〕+真机 delta 5 干扰候选注入 0.600→0.300 判负向） | 门控 stub 单测 4 断言+store 归因+18 包绿+真机 eval |
 | 对话建本体能力产品化（**能力开关**：Agent.OnchatMode 字段+侧板分区〔开关/默认模式/产出清单〕+装配自动并入四工具与手勾并集+**内置纪律段注入**〔instruction segment source=onchat 沿本体指引段先例，防误触发纪律内置〕——引导段手工粘贴退役；**页面渠道流程**：OntoChat 新建入口「在智能体对话中构建」显式选项〔channel-first 会话由智能体 start 保审计归因+预填不代发〕+中途携 session_id 转对话+渠道列表兜底〔已具能力置顶/平台助手/一键新建本体工程师预设〕；**平台助手默认挂载四件**〔92 号 §5.2 原则②默认关修订：显式引导面〕+**本体工程师预设智能体**〔演进位=内置本体专业能力触发驱动〕；产出清单=构建平面 List 增 agent_id 过滤；会话级工具注入不做〔方案 2/4 独立形态退役，与 REQ-336 收敛相逆〕） | REQ-360 | M161 | ✅（2026-10-21「拉取最新代码，领取需求开发」批：迁移 050 onchat_mode+装配自动并入四工具〔onchat 来源标注，与手勾并集〕+内置纪律段注入〔REQ-311 透镜 source=onchat〕；页面渠道 AgentChannelModal build/handoff 双模式+eino.chat.preset 预填不代发；平台助手内置行迁移默认 guided〔白名单放行可关〕+本体工程师预设一键新建；ListByAgent agent_id 过滤+侧板产出清单+继续深链；顺修 buildPath 一次性迁移吃深链〔ToolLine 深链同病〕；headless 29/29 smoke/req360/+真机 GLM 5/5 live〔ontochat_start 装配并入+审计归因 agent_chat+一次一问纪律实锤〕） | 单测 7 组+17+17 包绿+headless 29/29+真机 5/5 |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
-| MCP 工具清单装配缓存（每轮消息装配重做 MCP 连接+Initialize+tools/list 的开销与失败面治理〔runner.go:261 每轮 Assemble→assembler.go:577 facade FetchTools+Agent 级连接器〕；FetchMCPTools 进程内缓存 serverName+URL+认证头指纹键·TTL 60s 起步·失败回退直连，降级/ontology__ 改名/审批面零变化；观察项=tool annotations/2025-06-18 structured output） | REQ-356 | M156 | 📋 已立项待领取 | — |
+| MCP 工具清单装配缓存（每轮消息装配重做 MCP 连接+Initialize+tools/list 的开销与失败面治理〔runner.go:261 每轮 Assemble→assembler.go:577 facade FetchTools+Agent 级连接器〕；FetchMCPTools 进程内缓存 serverName+URL+认证头指纹键·TTL 60s 起步·失败回退直连，降级/ontology__ 改名/审批面零变化；观察项=tool annotations/2025-06-18 structured output） | REQ-356 | M156 | ✅（2026-10-21 清账批交付，与上行同 REQ——本行为立项期陈旧行，2026-10-24 顺修标注） | — |
 | 工具失败容错回喂（执行失败不炸 run——错误转结构化 JSON tool result 回喂〔hint 含截断调参指引〕+run.warning 留痕；中断类〔审批/ask_human〕与 context.Canceled 原样透传保挂起/停止语义；流式工具保 StreamableTool 断言、调用期与流中途错误同口径；沿 REQ-319 A1 委派降级先例推广到全部工具；TodoCard 超长清单限高+折叠同轮） | 报障迭代 2026-10-20 | — | ✅ | chat 单测 6 组+UI headless 10/10 smoke/toolerr-iter/ |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 
@@ -98,7 +98,7 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 1. **mcp 直通连接器保守全审**——danger 档无法静态判定外部 MCP 工具读写性，全部视为危险（read-only 免审仅覆盖内置与 oo/ontology 前缀）。
 2. **挂起超时仅在恢复重入时判定**——挂起中无后台时钟（免常驻进程），后端重启后超时视角丢失。
 3. **work_dir 零 volume 绑定**——inprocess 与 docker/k8s 两执行世界文件语义割裂，待 REQ-225/M53 触发（触发条件=出现真实「跑命令改代码并验证」本地任务诉求）。
-4. **hooks 不可配置**——进程内固定注册表，agent 级开关与自定义 deny 规则待 REQ-232/M59 触发。
+4. ~~hooks 不可配置~~——**已交付**（REQ-232/M59 ✅ 2026-10-13：hooks 可配置化+agent 级开关+自定义 deny 规则；本条原为滞后残留，2026-10-24 顺修）。
 5. **外部 CLI 后端旁路**——inference_backend 为外部 CLI 时 harness 配置全部不生效，侧板降维标注随 M41 真机联调轮（51 号 W5 定案：UI 标注+保存校验都做）。
 6. **装配预览不含本体 facade 与会话形态工具**——onto_* 随对话挂载、todo_write 仅会话内，预览为能力面口径（诚实注记在端点响应）。
 
