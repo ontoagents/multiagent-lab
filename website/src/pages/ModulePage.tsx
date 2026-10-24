@@ -3,6 +3,7 @@ import {
   ApartmentOutlined,
   AimOutlined,
   ApiOutlined,
+  AppstoreOutlined,
   AuditOutlined,
   BranchesOutlined,
   ClusterOutlined,
@@ -18,6 +19,7 @@ import {
   FileDoneOutlined,
   FileTextOutlined,
   FolderOutlined,
+  ImportOutlined,
   KeyOutlined,
   LayoutOutlined,
   LockOutlined,
@@ -72,11 +74,13 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
   FileDoneOutlined: <FileDoneOutlined />,
   FileTextOutlined: <FileTextOutlined />,
   FolderOutlined: <FolderOutlined />,
+  ImportOutlined: <ImportOutlined />,
   KeyOutlined: <KeyOutlined />,
   LayoutOutlined: <LayoutOutlined />,
   LockOutlined: <LockOutlined />,
   NodeIndexOutlined: <NodeIndexOutlined />,
   ProfileOutlined: <ProfileOutlined />,
+  AppstoreOutlined: <AppstoreOutlined />,
   RocketOutlined: <RocketOutlined />,
   RobotOutlined: <RobotOutlined />,
   SearchOutlined: <SearchOutlined />,
@@ -93,7 +97,11 @@ const COPY = {
   zh: {
     crumbsHome: '首页',
     title: '功能模块',
-    tagline: '七个模块一页纵览——左侧导航直达对应区块，或直接向下滚动逐一了解。',
+    tagline: '七个模块一页纵览——各有分工、互为配合：左侧导航直达对应区块，或直接向下滚动逐一了解。',
+    rolesHead: '平台分工总览',
+    rolesHint: '点击卡片直达对应模块',
+    roleTag: '分工',
+    coopHead: '与其他模块的配合',
     navAria: '模块导航',
     briefAria: '模块速览',
     flowHead: '典型流程',
@@ -104,7 +112,11 @@ const COPY = {
   en: {
     crumbsHome: 'Home',
     title: 'Modules',
-    tagline: 'All seven modules on one page — use the left rail to jump, or simply scroll.',
+    tagline: 'All seven modules on one page — each with its own role, wired to the others: use the left rail to jump, or simply scroll.',
+    rolesHead: 'How the modules divide the work',
+    rolesHint: 'Click a card to jump to the module',
+    roleTag: 'Role',
+    coopHead: 'Works with other modules',
     navAria: 'Module navigation',
     briefAria: 'Module at a glance',
     flowHead: 'Typical flow',
@@ -165,6 +177,29 @@ export default function ModulePage({ initial }: { initial?: string }) {
         </nav>
         <h1>{c.title}</h1>
         <p className="module-tagline">{c.tagline}</p>
+
+        {/* 平台分工总览（分工配合轮）：七模块各一句角色定位，点击直达——
+            平台级「谁管什么」先于模块细节呈现 */}
+        <section className="mod-roles" aria-label={c.rolesHead}>
+          <h2 className="mod-roles-head">{c.rolesHead}</h2>
+          <p className="mod-roles-hint">{c.rolesHint}</p>
+          <div className="mod-roles-grid">
+            {MODULES.map((m) => {
+              const mt = moduleText(m, locale)
+              return (
+                <button
+                  type="button"
+                  key={`role-${m.key}`}
+                  className={`mod-role-chip${active === m.key ? ' active' : ''}`}
+                  onClick={() => jump(m.key)}
+                >
+                  <b className="mod-role-name">{mt.title}</b>
+                  <span className="mod-role-text">{mt.role}</span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
       </div>
 
       <div className="page-inner modules-layout">
@@ -194,6 +229,12 @@ export default function ModulePage({ initial }: { initial?: string }) {
                 <h2 className="mod-title">{mt.title}</h2>
                 <p className="mod-tagline">{mt.tagline}</p>
 
+                {/* 分工定位：本模块在平台中管什么/不管什么（分工配合轮） */}
+                <p className="mod-role">
+                  <span className="mod-role-tag">{c.roleTag}</span>
+                  {mt.role}
+                </p>
+
                 {/* 速览：30 秒看懂本模块 */}
                 <section className="module-brief" aria-label={c.briefAria}>
                   <span className="eyebrow">Quick Glance</span>
@@ -218,6 +259,16 @@ export default function ModulePage({ initial }: { initial?: string }) {
                       </li>
                     ))}
                   </ol>
+                </section>
+
+                {/* 与其他模块的配合（分工配合轮）：点名对方模块+一句怎么接 */}
+                <section className="mod-coop" aria-label={c.coopHead}>
+                  <h3 className="mod-sub-head">{c.coopHead}</h3>
+                  <ul className="coop-list">
+                    {mt.coop.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
                 </section>
 
                 {/* 核心能力：图标功能卡网格（REQ-364，替代原文档链接列表） */}

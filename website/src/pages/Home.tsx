@@ -1,5 +1,6 @@
 import {
   ApartmentOutlined,
+  ApiOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -195,8 +196,8 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <CloudServerOutlined />,
     i18n: {
-      zh: { title: '外部连接器', desc: 'Kubernetes / SSH / 自定义 MCP 三类连接器，凭据加密托管，agent 级授权白名单' },
-      en: { title: 'External connectors', desc: 'Kubernetes / SSH / custom MCP connectors with encrypted credential hosting and agent-level authorization whitelists' },
+      zh: { title: '外部连接器', desc: 'Kubernetes / SSH / 自定义 MCP / A2A 四类连接器，凭据加密托管，agent 级授权白名单' },
+      en: { title: 'External connectors', desc: 'Kubernetes / SSH / custom MCP / A2A connectors with encrypted credential hosting and agent-level authorization whitelists' },
     },
   },
   {
@@ -209,8 +210,15 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <ThunderboltOutlined />,
     i18n: {
-      zh: { title: '技能与 MCP 服务化', desc: '技能封装复用，智能体一键暴露为 MCP Server（/mcp Streamable HTTP）' },
-      en: { title: 'Skills & MCP serving', desc: 'Package and reuse skills; expose any agent as an MCP Server (/mcp, Streamable HTTP) in one click' },
+      zh: { title: '技能复用', desc: 'SKILL.md 标准技能包封装复用，.zip 批量导入（首批 177 件），集合一卡多子技能挂载' },
+      en: { title: 'Skill reuse', desc: 'SKILL.md standard packs, packaged and reused; batch .zip import (177 first batch) and one-card collections' },
+    },
+  },
+  {
+    icon: <ApiOutlined />,
+    i18n: {
+      zh: { title: '协议开放（MCP + A2A）', desc: '智能体一键暴露为 MCP Server（/mcp）与 A2A 端点；A2A 委派客户端把外部智能体接入协作' },
+      en: { title: 'Open protocols (MCP + A2A)', desc: 'Expose any agent as an MCP Server (/mcp) or A2A endpoint; the A2A delegation client pulls external agents into collaboration' },
     },
   },
   {
