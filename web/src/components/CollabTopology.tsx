@@ -21,9 +21,11 @@ type TopoNodeData = {
   inStack: boolean
   via?: string
   isPlaceholder?: boolean
-  /** REQ-416/M212：外部 A2A 成员（channel=a2a 委派聚合；endpoint 悬浮展示） */
+  /** REQ-416/M212：外部 A2A 成员 / REQ-426：外部 CLI 成员（channel=a2a|cli 委派聚合；endpoint/backend 悬浮展示） */
   external?: boolean
   endpoint?: string
+  channel?: string
+  backend?: string
 }
 
 function TopoNode({ data }: NodeProps) {
@@ -31,7 +33,7 @@ function TopoNode({ data }: NodeProps) {
   return (
     <div
       data-testid={d.role === 'coordinator' ? 'topo-coordinator' : 'topo-member'}
-      title={d.endpoint ? `A2A 端点：${d.endpoint}` : undefined}
+      title={d.external ? (d.channel === 'cli' ? `CLI 外部成员（后端 ${d.backend ?? '—'}）` : `A2A 端点：${d.endpoint ?? ''}`) : undefined}
       style={{
         padding: '6px 12px',
         borderRadius: 10,
@@ -50,7 +52,7 @@ function TopoNode({ data }: NodeProps) {
         {d.role === 'coordinator'
           ? '协调者'
           : d.external
-            ? `外部 A2A 成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}`
+            ? `${d.channel === 'cli' ? '外部 CLI 成员' : '外部 A2A 成员'}${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}`
             : `成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}${d.via === 'transfer' ? ' · transfer' : ''}`}
       </div>
       {d.inStack && (
@@ -63,21 +65,24 @@ function TopoNode({ data }: NodeProps) {
 
 const nodeTypes: NodeTypes = { topo: TopoNode }
 
-type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string; delegates?: number; external?: boolean; endpoint?: string }
+type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string; delegates?: number; external?: boolean; endpoint?: string; channel?: string; backend?: string }
 
 /** subagent.enter/exit 事件升序聚合：每成员委派次数与在栈状态（transfer 也计入并标注）；
- * REQ-416：subagent.delegate channel=a2a 聚合为外部成员（delegates 计数+endpoint，无 enter/exit 栈语义） */
+ * REQ-416/REQ-426：subagent.delegate channel=a2a/cli 聚合为外部成员（delegates 计数+
+ * endpoint/backend，无 enter/exit 栈语义），拓扑按 channel 区分外部成员两类 */
 function aggregateSubagentEvents(events: RunEventDTO[]): Record<string, SubagentStat> {
   const stats: Record<string, SubagentStat> = {}
   for (const e of events) {
     let d: any = {}
     try { d = e.data ? JSON.parse(e.data) : {} } catch { /* 跳过坏载荷 */ }
     if (e.type === 'subagent.delegate') {
-      if (d.channel !== 'a2a' || !d.member) continue
+      if ((d.channel !== 'a2a' && d.channel !== 'cli') || !d.member) continue
       const st = (stats[String(d.member)] ??= { enters: 0, exits: 0, inStack: false })
       st.delegates = (st.delegates ?? 0) + 1
       st.external = true
+      st.channel = String(d.channel)
       if (d.endpoint) st.endpoint = String(d.endpoint)
+      if (d.backend) st.backend = String(d.backend)
       continue
     }
     const name = String(d.agent ?? '')
@@ -161,7 +166,8 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         markerEnd: { type: MarkerType.ArrowClosed },
       })
     })
-    // REQ-416/M212：外部 A2A 成员节点（channel=a2a 委派聚合；静态拓扑无此成员——运行回放出现）
+    // REQ-416/M212 + REQ-426：外部成员节点（channel=a2a/cli 委派聚合；静态拓扑无此成员——
+    // 运行回放出现）；边色区分：A2A 紫 / CLI volcano（泳道同色系）
     const memberNames = new Set(memberIds.map((id) => agents.find((x) => x.id === id)?.name ?? id))
     let extIdx = 0
     for (const [name, st] of Object.entries(stats)) {
@@ -172,14 +178,14 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         id: `ext:${name}`,
         type: 'topo',
         position: { x, y: 128 },
-        data: { name, role: 'member', count: st.delegates ?? 0, inStack: false, external: true, endpoint: st.endpoint } as unknown as Record<string, unknown>,
+        data: { name, role: 'member', count: st.delegates ?? 0, inStack: false, external: true, endpoint: st.endpoint, channel: st.channel, backend: st.backend } as unknown as Record<string, unknown>,
       })
       edges.push({
         id: `exte:${name}`,
         source: 'coord',
         target: `ext:${name}`,
-        label: `A2A 委派 ${st.delegates ?? 0}`,
-        style: { strokeWidth: 1.6, stroke: '#531dab' },
+        label: `${st.channel === 'cli' ? 'CLI' : 'A2A'} 委派 ${st.delegates ?? 0}`,
+        style: { strokeWidth: 1.6, stroke: st.channel === 'cli' ? '#d46b08' : '#531dab' },
         markerEnd: { type: MarkerType.ArrowClosed },
       })
     }
@@ -197,7 +203,7 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         <Tag style={{ margin: 0 }}>workflow: {project.workflow_mode ?? 'free'}</Tag>
         {totalCalls > 0 && (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            已选会话委派 {totalCalls} 次{transferCalls > 0 ? `（transfer ${transferCalls}）` : ''}{a2aCalls > 0 ? `（A2A 外部 ${a2aCalls}）` : ''}
+            已选会话委派 {totalCalls} 次{transferCalls > 0 ? `（transfer ${transferCalls}）` : ''}{a2aCalls > 0 ? `（外部成员 ${a2aCalls}）` : ''}
           </Typography.Text>
         )}
       </Space>

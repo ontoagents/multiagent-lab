@@ -82,6 +82,11 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
             const ep = d?.endpoint ? ` · ${String(d.endpoint)}` : ''
             return { text: `🌐 委派外部成员${who}（A2A）· ${String(d?.task ?? '').slice(0, 60)}${ep}` }
           }
+          // REQ-426/M222：CLI 外部成员（附后端名）
+          if (d?.channel === 'cli') {
+            const bk = d?.backend ? ` · ${String(d.backend)}` : ''
+            return { text: `⌨️ 委派外部成员${who}（CLI${bk}）· ${String(d?.task ?? '').slice(0, 60)}` }
+          }
           return { text: `🚀 委派成员${who} · ${String(d?.task ?? '').slice(0, 60)}` }
         }
       }

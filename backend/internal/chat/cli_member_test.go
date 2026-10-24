@@ -1,0 +1,249 @@
+package chat
+
+// REQ-426/M222 单测：外部 CLI 成员委派工具——协作面成功路径（stub Run→文本回传）、
+// REQ-319 同语义降级回喂（执行失败→member_failed JSON+run.warning，不炸 run）、
+// channel=cli 委派单事件、描述合成（backend/版本/角色前缀）、cliProbeVersion 解析口径。
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	einotool "github.com/cloudwego/eino/components/tool"
+
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+)
+
+func newCLITool(t *testing.T, run func(ctx context.Context, task string) (string, int, error)) einotool.InvokableTool {
+	t.Helper()
+	bt, err := newCLIMemberTool(cliMemberDeps{
+		Name: "cli编码者", Backend: "claude-code", Version: "1.0.99",
+		TaskPrefix: "你是编码成员", Run: run,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, ok := bt.(einotool.InvokableTool)
+	if !ok {
+		t.Fatal("CLI 成员工具应为 InvokableTool")
+	}
+	return it
+}
+
+func TestCLIMemberToolSuccess(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	dt := newCLITool(t, func(ctx context.Context, task string) (string, int, error) {
+		if !strings.Contains(task, "实现函数 foo") {
+			t.Fatalf("任务应原样传给执行层: %s", task)
+		}
+		return "已完成：foo 已实现并通过测试", 2, nil
+	})
+	out, err := dt.InvokableRun(ctx, `{"request":"实现函数 foo"}`)
+	if err != nil {
+		t.Fatalf("外部成员成功应直回结果: %v", err)
+	}
+	if !strings.Contains(out, "foo 已实现") {
+		t.Fatalf("结果文本应回传: %s", out)
+	}
+	d := findEvent(evts, "subagent.delegate")
+	if d == nil {
+		t.Fatal("缺委派单事件")
+	}
+	if d.data["channel"] != "cli" || d.data["member"] != "cli编码者" || d.data["backend"] != "claude-code" || d.data["task"] != "实现函数 foo" {
+		t.Fatalf("channel=cli 委派单不符: %v", d.data)
+	}
+	if findEvent(evts, "run.warning") != nil {
+		t.Fatal("成功路径不应有 run.warning")
+	}
+}
+
+func TestCLIMemberToolDegrade(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	dt := newCLITool(t, func(ctx context.Context, task string) (string, int, error) {
+		return "", 0, errors.New("退出码 1: claude 未登录")
+	})
+	out, err := dt.InvokableRun(ctx, `{"request":"任意任务"}`)
+	if err != nil {
+		t.Fatalf("失败应降级回喂而非报错: %v", err)
+	}
+	if !strings.Contains(out, `"member_failed"`) || !strings.Contains(out, "cli编码者") || !strings.Contains(out, `"cli"`) || !strings.Contains(out, "claude 未登录") {
+		t.Fatalf("降级 JSON 缺关键字段: %s", out)
+	}
+	w := findEvent(evts, "run.warning")
+	if w == nil {
+		t.Fatal("缺 run.warning")
+	}
+	mf, _ := w.data["member_failed"].(map[string]any)
+	if mf == nil || mf["channel"] != "cli" || mf["backend"] != "claude-code" {
+		t.Fatalf("run.warning 缺 cli 标注: %v", w.data)
+	}
+}
+
+func TestCLIMemberEmptyOutput(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	dt := newCLITool(t, func(ctx context.Context, task string) (string, int, error) { return "  ", 0, nil })
+	out, err := dt.InvokableRun(ctx, `{"request":"任务"}`)
+	if err != nil {
+		t.Fatalf("空输出不应报错: %v", err)
+	}
+	if !strings.Contains(out, "未产生文本输出") {
+		t.Fatalf("空输出应如实回喂: %s", out)
+	}
+	if findEvent(evts, "run.warning") != nil {
+		t.Fatal("空输出是成功路径，不应有 run.warning")
+	}
+}
+
+func TestCLIMemberDescriptionSynthesis(t *testing.T) {
+	desc := cliMemberDescription(cliMemberDeps{
+		Name: "cli-1", Backend: "claude-code", Version: "1.0.99", TaskPrefix: "只写测试不改实现",
+	})
+	if !strings.Contains(desc, "claude-code") || !strings.Contains(desc, "1.0.99") || !strings.Contains(desc, "只写测试不改实现") || !strings.Contains(desc, "CLI") {
+		t.Fatalf("描述应合成 backend/版本/角色前缀: %s", desc)
+	}
+	// 无版本/前缀降级：仍可用（backend+名称）
+	desc2 := cliMemberDescription(cliMemberDeps{Name: "cli-2", Backend: "opencode"})
+	if !strings.Contains(desc2, "cli-2") || !strings.Contains(desc2, "opencode") {
+		t.Fatalf("无版本描述应含名称与 backend: %s", desc2)
+	}
+}
+
+func TestCLIProbeVersionParse(t *testing.T) {
+	if v := cliProbeVersion(`{"type":"cli-probe","backend":"claude-code","version":"1.2.3","path":"/usr/bin/claude"}`); v != "1.2.3" {
+		t.Fatalf("cli-probe 载荷应取 version: %q", v)
+	}
+	if v := cliProbeVersion(`{"name":"外部审查员","skills":[]}`); v != "" {
+		t.Fatalf("a2a 卡片形态应返回空: %q", v)
+	}
+	if v := cliProbeVersion(""); v != "" {
+		t.Fatalf("空 card 应返回空: %q", v)
+	}
+}
+
+// ---- 装配链（REQ-426/M222）：assembleCLIMembers 直测——成功装配/二进制缺失告警跳过/
+// 未知 backend/重名 -cli 后缀/注册表未接降级 ----
+
+func newCLIFixture(t *testing.T) (*Assembler, *store.Store) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return &Assembler{Store: st, Inference: inference.NewRegistry()}, st
+}
+
+// stubClaudeBin 临时 stub claude（--version + stream-json 输出）；PATH 前插。
+func stubClaudeBin(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-stub 9.9.9'; exit 0; fi\n" +
+		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub\"}]}}'\n" +
+		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"stub 结果\"}'\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestAssembleCLIMembersEndToEnd(t *testing.T) {
+	stubClaudeBin(t)
+	asm, st := newCLIFixture(t)
+	c, err := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "cli编码者",
+		Config: map[string]any{"backend": "claude-code", "task_prefix": "只写代码"},
+		CardJSON: `{"type":"cli-probe","backend":"claude-code","version":"9.9.9","path":"/tmp/stub/claude"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &store.Agent{Name: "协调者", Connectors: []string{c.ID}}
+	src := map[string]string{}
+	tools, entries, warns := asm.assembleCLIMembers(ag, src)
+	if len(warns) != 0 {
+		t.Fatalf("成功路径不应有告警: %v", warns)
+	}
+	if len(tools) != 1 || len(entries) != 1 {
+		t.Fatalf("应装配 1 件成员工具: %d/%d", len(tools), len(entries))
+	}
+	ti, _ := tools[0].Info(context.Background())
+	if ti.Name != "cli编码者" {
+		t.Fatalf("工具名=连接器实例名: %s", ti.Name)
+	}
+	if !strings.Contains(ti.Desc, "claude-code") || !strings.Contains(ti.Desc, "9.9.9") || !strings.Contains(ti.Desc, "只写代码") {
+		t.Fatalf("描述应合成 backend/版本/前缀: %s", ti.Desc)
+	}
+	if src["cli编码者"] != "cli:"+c.ID {
+		t.Fatalf("来源标注 cli:{id}: %s", src["cli编码者"])
+	}
+	if !strings.Contains(fmt.Sprint(entries[0]), "CLI 外部智能体（claude-code）") {
+		t.Fatalf("快照条目应标注 CLI 外部智能体: %v", entries[0])
+	}
+}
+
+// failProberBackend LookPath 恒失败的外部 CLI 桩（不依赖真机安装态，测试确定性）。
+type failProberBackend struct{}
+
+func (failProberBackend) Name() string { return "fail-probe" }
+func (failProberBackend) Probe(_ context.Context) inference.ProbeResult {
+	return inference.ProbeResult{Available: false, Reason: `PATH 中未找到 "fail-probe"`}
+}
+func (failProberBackend) Capabilities() inference.Capabilities { return inference.Capabilities{Chat: true} }
+func (failProberBackend) Run(_ context.Context, _ *inference.RunRequest, _ func(inference.Event)) error {
+	return nil
+}
+func (failProberBackend) LookPath() (string, error) { return "", errors.New(`PATH 中未找到 "fail-probe"`) }
+
+func TestAssembleCLIMembersDegrades(t *testing.T) {
+	asm, st := newCLIFixture(t)
+	asm.Inference.Register(failProberBackend{}) // 覆盖为 LookPath 恒失败桩（真机可能装有同名 CLI）
+	// 二进制不可达 → 告警跳过
+	c1, _ := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "死成员", Config: map[string]any{"backend": "fail-probe"},
+	})
+	// 未知 backend → 告警跳过
+	c2, _ := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "坏配置", Config: map[string]any{"backend": "no-such"},
+	})
+	ag := &store.Agent{Name: "a", Connectors: []string{c1.ID, c2.ID}}
+	tools, _, warns := asm.assembleCLIMembers(ag, map[string]string{})
+	if len(tools) != 0 {
+		t.Fatal("两件均不应装配")
+	}
+	joined := strings.Join(warns, "\n")
+	if !strings.Contains(joined, "二进制不可达") || !strings.Contains(joined, "不是已注册外部后端") {
+		t.Fatalf("告警应如实区分两种降级: %s", joined)
+	}
+}
+
+func TestAssembleCLIMembersRenameAndNilRegistry(t *testing.T) {
+	stubClaudeBin(t)
+	asm, st := newCLIFixture(t)
+	c, _ := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "撞名成员", Config: map[string]any{"backend": "claude-code"},
+	})
+	// 重名：内部成员已占用同名工具名 → -cli 后缀 + 告警
+	src := map[string]string{"撞名成员": "agent:x"}
+	tools, _, warns := asm.assembleCLIMembers(&store.Agent{Name: "a", Connectors: []string{c.ID}}, src)
+	if len(tools) != 1 {
+		t.Fatal("重名应改名装配而非跳过")
+	}
+	ti, _ := tools[0].Info(context.Background())
+	if ti.Name != "撞名成员-cli" {
+		t.Fatalf("应加 -cli 后缀: %s", ti.Name)
+	}
+	if !strings.Contains(strings.Join(warns, "\n"), "-cli") {
+		t.Fatalf("应告警改名: %v", warns)
+	}
+	// 注册表未接（旧构造路径）→ 如实告警不炸
+	asmNil := &Assembler{Store: st}
+	tools2, _, warns2 := asmNil.assembleCLIMembers(&store.Agent{Name: "a", Connectors: []string{c.ID}}, map[string]string{})
+	if len(tools2) != 0 || !strings.Contains(strings.Join(warns2, "\n"), "未接推理后端注册表") {
+		t.Fatalf("nil 注册表应告警: %v", warns2)
+	}
+}

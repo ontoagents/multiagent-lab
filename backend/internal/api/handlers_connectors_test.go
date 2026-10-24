@@ -3,6 +3,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
@@ -380,5 +383,82 @@ func TestConnectorA2AHandshakeRegistration(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &tr)
 	if !tr.OK {
 		t.Fatalf("test 应握手成功: %s", w.Body.String())
+	}
+}
+
+// ---- REQ-426/M222：kind=cli 连接器——注册闸门（PATH 探测真握手）/校验/能力入库 ----
+
+// stubProbeBackend 探测恒可用的桩后端（注册进独立 Registry 避免真机 PATH 依赖）。
+type stubProbeBackend struct{}
+
+func (stubProbeBackend) Name() string { return "stub-cli" }
+func (stubProbeBackend) Probe(_ context.Context) inference.ProbeResult {
+	return inference.ProbeResult{Available: true, Version: "stub 1.0", Path: "/usr/bin/stub-cli"}
+}
+func (stubProbeBackend) Capabilities() inference.Capabilities { return inference.Capabilities{Chat: true} }
+func (stubProbeBackend) Run(_ context.Context, _ *inference.RunRequest, _ func(inference.Event)) error {
+	return nil
+}
+
+func newCLIConnectorAPIFixture(t *testing.T) *Server {
+	t.Helper()
+	s := newConnectorAPIFixture(t)
+	reg := inference.NewRegistry()
+	reg.Register(stubProbeBackend{})
+	s.Chat = &chat.Service{Inference: reg}
+	return s
+}
+
+func TestConnectorCLIRegistrationGate(t *testing.T) {
+	s := newCLIConnectorAPIFixture(t)
+	// 缺 backend → 400
+	w := doConnectorReq(s, "POST", "/api/connectors", map[string]any{"kind": "cli", "name": "x"})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "config.backend") {
+		t.Fatalf("缺 backend 应 400: %d %s", w.Code, w.Body.String())
+	}
+	// backend=eino-adk → 400（平台内管线不经成员通道）
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{"kind": "cli", "name": "x", "config": map[string]any{"backend": "eino-adk"}})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "外部 CLI 型") {
+		t.Fatalf("eino-adk 应拒绝: %d %s", w.Code, w.Body.String())
+	}
+	// 未知 backend → 注册失败 400（不可达注册失败如实报）
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{"kind": "cli", "name": "x", "config": map[string]any{"backend": "no-such-cli"}})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "CLI 注册失败") {
+		t.Fatalf("未知 backend 应 400: %d %s", w.Code, w.Body.String())
+	}
+	// 桩后端 → 注册成功，能力探测入库（card=cli-probe 载荷 + status ok）
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "cli", "name": "编码成员", "description": "外部 CLI 编码智能体",
+		"config": map[string]any{"backend": "stub-cli", "task_prefix": "只写代码"},
+	})
+	if w.Code != 201 {
+		t.Fatalf("cli 注册应成功: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		ID     string         `json:"id"`
+		Status string         `json:"status"`
+		Detail string         `json:"status_detail"`
+		Card   map[string]any `json:"card"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.Status != "ok" || !strings.Contains(out.Detail, "stub 1.0") {
+		t.Fatalf("探测成功应回写状态: %v %v", out.Status, out.Detail)
+	}
+	if out.Card == nil || out.Card["type"] != "cli-probe" || out.Card["backend"] != "stub-cli" || out.Card["version"] != "stub 1.0" {
+		t.Fatalf("cli-probe 载荷应透出: %v", out.Card)
+	}
+	c, _ := s.Store.GetConnector(out.ID)
+	if !strings.Contains(c.CardJSON, "cli-probe") {
+		t.Fatal("探测原文应落库")
+	}
+	// test 端点：重新探测刷新状态
+	w = doConnectorReq(s, "POST", "/api/connectors/"+out.ID+"/test", nil)
+	var tr struct {
+		OK     bool   `json:"ok"`
+		Detail string `json:"detail"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &tr)
+	if !tr.OK || !strings.Contains(tr.Detail, "PATH 探测成功") {
+		t.Fatalf("test 应探测成功: %s", w.Body.String())
 	}
 }

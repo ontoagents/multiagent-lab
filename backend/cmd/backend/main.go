@@ -48,6 +48,9 @@ func main() {
 		log.Fatalf("register builtin tools: %v", err)
 	}
 
+	// REQ-426/M222：推理后端注册表先于装配器构造——Assembler 与 chat.Service 共用同一实例
+	//（CLI 外部成员装配与外部推理执行同源，避免双注册表探测口径分叉）
+	infReg := inference.NewRegistry() // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI）
 	asm := &chat.Assembler{
 		Store:       st,
 		Box:         box,
@@ -59,6 +62,7 @@ func main() {
 		// REQ-336：智能体默认文件根（<DB 同级>/agent-files）——未设置 work_dir 的智能体文件工具
 		// 安全根与对话附加文件落位回落于此（web=仓库 data/；客户端=data.location 数据目录内）
 		AgentFilesRoot: filepath.Join(filepath.Dir(dbPath), "agent-files"),
+		Inference:      infReg, // REQ-426/M222：CLI 外部成员装配（nil=不装配兼容旧构造路径）
 	}
 	// 知识库服务（M6，§6.9）：向量后端按 KB_VECTOR_BACKEND（qdrant|sqlite），Qdrant 走 REST（QDRANT_URL）
 	kbSvc, err := kb.NewService(st, box,
@@ -109,7 +113,7 @@ func main() {
 	if err := st.EnsureAssistantTools(); err != nil {
 		log.Printf("[backend] ensure assistant tools: %v", err)
 	}
-	svc.Inference = inference.NewRegistry() // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI）
+	svc.Inference = infReg // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI；REQ-426 起与 Assembler 共用）
 	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), getenv("KNOWLEDGE_ROOT", "../platform-knowledge"))
 	// REQ-186 阶段二：平台助手 L0 只读工具面（doc_read/列表×3/查配置；写类工具不开放）
 	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge"), DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {

@@ -198,7 +198,9 @@ func parseClaudeCodeLine(line string, emit func(Event)) {
 		}
 	case "result":
 		if l.Result != "" {
-			emit(Event{Type: "message.delta", Data: map[string]any{"delta": "\n" + l.Result}})
+			// final 标记（REQ-426）：result 行为最终答案——CLI 成员委派收集据此取最终文本，
+			// 避免 assistant 中间文本与 result 重复拼接；常规 delta 消费方忽略该附加字段
+			emit(Event{Type: "message.delta", Data: map[string]any{"delta": "\n" + l.Result, "final": true}})
 		}
 	}
 }

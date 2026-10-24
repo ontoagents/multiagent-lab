@@ -67,7 +67,7 @@ export interface Agent {
 /** REQ-214/M46：外部连接器（统一 agent 连接外部能力的产品抽象；凭据服务端加密绑定，永不回传） */
 export interface Connector {
   id: string
-  kind: 'mcp' | 'kubernetes' | 'ssh' | 'a2a'
+  kind: 'mcp' | 'kubernetes' | 'ssh' | 'a2a' | 'cli'
   name: string
   description: string
   config: Record<string, unknown>
@@ -78,7 +78,7 @@ export interface Connector {
   tools: string[]
   /** REQ-214 P2：最近一次连接测试时间（状态时效性） */
   tested_at?: string
-  /** REQ-416/M212：a2a 注册握手的 agent card（只读预览） */
+  /** REQ-416/M212：a2a 注册握手的 agent card / REQ-426：cli 注册探测 cli-probe 载荷（只读预览） */
   card?: Record<string, unknown>
   is_builtin: boolean
   refs: string[]

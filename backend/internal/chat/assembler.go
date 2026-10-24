@@ -20,6 +20,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontology"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/skill"
@@ -48,6 +49,9 @@ type Assembler struct {
 	// REQ-208/M42 余项：可继续子 Agent 后台委派管理器（nil=不装配 delegate_* 工具族——
 	// 单测/旧调用路径兼容；生产装配在 main.go，运行执行器与 A2A RunFunc 同管线）。
 	Delegates *DelegateManager
+	// REQ-426/M222：推理后端注册表（nil=CLI 外部成员不装配——旧构造路径兼容；
+	// 生产装配在 main.go 与 chat.Service 共用同一 Registry 实例）。
+	Inference *inference.Registry
 }
 
 // WorkflowMeta 工作流装配元数据（REQ-205/M40：workflow_mode 兑现——节点清单与模式，
@@ -321,6 +325,13 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	entries = append(entries, a2aEntries...)
 	allWarns = append(allWarns, a2aWarns...)
 
+	// REQ-426/M222：外部 CLI 成员（协调者 kind=cli 连接器）进入协作面——复用 inference
+	// 适配器子进程与解析层执行，channel=cli 委派单，失败沿 REQ-319 语义降级回喂
+	cliTools, cliEntries, cliWarns := a.assembleCLIMembers(coord, src)
+	tools = append(tools, cliTools...)
+	entries = append(entries, cliEntries...)
+	allWarns = append(allWarns, cliWarns...)
+
 	// REQ-208/M42 余项：可继续子 Agent 工具族（后台委派/steer/collect/打断/冷恢复）——
 	// 与上方一次性同步委派并列，长任务走 delegate_background 不阻塞协调者
 	if a.Delegates != nil {
@@ -397,6 +408,67 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 		tools = append(tools, normalizeEmptyArgsTool(bt))
 		src[name] = "a2a:" + c.ID
 		entries = append(entries, agentSnapshotEntry("member", name, "A2A 外部智能体", map[string]string{name: "a2a:" + endpoint}, nil, nil, ""))
+	}
+	return tools, entries, warns
+}
+
+// assembleCLIMembers 外部 CLI 成员装配（REQ-426/M222）：协调者 kind=cli 连接器逐个转为
+// 协作面委派工具（工具名=连接器实例名，冲突加 -cli 后缀并告警）。backend 须为注册表内
+// 外部 CLI 型；装配期仅 PATH 文件级轻量探测（无 --version 子进程——注册/测试期已真握手），
+// 二进制缺失按未装配告警如实跳过；task_prefix 角色前缀与 cwd 子进程工作目录随 config；
+// 版本自注册探测 JSON（card 字段 cli-probe 载荷）读出进工具描述。
+func (a *Assembler) assembleCLIMembers(coord *store.Agent, src map[string]string) ([]einotool.BaseTool, []map[string]any, []string) {
+	var tools []einotool.BaseTool
+	var entries []map[string]any
+	var warns []string
+	if a.Store == nil {
+		return nil, nil, warns
+	}
+	for _, id := range coord.Connectors {
+		c, cerr := a.Store.GetConnector(id)
+		if cerr != nil || c == nil || c.Kind != store.ConnectorKindCLI {
+			continue
+		}
+		backend, _ := c.Config["backend"].(string)
+		if a.Inference == nil {
+			warns = append(warns, fmt.Sprintf("CLI 连接器 %s 未装配为外部成员：装配器未接推理后端注册表", c.Name))
+			continue
+		}
+		b := a.Inference.Get(backend)
+		if b == nil {
+			warns = append(warns, fmt.Sprintf("CLI 连接器 %s 的 backend %q 不是已注册外部后端，未装配为外部成员", c.Name, backend))
+			continue
+		}
+		if pp, ok := b.(inference.PathProber); ok {
+			if _, lerr := pp.LookPath(); lerr != nil {
+				warns = append(warns, fmt.Sprintf("CLI 外部成员 %s 二进制不可达（%v），未装配——请安装后重试", c.Name, lerr))
+				continue
+			}
+		}
+		name := c.Name
+		if _, dup := src[name]; dup {
+			name = name + "-cli"
+			warns = append(warns, fmt.Sprintf("CLI 外部成员与既有工具重名，工具名改为 %s", name))
+		}
+		taskPrefix, _ := c.Config["task_prefix"].(string)
+		cwd, _ := c.Config["cwd"].(string)
+		bt, terr := newCLIMemberTool(cliMemberDeps{
+			Name: name, Backend: backend, Version: cliProbeVersion(c.CardJSON), TaskPrefix: taskPrefix,
+			Run: func(ctx context.Context, task string) (string, int, error) {
+				if p := strings.TrimSpace(taskPrefix); p != "" {
+					task = p + "\n\n" + task
+				}
+				req := &inference.RunRequest{Prompt: task, Cwd: cwd}
+				return inference.CLIMemberRun(ctx, b, req)
+			},
+		})
+		if terr != nil {
+			warns = append(warns, fmt.Sprintf("CLI 外部成员 %s 工具构建失败: %v", name, terr))
+			continue
+		}
+		tools = append(tools, normalizeEmptyArgsTool(bt))
+		src[name] = "cli:" + c.ID
+		entries = append(entries, agentSnapshotEntry("member", name, "CLI 外部智能体（"+backend+"）", map[string]string{name: "cli:" + backend}, nil, nil, ""))
 	}
 	return tools, entries, warns
 }

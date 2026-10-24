@@ -93,7 +93,7 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		}
 	}
 	if !kindOK {
-		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh|a2a"}
+		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh|a2a|cli"}
 	}
 	if in.Name == "" {
 		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "name 必填（连接器实例名，装配前缀槽位）"}
@@ -106,6 +106,13 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 	case store.ConnectorKindA2A:
 		if urlOf(in.Config) == "" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "A2A 连接器须提供 config.url（外部智能体 A2A 端点，如 http://host:8080/api/a2a/agents/{id}）"}
+		}
+	case store.ConnectorKindCLI:
+		if strOf(in.Config, "backend") == "" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器须提供 config.backend（外部 CLI 后端名：claude-code/opencode/aider/deepseek-harness）"}
+		}
+		if strOf(in.Config, "backend") == "eino-adk" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器 backend 须为外部 CLI 型（eino-adk 为平台内管线，不经成员通道）"}
 		}
 	case store.ConnectorKindKubernetes:
 		if strOf(in.Config, "kubeconfig_path") == "" && credStr(in.Credentials, "kubeconfig") == "" {
@@ -179,6 +186,20 @@ func (s *Server) createConnector(w http.ResponseWriter, r *http.Request) {
 		c.Tools = skillNamesOf(card)
 		c.Status = "ok"
 		c.StatusDetail = "握手成功：" + card.Name
+	}
+	// REQ-426/M222：cli 注册闸门——注册时 PATH 探测真握手（LookPath + --version 取版本），
+	// 能力探测入库（backend/版本/路径落 card JSON 供工具描述合成与前端预览），不可达注册失败如实报
+	if in.Kind == store.ConnectorKindCLI {
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		detail, raw, ferr := s.probeCLIBackend(ctx, c)
+		if ferr != nil {
+			writeErr(w, &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 注册失败：" + ferr.Error()})
+			return
+		}
+		c.CardJSON = string(raw)
+		c.Status = "ok"
+		c.StatusDetail = "探测成功：" + detail
 	}
 	created, err := s.Store.CreateConnector(c)
 	if err != nil {
@@ -277,7 +298,8 @@ func (s *Server) deleteConnector(w http.ResponseWriter, r *http.Request) {
 
 // probeConnector 按 kind 探测连接（test 与 preview 共用）。
 // mcp = 真 MCP 握手（initialize + list_tools，取回工具名清单）；kubernetes = kubectl 集群探针；
-// ssh = 拨号 + 认证；a2a = agent card 真握手（REQ-416/M212，回读卡片与技能名清单）。
+// ssh = 拨号 + 认证；a2a = agent card 真握手（REQ-416/M212，回读卡片与技能名清单）；
+// cli = PATH 探测 + --version（REQ-426/M222，能力入库刷新 card）。
 // 探测仅验证可达性，不做重试风暴（REQ-191 口径）。
 func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok bool, detail string, tools []string, card map[string]any) {
 	switch c.Kind {
@@ -319,6 +341,14 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 			tools = connector.SSHToolNames()
 		}
 		return ok, detail, tools, nil
+	case store.ConnectorKindCLI:
+		// REQ-426/M222：cli 探测 = backend 合法性 + PATH + --version（真握手，能力入库刷新 card）
+		detail, raw, ferr := s.probeCLIBackend(ctx, c)
+		if ferr != nil {
+			return false, "不可达：" + ferr.Error(), nil, nil
+		}
+		_ = json.Unmarshal(raw, &card)
+		return true, "PATH 探测成功：" + detail, nil, card
 	default:
 		return false, "未知连接器类型 " + c.Kind, nil, nil
 	}
@@ -327,6 +357,26 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 // handshakeA2A a2a 连接器 agent card 真握手（凭据头沿 credentials.headers 先例注入）。
 func (s *Server) handshakeA2A(ctx context.Context, c *store.Connector) (*a2a.AgentCard, []byte, error) {
 	return a2a.FetchAgentCard(ctx, urlOf(c.Config), s.mcpHeaders(c), 12*time.Second)
+}
+
+// probeCLIBackend cli 连接器真握手（REQ-426/M222）：backend 须为注册表内外部 CLI 型，
+// 再走适配器 Probe（PATH 探测 + --version）。返回（可读摘要, 探测 JSON 原文, 错误）——
+// JSON 落 card 字段（cli-probe 载荷：backend/available/version/path），工具描述合成与前端预览共用。
+func (s *Server) probeCLIBackend(ctx context.Context, c *store.Connector) (string, []byte, error) {
+	backend := strOf(c.Config, "backend")
+	b := s.Chat.Inference.Get(backend)
+	if b == nil {
+		return "", nil, fmt.Errorf("backend %q 不是已注册的外部 CLI 后端（可选：claude-code/opencode/aider/deepseek-harness）", backend)
+	}
+	pr := b.Probe(ctx)
+	payload, _ := json.Marshal(map[string]any{
+		"type": "cli-probe", "backend": backend,
+		"available": pr.Available, "version": pr.Version, "path": pr.Path, "reason": pr.Reason,
+	})
+	if !pr.Available {
+		return "", payload, fmt.Errorf("%s", pr.Reason)
+	}
+	return pr.Version + "（" + pr.Path + "）", payload, nil
 }
 
 // skillNamesOf 卡片技能名清单（tools 列承载——授权前知情沿 REQ-214 P2 口径）。

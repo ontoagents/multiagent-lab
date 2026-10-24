@@ -21,12 +21,26 @@ const KIND_META: { value: Connector['kind']; label: string; color: string; desc:
   { value: 'kubernetes', label: 'Kubernetes', color: 'purple', desc: '集群连接（kubectl CLI 包装，凭据服务端绑定）' },
   { value: 'ssh', label: 'SSH', color: 'cyan', desc: '远程主机命令执行（每次调用独立连接）' },
   { value: 'a2a', label: 'A2A 智能体', color: 'geekblue', desc: '外部 A2A 智能体（agent card 握手注册；agent_as_tool 项目协作面作外部成员委派）' },
+  // REQ-426/M222：CLI 外部智能体成员（PATH 探测真握手；协作面 channel=cli 委派）
+  { value: 'cli', label: 'CLI 智能体', color: 'volcano', desc: '外部 CLI 智能体（Claude Code 等，PATH 探测真握手注册；agent_as_tool 项目协作面作外部成员委派，执行复用平台 CLI 适配器）' },
 ]
 const kindMeta = (k: string) => KIND_META.find((x) => x.value === k) ?? KIND_META[0]
+
+/** CLI 后端候选（与后端 inference 注册表 CLI 适配器矩阵一致；claude-code 首件） */
+const CLI_BACKENDS = [
+  { value: 'claude-code', label: 'Claude Code（claude -p stream-json）' },
+  { value: 'opencode', label: 'OpenCode（opencode run）' },
+  { value: 'aider', label: 'Aider（aider --message）' },
+  { value: 'deepseek-harness', label: 'DeepSeek Harness（dsh headless）' },
+]
 
 /** config 摘要（非敏感字段展示） */
 function configSummary(c: Connector): string {
   if (c.kind === 'mcp' || c.kind === 'a2a') return String(c.config?.url ?? '—')
+  if (c.kind === 'cli') {
+    const parts = [c.config?.backend, c.config?.cwd].filter(Boolean)
+    return parts.length ? parts.join(' · ') : '—'
+  }
   if (c.kind === 'kubernetes') {
     const parts = [c.config?.kubeconfig_path, c.config?.context, c.config?.namespace].filter(Boolean)
     return parts.length ? parts.join(' · ') : (c.has_credentials ? '凭据态 kubeconfig' : '—')
@@ -75,6 +89,9 @@ export function ConnectorsPane() {
       name: c.name,
       description: c.description,
       url: c.config?.url ?? '',
+      backend: c.config?.backend ?? '',
+      task_prefix: c.config?.task_prefix ?? '',
+      cwd: c.config?.cwd ?? '',
       kubeconfig_path: c.config?.kubeconfig_path ?? '',
       context: c.config?.context ?? '',
       namespace: c.config?.namespace ?? '',
@@ -100,6 +117,12 @@ export function ConnectorsPane() {
         config.url = (v.url ?? '').trim()
         const poll = Number(v.poll_interval_seconds)
         if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
+      }
+      if (kind === 'cli') {
+        // REQ-426/M222：CLI 外部智能体（注册时 PATH 探测真握手，能力入库；不可达即注册失败）
+        config.backend = (v.backend ?? '').trim()
+        if ((v.task_prefix ?? '').trim()) config.task_prefix = (v.task_prefix ?? '').trim()
+        if ((v.cwd ?? '').trim()) config.cwd = (v.cwd ?? '').trim()
       }
       if (kind === 'kubernetes') {
         if ((v.kubeconfig_path ?? '').trim()) config.kubeconfig_path = (v.kubeconfig_path ?? '').trim()
@@ -187,6 +210,12 @@ export function ConnectorsPane() {
           }
         }
       }
+      if (kind === 'cli') {
+        // REQ-426/M222：CLI 外部智能体预检（PATH 探测 + --version，不落库）
+        config.backend = (v.backend ?? '').trim()
+        if ((v.task_prefix ?? '').trim()) config.task_prefix = (v.task_prefix ?? '').trim()
+        if ((v.cwd ?? '').trim()) config.cwd = (v.cwd ?? '').trim()
+      }
       if (kind === 'kubernetes') {
         if ((v.kubeconfig_path ?? '').trim()) config.kubeconfig_path = (v.kubeconfig_path ?? '').trim()
         if ((v.context ?? '').trim()) config.context = (v.context ?? '').trim()
@@ -234,7 +263,7 @@ export function ConnectorsPane() {
       <div className="settings-head">
         <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
           连接器（REQ-214）
-          <HintIcon text="统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH / A2A 智能体）× 交付驱动（MCP 直通 / 平台托管插件服务）。凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。MCP 工具以 {连接器名}__{tool} 前缀并入白名单候选；A2A 连接器保存时握手注册（agent card），在项目 agent_as_tool 协作面成为外部成员（REQ-416）。" />
+          <HintIcon text="统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH / A2A 智能体 / CLI 智能体）× 交付驱动（MCP 直通 / 平台托管插件服务）。凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。MCP 工具以 {连接器名}__{tool} 前缀并入白名单候选；A2A 连接器保存时握手注册（agent card），CLI 连接器保存时 PATH 探测真握手（版本入库），二者在项目 agent_as_tool 协作面成为外部成员（REQ-416/426——channel=a2a/cli 区分）。" />
         </Typography.Title>
       </div>
       <Space style={{ margin: '12px 0' }}>
@@ -250,10 +279,21 @@ export function ConnectorsPane() {
         expandable={{
           // REQ-214 P2①：工具清单预览（授权前知道将得到什么工具；未测试过则不可展开）
           // REQ-416：a2a 行展开=注册握手卡片摘要（名称/描述/技能——tools 即技能名）
-          rowExpandable: (c) => (c.tools?.length ?? 0) > 0 || (c.kind === 'a2a' && !!c.card),
+          rowExpandable: (c) => (c.tools?.length ?? 0) > 0 || ((c.kind === 'a2a' || c.kind === 'cli') && !!c.card),
           expandedRowRender: (c) => (
             <div style={{ padding: '4px 0' }}>
-              {c.kind === 'a2a' && c.card ? (
+              {c.kind === 'cli' && c.card ? (
+                // REQ-426/M222：cli-probe 探测载荷预览（backend/版本/路径）
+                <>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    CLI 探测（注册握手来源 {String(c.config?.backend ?? '')}）：版本 <b>{String(c.card.version ?? '—')}</b>
+                    {c.card.path ? <>，路径 <code>{String(c.card.path)}</code></> : null}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                    授权后该智能体在项目 agent_as_tool 协作面成为外部成员：协调者委派任务经 CLI 子进程执行（模型由 CLI 自身配置决定），纯文本结果回传，失败沿 REQ-319 语义降级回喂。
+                  </Typography.Text>
+                </>
+              ) : c.kind === 'a2a' && c.card ? (
                 <>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     Agent Card（注册握手来源 {String(c.config?.url ?? '')}）：对端名 <b>{String(c.card.name ?? '—')}</b>
@@ -403,6 +443,26 @@ export function ConnectorsPane() {
                 extra={modal.editing?.has_credentials ? '已加密存储，留空保持不变' : '需鉴权的外部服务填写，如 {"Authorization": "Bearer sk-…"}（JSON 对象；加密落库，请求时注入）'}
               >
                 <Input.TextArea rows={2} placeholder='{"Authorization": "Bearer …"}' />
+              </Form.Item>
+            </>
+          )}
+
+          {kindWatched === 'cli' && (
+            <>
+              {/* REQ-426/M222：CLI 外部智能体——backend 候选沿 inference 适配器矩阵；保存时 PATH 探测真握手 */}
+              <Form.Item
+                name="backend"
+                label="CLI 后端"
+                rules={[{ required: true, message: 'CLI 后端必填' }]}
+                extra="保存时即 PATH 探测 + --version 真握手（二进制不可达注册失败）；执行复用平台 CLI 适配器子进程，模型由 CLI 自身配置决定"
+              >
+                <Select options={CLI_BACKENDS} placeholder="claude-code" />
+              </Form.Item>
+              <Form.Item name="task_prefix" label="角色约束前缀（可选）" extra="每次委派拼在任务描述前，如「只输出 diff 不改文件」——成员角色化约束">
+                <Input placeholder="只输出审查结论，不修改任何文件" />
+              </Form.Item>
+              <Form.Item name="cwd" label="子进程工作目录（可选）" extra="空 = 继承平台后端进程工作目录；填绝对路径则 CLI 在该目录内执行（编码类成员指向项目目录）">
+                <Input placeholder="/home/user/my-project" />
               </Form.Item>
             </>
           )}
