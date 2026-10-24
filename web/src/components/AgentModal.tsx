@@ -284,6 +284,7 @@ export default function AgentModal({
               <Select
                 options={[
                   { value: '', label: '关闭（直接执行）' },
+                  { value: 'danger', label: '危险工具审批（写类/出网/连接器写）' },
                   { value: 'all', label: '全部工具调用前审批' },
                 ]}
               />

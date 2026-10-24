@@ -917,6 +917,9 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
           />
         )}
       </Form>
+      <div className="member-hint" style={{ marginBottom: 8 }}>
+        成员单次被委派的执行超时（delegate_timeout_seconds）在各成员智能体「Loop」页配置（REQ-319 A2）——项目侧不重复提供，避免两处配置漂移。
+      </div>
       <Section>成员智能体</Section>
       <div className="member-block">
         <div className="member-hint">勾选参与项目的成员并指定主智能体。</div>
