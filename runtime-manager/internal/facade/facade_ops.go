@@ -57,12 +57,13 @@ func (f *Facade) addOpsTools(s *server.MCPServer) {
 
 	upsertCommon := "不存在则新增，已存在则更新（只更新传入的字段，未传字段保持原值）；保存走版本门禁与校验，失败回喂定位明细。"
 	s.AddTool(mcp.NewTool("spec_concept_upsert",
-		mcp.WithDescription("新增或更新本体中的概念（类）："+upsertCommon),
+		mcp.WithDescription("新增或更新本体中的概念（类）："+upsertCommon+"同义词入 synonyms（REQ-419：业务口语如「客户/甲方」——check_answerable 预检与查询命中面）。"),
 		oid("ontology_id", "本体仓库 id"),
 		oid("name", "概念名（唯一标识，如 计算节点）"),
 		mcp.WithString("label", mcp.Description("显示名（可选；传入即覆盖，含空串）")),
 		mcp.WithString("definition", mcp.Description("定义/描述（可选；传入即覆盖）")),
 		mcp.WithString("parents", mcp.Description("父概念名列表（可选）：JSON 数组如 [\"网络设备\"]，或顿号/逗号分隔串；传入即整体覆盖，多继承传多个")),
+		mcp.WithString("synonyms", mcp.Description("同义词列表（可选）：JSON 数组如 [\"甲方\",\"客户\"]，或顿号/逗号分隔串；传入即整体覆盖——TBox 一等公民，随 TTL 导出为 skos:altLabel 进引擎")),
 	), f.handleConceptUpsert())
 
 	s.AddTool(mcp.NewTool("spec_concept_delete",
@@ -381,6 +382,10 @@ func (f *Facade) handleConceptUpsert() server.ToolHandlerFunc {
 		}
 		label, hasLabel := argString(args, "label")
 		definition, hasDefinition := argString(args, "definition")
+		synonyms, synonymsPresent, serr := argUpsertNames(args, "synonyms")
+		if serr != nil {
+			return mcp.NewToolResultErrorf("synonyms: %v", serr), nil
+		}
 		// REQ-436②：编排下沉构建平面——透传元素级端点（语义服务端单源）
 		payload := map[string]any{"name": name}
 		if hasLabel {
@@ -391,6 +396,9 @@ func (f *Facade) handleConceptUpsert() server.ToolHandlerFunc {
 		}
 		if parentsPresent {
 			payload["parents"] = parents
+		}
+		if synonymsPresent {
+			payload["synonyms"] = synonyms // REQ-419：同义词透传
 		}
 		return f.elementsDo(ctx, http.MethodPost, oid, "concept", "", payload), nil
 	}

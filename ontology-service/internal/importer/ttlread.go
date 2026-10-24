@@ -556,6 +556,16 @@ func (p *ttlParser) skipInline() {
 	}
 }
 
+// containsStr 轻量去重判含（REQ-419 同义词捕获用）。
+func containsStr(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
 func isTTLWS(c rune) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 func punctTTL(c rune) bool { return c == '.' || c == ',' || c == ';' || c == '<' || c == '>' }
 func runeIsDigit(c rune) bool { return c >= '0' && c <= '9' }
@@ -705,6 +715,15 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		seenName[name] = true
 		nameByURI[u] = name
 		c := pkgspec.Concept{Name: name}
+		// REQ-419/M215：altLabel 捕获回写——labelOf 取首个作名/标签，其余同义值不再丢弃入余量，
+		// 收进 Synonyms（TBox 一等公民；check_answerable 预检与业务口语查询的命中面）。
+		for _, o := range objs(t, altLabelT) {
+			if o.Kind == "literal" {
+				if v := strings.TrimSpace(o.Value); v != "" && v != name && !containsStr(c.Synonyms, v) {
+					c.Synonyms = append(c.Synonyms, v)
+				}
+			}
+		}
 		if d := defOf(t); d != "" {
 			c.Definition = d
 		}

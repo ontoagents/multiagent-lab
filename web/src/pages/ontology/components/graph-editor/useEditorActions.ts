@@ -14,7 +14,7 @@ interface EditorActionsDeps {
   draft: Spec | null
   mutate: (next: Spec) => void
   showToast: (msg: string, type?: 'ok' | 'err') => void
-  addForm: ReturnType<typeof Form.useForm<{ name: string; label?: string; definition?: string; parents?: string[] }>>[0]
+  addForm: ReturnType<typeof Form.useForm<{ name: string; label?: string; definition?: string; parents?: string[]; synonyms?: string }>>[0]
   addInstForm: ReturnType<typeof Form.useForm<{ name: string; concept: string; attributes?: string }>>[0]
   connForm: ReturnType<typeof Form.useForm<{ relName: string; relLabel?: string; kind?: 'relation' | 'parent' }>>[0]
   setConnDraft: (d: ConnDraft | null) => void
@@ -68,6 +68,8 @@ export function useEditorActions({
       if (v.label?.trim()) c.label = v.label.trim()
       if (v.definition?.trim()) c.definition = v.definition.trim()
       if (v.parents?.length) c.parents = v.parents
+      const syns = (v.synonyms ?? '').split(/[、,，]/).map((x) => x.trim()).filter(Boolean)
+      if (syns.length) c.synonyms = syns // REQ-419
       mutate({ ...draft, concepts: [...draft.concepts, c] })
       setAddOpen(false)
       addForm.resetFields()

@@ -24,16 +24,20 @@ export function NodePanel({
   const [label, setLabel] = useState(concept.label ?? '')
   const [definition, setDefinition] = useState(concept.definition ?? '')
   const [parents, setParents] = useState<string[]>(concept.parents ?? [])
+  // REQ-419/M215：同义词（TBox 一等公民——业务口语命中面，逗号/顿号分隔输入）
+  const [synonyms, setSynonyms] = useState((concept.synonyms ?? []).join('、'))
   useEffect(() => {
     setLabel(concept.label ?? '')
     setDefinition(concept.definition ?? '')
     setParents(concept.parents ?? [])
+    setSynonyms((concept.synonyms ?? []).join('、'))
   }, [concept])
 
   const others = draft.concepts.filter((c) => c.name !== concept.name)
   const instCount = (draft.instances ?? []).filter((i) => i.concept === concept.name).length
   const changed =
-    label !== (concept.label ?? '') || definition !== (concept.definition ?? '') || parents.join(',') !== (concept.parents ?? []).join(',')
+    label !== (concept.label ?? '') || definition !== (concept.definition ?? '') || parents.join(',') !== (concept.parents ?? []).join(',') ||
+    synonyms !== (concept.synonyms ?? []).join('、')
 
   return (
     <div className="onto-flow-detail">
@@ -51,6 +55,7 @@ export function NodePanel({
           placeholder="父概念"
           options={others.map((c) => ({ value: c.name, label: c.label || c.name }))}
         />
+        <Input size="small" addonBefore="同义词" value={synonyms} onChange={(e) => setSynonyms(e.target.value)} placeholder="顿号/逗号分隔，如 客户、甲方（REQ-419）" />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           实例 {instCount} 个（v1 在此处只读；增删走 Spec 编辑或 CSV 灌装）
         </Typography.Text>
@@ -68,6 +73,9 @@ export function NodePanel({
               const ps = parents.filter((p) => p !== concept.name)
               if (ps.length) next.parents = ps
               else delete next.parents
+              const syns = synonyms.split(/[、,，]/).map((x) => x.trim()).filter(Boolean)
+              if (syns.length) next.synonyms = syns
+              else delete next.synonyms
               onApply({ ...draft, concepts: draft.concepts.map((c) => (c.name === concept.name ? next : c)) })
             }}
           >

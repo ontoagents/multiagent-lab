@@ -580,6 +580,8 @@ export interface SpecConcept {
   label?: string
   definition?: string
   parents?: string[]
+  /** REQ-419/M215：同义词（TBox 一等公民——SKOS altLabel 导入捕获/手动编辑；check_answerable 命中面） */
+  synonyms?: string[]
 }
 
 /** Spec 关系（有向 from → to）；evidence 证据分级（REQ-295①，declared>name>values，67 号 A2） */

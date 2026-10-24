@@ -18,6 +18,10 @@ type Concept struct {
 	Label      string   `json:"label,omitempty"`
 	Definition string   `json:"definition,omitempty"`
 	Parents    []string `json:"parents,omitempty"` // 父概念名（多继承）
+	// Synonyms 概念同义词（REQ-419/M215：TBox 一等公民——业务口语查询「客户/甲方」在 TBox 层
+	// 命中；来源=SKOS altLabel 导入捕获回写/手动编辑/spec_concept_upsert；消费=check_answerable
+	// 预检匹配〔沿 altLabel 经 TTL 导出进引擎〕）。dtype 保持轻：纯词表无元属性。
+	Synonyms []string `json:"synonyms,omitempty"`
 	// Restrictions 匿名限制公理承载（REQ-376①/M172 详设拍板子集五型）——自「丢弃入余量账本
 	// +warning」升档为建模面保留层。承载路径=人工 spec 编辑+TTL 导入导出 round-trip（Go 读入端
 	// REQ-378 对偶）；LLM 生成面不扩（SpecRulesPrompt/SchemaHint 不含 restrictions——77 号

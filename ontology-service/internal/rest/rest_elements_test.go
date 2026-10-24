@@ -121,3 +121,48 @@ func TestElementValidationRejects(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// REQ-419/M215：元素端点同义词——concept upsert 传 synonyms（JSON 数组/分隔串两形态）落 spec。
+func TestElementConceptSynonyms(t *testing.T) {
+	srv, st := newPublishTestServer(t)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/concept",
+		strings.NewReader(`{"name":"客户","synonyms":["甲方","委托方"]}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upsert 期望 200，实际 %d", resp.StatusCode)
+	}
+	raw, _, _ := st.GetArtifact("ontest", "spec_json")
+	var sp pkgspec.Spec
+	_ = json.Unmarshal([]byte(raw), &sp)
+	for _, c := range sp.Concepts {
+		if c.Name == "客户" {
+			if len(c.Synonyms) != 2 || c.Synonyms[0] != "甲方" {
+				t.Fatalf("同义词应落 spec: %+v", c)
+			}
+			return
+		}
+	}
+	t.Fatal("概念应存在")
+	// 分隔串形态更新（整体覆盖）
+	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/concept",
+		strings.NewReader(`{"name":"客户","synonyms":"甲方"}`))
+	resp2, _ := http.DefaultClient.Do(req2)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("分隔串更新期望 200，实际 %d", resp2.StatusCode)
+	}
+	resp2.Body.Close()
+	raw, _, _ = st.GetArtifact("ontest", "spec_json")
+	_ = json.Unmarshal([]byte(raw), &sp)
+	for _, c := range sp.Concepts {
+		if c.Name == "客户" {
+			if len(c.Synonyms) != 1 || c.Synonyms[0] != "甲方" {
+				t.Fatalf("整体覆盖语义不符: %+v", c)
+			}
+			return
+		}
+	}
+}

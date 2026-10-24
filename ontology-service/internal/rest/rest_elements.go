@@ -189,6 +189,10 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		if err != nil {
 			return "", err
 		}
+		synonyms, synonymsPresent, err := body.names("synonyms")
+		if err != nil {
+			return "", err
+		}
 		label, hasLabel := body.str("label")
 		definition, hasDefinition := body.str("definition")
 		var target *pkgspec.Concept
@@ -212,11 +216,14 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		if parentsPresent {
 			target.Parents = parents
 		}
+		if synonymsPresent {
+			target.Synonyms = synonyms // REQ-419：同义词（TBox 一等公民）
+		}
 		verb := "已更新"
 		if created {
 			verb = "已新增"
 		}
-		return fmt.Sprintf("概念「%s」%s（父概念 %d 个）", name, verb, len(target.Parents)), nil
+		return fmt.Sprintf("概念「%s」%s（父概念 %d 个，同义词 %d 个）", name, verb, len(target.Parents), len(target.Synonyms)), nil
 	case "relation":
 		from, hasFrom := body.str("from")
 		to, hasTo := body.str("to")

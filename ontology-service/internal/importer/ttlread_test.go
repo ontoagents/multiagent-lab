@@ -166,3 +166,40 @@ func TestTTLUnregisteredPrefixFails(t *testing.T) {
 		t.Fatalf("未声明前缀应报错: %v", err)
 	}
 }
+
+// REQ-419/M215：同义词 round-trip——spec.Synonyms 导出 skos:altLabel、读入 altLabel 捕获回写
+//（首个别名不再丢弃）；纯 altLabel 概念（无 prefLabel）名取 altLabel 首值、其余入 Synonyms。
+func TestTTLSynonymRoundTrip(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name:     "syn",
+		Concepts: []pkgspec.Concept{{Name: "客户", Synonyms: []string{"甲方", "委托方"}}},
+	}
+	ttl, _, err := TTLGoExport("o1", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ttl, `skos:altLabel "甲方"`) || !strings.Contains(ttl, `skos:altLabel "委托方"`) {
+		t.Fatalf("导出应含 skos:altLabel: %s", ttl)
+	}
+	res, err := ReadTurtleSpec(ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Spec.Concepts) != 1 {
+		t.Fatalf("概念数: %d", len(res.Spec.Concepts))
+	}
+	c := res.Spec.Concepts[0]
+	if c.Name != "客户" {
+		t.Fatalf("名不符: %+v", c)
+	}
+	if len(c.Synonyms) != 2 {
+		t.Fatalf("同义词应捕获 2 个: %+v", c.Synonyms)
+	}
+	got := map[string]bool{}
+	for _, s := range c.Synonyms {
+		got[s] = true
+	}
+	if !got["甲方"] || !got["委托方"] {
+		t.Fatalf("同义词值不符: %+v", c.Synonyms)
+	}
+}

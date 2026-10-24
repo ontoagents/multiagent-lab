@@ -31,7 +31,7 @@ func (f *Facade) handleCheckAnswerable() server.ToolHandlerFunc {
 		q := `PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class . { ?c rdfs:label ?label } UNION { ?c skos:prefLabel ?label } }`
+SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class . { ?c rdfs:label ?label } UNION { ?c skos:prefLabel ?label } UNION { ?c skos:altLabel ?label } }`
 		bindings, err := f.exec(ctx, "check_answerable", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("概念标签拉取失败: %v", err), nil

@@ -100,20 +100,46 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 	}
 	w := ttlIRIs{base: "urn:o:" + ttlSanitize(ontologyID) + ":"}
 	var esc = ttlEsc
+	// REQ-419：skos 前缀条件性——仅存在同义词时引入（TTLGoExport 与 sidecar 字节级对拍锁，
+	// 无同义词的存量 spec 输出必须零变化）
+	hasSynonyms := false
+	for _, c := range sp.Concepts {
+		if len(c.Synonyms) > 0 {
+			hasSynonyms = true
+			break
+		}
+	}
 	L := make([]string, 0, 16+len(sp.Concepts)+len(sp.Relations)+len(sp.DataProperties)+len(sp.Axioms)+len(sp.Instances))
-	L = append(L,
+	prefixes := []string{
 		fmt.Sprintf("@prefix o: <%s> .", w.base),
 		"@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .",
 		"@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
 		"@prefix owl: <http://www.w3.org/2002/07/owl#> .",
-		"@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
-		"",
-	)
+	}
+	if hasSynonyms {
+		prefixes = append(prefixes, "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .")
+	}
+	prefixes = append(prefixes, "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .", "")
+	L = append(L, prefixes...)
 	n := 0
 	for _, c := range sp.Concepts {
 		u := w.concept(c.Name)
 		line := fmt.Sprintf("<%s> rdf:type owl:Class ; rdfs:label \"%s\"", u, esc(c.Name))
 		n += 2 // 头部 = rdf:type + rdfs:label 两条
+		// REQ-419：同义词写出 skos:altLabel（round-trip 写出端——读入端 altLabel 捕获对偶；
+		// 引擎侧 check_answerable 预检查询 UNION skos:altLabel 即命中同义词）。
+		// 有同义词时补 skos:prefLabel 锚名——读入端 labelOf 优先级 prefLabel>altLabel>label，
+		// 无锚名时首个 altLabel 会被误取为名（名称漂移）。
+		if len(c.Synonyms) > 0 {
+			line += fmt.Sprintf(" ;\n    skos:prefLabel \"%s\"", esc(c.Name))
+			n++
+		}
+		for _, syn := range c.Synonyms {
+			if strings.TrimSpace(syn) != "" {
+				line += fmt.Sprintf(" ;\n    skos:altLabel \"%s\"", esc(syn))
+				n++
+			}
+		}
 		if c.Definition != "" {
 			line += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(c.Definition))
 			n++
