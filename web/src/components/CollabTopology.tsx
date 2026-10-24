@@ -21,6 +21,9 @@ type TopoNodeData = {
   inStack: boolean
   via?: string
   isPlaceholder?: boolean
+  /** REQ-416/M212：外部 A2A 成员（channel=a2a 委派聚合；endpoint 悬浮展示） */
+  external?: boolean
+  endpoint?: string
 }
 
 function TopoNode({ data }: NodeProps) {
@@ -28,6 +31,7 @@ function TopoNode({ data }: NodeProps) {
   return (
     <div
       data-testid={d.role === 'coordinator' ? 'topo-coordinator' : 'topo-member'}
+      title={d.endpoint ? `A2A 端点：${d.endpoint}` : undefined}
       style={{
         padding: '6px 12px',
         borderRadius: 10,
@@ -43,7 +47,11 @@ function TopoNode({ data }: NodeProps) {
         {d.isPlaceholder ? '未指定主智能体' : d.name}
       </div>
       <div style={{ fontSize: 10.5, color: 'var(--c-ink-3)', marginTop: 2 }}>
-        {d.role === 'coordinator' ? '协调者' : `成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}${d.via === 'transfer' ? ' · transfer' : ''}`}
+        {d.role === 'coordinator'
+          ? '协调者'
+          : d.external
+            ? `外部 A2A 成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}`
+            : `成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}${d.via === 'transfer' ? ' · transfer' : ''}`}
       </div>
       {d.inStack && (
         <div style={{ fontSize: 10, color: 'var(--c-brand, #4f7cff)', marginTop: 1 }}>● 运行中</div>
@@ -55,14 +63,23 @@ function TopoNode({ data }: NodeProps) {
 
 const nodeTypes: NodeTypes = { topo: TopoNode }
 
-type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string }
+type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string; delegates?: number; external?: boolean; endpoint?: string }
 
-/** subagent.enter/exit 事件升序聚合：每成员委派次数与在栈状态（transfer 也计入并标注） */
+/** subagent.enter/exit 事件升序聚合：每成员委派次数与在栈状态（transfer 也计入并标注）；
+ * REQ-416：subagent.delegate channel=a2a 聚合为外部成员（delegates 计数+endpoint，无 enter/exit 栈语义） */
 function aggregateSubagentEvents(events: RunEventDTO[]): Record<string, SubagentStat> {
   const stats: Record<string, SubagentStat> = {}
   for (const e of events) {
     let d: any = {}
     try { d = e.data ? JSON.parse(e.data) : {} } catch { /* 跳过坏载荷 */ }
+    if (e.type === 'subagent.delegate') {
+      if (d.channel !== 'a2a' || !d.member) continue
+      const st = (stats[String(d.member)] ??= { enters: 0, exits: 0, inStack: false })
+      st.delegates = (st.delegates ?? 0) + 1
+      st.external = true
+      if (d.endpoint) st.endpoint = String(d.endpoint)
+      continue
+    }
     const name = String(d.agent ?? '')
     if (!name) continue
     const st = (stats[name] ??= { enters: 0, exits: 0, inStack: false })
@@ -144,11 +161,34 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         markerEnd: { type: MarkerType.ArrowClosed },
       })
     })
+    // REQ-416/M212：外部 A2A 成员节点（channel=a2a 委派聚合；静态拓扑无此成员——运行回放出现）
+    const memberNames = new Set(memberIds.map((id) => agents.find((x) => x.id === id)?.name ?? id))
+    let extIdx = 0
+    for (const [name, st] of Object.entries(stats)) {
+      if (!st.external || memberNames.has(name)) continue
+      const x = 20 + (memberIds.length + extIdx) * 132
+      extIdx++
+      nodes.push({
+        id: `ext:${name}`,
+        type: 'topo',
+        position: { x, y: 128 },
+        data: { name, role: 'member', count: st.delegates ?? 0, inStack: false, external: true, endpoint: st.endpoint } as unknown as Record<string, unknown>,
+      })
+      edges.push({
+        id: `exte:${name}`,
+        source: 'coord',
+        target: `ext:${name}`,
+        label: `A2A 委派 ${st.delegates ?? 0}`,
+        style: { strokeWidth: 1.6, stroke: '#531dab' },
+        markerEnd: { type: MarkerType.ArrowClosed },
+      })
+    }
     return { nodes, edges }
   }, [project, agents, stats])
 
-  const totalCalls = Object.values(stats).reduce((s, v) => s + v.enters, 0)
+  const totalCalls = Object.values(stats).reduce((s, v) => s + v.enters + (v.delegates ?? 0), 0)
   const transferCalls = Object.values(stats).filter((v) => v.via === 'transfer').reduce((s, v) => s + v.enters, 0)
+  const a2aCalls = Object.values(stats).filter((v) => v.external).reduce((s, v) => s + (v.delegates ?? 0), 0)
 
   return (
     <div data-testid="collab-topology">
@@ -157,7 +197,7 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         <Tag style={{ margin: 0 }}>workflow: {project.workflow_mode ?? 'free'}</Tag>
         {totalCalls > 0 && (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            已选会话委派 {totalCalls} 次{transferCalls > 0 ? `（transfer ${transferCalls}）` : ''}
+            已选会话委派 {totalCalls} 次{transferCalls > 0 ? `（transfer ${transferCalls}）` : ''}{a2aCalls > 0 ? `（A2A 外部 ${a2aCalls}）` : ''}
           </Typography.Text>
         )}
       </Space>

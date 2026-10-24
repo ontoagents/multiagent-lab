@@ -12,22 +12,23 @@ import (
 	"strings"
 )
 
-// 连接器类型（阶段一 mcp；阶段二 kubernetes/ssh）。
+// 连接器类型（阶段一 mcp；阶段二 kubernetes/ssh；REQ-416 起 a2a——外部 A2A 智能体成员）。
 const (
 	ConnectorKindMCP        = "mcp"
 	ConnectorKindKubernetes = "kubernetes"
 	ConnectorKindSSH        = "ssh"
+	ConnectorKindA2A        = "a2a"
 )
 
 // ConnectorKinds 合法类型白名单。
-var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH}
+var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH, ConnectorKindA2A}
 
 func scanConnector(row interface{ Scan(...any) error }) (*Connector, error) {
 	var c Connector
 	var configJSON, toolsJSON string
 	var creds []byte
 	var isBuiltin int
-	err := row.Scan(&c.ID, &c.Kind, &c.Name, &c.Description, &configJSON, &creds, &c.Status, &c.StatusDetail, &isBuiltin, &c.CreatedAt, &c.UpdatedAt, &toolsJSON, &c.TestedAt)
+	err := row.Scan(&c.ID, &c.Kind, &c.Name, &c.Description, &configJSON, &creds, &c.Status, &c.StatusDetail, &isBuiltin, &c.CreatedAt, &c.UpdatedAt, &toolsJSON, &c.TestedAt, &c.CardJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +46,7 @@ func scanConnector(row interface{ Scan(...any) error }) (*Connector, error) {
 	return &c, nil
 }
 
-const connectorCols = `id,kind,name,description,config_json,credentials_encrypted,status,status_detail,is_builtin,created_at,updated_at,tools_json,tested_at`
+const connectorCols = `id,kind,name,description,config_json,credentials_encrypted,status,status_detail,is_builtin,created_at,updated_at,tools_json,tested_at,card_json`
 
 // ListConnectors 全量连接器（按创建时间升序）。
 func (s *Store) ListConnectors() ([]*Connector, error) {
@@ -95,8 +96,8 @@ func (s *Store) CreateConnector(c *Connector) (*Connector, error) {
 		c.Status = "unknown"
 	}
 	toolsJSON, _ := json.Marshal(c.Tools)
-	_, err := s.DB.Exec(`INSERT INTO connector (id,kind,name,description,config_json,credentials_encrypted,status,status_detail,is_builtin,tools_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Kind, c.Name, c.Description, string(configJSON), c.CredentialsEncrypted, c.Status, c.StatusDetail, boolToInt(c.IsBuiltin), string(toolsJSON), now(), now())
+	_, err := s.DB.Exec(`INSERT INTO connector (id,kind,name,description,config_json,credentials_encrypted,status,status_detail,is_builtin,tools_json,card_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Kind, c.Name, c.Description, string(configJSON), c.CredentialsEncrypted, c.Status, c.StatusDetail, boolToInt(c.IsBuiltin), string(toolsJSON), c.CardJSON, now(), now())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict
@@ -117,8 +118,8 @@ func (s *Store) UpdateConnector(c *Connector) (*Connector, error) {
 	}
 	configJSON, _ := json.Marshal(c.Config)
 	toolsJSON, _ := json.Marshal(c.Tools)
-	res, err := s.DB.Exec(`UPDATE connector SET kind=?,name=?,description=?,config_json=?,credentials_encrypted=?,status=?,status_detail=?,is_builtin=?,tools_json=?,tested_at=?,updated_at=? WHERE id=?`,
-		c.Kind, c.Name, c.Description, string(configJSON), c.CredentialsEncrypted, c.Status, c.StatusDetail, boolToInt(c.IsBuiltin), string(toolsJSON), c.TestedAt, now(), c.ID)
+	res, err := s.DB.Exec(`UPDATE connector SET kind=?,name=?,description=?,config_json=?,credentials_encrypted=?,status=?,status_detail=?,is_builtin=?,tools_json=?,tested_at=?,card_json=?,updated_at=? WHERE id=?`,
+		c.Kind, c.Name, c.Description, string(configJSON), c.CredentialsEncrypted, c.Status, c.StatusDetail, boolToInt(c.IsBuiltin), string(toolsJSON), c.TestedAt, c.CardJSON, now(), c.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict

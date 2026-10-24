@@ -411,6 +411,14 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
         const parent = agentStack[agentStack.length - 1]
         if (parent) parent.s = t
       }
+    } else if (e.type === 'subagent.delegate') {
+      // REQ-416/M212：泳道标记——A2A 外部委派（紫，附端点）/内部同步委派（青）；
+      // 后台委派 phase 事件不重复打点（子会话有自己的 run 轨迹）
+      if (d?.channel === 'a2a') {
+        marks.push({ lane: 3, at: t, color: '#531dab', tip: `A2A 外部委派 ${d?.member ?? ''} · ${String(d?.task ?? '').slice(0, 60)}${d?.endpoint ? ` · ${String(d.endpoint)}` : ''}` })
+      } else if (!d?.phase) {
+        marks.push({ lane: 3, at: t, color: '#13c2c2', tip: `委派成员 ${d?.member ?? ''} · ${String(d?.task ?? '').slice(0, 60)}` })
+      }
     } else if (['approval.granted', 'approval.denied'].includes(e.type)) {
       marks.push({ lane: 3, at: t, color: e.type === 'approval.granted' ? '#52c41a' : '#ff4d4f', tip: `${e.type === 'approval.granted' ? '批准' : '拒绝'}（${d?.decision_source ?? 'manual'}）` })
     } else if (e.type === 'run.warning') {

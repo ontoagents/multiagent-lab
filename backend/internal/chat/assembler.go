@@ -314,6 +314,13 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		src[s.Name] = fmt.Sprintf("agent:%s", s.ID) // AgentTool 的 function name = 成员名
 	}
 
+	// REQ-416/M212：外部 A2A 成员（协调者 kind=a2a 连接器）进入协作面——工具描述自注册握手
+	// 卡片合成，执行走 message/send+tasks/get 轮询，失败沿 REQ-319 语义降级回喂
+	a2aTools, a2aEntries, a2aWarns := a.assembleA2AMembers(ctx, coord, src)
+	tools = append(tools, a2aTools...)
+	entries = append(entries, a2aEntries...)
+	allWarns = append(allWarns, a2aWarns...)
+
 	// REQ-208/M42 余项：可继续子 Agent 工具族（后台委派/steer/collect/打断/冷恢复）——
 	// 与上方一次性同步委派并列，长任务走 delegate_background 不阻塞协调者
 	if a.Delegates != nil {
@@ -347,6 +354,51 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		MaxIteration: normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
 			Snapshot:     snapshotOf("agent_as_tool", entries),
 	}, nil
+}
+
+// assembleA2AMembers 外部 A2A 成员装配（REQ-416/M212）：协调者 kind=a2a 连接器逐个转为
+// 协作面委派工具（工具名=连接器实例名，冲突加 -a2a 后缀并告警；工具描述自注册握手卡片
+// 合成；凭据头沿 credentials.headers 先例；轮询间隔 config.poll_interval_seconds 缺省 2s）。
+// 装配期不拨号（注册/测试期已真握手）——卡片缺失按通用描述降级并告警。
+func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, src map[string]string) ([]einotool.BaseTool, []map[string]any, []string) {
+	var tools []einotool.BaseTool
+	var entries []map[string]any
+	var warns []string
+	if a.Store == nil {
+		return nil, nil, warns
+	}
+	for _, id := range coord.Connectors {
+		c, cerr := a.Store.GetConnector(id)
+		if cerr != nil || c == nil || c.Kind != store.ConnectorKindA2A {
+			continue
+		}
+		endpoint, _ := c.Config["url"].(string)
+		if endpoint == "" {
+			warns = append(warns, fmt.Sprintf("A2A 连接器 %s 缺 config.url，未装配为外部成员", c.Name))
+			continue
+		}
+		name := c.Name
+		if _, dup := src[name]; dup {
+			name = name + "-a2a"
+			warns = append(warns, fmt.Sprintf("A2A 外部成员与内部成员重名，工具名改为 %s", name))
+		}
+		pollSec := 2.0
+		if v, ok := c.Config["poll_interval_seconds"].(float64); ok && v > 0 {
+			pollSec = v
+		}
+		bt, terr := newA2AMemberTool(a2aMemberDeps{
+			Name: name, Endpoint: endpoint, Headers: a.mcpHeaders(c),
+			CardJSON: c.CardJSON, PollSec: pollSec,
+		})
+		if terr != nil {
+			warns = append(warns, fmt.Sprintf("A2A 外部成员 %s 工具构建失败: %v", name, terr))
+			continue
+		}
+		tools = append(tools, normalizeEmptyArgsTool(bt))
+		src[name] = "a2a:" + c.ID
+		entries = append(entries, agentSnapshotEntry("member", name, "A2A 外部智能体", map[string]string{name: "a2a:" + endpoint}, nil, nil, ""))
+	}
+	return tools, entries, warns
 }
 
 // assembleWorkflow 工作流编排兑现（REQ-205/M40，38 号 D 阶段）：workflow_mode
@@ -688,6 +740,11 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			case store.ConnectorKindMCP:
 				target, _ = c.Config["url"].(string)
 				headers = a.mcpHeaders(c) // REQ-214 P2：认证头（凭据态解密；明文仅装配栈内存）
+			case store.ConnectorKindA2A:
+				// REQ-416/M212：a2a 连接器不进 MCP 工具管线——由 agent_as_tool 协作面消费
+				//（assembleA2AMembers）；single/transfer 模式下如实告警不误报「缺连接目标」
+				tb.Warnings = append(tb.Warnings, fmt.Sprintf("A2A 连接器 %s 仅在项目 agent_as_tool 协作面生效为外部成员，当前装配形态未消费", c.Name))
+				continue
 			case store.ConnectorKindKubernetes, store.ConnectorKindSSH:
 				if pluginBase == "" {
 					tb.Warnings = append(tb.Warnings, fmt.Sprintf("连接器 %s（%s）需要插件服务但平台未启用（CONNECTOR_PLUGIN_ADDR），本次运行不加载其工具", c.Name, c.Kind))

@@ -6,12 +6,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/connector"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
@@ -29,6 +32,7 @@ type connectorOut struct {
 	StatusDetail   string         `json:"status_detail"`
 	Tools          []string       `json:"tools"`     // REQ-214 P2：工具名清单（test 落库；授权前知情）
 	TestedAt       string         `json:"tested_at"` // REQ-214 P2：最近测试时间（状态时效）
+	Card           map[string]any `json:"card,omitempty"` // REQ-416/M212：a2a 注册握手的 agent card（只读预览）
 	IsBuiltin      bool           `json:"is_builtin"`
 	Refs           []string       `json:"refs"` // 引用该连接器的 agent 名（删除保护）
 	CreatedAt      string         `json:"created_at"`
@@ -43,10 +47,15 @@ func (s *Server) connectorOut(c *store.Connector) connectorOut {
 	if refs == nil {
 		refs = []string{}
 	}
+	var card map[string]any
+	if c.CardJSON != "" {
+		_ = json.Unmarshal([]byte(c.CardJSON), &card)
+	}
 	return connectorOut{
 		ID: c.ID, Kind: c.Kind, Name: c.Name, Description: c.Description,
 		Config: c.Config, HasCredentials: c.HasCredentials,
 		Status: c.Status, StatusDetail: c.StatusDetail, Tools: c.Tools, TestedAt: c.TestedAt,
+		Card: card,
 		IsBuiltin: c.IsBuiltin,
 		Refs: refs, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
@@ -84,7 +93,7 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		}
 	}
 	if !kindOK {
-		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh"}
+		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh|a2a"}
 	}
 	if in.Name == "" {
 		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "name 必填（连接器实例名，装配前缀槽位）"}
@@ -93,6 +102,10 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 	case store.ConnectorKindMCP:
 		if urlOf(in.Config) == "" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "自定义 MCP 连接器须提供 config.url（Streamable HTTP MCP 端点）"}
+		}
+	case store.ConnectorKindA2A:
+		if urlOf(in.Config) == "" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "A2A 连接器须提供 config.url（外部智能体 A2A 端点，如 http://host:8080/api/a2a/agents/{id}）"}
 		}
 	case store.ConnectorKindKubernetes:
 		if strOf(in.Config, "kubeconfig_path") == "" && credStr(in.Credentials, "kubeconfig") == "" {
@@ -152,6 +165,20 @@ func (s *Server) createConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Credentials != nil && len(in.Credentials) > 0 {
 		c.Status = "unknown" // 新凭据未验证
+	}
+	// REQ-416/M212：a2a 注册闸门——注册时真握手拉取 agent card，卡片不可达即注册失败
+	if in.Kind == store.ConnectorKindA2A {
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		card, raw, ferr := s.handshakeA2A(ctx, c)
+		if ferr != nil {
+			writeErr(w, &store.HTTPError{Status: http.StatusBadRequest, Msg: "A2A 注册失败：" + ferr.Error()})
+			return
+		}
+		c.CardJSON = string(raw)
+		c.Tools = skillNamesOf(card)
+		c.Status = "ok"
+		c.StatusDetail = "握手成功：" + card.Name
 	}
 	created, err := s.Store.CreateConnector(c)
 	if err != nil {
@@ -250,8 +277,9 @@ func (s *Server) deleteConnector(w http.ResponseWriter, r *http.Request) {
 
 // probeConnector 按 kind 探测连接（test 与 preview 共用）。
 // mcp = 真 MCP 握手（initialize + list_tools，取回工具名清单）；kubernetes = kubectl 集群探针；
-// ssh = 拨号 + 认证。探测仅验证可达性，不做重试风暴（REQ-191 口径）。
-func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok bool, detail string, tools []string) {
+// ssh = 拨号 + 认证；a2a = agent card 真握手（REQ-416/M212，回读卡片与技能名清单）。
+// 探测仅验证可达性，不做重试风暴（REQ-191 口径）。
+func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok bool, detail string, tools []string, card map[string]any) {
 	switch c.Kind {
 	case store.ConnectorKindMCP:
 		headers := s.mcpHeaders(c)
@@ -269,23 +297,54 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 		} else {
 			detail = "不可达：" + ferr.Error()
 		}
-		return ok, detail, tools
+		return ok, detail, tools, nil
+	case store.ConnectorKindA2A:
+		hd, raw, ferr := s.handshakeA2A(ctx, c)
+		if ferr != nil {
+			return false, "不可达：" + ferr.Error(), nil, nil
+		}
+		names := skillNamesOf(hd)
+		_ = json.Unmarshal(raw, &card)
+		return true, fmt.Sprintf("握手成功：%s（%d 项技能，transport %s）", hd.Name, len(names), transportOf(hd)), names, card
 	case store.ConnectorKindKubernetes:
 		ok, detail = s.testKubernetesConnector(ctx, c)
 		if ok {
 			ro, _ := c.Config["read_only"].(bool)
 			tools = connector.KubernetesToolNames(ro)
 		}
-		return ok, detail, tools
+		return ok, detail, tools, nil
 	case store.ConnectorKindSSH:
 		ok, detail = s.testSSHConnector(ctx, c)
 		if ok {
 			tools = connector.SSHToolNames()
 		}
-		return ok, detail, tools
+		return ok, detail, tools, nil
 	default:
-		return false, "未知连接器类型 " + c.Kind, nil
+		return false, "未知连接器类型 " + c.Kind, nil, nil
 	}
+}
+
+// handshakeA2A a2a 连接器 agent card 真握手（凭据头沿 credentials.headers 先例注入）。
+func (s *Server) handshakeA2A(ctx context.Context, c *store.Connector) (*a2a.AgentCard, []byte, error) {
+	return a2a.FetchAgentCard(ctx, urlOf(c.Config), s.mcpHeaders(c), 12*time.Second)
+}
+
+// skillNamesOf 卡片技能名清单（tools 列承载——授权前知情沿 REQ-214 P2 口径）。
+func skillNamesOf(card *a2a.AgentCard) []string {
+	names := make([]string, 0, len(card.Skills))
+	for _, sk := range card.Skills {
+		if strings.TrimSpace(sk.Name) != "" {
+			names = append(names, sk.Name)
+		}
+	}
+	return names
+}
+
+func transportOf(card *a2a.AgentCard) string {
+	if card.PreferredTransport == "" {
+		return "JSONRPC"
+	}
+	return card.PreferredTransport
 }
 
 // mcpHeaders mcp 直通连接器的认证头（credentials.headers 凭据态，REQ-214 P2③；明文仅调用栈内存）。
@@ -317,12 +376,16 @@ func (s *Server) testConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	ok, detail, tools := s.probeConnector(ctx, c)
+	ok, detail, tools, card := s.probeConnector(ctx, c)
 	c.Status = map[bool]string{true: "ok", false: "error"}[ok]
 	c.StatusDetail = detail
 	c.TestedAt = nowRFC3339()
 	if tools != nil {
 		c.Tools = tools
+	}
+	if card != nil {
+		b, _ := json.Marshal(card)
+		c.CardJSON = string(b)
 	}
 	if _, err := s.Store.UpdateConnector(c); err != nil {
 		log.Printf("[connectors] test 回写状态失败: %v", err)
@@ -353,7 +416,7 @@ func (s *Server) previewConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	ok, detail, tools := s.probeConnector(ctx, c)
+	ok, detail, tools, _ := s.probeConnector(ctx, c)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": ok, "detail": detail, "tools": tools})
 }
 

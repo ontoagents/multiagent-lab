@@ -103,7 +103,7 @@ type MCPServer struct {
 // 凭据服务端绑定（CredentialsEncrypted），不进 LLM 上下文不进工具参数。
 type Connector struct {
 	ID                   string         `json:"id"`
-	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh
+	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh | a2a
 	Name                 string         `json:"name"` // 实例名（装配前缀槽位 {name}__{tool}）
 	Description          string         `json:"description"`
 	Config               map[string]any `json:"config"`          // kind 专属非敏感配置
@@ -113,6 +113,7 @@ type Connector struct {
 	StatusDetail         string         `json:"status_detail"`
 	Tools                []string       `json:"tools"`     // REQ-214 P2：工具名清单（test 成功落库——授权前知情）
 	TestedAt             string         `json:"tested_at"` // REQ-214 P2：最近一次连接测试时间（状态时效性）
+	CardJSON             string         `json:"-"`         // REQ-416/M212：a2a 注册握手 agent card 原文（出参经 connectorOut.card 解析透出）
 	IsBuiltin            bool           `json:"is_builtin"`
 	CreatedAt            string         `json:"created_at"`
 	UpdatedAt            string         `json:"updated_at"`

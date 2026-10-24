@@ -124,8 +124,14 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
           return { text: `⏸ 后台委派${who} 已停止（子会话历史完整可恢复）`, warn: true }
         case 'steered':
           return { text: `💬 后台委派${who} 插话 · ${String(d?.note ?? '').slice(0, 60)}` }
-        default:
-          return { text: `🚀 后台委派${who} · ${d?.phase ?? ''}` }
+        default: {
+          // REQ-416/M212：同步委派单按 channel 区分内部/外部 A2A（外部附端点）
+          if (d?.channel === 'a2a') {
+            const ep = d?.endpoint ? ` · ${String(d.endpoint)}` : ''
+            return { text: `🌐 委派外部成员${who}（A2A）· ${String(d?.task ?? '').slice(0, 60)}${ep}` }
+          }
+          return { text: `🚀 委派成员${who} · ${String(d?.task ?? '').slice(0, 60)}` }
+        }
       }
     }
     // REQ-205/M40：工作流节点开始/完成（进度高亮数据源）

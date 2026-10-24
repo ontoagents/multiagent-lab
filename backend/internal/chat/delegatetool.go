@@ -47,10 +47,12 @@ func (t delegateTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t delegateTool) InvokableRun(ctx context.Context, argsInJSON string, opts ...einotool.Option) (string, error) {
-	// REQ-319 A3：委派单事件（任务摘要截断 200 字，解析失败回退原文截断）
+	// REQ-319 A3：委派单事件（任务摘要截断 200 字，解析失败回退原文截断）；
+	// REQ-416 起 channel 区分内外（internal=平台内部成员，a2a=外部 A2A 成员）
 	tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
-		"member": t.member,
-		"task":   truncateRunes(delegateTaskOf(argsInJSON), 200),
+		"member":  t.member,
+		"channel": "internal",
+		"task":    truncateRunes(delegateTaskOf(argsInJSON), 200),
 	})
 
 	// REQ-319 A2：per-member 超时

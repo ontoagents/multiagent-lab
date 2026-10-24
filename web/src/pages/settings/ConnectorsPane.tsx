@@ -20,12 +20,13 @@ const KIND_META: { value: Connector['kind']; label: string; color: string; desc:
   { value: 'mcp', label: '自定义 MCP', color: 'blue', desc: '外部 MCP server Streamable HTTP 直通' },
   { value: 'kubernetes', label: 'Kubernetes', color: 'purple', desc: '集群连接（kubectl CLI 包装，凭据服务端绑定）' },
   { value: 'ssh', label: 'SSH', color: 'cyan', desc: '远程主机命令执行（每次调用独立连接）' },
+  { value: 'a2a', label: 'A2A 智能体', color: 'geekblue', desc: '外部 A2A 智能体（agent card 握手注册；agent_as_tool 项目协作面作外部成员委派）' },
 ]
 const kindMeta = (k: string) => KIND_META.find((x) => x.value === k) ?? KIND_META[0]
 
 /** config 摘要（非敏感字段展示） */
 function configSummary(c: Connector): string {
-  if (c.kind === 'mcp') return String(c.config?.url ?? '—')
+  if (c.kind === 'mcp' || c.kind === 'a2a') return String(c.config?.url ?? '—')
   if (c.kind === 'kubernetes') {
     const parts = [c.config?.kubeconfig_path, c.config?.context, c.config?.namespace].filter(Boolean)
     return parts.length ? parts.join(' · ') : (c.has_credentials ? '凭据态 kubeconfig' : '—')
@@ -94,6 +95,12 @@ export function ConnectorsPane() {
       const config: Record<string, unknown> = {}
       const credentials: Record<string, unknown> = {}
       if (kind === 'mcp') config.url = (v.url ?? '').trim()
+      if (kind === 'a2a') {
+        // REQ-416/M212：A2A 外部智能体端点（注册时后端真握手拉 agent card，不可达即注册失败）
+        config.url = (v.url ?? '').trim()
+        const poll = Number(v.poll_interval_seconds)
+        if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
+      }
       if (kind === 'kubernetes') {
         if ((v.kubeconfig_path ?? '').trim()) config.kubeconfig_path = (v.kubeconfig_path ?? '').trim()
         if ((v.context ?? '').trim()) config.context = (v.context ?? '').trim()
@@ -109,8 +116,9 @@ export function ConnectorsPane() {
         if ((v.private_key ?? '').trim()) credentials.private_key = v.private_key
         if ((v.passphrase ?? '').trim()) credentials.passphrase = v.passphrase
       }
-      if (kind === 'mcp' && (v.headers_json ?? '').trim()) {
+      if ((kind === 'mcp' || kind === 'a2a') && (v.headers_json ?? '').trim()) {
         // REQ-214 P2③：认证头（JSON 对象，加密进 credentials.headers；如 {"Authorization": "Bearer …"}）
+        // REQ-416：a2a 同款凭据头先例（需鉴权的外部 A2A 端点）
         try {
           const parsed = JSON.parse(v.headers_json)
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -163,8 +171,12 @@ export function ConnectorsPane() {
       const kind = v.kind as Connector['kind']
       const config: Record<string, unknown> = {}
       const credentials: Record<string, unknown> = {}
-      if (kind === 'mcp') {
+      if (kind === 'mcp' || kind === 'a2a') {
         config.url = (v.url ?? '').trim()
+        if (kind === 'a2a') {
+          const poll = Number(v.poll_interval_seconds)
+          if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
+        }
         if ((v.headers_json ?? '').trim()) {
           try {
             const parsed = JSON.parse(v.headers_json)
@@ -222,7 +234,7 @@ export function ConnectorsPane() {
       <div className="settings-head">
         <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
           连接器（REQ-214）
-          <HintIcon text="统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH）× 交付驱动（MCP 直通 / 平台托管插件服务）。凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。工具以 {连接器名}__{tool} 前缀并入白名单候选。" />
+          <HintIcon text="统一 agent 连接外部能力的产品抽象：连接对象（自定义 MCP / Kubernetes / SSH / A2A 智能体）× 交付驱动（MCP 直通 / 平台托管插件服务）。凭据服务端加密绑定，不进模型上下文、不进工具参数；智能体侧板勾选授权（连接白名单）。MCP 工具以 {连接器名}__{tool} 前缀并入白名单候选；A2A 连接器保存时握手注册（agent card），在项目 agent_as_tool 协作面成为外部成员（REQ-416）。" />
         </Typography.Title>
       </div>
       <Space style={{ margin: '12px 0' }}>
@@ -237,13 +249,32 @@ export function ConnectorsPane() {
         scroll={{ x: 860 }} /* REQ-237 F15：横向滚动兜底 */
         expandable={{
           // REQ-214 P2①：工具清单预览（授权前知道将得到什么工具；未测试过则不可展开）
-          rowExpandable: (c) => (c.tools?.length ?? 0) > 0,
+          // REQ-416：a2a 行展开=注册握手卡片摘要（名称/描述/技能——tools 即技能名）
+          rowExpandable: (c) => (c.tools?.length ?? 0) > 0 || (c.kind === 'a2a' && !!c.card),
           expandedRowRender: (c) => (
             <div style={{ padding: '4px 0' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>授权本连接器后，模型将获得以下工具（<code>{'{连接器名}__{工具名}'}</code> 前缀）：</Typography.Text>
-              <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {(c.tools ?? []).map((t) => <Tag key={t} style={{ margin: 0 }}><code style={{ fontSize: 11 }}>{t}</code></Tag>)}
-              </div>
+              {c.kind === 'a2a' && c.card ? (
+                <>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Agent Card（注册握手来源 {String(c.config?.url ?? '')}）：对端名 <b>{String(c.card.name ?? '—')}</b>
+                    {c.card.description ? <>——{String(c.card.description)}</> : null}
+                    ，协议 {String(c.card.preferredTransport ?? 'JSONRPC')}
+                  </Typography.Text>
+                  <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(c.tools ?? []).map((t) => <Tag key={t} color="geekblue" style={{ margin: 0 }}>技能：{t}</Tag>)}
+                  </div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                    授权后该智能体在项目 agent_as_tool 协作面成为外部成员：协调者委派任务经 message/send + tasks/get 轮询，纯文本结果回传。
+                  </Typography.Text>
+                </>
+              ) : (
+                <>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>授权本连接器后，模型将获得以下工具（<code>{'{连接器名}__{工具名}'}</code> 前缀）：</Typography.Text>
+                  <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(c.tools ?? []).map((t) => <Tag key={t} style={{ margin: 0 }}><code style={{ fontSize: 11 }}>{t}</code></Tag>)}
+                  </div>
+                </>
+              )}
             </div>
           ),
         }}
@@ -349,20 +380,27 @@ export function ConnectorsPane() {
             <Input placeholder="一句话说明（可选）" />
           </Form.Item>
 
-          {kindWatched === 'mcp' && (
+          {(kindWatched === 'mcp' || kindWatched === 'a2a') && (
             <>
               <Form.Item
                 name="url"
-                label="MCP 端点 URL"
-                rules={[{ required: true, message: 'URL 必填' }, { pattern: /^https?:\/\//, message: '须为 http(s) URL（Streamable HTTP MCP）' }]}
-                extra="如 http://127.0.0.1:8092/mcp；指向本平台 /mcp 属自引用会被装配拒绝"
+                label={kindWatched === 'a2a' ? 'A2A 智能体端点 URL' : 'MCP 端点 URL'}
+                rules={[{ required: true, message: 'URL 必填' }, { pattern: /^https?:\/\//, message: '须为 http(s) URL' }]}
+                extra={kindWatched === 'a2a'
+                  ? '如 http://127.0.0.1:8080/api/a2a/agents/{id}；保存时即握手拉取 /.well-known/agent-card.json（卡片不可达注册失败）'
+                  : '如 http://127.0.0.1:8092/mcp；指向本平台 /mcp 属自引用会被装配拒绝'}
               >
-                <Input placeholder="http://127.0.0.1:8092/mcp" />
+                <Input placeholder={kindWatched === 'a2a' ? 'http://other-host:8080/api/a2a/agents/{id}' : 'http://127.0.0.1:8092/mcp'} />
               </Form.Item>
+              {kindWatched === 'a2a' && (
+                <Form.Item name="poll_interval_seconds" label="任务轮询间隔（秒）" extra="委派后经 tasks/get 轮询至终态（无 stream 订阅，与对端 capabilities.streaming=false 对称）；缺省 2 秒">
+                  <InputNumber min={0.2} max={30} step={0.5} style={{ width: 160 }} placeholder="2" />
+                </Form.Item>
+              )}
               <Form.Item
                 name="headers_json"
                 label="认证头（凭据，可选）"
-                extra={modal.editing?.has_credentials ? '已加密存储，留空保持不变' : '需鉴权的托管 MCP 服务填写，如 {"Authorization": "Bearer sk-…"}（JSON 对象；加密落库，请求时注入）'}
+                extra={modal.editing?.has_credentials ? '已加密存储，留空保持不变' : '需鉴权的外部服务填写，如 {"Authorization": "Bearer sk-…"}（JSON 对象；加密落库，请求时注入）'}
               >
                 <Input.TextArea rows={2} placeholder='{"Authorization": "Bearer …"}' />
               </Form.Item>

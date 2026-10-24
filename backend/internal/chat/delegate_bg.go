@@ -48,12 +48,13 @@ func NewDelegateManager(st *store.Store) *DelegateManager {
 	return &DelegateManager{Store: st, live: map[string]func(){}}
 }
 
-// emitDelegateEvent 委派事件（会话级轨迹；run_id=子会话当前轮）。
+// emitDelegateEvent 委派事件（会话级轨迹；run_id=子会话当前轮；channel 缺省 internal——
+// REQ-416 起外部 A2A 成员不产 delegate 行，后台委派恒为平台内部成员）。
 func (m *DelegateManager) emitDelegateEvent(convID, runID, phase string, data map[string]any) {
 	if m.Store == nil {
 		return
 	}
-	full := map[string]any{"phase": phase}
+	full := map[string]any{"phase": phase, "channel": "internal"}
 	for k, v := range data {
 		full[k] = v
 	}

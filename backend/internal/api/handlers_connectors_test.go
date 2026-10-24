@@ -303,3 +303,82 @@ func TestConnectorAuthHeadersInjected(t *testing.T) {
 		t.Fatalf("Authorization 头未注入: %v", *auths)
 	}
 }
+
+// ---- REQ-416/M212：a2a 连接器（agent card 真握手注册）----
+
+// stubA2AAgent 最小 A2A 智能体面（card + message/send + tasks/get）。
+func stubA2AAgent(t *testing.T, fail bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail && !strings.HasSuffix(r.URL.Path, "agent-card.json") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "agent-card.json") {
+			if fail {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name": "外部编码者", "description": "远端写码", "url": "TBD",
+				"preferredTransport": "JSONRPC",
+				"skills":             []map[string]any{{"id": "s1", "name": "编码"}},
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"id":"t-1","contextId":"c-1","kind":"task","status":{"state":"completed"},"artifacts":[{"taskId":"t-1","parts":[{"kind":"text","text":"ok"}]}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// 注册闸门：卡片可达 = 201+卡片落库（tools=技能名）；不可达 = 400 注册失败。
+func TestConnectorA2AHandshakeRegistration(t *testing.T) {
+	s := newConnectorAPIFixture(t)
+	srv := stubA2AAgent(t, false)
+	w := doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "a2a", "name": "外部编码者", "config": map[string]any{"url": srv.URL},
+	})
+	if w.Code != 201 {
+		t.Fatalf("a2a 注册应成功: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		ID    string   `json:"id"`
+		Card  map[string]any `json:"card"`
+		Tools []string `json:"tools"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.Card == nil || out.Card["name"] != "外部编码者" {
+		t.Fatalf("卡片应随出参透出: %v", out.Card)
+	}
+	if len(out.Tools) != 1 || out.Tools[0] != "编码" {
+		t.Fatalf("tools 应为技能名: %v", out.Tools)
+	}
+	c, _ := s.Store.GetConnector(out.ID)
+	if !strings.Contains(c.CardJSON, "preferredTransport") {
+		t.Fatal("卡片原文应落库")
+	}
+	// 不可达 → 注册失败 400
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "a2a", "name": "死端点", "config": map[string]any{"url": stubA2AAgent(t, true).URL},
+	})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "A2A 注册失败") {
+		t.Fatalf("卡片不可达应 400: %d %s", w.Code, w.Body.String())
+	}
+	// 缺 url → 400
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{"kind": "a2a", "name": "x"})
+	if w.Code != 400 {
+		t.Fatal("缺 url 应 400")
+	}
+	// test 端点：重新握手回写
+	w = doConnectorReq(s, "POST", "/api/connectors/"+out.ID+"/test", nil)
+	var tr struct {
+		OK bool `json:"ok"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &tr)
+	if !tr.OK {
+		t.Fatalf("test 应握手成功: %s", w.Body.String())
+	}
+}
