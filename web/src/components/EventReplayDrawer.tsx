@@ -3,7 +3,7 @@ import { Alert, Button, Drawer, DrawerProps, Progress, Slider, Spin, Tag, Typogr
 import { CaretRightOutlined, PauseOutlined, StepForwardOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { RunEventDTO } from '../api/types'
-import { describeEvent, levelGated } from './ChatWindow'
+import { describeEvent, levelGated } from '../lib/eventRegistry'
 import { DRAWER_SIZES, drawerSizeProps } from '../lib/layout'
 
 /**

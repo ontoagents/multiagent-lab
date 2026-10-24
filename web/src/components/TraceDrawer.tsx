@@ -3,7 +3,7 @@ import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip,
 import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { RunEventDTO } from '../api/types'
-import { describeEvent, levelGated } from './ChatWindow'
+import { describeEvent, levelGated, TRACE_GROUPS } from '../lib/eventRegistry'
 import DelegatesPanel from './DelegatesPanel'
 import EventReplayDrawer from './EventReplayDrawer'
 import { DRAWER_SIZES, drawerSizeProps } from '../lib/layout'
@@ -22,25 +22,8 @@ import { DRAWER_SIZES, drawerSizeProps } from '../lib/layout'
  * - 「重放此运行」（②定案）：EventReplayDrawer 并入为面板内动作。
  */
 
-const TYPE_GROUPS = [
-  { value: 'tool', label: '工具调用', types: ['tool.call', 'tool.result'] },
-  { value: 'delta', label: '流式输出', types: ['reasoning.delta', 'message.delta'] },
-  { value: 'model', label: '模型步骤', types: ['model.step'] },
-  { value: 'warning', label: '警告', types: ['run.warning'] },
-  { value: 'approval', label: '审批挂起', types: ['run.interrupted'] },
-  // REQ-224/M52（51 号 W1）：harness 事件域（结构化审计）
-  { value: 'harness', label: 'Harness 审计', types: ['approval.granted', 'approval.denied', 'hook.denied', 'verify.completed', 'verify.failed', 'connector.degraded'] },
-  { value: 'subagent', label: '子智能体', types: ['subagent.enter', 'subagent.exit', 'subagent.delegate'] },
-  { value: 'workflow', label: '工作流节点', types: ['workflow.node'] }, // REQ-205/M40：节点开始/完成进度
-  { value: 'retrieval', label: '知识召回', types: ['retrieval'] },
-  // REQ-281：伴生沉淀过程事件域（抽取/候选/入图判定/拒绝镜像）
-  { value: 'companion', label: '伴生沉淀', types: ['companion.extract', 'companion.candidates', 'companion.decision', 'companion.ingest', 'companion.reject'] },
-  { value: 'ontohit', label: '本体消费', types: ['ontology.hit'] }, // REQ-224 H10：onto_* 工具命中
-  { value: 'state', label: '状态机', types: ['state.changed'] }, // REQ-224①：会话状态变更（中断挂起/放弃/恢复）
-  { value: 'artifact', label: '产物', types: ['artifact.saved'] },
-  { value: 'cli', label: 'CLI 输出', types: ['debug.cli'] },
-  { value: 'run', label: '运行始末', types: ['run.started', 'run.finished', 'run.error', 'context.stats'] },
-]
+// REQ-401：过滤组清单收敛事件注册表单源（原本地清单退役——新增事件只登记 eventRegistry）
+const TYPE_GROUPS = TRACE_GROUPS
 const typesOfGroups = (gs: string[]) => {
   const set = new Set<string>()
   for (const g of gs) for (const t of TYPE_GROUPS.find((x) => x.value === g)?.types ?? []) set.add(t)
