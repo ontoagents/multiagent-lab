@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Tag } from 'antd'
+import { Button, Tag , Input} from 'antd'
 import {
   PlusOutlined,
   EllipsisOutlined,
@@ -7,6 +7,7 @@ import {
   EditOutlined,
   DownOutlined,
   RightOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 import { Conversations } from '@ant-design/x'
 import { api } from '../api/client'
@@ -63,9 +64,13 @@ export default function Sidebar({
   const { currentConvId, setCurrentConv, bumpData, showToast } = useUI()
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [renaming, setRenaming] = useState<Conversation | null>(null)
+  // REQ-409/M205：跨会话搜索——标题子串过滤（前端内存过滤；内容级检索随 KB FTS 演进）
+  const [kw, setKw] = useState('')
+  const kwTrim = kw.trim().toLowerCase()
 
   const nodes = useMemo<TreeNode[]>(() => {
-    const byCreated = (a: Conversation, b: Conversation) => a.created_at.localeCompare(b.created_at)
+    const byCreated = (a: Conversation, b: Conversation) => b.updated_at.localeCompare(a.updated_at) // REQ-409：最近优先
+    const match = (c: Conversation) => !kwTrim || c.title.toLowerCase().includes(kwTrim)
     if (mode === 'agent') {
       // REQ-186：内置助手节点置顶（内置徽标、无配置入口）；用户智能体照常
       return agents
@@ -77,15 +82,18 @@ export default function Sidebar({
           logo: a.logo_url,
           backend: a.inference_backend,
           builtin: !!a.is_builtin,
-          convs: conversations.filter((c) => c.scope === 'agent' && c.agent_id === a.id).sort(byCreated),
+          convs: conversations.filter((c) => c.scope === 'agent' && c.agent_id === a.id && match(c)).sort(byCreated),
         }))
+        .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
     }
-    return projects.map((p) => ({
-      key: p.id,
-      name: p.name,
-      convs: conversations.filter((c) => c.scope === 'project' && c.project_id === p.id).sort(byCreated),
-    }))
-  }, [mode, agents, projects, conversations])
+    return projects
+      .map((p) => ({
+        key: p.id,
+        name: p.name,
+        convs: conversations.filter((c) => c.scope === 'project' && c.project_id === p.id && match(c)).sort(byCreated),
+      }))
+      .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
+  }, [mode, agents, projects, conversations, kwTrim])
 
   const activeId = mode === 'agent' ? activeAgentId : activeProjectId
 
@@ -161,6 +169,19 @@ export default function Sidebar({
           title={`新建${isAgent ? '智能体' : '项目'}`}
           aria-label={`新建${isAgent ? '智能体' : '项目'}`}
           onClick={isAgent ? onNewAgent : onNewProject}
+        />
+      </div>
+
+      {/* REQ-409/M205：会话搜索（标题子串过滤+节点收敛；内容级检索随 KB FTS 演进） */}
+      <div style={{ padding: '0 10px 6px' }}>
+        <Input
+          size="small"
+          allowClear
+          placeholder="搜索会话/智能体"
+          prefix={<SearchOutlined style={{ color: 'var(--c-ink-3, #9aa1bd)' }} />}
+          value={kw}
+          onChange={(e) => setKw(e.target.value)}
+          data-testid="conv-search"
         />
       </div>
 

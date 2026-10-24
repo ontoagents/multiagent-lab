@@ -1748,6 +1748,102 @@ export default function ChatWindow({
     if (isProjectScope || convAgent?.companion_ontology) startCompanionPoll(conversation.id)
   }
 
+  // REQ-409/M205：消息级操作——复制 / 重新生成（最后一条 user 消息原样重发）/ 编辑重发
+  //（沿 Q-6 不追溯语义：不删历史，自当前消息开新轮）
+  const copyMessage = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      showToast('已复制')
+    } catch {
+      showToast('复制失败（浏览器剪贴板不可用）', 'err')
+    }
+  }
+  const lastUserText = (): string | null => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.kind === 'msg' && it.role === 'user' && it.content) return it.content
+    }
+    // 回放态 items 为空时从消息历史兜底（conversation.messages 不在 props——走 listMessages）
+    return null
+  }
+  const regenerate = async () => {
+    if (running) return
+    const text = lastUserText()
+    if (!text) {
+      showToast('未找到可重新生成的提问', 'err')
+      return
+    }
+    if (cmp.on && cmp.panes.length >= 2) {
+      await sendCompare(text)
+      return
+    }
+    runKeyRef.current = `run-${Date.now()}`
+    setItems((prev) => [...prev, { kind: 'msg', role: 'user', content: text }])
+    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist))
+  }
+  const [editingMsg, setEditingMsg] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  // REQ-409/M205：消息级操作菜单挂 user 气泡（X Bubble messageRender 尾缀操作行）
+  const bubbleRoles = useMemo<BubbleListProps['role']>(() => {
+    const roles: BubbleListProps['role'] = { ...BUBBLE_ROLES }
+    roles.user = {
+      ...roles.user,
+      contentRender: (content: any) => {
+        const text = typeof content === 'string' ? content : String(content ?? '')
+        return (
+          <div data-testid="user-msg">
+            <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>
+            <Space size={4} style={{ marginTop: 4 }}>
+              <Button type="link" size="small" style={{ color: 'rgba(255,255,255,.85)', fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
+                复制
+              </Button>
+              <Button type="link" size="small" style={{ color: 'rgba(255,255,255,.85)', fontSize: 11, padding: 0 }} onClick={() => startEditMsg(text)}>
+                编辑重发
+              </Button>
+            </Space>
+          </div>
+        )
+      },
+    }
+    roles.ai = {
+      ...roles.ai,
+      contentRender: (content: any) => {
+        const text = typeof content === 'string' ? content : String(content ?? '')
+        return (
+          <div data-testid="ai-msg">
+            <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>
+            <Space size={4} style={{ marginTop: 4 }}>
+              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
+                复制
+              </Button>
+              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} disabled={running} onClick={regenerate}>
+                重新生成
+              </Button>
+            </Space>
+          </div>
+        )
+      },
+    }
+    return roles
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, running, cmp.on, cmp.panes.length])
+  const startEditMsg = (content: string) => {
+    setEditingMsg(content)
+    setEditText(content)
+  }
+  const resendEdited = async () => {
+    const text = editText.trim()
+    if (!text || running) return
+    setEditingMsg(null)
+    if (cmp.on && cmp.panes.length >= 2) {
+      await sendCompare(text)
+      return
+    }
+    runKeyRef.current = `run-${Date.now()}`
+    setItems((prev) => [...prev, { kind: 'msg', role: 'user', content: text }])
+    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist))
+  }
+
   const send = async () => {
     let text = input.trim()
     if (!text || running) return
@@ -2223,7 +2319,7 @@ export default function ChatWindow({
                 items={[{
                   key: 'h',
                   label: <Typography.Text type="secondary" style={{ fontSize: 12 }}>对比外的对话历史（{items.length} 条，收起以聚焦本轮对照）</Typography.Text>,
-                  children: <Bubble.List items={listItems} role={BUBBLE_ROLES} />,
+                  children: <Bubble.List items={listItems} role={bubbleRoles} />,
                 }]}
               />
             )}
@@ -2302,7 +2398,7 @@ export default function ChatWindow({
                   </header>
                   <div className="cmp-pane-stream">
                     {(paneItems[i] ?? []).length > 0 ? (
-                      <Bubble.List items={paneListItems(i)} role={BUBBLE_ROLES} />
+                      <Bubble.List items={paneListItems(i)} role={bubbleRoles} />
                     ) : (
                       <div className="cmp-pane-empty">独立生成 · 等待提问</div>
                     )}
@@ -2678,6 +2774,22 @@ export default function ChatWindow({
         <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
           剖面捕获：智能体/模型/知识库/方案/温度/提示词改写/技能/历史口径。应用时按「剖面 &gt; 窗格单项 &gt; 智能体 &gt; 全局」合并。
         </Typography.Text>
+      </Modal>
+
+      {/* REQ-409/M205：编辑重发 Modal（Q-6 不追溯语义——自当前消息开新轮） */}
+      <Modal
+        open={editingMsg !== null}
+        title="编辑重发"
+        okText="重发"
+        onCancel={() => setEditingMsg(null)}
+        onOk={resendEdited}
+      >
+        <Input.TextArea
+          rows={4}
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          data-testid="edit-msg-area"
+        />
       </Modal>
 
       {/* REQ-217①②/M48：调用轨迹面板（显示设置/运行治理收编；重放为面板内动作） */}
