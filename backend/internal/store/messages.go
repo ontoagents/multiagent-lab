@@ -22,6 +22,44 @@ func (s *Store) InsertMessage(m *Message) (*Message, error) {
 }
 
 // ListMessages 按时间升序返回对话全部消息（历史还原）。
+// ListMessagesPaged REQ-413/M209：长会话消息分页读取（倒数第 page 页，每页 pageSize 条——
+// 沿 ListEventsQ 分页先例；页序倒序定位=近期优先打开护栏）。page 从 1 起。
+func (s *Store) ListMessagesPaged(convID string, page, pageSize int) ([]*Message, int, error) {
+	if pageSize <= 0 || pageSize > 500 {
+		pageSize = 200
+	}
+	if page <= 0 {
+		page = 1
+	}
+	var total int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM message WHERE conversation_id=?`, convID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * pageSize
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.DB.Query(`SELECT id, conversation_id, role, content, COALESCE(meta,''), created_at FROM message
+		WHERE conversation_id=? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, convID, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []*Message{}
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Meta, &m.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, &m)
+	}
+	// 倒序取页后正序还原（对话时序）
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, total, rows.Err()
+}
+
 func (s *Store) ListMessages(convID string) ([]*Message, error) {
 	rows, err := s.DB.Query(`SELECT id,conversation_id,role,content,meta,created_at FROM message WHERE conversation_id = ? ORDER BY created_at, id`, convID)
 	if err != nil {

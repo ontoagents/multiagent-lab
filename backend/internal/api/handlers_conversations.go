@@ -120,6 +120,29 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+// listMessagesPaged GET /api/conversations/{id}/messages/paged?page=&page_size=：
+// REQ-413/M209 长会话护栏——分页读取（倒序定位正序还原；X-Total-Count 回总数供前端页脚）。
+// 不带参数（page/page_size 缺省）返回最近一页；全量语义沿 GET /messages 不动。
+func (s *Server) listMessagesPaged(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.Store.GetConversation(id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	page := atoiDefault(r.URL.Query().Get("page"), 1)
+	size := atoiDefault(r.URL.Query().Get("page_size"), 200)
+	msgs, total, err := s.Store.ListMessagesPaged(id, page, size)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if msgs == nil {
+		msgs = []*store.Message{}
+	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	writeJSON(w, http.StatusOK, msgs)
+}
+
 // conversationState GET /api/conversations/{id}/state：REQ-224① 状态机抽象读模型——
 // 状态族（interrupt_state/context_state/todo_json/schedule）收敛为单一快照+派生 phase。
 // phase 优先级=waiting_approval / waiting_human（挂起中断，最需人注意）> running >
