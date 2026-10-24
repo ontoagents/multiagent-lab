@@ -212,3 +212,48 @@ func TestAgentsExposed(t *testing.T) {
 		t.Fatalf("card_url 形态不符: %v", out.Agents[0])
 	}
 }
+
+// REQ-434/M230：成员目录互发现——AgentsExposed 扩 external_members（cli/a2a 连接器授权面）
+// 与 topology（智能体所在团队元数据）透出；凭据/配置细节不透出。
+func TestAgentsExposedMemberCatalog(t *testing.T) {
+	svc, st, _ := newA2AFixture(t)
+	co, err := st.CreateAgent(&store.Agent{Name: "协调者甲"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateConnector(&store.Connector{
+		ID: "c-cli", Kind: "cli", Name: "cli桥",
+		Status: "ok", Config: map[string]any{"backend": "claude-code"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	co.Connectors = []string{"c-cli"}
+	if _, err := st.UpdateAgent(co); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/a2a/agents", nil)
+	rec := httptest.NewRecorder()
+	svc.AgentsExposed(rec, req)
+	var out struct {
+		Count           int             `json:"count"`
+		ExternalMembers []struct {
+			AgentID   string `json:"agent_id"`
+			Kind      string `json:"kind"`
+			Backend   string `json:"backend"`
+			Connector string `json:"connector_name"`
+		} `json:"external_members"`
+		ExternalCount int            `json:"external_count"`
+		Topology      map[string]any `json:"topology"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Count < 2 {
+		t.Fatalf("智能体数: %d", out.Count)
+	}
+	if out.ExternalCount != 1 || len(out.ExternalMembers) != 1 {
+		t.Fatalf("应 1 条外部成员目录: %d/%v", out.ExternalCount, out.ExternalMembers)
+	}
+	em := out.ExternalMembers[0]
+	if em.Kind != "cli" || em.Backend != "claude-code" || em.Connector != "cli桥" {
+		t.Fatalf("目录条目不符: %+v", em)
+	}
+}

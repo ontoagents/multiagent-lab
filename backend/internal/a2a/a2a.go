@@ -332,6 +332,8 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 // AgentsExposed 平台级发现面（非 A2A 规范件）：可被委派的智能体清单+各自卡片地址。
+// REQ-434/M230：扩成员目录透出——外部成员（kind=cli/a2a 连接器授权面）与协作拓扑元数据
+// 一并透出（外部智能体反向发现平台资产；与 ANS 类通用 registry 区隔=仅平台自身端点增强）。
 func (s *Service) AgentsExposed(w http.ResponseWriter, _ *http.Request) {
 	agents, err := s.Store.ListAgents()
 	if err != nil {
@@ -339,14 +341,70 @@ func (s *Service) AgentsExposed(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	out := make([]map[string]any, 0, len(agents))
+	externalMembers := make([]map[string]any, 0)
+	topology := map[string]any{}
 	for _, a := range agents {
 		out = append(out, map[string]any{
 			"id": a.ID, "name": a.Name, "is_builtin": a.IsBuiltin,
 			"card_url": fmt.Sprintf("%s/api/a2a/agents/%s/.well-known/agent-card.json", s.BaseURL, a.ID),
 			"endpoint": fmt.Sprintf("%s/api/a2a/agents/%s", s.BaseURL, a.ID),
 		})
+		// REQ-434：成员目录——外部成员（连接器授权）随智能体透出（kind/名称/端点元数据；
+		// 凭据/配置细节不透出——只读目录形态）
+		for _, cid := range a.Connectors {
+			c, cerr := s.Store.GetConnector(cid)
+			if cerr != nil || c == nil {
+				continue
+			}
+			if c.Kind != "cli" && c.Kind != "a2a" {
+				continue
+			}
+			entry := map[string]any{
+				"agent_id": a.ID, "agent_name": a.Name,
+				"connector_id": c.ID, "connector_name": c.Name,
+				"kind": c.Kind, "status": c.Status,
+			}
+			if c.Kind == "a2a" {
+				if u, ok := c.Config["url"].(string); ok {
+					entry["endpoint"] = u
+				}
+			} else {
+				if b, ok := c.Config["backend"].(string); ok {
+					entry["backend"] = b
+				}
+			}
+			externalMembers = append(externalMembers, entry)
+		}
+		// REQ-434：协作拓扑元数据（协调者+成员清单——反向发现「该智能体在哪个团队」）
+		projects, perr := s.Store.ListProjects()
+		if perr == nil {
+			topoList := make([]map[string]any, 0)
+			for _, pr := range projects {
+				members, merr := s.Store.ListProjectAgents(pr.ID)
+				if merr != nil {
+					continue
+				}
+				for _, pm := range members {
+					if pm.AgentID == a.ID {
+						entry := map[string]any{"project_id": pr.ID, "project_name": pr.Name, "role": pm.Role}
+						topoList = append(topoList, entry)
+						break
+					}
+				}
+			}
+			if len(topoList) > 0 {
+				topology[a.ID] = topoList
+			}
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": out, "count": len(out), "protocol": "A2A v1.0（JSON-RPC 子集，REQ-369）"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"agents": out, "count": len(out),
+		"protocol": "A2A v1.0（JSON-RPC 子集，REQ-369）",
+		// REQ-434/M230：成员目录与拓扑透出（只读；凭据/配置细节不透出）
+		"external_members": externalMembers,
+		"external_count":   len(externalMembers),
+		"topology":         topology,
+	})
 }
 
 // HandleCard GET /api/a2a/agents/{id}/.well-known/agent-card.json。
