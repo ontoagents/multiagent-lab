@@ -54,7 +54,7 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
         ))}
       </div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 12, marginBottom: 0 }}>
-        <BookOutlined /> 提示：路径间可随时经顶部切换器跳转；进行中的草稿（AI 草案/导入报告/对话会话）在各自页面内暂存。
+        <BookOutlined /> 提示：路径间可随时经顶部切换器跳转；进行中的草稿（AI 草案/导入报告）已本地持久化（REQ-402），切路径/刷新不丢；对话会话服务端持久化。
       </Typography.Paragraph>
     </div>
   )

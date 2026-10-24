@@ -7,6 +7,7 @@ import type { OntoBuildSelectableKB, OntoBuildResult, ValidationError } from '..
 import { useUI } from '../../store/ui'
 import { ERR_COLUMNS } from './shared'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
+import { loadDraft, saveDraft, clearDraft } from '../../lib/draftStore'
 
 // ---------------------------------------------------------------------------
 // 由知识库构建本体——独立流程页（O13，D-O14/REQ-108，04 §3.7）：
@@ -53,7 +54,12 @@ function KbBuildFlow() {
   const [cqText, setCqText] = useState('')
 
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<OntoBuildResult | null>(null)
+  const [result, setResultState] = useState<OntoBuildResult | null>(() => loadDraft<OntoBuildResult>('kb-flow-result')) // REQ-402：草稿持久化
+  const setResult = (v: OntoBuildResult | null) => {
+    setResultState(v)
+    if (v === null) clearDraft('kb-flow-result')
+    else saveDraft('kb-flow-result', v)
+  }
   const [specText, setSpecText] = useState('')
   const [ontoName, setOntoName] = useState('')
   const [saving, setSaving] = useState(false)

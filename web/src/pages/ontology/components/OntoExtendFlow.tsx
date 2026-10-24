@@ -4,6 +4,7 @@ import { CheckCircleOutlined, CloseCircleOutlined, LeftOutlined, RightOutlined }
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
+import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
 
 // ---------------------------------------------------------------------------
 // M-O14 P2②（REQ-171 P2/26 号方案 §9）+ REQ-343/OE-2 双模式演化动线：
@@ -82,9 +83,19 @@ export default function OntoExtendFlow() {
   const [ragBusy, setRagBusy] = useState(false)
   const [ragProgress, setRagProgress] = useState('')
   const [ragErr, setRagErr] = useState<string | null>(null)
-  const [ragData, setRagData] = useState<RagJobData | null>(null)
+  const [ragData, setRagDataState] = useState<RagJobData | null>(() => loadDraft<RagJobData>('extend-rag-data')) // REQ-402：草稿持久化
+  const setRagData = (v: RagJobData | null) => {
+    setRagDataState(v)
+    if (v === null) clearDraft('extend-rag-data')
+    else saveDraft('extend-rag-data', v)
+  }
 
-  const [preview, setPreview] = useState<MergePreviewData | null>(null)
+  const [preview, setPreviewState] = useState<MergePreviewData | null>(() => loadDraft<MergePreviewData>('extend-preview'))
+  const setPreview = (v: MergePreviewData | null) => {
+    setPreviewState(v)
+    if (v === null) clearDraft('extend-preview')
+    else saveDraft('extend-preview', v)
+  }
   const previewBaseVersionRef = useRef<number>(0) // REQ-293②：预览时点版本（apply 回传防陈旧）
   const [previewLoading, setPreviewLoading] = useState(false)
   const [applyErr, setApplyErr] = useState<string | null>(null)

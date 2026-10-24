@@ -16,6 +16,7 @@ import { ERR_COLUMNS } from '../shared'
 import SpecGraph from '../components/SpecGraph'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
+import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
 
 // ---------------------------------------------------------------------------
 // REQ-337/M137：自定义构建独立页（自 BuildPage 迁出）——S1~S4 每步独立子页：
@@ -165,7 +166,12 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   const [importMode, setImportMode] = useState<'file' | 'paste'>('file')
   const [pasteFilename, setPasteFilename] = useState('')
   const [pasteContent, setPasteContent] = useState('')
-  const [report, setReport] = useState<ImportReport | null>(null)
+  const [report, setReportState] = useState<ImportReport | null>(() => loadDraft<ImportReport>('custom-import-report'))
+  const setReport = (v: ImportReport | null) => {
+    setReportState(v)
+    if (v === null) clearDraft('custom-import-report')
+    else saveDraft('custom-import-report', v)
+  }
   const [importBusy, setImportBusy] = useState(false)
 
   const [aiDesc, setAiDesc] = useState('')
@@ -173,7 +179,12 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   const [aiCq, setAiCq] = useState('')
   const [aiBusy, setAiBusy] = useState(false)
   const [aiProgress, setAiProgress] = useState<string>('') // REQ-295③：服务端实测轮次进度（永不虚构百分比）
-  const [aiResult, setAiResult] = useState<AiDraftResult | null>(null)
+  const [aiResult, setAiResultState] = useState<AiDraftResult | null>(() => loadDraft<AiDraftResult>('custom-ai-draft')) // REQ-402：草稿持久化
+  const setAiResult = (v: AiDraftResult | null) => {
+    setAiResultState(v)
+    if (v === null) clearDraft('custom-ai-draft')
+    else saveDraft('custom-ai-draft', v)
+  }
   const [aiName, setAiName] = useState('')
   // REQ-306 A1/M110：AI 创建澄清轮——生成前 LLM 缺口清单+逐轮补充（可随时「直接生成」跳过）
   const [clarifyReply, setClarifyReply] = useState<string | null>(null)
