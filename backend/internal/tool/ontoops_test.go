@@ -29,8 +29,8 @@ func TestIsOntoOperationTool(t *testing.T) {
 			}
 		})
 	}
-	if len(OntoOperationTools) != 13 {
-		t.Fatalf("扩展工具清单应 13 件（T2×9+T3×2+T5×2），实际 %d", len(OntoOperationTools))
+	if len(OntoOperationTools) != 25 {
+		t.Fatalf("扩展工具清单应 25 件（REQ-366 13+REQ-435 运行面 12），实际 %d", len(OntoOperationTools))
 	}
 }
 

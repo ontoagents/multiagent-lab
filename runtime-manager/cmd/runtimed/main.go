@@ -75,6 +75,7 @@ func main() {
 	}
 	mg.RegisterEngine("fuseki", fuseki.New(fusekiBin, fusekiJava, dataDir, logDir))
 	fc := facade.New(st, mg.ProcEndpoint)
+	fc.Manager = mg // REQ-435/M231：运行面工具组（方案管理/引擎运维/观测）生命周期入口
 	if env("TRACE_SPARQL", "on") == "off" { // 翻译透视开关（REQ-94，默认开）
 		fc.TraceSparql = false
 	}

@@ -18,6 +18,7 @@ import (
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
 	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
+	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/manager"
 	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
 )
 
@@ -25,6 +26,9 @@ type Facade struct {
 	Store    *store.Store
 	Endpoint func(profileID string) (string, error) // Manager.ProcEndpoint
 	HTTP     *http.Client
+	// Manager REQ-435/M231：运行面生命周期与引擎运维（nil=运行面 12 件工具不注册——构造兼容；
+	// 生产装配在 runtimed main 与 rest.Server 共用同一实例）。
+	Manager *manager.Manager
 	// TraceSparql 翻译透视开关（REQ-94，§4.8.2）：开启时把工具翻译出的 SPARQL
 	// 与执行耗时/结果数落 trace_log，供前端“翻译透视”视图学习用。
 	TraceSparql bool
@@ -132,6 +136,8 @@ func (f *Facade) addTools(s *server.MCPServer) {
 	// REQ-366/M164：T2/T3/T5 十三件扩展工具（spec CRUD/校验/CQ 基准）——无条件注册，
 	// MCP 标准面对外全量可枚举；内部智能体启用门控在平台 backend 装配层（agent.onto_ops）。
 	f.addOpsTools(s)
+	// REQ-435/M231：运行面三组 12 件（Manager 未接=不注册）
+	f.addRuntimeTools(s)
 }
 
 // ---- SPARQL 执行与 URI 约定 ----
