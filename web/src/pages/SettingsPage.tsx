@@ -340,12 +340,17 @@ export default function SettingsPage() {
                 </Typography.Title>
               </div>
               <Space direction="vertical" size={8}>
-                <Button
-                  data-testid="export-diagnostics"
-                  onClick={() => window.open('/api/diagnostics/export', '_blank')}
-                >
-                  导出诊断包（JSON）
-                </Button>
+                <Space size={8} wrap>
+                  <Button
+                    data-testid="export-diagnostics"
+                    onClick={() => window.open('/api/diagnostics/export', '_blank')}
+                  >
+                    导出诊断包（JSON）
+                  </Button>
+                  <Button data-testid="export-backup" onClick={() => window.open('/api/backup/export', '_blank')}>
+                    一键备份（zip：三库快照+伴生图+智能体文件）
+                  </Button>
+                </Space>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   升级指南见平台知识「部署与运行」（16 号）：桌面覆盖升级 / 引擎容器重建（REQ-236）/ 迁移自动跑（REQ-391 schema_migrations）。
                 </Typography.Text>
