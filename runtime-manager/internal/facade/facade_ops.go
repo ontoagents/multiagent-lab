@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -193,35 +194,40 @@ func (f *Facade) fetchSpecAndVersion(ctx context.Context, oid string) (*pkgspec.
 	return sp, detail.Version, nil
 }
 
-// putSpec 带 If-Match 提交 spec（REQ-293② 版本门禁）：200 回新版本号；400 校验未过/
-// 409 版本冲突如实回喂（明细逐条、不静默重试——冲突须由模型/用户决定重读再改）。
-func (f *Facade) putSpec(ctx context.Context, oid string, sp *pkgspec.Spec, baseVersion int) (int, *mcp.CallToolResult) {
-	bts, err := json.Marshal(sp)
-	if err != nil {
-		return 0, mcp.NewToolResultErrorf("SPEC_MARSHAL_FAILED: %v", err)
+// elementsDo REQ-436/M232②：元素级操作透传——编排（GET spec→改→PUT If-Match+校验）已下沉
+// 构建平面一等 REST（/api/ontologies/{id}/elements/{kind}[/name]，persistSpec 单源），本面只保留
+// AX 适配（错误文案映射/包络透传）。200 包络直通；400 校验未过/409 版本冲突如实回喂（文案与
+// 原客户端编排一致，工具输出零变化）。
+func (f *Facade) elementsDo(ctx context.Context, method, oid, kind, name string, payload any) *mcp.CallToolResult {
+	path := "/api/ontologies/" + url.PathEscape(oid) + "/elements/" + kind
+	if name != "" {
+		path += "/" + url.PathEscape(name)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, buildAPIBase()+"/api/ontologies/"+url.PathEscape(oid)+"/spec", bytes.NewReader(bts))
-	if err != nil {
-		return 0, mcp.NewToolResultErrorf("SPEC_PUT_FAILED: %v", err)
+	var body io.Reader
+	if payload != nil {
+		bts, err := json.Marshal(payload)
+		if err != nil {
+			return mcp.NewToolResultErrorf("ELEMENT_MARSHAL_FAILED: %v", err)
+		}
+		body = bytes.NewReader(bts)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("If-Match", fmt.Sprintf("v%d", baseVersion))
+	req, err := http.NewRequestWithContext(ctx, method, buildAPIBase()+path, body)
+	if err != nil {
+		return mcp.NewToolResultErrorf("ELEMENT_CALL_FAILED: %v", err)
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
-		return 0, mcp.NewToolResultErrorf("SPEC_PUT_FAILED: 构建平面不可达（%s）: %v", buildAPIBase(), err)
+		return mcp.NewToolResultErrorf("ELEMENT_CALL_FAILED: 构建平面不可达（%s）: %v", buildAPIBase(), err)
 	}
 	defer resp.Body.Close()
 	buf := new(bytes.Buffer)
 	_, _ = buf.ReadFrom(resp.Body)
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var out struct {
-			Version int `json:"version"`
-		}
-		if err := json.Unmarshal(buf.Bytes(), &out); err != nil || out.Version <= 0 {
-			return 0, mcp.NewToolResultErrorf("SPEC_PUT_FAILED: 保存成功但版本号解析失败（%s）——重新 spec_get 确认当前版本", strings.TrimSpace(buf.String()))
-		}
-		return out.Version, nil
+		return jsonResult(json.RawMessage(buf.Bytes()))
 	case http.StatusBadRequest:
 		var e struct {
 			Error   string                    `json:"error"`
@@ -236,38 +242,17 @@ func (f *Facade) putSpec(ctx context.Context, oid string, sp *pkgspec.Spec, base
 		if len(e.Details) == 0 {
 			b.WriteString("\n（无结构化明细——按 error 文案排查）")
 		}
-		return 0, mcp.NewToolResultErrorf("%s", b.String())
+		return mcp.NewToolResultErrorf("%s", b.String())
 	case http.StatusConflict:
 		var e struct {
 			Error          string `json:"error"`
 			CurrentVersion int    `json:"current_version"`
 		}
 		_ = json.Unmarshal(buf.Bytes(), &e)
-		return 0, mcp.NewToolResultErrorf("SPEC_VERSION_CONFLICT（版本冲突，未保存）: %s——重新发起本操作即可基于最新版本 v%d 重读再改", e.Error, e.CurrentVersion)
+		return mcp.NewToolResultErrorf("SPEC_VERSION_CONFLICT（版本冲突，未保存）: %s——重新发起本操作即可基于最新版本 v%d 重读再改", e.Error, e.CurrentVersion)
 	default:
-		return 0, mcp.NewToolResultErrorf("SPEC_PUT_FAILED: 构建平面返回 %d（%s）", resp.StatusCode, strings.TrimSpace(buf.String()))
+		return mcp.NewToolResultErrorf("ELEMENT_CALL_FAILED: 构建平面返回 %d（%s）", resp.StatusCode, strings.TrimSpace(buf.String()))
 	}
-}
-
-// specMutate T2 共用核：取最新 spec+版本 → apply 原位修改 → If-Match 提交 → 结果回喂。
-// apply 返回人话操作摘要（回喂 detail 用）；元素不存在返回错误。
-func (f *Facade) specMutate(ctx context.Context, oid, operation string, apply func(sp *pkgspec.Spec) (string, error)) *mcp.CallToolResult {
-	sp, version, errRes := f.fetchSpecAndVersion(ctx, oid)
-	if errRes != nil {
-		return errRes
-	}
-	detail, aerr := apply(sp)
-	if aerr != nil {
-		return mcp.NewToolResultErrorf("%s: %v", operation, aerr)
-	}
-	newVersion, putRes := f.putSpec(ctx, oid, sp, version)
-	if putRes != nil {
-		return putRes
-	}
-	return jsonResult(map[string]any{
-		"operation": operation, "ontology_id": oid, "saved": true,
-		"base_version": version, "version": newVersion, "detail": detail,
-	})
 }
 
 // ---- 可选参量解析（缺席=保持原值；显式传入含空串=覆盖） ----
@@ -396,34 +381,18 @@ func (f *Facade) handleConceptUpsert() server.ToolHandlerFunc {
 		}
 		label, hasLabel := argString(args, "label")
 		definition, hasDefinition := argString(args, "definition")
-		res := f.specMutate(ctx, oid, "concept_upsert", func(sp *pkgspec.Spec) (string, error) {
-			var target *pkgspec.Concept
-			for i := range sp.Concepts {
-				if sp.Concepts[i].Name == name {
-					target = &sp.Concepts[i]
-					break
-				}
-			}
-			created := target == nil
-			if created {
-				sp.Concepts = append(sp.Concepts, pkgspec.Concept{Name: name})
-				target = &sp.Concepts[len(sp.Concepts)-1]
-			}
-			if hasLabel {
-				target.Label = label
-			}
-			if hasDefinition {
-				target.Definition = definition
-			}
-			if parentsPresent {
-				target.Parents = parents
-			}
-			if created {
-				return fmt.Sprintf("概念「%s」已新增（父概念 %d 个）", name, len(target.Parents)), nil
-			}
-			return fmt.Sprintf("概念「%s」已更新（父概念 %d 个）", name, len(target.Parents)), nil
-		})
-		return res, nil
+		// REQ-436②：编排下沉构建平面——透传元素级端点（语义服务端单源）
+		payload := map[string]any{"name": name}
+		if hasLabel {
+			payload["label"] = label
+		}
+		if hasDefinition {
+			payload["definition"] = definition
+		}
+		if parentsPresent {
+			payload["parents"] = parents
+		}
+		return f.elementsDo(ctx, http.MethodPost, oid, "concept", "", payload), nil
 	}
 }
 
@@ -435,21 +404,7 @@ func (f *Facade) handleConceptDelete() server.ToolHandlerFunc {
 		if oid == "" || name == "" {
 			return mcp.NewToolResultErrorf("ontology_id 与 name 必填"), nil
 		}
-		res := f.specMutate(ctx, oid, "concept_delete", func(sp *pkgspec.Spec) (string, error) {
-			idx := -1
-			for i := range sp.Concepts {
-				if sp.Concepts[i].Name == name {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				return "", fmt.Errorf("概念「%s」不存在", name)
-			}
-			sp.Concepts = append(sp.Concepts[:idx], sp.Concepts[idx+1:]...)
-			return fmt.Sprintf("概念「%s」已删除（若被引用，校验会拒绝并给出悬空定位）", name), nil
-		})
-		return res, nil
+		return f.elementsDo(ctx, http.MethodDelete, oid, "concept", name, nil), nil
 	}
 }
 
@@ -469,45 +424,24 @@ func (f *Facade) handleRelationUpsert() server.ToolHandlerFunc {
 		if hasEvidence && evidence != "" && !pkgspec.ValidEvidence(evidence) {
 			return mcp.NewToolResultErrorf("evidence 仅支持 declared | name | values（或留空=未标注）"), nil
 		}
-		res := f.specMutate(ctx, oid, "relation_upsert", func(sp *pkgspec.Spec) (string, error) {
-			var target *pkgspec.Relation
-			for i := range sp.Relations {
-				if sp.Relations[i].Name == name {
-					target = &sp.Relations[i]
-					break
-				}
-			}
-			created := target == nil
-			if created {
-				if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
-					return "", fmt.Errorf("新增关系须提供 from/to（定义域/值域概念名）")
-				}
-				sp.Relations = append(sp.Relations, pkgspec.Relation{Name: name, From: from, To: to})
-				target = &sp.Relations[len(sp.Relations)-1]
-			} else {
-				if hasFrom {
-					target.From = from
-				}
-				if hasTo {
-					target.To = to
-				}
-			}
-			if hasLabel {
-				target.Label = label
-			}
-			if hasDefinition {
-				target.Definition = definition
-			}
-			if hasEvidence {
-				target.Evidence = evidence
-			}
-			verb := "已更新"
-			if created {
-				verb = "已新增"
-			}
-			return fmt.Sprintf("关系「%s」%s（%s → %s）", name, verb, target.From, target.To), nil
-		})
-		return res, nil
+		// REQ-436②：编排下沉构建平面——透传元素级端点（presence 语义随载荷原样）
+		payload := map[string]any{"name": name}
+		if hasFrom {
+			payload["from"] = from
+		}
+		if hasTo {
+			payload["to"] = to
+		}
+		if hasLabel {
+			payload["label"] = label
+		}
+		if hasDefinition {
+			payload["definition"] = definition
+		}
+		if hasEvidence {
+			payload["evidence"] = evidence
+		}
+		return f.elementsDo(ctx, http.MethodPost, oid, "relation", "", payload), nil
 	}
 }
 
@@ -519,21 +453,7 @@ func (f *Facade) handleRelationDelete() server.ToolHandlerFunc {
 		if oid == "" || name == "" {
 			return mcp.NewToolResultErrorf("ontology_id 与 name 必填"), nil
 		}
-		res := f.specMutate(ctx, oid, "relation_delete", func(sp *pkgspec.Spec) (string, error) {
-			idx := -1
-			for i := range sp.Relations {
-				if sp.Relations[i].Name == name {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				return "", fmt.Errorf("关系「%s」不存在", name)
-			}
-			sp.Relations = append(sp.Relations[:idx], sp.Relations[idx+1:]...)
-			return fmt.Sprintf("关系「%s」已删除", name), nil
-		})
-		return res, nil
+		return f.elementsDo(ctx, http.MethodDelete, oid, "relation", name, nil), nil
 	}
 }
 
@@ -549,42 +469,21 @@ func (f *Facade) handleAttributeUpsert() server.ToolHandlerFunc {
 		drange, hasRange := argString(args, "range")
 		label, hasLabel := argString(args, "label")
 		definition, hasDefinition := argString(args, "definition")
-		res := f.specMutate(ctx, oid, "attribute_upsert", func(sp *pkgspec.Spec) (string, error) {
-			var target *pkgspec.DataProperty
-			for i := range sp.DataProperties {
-				if sp.DataProperties[i].Name == name {
-					target = &sp.DataProperties[i]
-					break
-				}
-			}
-			created := target == nil
-			if created {
-				sp.DataProperties = append(sp.DataProperties, pkgspec.DataProperty{Name: name})
-				target = &sp.DataProperties[len(sp.DataProperties)-1]
-			}
-			if hasDomain {
-				target.Domain = domain
-			}
-			if hasRange {
-				target.Range = drange
-			}
-			if hasLabel {
-				target.Label = label
-			}
-			if hasDefinition {
-				target.Definition = definition
-			}
-			verb := "已更新"
-			if created {
-				verb = "已新增"
-			}
-			dom := target.Domain
-			if dom == "" {
-				dom = "（不限定义域）"
-			}
-			return fmt.Sprintf("数据属性「%s」%s（定义域 %s，类型 %s）", name, verb, dom, target.Range), nil
-		})
-		return res, nil
+		// REQ-436②：编排下沉构建平面——透传元素级端点
+		payload := map[string]any{"name": name}
+		if hasDomain {
+			payload["domain"] = domain
+		}
+		if hasRange {
+			payload["range"] = drange
+		}
+		if hasLabel {
+			payload["label"] = label
+		}
+		if hasDefinition {
+			payload["definition"] = definition
+		}
+		return f.elementsDo(ctx, http.MethodPost, oid, "attribute", "", payload), nil
 	}
 }
 
@@ -596,21 +495,7 @@ func (f *Facade) handleAttributeDelete() server.ToolHandlerFunc {
 		if oid == "" || name == "" {
 			return mcp.NewToolResultErrorf("ontology_id 与 name 必填"), nil
 		}
-		res := f.specMutate(ctx, oid, "attribute_delete", func(sp *pkgspec.Spec) (string, error) {
-			idx := -1
-			for i := range sp.DataProperties {
-				if sp.DataProperties[i].Name == name {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				return "", fmt.Errorf("数据属性「%s」不存在", name)
-			}
-			sp.DataProperties = append(sp.DataProperties[:idx], sp.DataProperties[idx+1:]...)
-			return fmt.Sprintf("数据属性「%s」已删除（实例侧同名属性值不动）", name), nil
-		})
-		return res, nil
+		return f.elementsDo(ctx, http.MethodDelete, oid, "attribute", name, nil), nil
 	}
 }
 
@@ -645,38 +530,18 @@ func (f *Facade) handleInstanceUpsert() server.ToolHandlerFunc {
 				}
 			}
 		}
-		res := f.specMutate(ctx, oid, "instance_upsert", func(sp *pkgspec.Spec) (string, error) {
-			var target *pkgspec.Instance
-			for i := range sp.Instances {
-				if sp.Instances[i].Name == name {
-					target = &sp.Instances[i]
-					break
-				}
-			}
-			created := target == nil
-			if created {
-				if strings.TrimSpace(concept) == "" {
-					return "", fmt.Errorf("新增实例须提供 concept（所属概念名）")
-				}
-				sp.Instances = append(sp.Instances, pkgspec.Instance{Name: name, Concept: concept})
-				target = &sp.Instances[len(sp.Instances)-1]
-			} else if hasConcept {
-				target.Concept = concept
-			}
-			if hasAttributes {
-				target.Attributes = attributes
-			}
-			if hasRelations {
-				target.Relations = relations
-			}
-			verb := "已更新"
-			if created {
-				verb = "已新增"
-			}
-			nAttr, nRel := len(target.Attributes), len(target.Relations)
-			return fmt.Sprintf("实例「%s」%s（类型 %s，属性 %d 项，关系断言 %d 条）", name, verb, target.Concept, nAttr, nRel), nil
-		})
-		return res, nil
+		// REQ-436②：编排下沉构建平面——透传元素级端点（attributes/relations 已解析为结构化载荷）
+		payload := map[string]any{"name": name}
+		if hasConcept {
+			payload["concept"] = concept
+		}
+		if hasAttributes {
+			payload["attributes"] = attributes
+		}
+		if hasRelations {
+			payload["relations"] = relations
+		}
+		return f.elementsDo(ctx, http.MethodPost, oid, "instance", "", payload), nil
 	}
 }
 
@@ -688,21 +553,7 @@ func (f *Facade) handleInstanceDelete() server.ToolHandlerFunc {
 		if oid == "" || name == "" {
 			return mcp.NewToolResultErrorf("ontology_id 与 name 必填"), nil
 		}
-		res := f.specMutate(ctx, oid, "instance_delete", func(sp *pkgspec.Spec) (string, error) {
-			idx := -1
-			for i := range sp.Instances {
-				if sp.Instances[i].Name == name {
-					idx = i
-					break
-				}
-			}
-			if idx < 0 {
-				return "", fmt.Errorf("实例「%s」不存在", name)
-			}
-			sp.Instances = append(sp.Instances[:idx], sp.Instances[idx+1:]...)
-			return fmt.Sprintf("实例「%s」已删除", name), nil
-		})
-		return res, nil
+		return f.elementsDo(ctx, http.MethodDelete, oid, "instance", name, nil), nil
 	}
 }
 

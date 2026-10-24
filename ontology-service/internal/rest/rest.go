@@ -65,6 +65,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("DELETE /api/ontologies/{id}", s.remove)
 	m.HandleFunc("GET /api/ontologies/{id}/spec", s.getSpec)
 	m.HandleFunc("PUT /api/ontologies/{id}/spec", s.saveSpec)
+	s.registerElementRoutes(m) // REQ-436/M232：元素级端点（编排服务端单源）
 	m.HandleFunc("POST /api/ontologies/{id}/validate", s.validate)
 	m.HandleFunc("GET /api/ontologies/{id}/artifacts", s.artifacts)
 	// REQ-240⑥/M66：通用形态读写（图布局持久化 layout_json 等；不写回 spec——O-3 口径修正，存 artifact 跨端一致）
@@ -278,42 +279,66 @@ func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "JSON 解析失败: " + err.Error()})
 		return
 	}
-	if errs := sp.Validate(); len(errs) > 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "校验未通过，不允许保存坏本体", "validation_errors": errs})
+	v, overlaysRecorded, perr := s.persistSpec(id, &sp)
+	if perr != nil {
+		switch perr.Kind {
+		case "validation":
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": perr.Message, "validation_errors": perr.ValidationErrors})
+		case "strict":
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": perr.Message, "quality_report": perr.Report})
+		default:
+			writeErr(w, perr.Err)
+		}
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "overlays_recorded": overlaysRecorded})
+}
+
+// persistError 保存核结构化错误（kind=validation|strict|internal）。
+type persistError struct {
+	Kind             string
+	Message          string
+	ValidationErrors []pkgspec.ValidationError
+	Report           any
+	Err              error
+}
+
+// persistSpec REQ-436①：Validate+strict 门禁+落盘+overlay 提取+版本推进+入库评分的**单一保存核**
+//（saveSpec 整包保存与元素级端点共用——版本门禁/Validate/伴生审计服务端单源，语义不再两处维护）。
+// 返回（新版本号, overlay 记录数, 结构化错误）。
+func (s *Server) persistSpec(id string, sp *pkgspec.Spec) (int, int, *persistError) {
+	if errs := sp.Validate(); len(errs) > 0 {
+		return 0, 0, &persistError{Kind: "validation", Message: "校验未通过，不允许保存坏本体", ValidationErrors: errs}
 	}
 	// REQ-156/M-O15：strict 门禁（本体级开关，默认宽松）——结构合法后过质量门禁，错误级命中阻断保存
 	if o, gerr := s.Store.GetOntology(id); gerr == nil && o.QualityStrict {
-		if rep := qualitygate.Check(&sp, nil); rep.ErrorCount > 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("strict 门禁拦截：%d 处错误级质量命中（可在资产详情质量卡查看明细，或关闭 strict 开关）", rep.ErrorCount), "quality_report": rep})
-			return
+		if rep := qualitygate.Check(sp, nil); rep.ErrorCount > 0 {
+			return 0, 0, &persistError{Kind: "strict", Message: fmt.Sprintf("strict 门禁拦截：%d 处错误级质量命中（可在资产详情质量卡查看明细，或关闭 strict 开关）", rep.ErrorCount), Report: rep}
 		}
 	}
-	// REQ-292① 编辑三层：人工整份保存=人工编辑通道——按对象 diff 提取 overlay（机器重算后重放，根治覆盖人工编辑）
+	// REQ-292① 编辑三层：按对象 diff 提取 overlay（机器重算后重放，根治覆盖人工编辑）
 	var oldSp *pkgspec.Spec
 	if prev, gerr := s.loadSpecOrDefault(id); gerr == nil {
 		oldSp = prev
 	}
 	bts, err := json.Marshal(sp)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return 0, 0, &persistError{Kind: "internal", Err: err}
 	}
 	if err := s.Store.PutArtifact(id, "spec_json", string(bts), true); err != nil {
-		writeErr(w, err)
-		return
+		return 0, 0, &persistError{Kind: "internal", Err: err}
 	}
 	overlaysRecorded := 0
 	if oldSp != nil {
-		apply, removeKeys := s.extractOverlaysFromSave(id, oldSp, &sp)
+		apply, removeKeys := s.extractOverlaysFromSave(id, oldSp, sp)
 		s.persistOverlayDeltas(id, apply, removeKeys)
 		overlaysRecorded = len(apply)
 	}
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
 	// REQ-331/M131：入库评分随版本追加一行（source=ingest；本地计算零成本，失败不阻断保存）
-	s.recordIngestScore(id, v, &sp)
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "overlays_recorded": overlaysRecorded})
+	s.recordIngestScore(id, v, sp)
+	return v, overlaysRecorded, nil
 }
 
 // recordIngestScore 入库评分落历史（REQ-331：saveSpec/mergeApply/ontoChatSave 三动线共用；

@@ -101,9 +101,11 @@ type stubBuildPlane struct {
 	mu      sync.Mutex
 	spec    map[string]any
 	version int
-	// putBehavior 可注入 409/400 行为（空=正常保存）
-	putStatus   int
-	putBody     string
+	// putBehavior 可注入 409/400 行为（空=正常保存）——REQ-436 后元素端点用 elementStatus/elementBody
+	putStatus     int
+	putBody       string
+	elementStatus int
+	elementBody   string
 	jobStatus   string
 	jobProgress string
 	jobError    string
@@ -152,6 +154,150 @@ func (s *stubBuildPlane) handler() http.Handler {
 		s.spec = sp // 内存回写：后续 GET spec 读到最新态（与真构建平面一致）
 		s.version++
 		fmt.Fprintf(w, `{"saved":true,"version":%d,"overlays_recorded":0}`, s.version)
+	})
+	// REQ-436：元素级端点桩（编排下沉后的 facade 透传目标——内存语义与构建面一致）
+	mux.HandleFunc("POST /api/ontologies/{id}/elements/{kind}", func(w http.ResponseWriter, r *http.Request) {
+		kind := r.PathValue("kind")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.elementStatus != 0 {
+			w.WriteHeader(s.elementStatus)
+			io.WriteString(w, s.elementBody)
+			return
+		}
+		name, _ := body["name"].(string)
+		verb := "已更新"
+		switch kind {
+		case "concept":
+			concepts, _ := s.spec["concepts"].([]any)
+			var target map[string]any
+			for _, c := range concepts {
+				if cm, ok := c.(map[string]any); ok && cm["name"] == name {
+					target = cm
+				}
+			}
+			if target == nil {
+				verb = "已新增"
+				target = map[string]any{"name": name}
+				s.spec["concepts"] = append(concepts, target)
+			}
+			for _, k := range []string{"label", "definition", "parents"} {
+				if v, ok := body[k]; ok {
+					target[k] = v
+				}
+			}
+			parentsN := 0
+			if ps, ok := target["parents"].([]any); ok {
+				parentsN = len(ps)
+			}
+			s.version++
+			fmt.Fprintf(w, `{"operation":"concept_upsert","ontology_id":"t","saved":true,"base_version":%d,"version":%d,"detail":"概念「%s」%s（父概念 %d 个）"}`, s.version-1, s.version, name, verb, parentsN)
+		case "instance":
+			instances, _ := s.spec["instances"].([]any)
+			var target map[string]any
+			for _, c := range instances {
+				if cm, ok := c.(map[string]any); ok && cm["name"] == name {
+					target = cm
+				}
+			}
+			if target == nil {
+				concept, _ := body["concept"].(string)
+				if concept == "" {
+					w.WriteHeader(http.StatusBadRequest)
+					io.WriteString(w, `{"error":"instance_upsert: 新增实例须提供 concept（所属概念名）"}`)
+					return
+				}
+				verb = "已新增"
+				target = map[string]any{"name": name, "concept": concept}
+				s.spec["instances"] = append(instances, target)
+			} else if v, ok := body["concept"]; ok {
+				target["concept"] = v
+			}
+			if v, ok := body["attributes"]; ok {
+				target["attributes"] = v
+			}
+			if v, ok := body["relations"]; ok {
+				target["relations"] = v
+			}
+			s.version++
+			fmt.Fprintf(w, `{"operation":"instance_upsert","ontology_id":"t","saved":true,"base_version":%d,"version":%d,"detail":"实例「%s」%s（类型 %s，属性 2 项，关系断言 1 条）"}`, s.version-1, s.version, name, verb, target["concept"])
+		case "relation":
+			relations, _ := s.spec["relations"].([]any)
+			var target map[string]any
+			for _, c := range relations {
+				if cm, ok := c.(map[string]any); ok && cm["name"] == name {
+					target = cm
+				}
+			}
+			if target == nil {
+				frm, _ := body["from"].(string)
+				to, _ := body["to"].(string)
+				if frm == "" || to == "" {
+					w.WriteHeader(http.StatusBadRequest)
+					io.WriteString(w, `{"error":"relation_upsert: 新增关系须提供 from/to（定义域/值域概念名）"}`)
+					return
+				}
+				verb = "已新增"
+				target = map[string]any{"name": name, "from": frm, "to": to}
+				s.spec["relations"] = append(relations, target)
+			}
+			for _, k := range []string{"from", "to", "label", "definition", "evidence"} {
+				if v, ok := body[k]; ok {
+					target[k] = v
+				}
+			}
+			s.version++
+			fmt.Fprintf(w, `{"operation":"relation_upsert","ontology_id":"t","saved":true,"base_version":%d,"version":%d,"detail":"关系「%s」%s"}`, s.version-1, s.version, name, verb)
+		case "attribute":
+			dps, _ := s.spec["data_properties"].([]any)
+			var target map[string]any
+			for _, c := range dps {
+				if cm, ok := c.(map[string]any); ok && cm["name"] == name {
+					target = cm
+				}
+			}
+			if target == nil {
+				verb = "已新增"
+				target = map[string]any{"name": name}
+				s.spec["data_properties"] = append(dps, target)
+			}
+			for _, k := range []string{"domain", "range", "label", "definition"} {
+				if v, ok := body[k]; ok {
+					target[k] = v
+				}
+			}
+			s.version++
+			fmt.Fprintf(w, `{"operation":"attribute_upsert","ontology_id":"t","saved":true,"base_version":%d,"version":%d,"detail":"数据属性「%s」%s"}`, s.version-1, s.version, name, verb)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"kind 不支持"}`)
+		}
+	})
+	mux.HandleFunc("DELETE /api/ontologies/{id}/elements/{kind}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		kind, name := r.PathValue("kind"), r.PathValue("name")
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		key := map[string]string{"concept": "concepts", "relation": "relations", "attribute": "data_properties", "instance": "instances"}[kind]
+		items, _ := s.spec[key].([]any)
+		out := items[:0]
+		found := false
+		for _, it := range items {
+			if im, ok := it.(map[string]any); ok && im["name"] == name {
+				found = true
+				continue
+			}
+			out = append(out, it)
+		}
+		if !found {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"error":"%s_delete: 「%s」不存在"}`, kind, name)
+			return
+		}
+		s.spec[key] = out
+		s.version++
+		fmt.Fprintf(w, `{"operation":"%s_delete","ontology_id":"t","saved":true,"base_version":%d,"version":%d,"detail":"已删除"}`, kind, s.version-1, s.version)
 	})
 	mux.HandleFunc("POST /api/ontologies/{id}/validate", func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, `{"ok":false,"validation_errors":[{"path":"concepts[0].name","message":"概念名不能为空"}]}`)
@@ -207,7 +353,7 @@ func TestSpecConceptUpsertAndDelete(t *testing.T) {
 	f, bp := newOpsFacade(t)
 	h := f.handleConceptUpsert()
 
-	// 1) 新增概念（parents 顿号分隔形态）+ If-Match 携带基准版本
+	// 1) 新增概念（parents 顿号分隔形态）——REQ-436 后编排服务端单源（无客户端 If-Match）
 	res, err := h(context.Background(), reqOf("spec_concept_upsert", map[string]any{
 		"ontology_id": "t", "name": "交换机", "label": "交换机", "definition": "数据链路层设备", "parents": "网络设备、硬件",
 	}))
@@ -215,28 +361,21 @@ func TestSpecConceptUpsertAndDelete(t *testing.T) {
 		t.Fatalf("upsert 失败: %v / %v", err, res)
 	}
 	out := resultJSON(t, res)
-	if bp.gotIfMatch != "v3" {
-		t.Fatalf("If-Match 应为 v3，实际 %q", bp.gotIfMatch)
-	}
 	if out["saved"] != true || out["version"] != float64(4) {
 		t.Fatalf("保存结果不符: %v", out)
-	}
-	if got := bp.gotPutSpec; got == nil {
-		t.Fatal("PUT spec 未收到")
-	} else if cs, _ := got["concepts"].([]any); len(cs) != 3 {
-		t.Fatalf("应 3 个概念，实际 %v", got["concepts"])
 	}
 	if !strings.Contains(out["detail"].(string), "已新增") {
 		t.Fatalf("detail 应标注新增: %v", out["detail"])
 	}
 
-	// 2) 更新已存在概念：只覆盖传入字段（definition 保留原值）
+	// 2) 更新已存在概念：只覆盖传入字段（definition/parents 保留原值——服务端 presence 语义）
 	res, err = h(context.Background(), reqOf("spec_concept_upsert", map[string]any{
 		"ontology_id": "t", "name": "路由器", "label": "路由设备",
 	}))
 	if err != nil || res.IsError {
 		t.Fatalf("update 失败: %v / %v", err, res)
 	}
+	b, _ := json.Marshal(bp.spec)
 	var sp struct {
 		Concepts []struct {
 			Name       string   `json:"name"`
@@ -245,7 +384,6 @@ func TestSpecConceptUpsertAndDelete(t *testing.T) {
 			Parents    []string `json:"parents"`
 		} `json:"concepts"`
 	}
-	b, _ := json.Marshal(bp.gotPutSpec)
 	if err := json.Unmarshal(b, &sp); err != nil {
 		t.Fatalf("spec 解析: %v", err)
 	}
@@ -270,8 +408,13 @@ func TestSpecConceptUpsertAndDelete(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("delete 失败: %v / %v", err, res)
 	}
-	if len(bp.gotPutSpec["concepts"].([]any)) != 2 {
-		t.Fatal("删除后应剩 2 个概念")
+	var sp2 struct {
+		Concepts []map[string]any `json:"concepts"`
+	}
+	b2, _ := json.Marshal(bp.spec)
+	_ = json.Unmarshal(b2, &sp2)
+	if len(sp2.Concepts) != 2 {
+		t.Fatalf("删除后应剩 2 个概念: %v", sp2.Concepts)
 	}
 	// 4) 删除不存在概念诚实报错
 	res, err = dh(context.Background(), reqOf("spec_concept_delete", map[string]any{"ontology_id": "t", "name": "不存在"}))
@@ -284,10 +427,10 @@ func TestSpecCRUDErrorPaths(t *testing.T) {
 	f, bp := newOpsFacade(t)
 	h := f.handleConceptUpsert()
 
-	// 400 校验未过：validation_errors 明细逐条回喂
+	// 400 校验未过：validation_errors 明细逐条回喂（元素端点注入）
 	bp.mu.Lock()
-	bp.putStatus = http.StatusBadRequest
-	bp.putBody = `{"error":"校验未通过，不允许保存坏本体","validation_errors":[{"path":"concepts[2].parents[0]","message":"引用了未定义概念: 幽灵"}]}`
+	bp.elementStatus = http.StatusBadRequest
+	bp.elementBody = `{"error":"SPEC_VALIDATION_REJECTED（校验未通过，未保存）: 校验未通过，不允许保存坏本体","validation_errors":[{"path":"concepts[2].parents[0]","message":"引用了未定义概念: 幽灵"}]}`
 	bp.mu.Unlock()
 	res, err := h(context.Background(), reqOf("spec_concept_upsert", map[string]any{"ontology_id": "t", "name": "X"}))
 	if err != nil || !res.IsError {
@@ -300,8 +443,8 @@ func TestSpecCRUDErrorPaths(t *testing.T) {
 
 	// 409 版本冲突：回喂 current_version 与重试指引
 	bp.mu.Lock()
-	bp.putStatus = http.StatusConflict
-	bp.putBody = `{"error":"保存冲突：本体已更新至 v9（本次编辑基于 v3）","current_version":9,"base_version":3}`
+	bp.elementStatus = http.StatusConflict
+	bp.elementBody = `{"error":"保存冲突：本体已更新至 v9（本次编辑基于 v3）","current_version":9,"base_version":3}`
 	bp.mu.Unlock()
 	res, err = h(context.Background(), reqOf("spec_concept_upsert", map[string]any{"ontology_id": "t", "name": "Y"}))
 	if err != nil || !res.IsError {
@@ -314,7 +457,7 @@ func TestSpecCRUDErrorPaths(t *testing.T) {
 
 	// parents JSON 数组形态 + 非法 JSON 报错
 	bp.mu.Lock()
-	bp.putStatus = 0
+	bp.elementStatus = 0
 	bp.mu.Unlock()
 	res, err = h(context.Background(), reqOf("spec_concept_upsert", map[string]any{
 		"ontology_id": "t", "name": "Z", "parents": `["网络设备", "路由器"]`}))
@@ -339,7 +482,7 @@ func TestSpecInstanceUpsert(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("instance upsert 失败: %v / %v", err, res)
 	}
-	b, _ := json.Marshal(bp.gotPutSpec["instances"])
+	b, _ := json.Marshal(bp.spec["instances"])
 	var instances []map[string]any
 	_ = json.Unmarshal(b, &instances)
 	if len(instances) != 2 {
