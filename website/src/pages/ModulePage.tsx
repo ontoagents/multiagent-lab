@@ -19,15 +19,21 @@ import {
   FileTextOutlined,
   FolderOutlined,
   KeyOutlined,
+  LayoutOutlined,
   LockOutlined,
   NodeIndexOutlined,
+  ProfileOutlined,
   RightOutlined,
+  RocketOutlined,
+  RobotOutlined,
   SearchOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
+  SolutionOutlined,
   SyncOutlined,
   TeamOutlined,
   ThunderboltOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
 import { MODULES, moduleText } from '../content'
 import { useCopy, useLocale } from '../i18n'
@@ -67,14 +73,20 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
   FileTextOutlined: <FileTextOutlined />,
   FolderOutlined: <FolderOutlined />,
   KeyOutlined: <KeyOutlined />,
+  LayoutOutlined: <LayoutOutlined />,
   LockOutlined: <LockOutlined />,
   NodeIndexOutlined: <NodeIndexOutlined />,
+  ProfileOutlined: <ProfileOutlined />,
+  RocketOutlined: <RocketOutlined />,
+  RobotOutlined: <RobotOutlined />,
   SearchOutlined: <SearchOutlined />,
   SafetyCertificateOutlined: <SafetyCertificateOutlined />,
   SafetyOutlined: <SafetyOutlined />,
+  SolutionOutlined: <SolutionOutlined />,
   SyncOutlined: <SyncOutlined />,
   TeamOutlined: <TeamOutlined />,
   ThunderboltOutlined: <ThunderboltOutlined />,
+  ToolOutlined: <ToolOutlined />,
 }
 
 const COPY = {
