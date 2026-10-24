@@ -155,7 +155,7 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
 }
 
 // ---------------------------------------------------------------------------
-// S1 本体来源（导入 / AI 创建 / 内置示例 / 空白 / CSV 灌装引导）
+// S1 本体来源（REQ-425⑤ 空白排位前移：空白 / 导入 / AI 创建 / 内置示例 / CSV 灌装引导）
 // ---------------------------------------------------------------------------
 
 const S1_TAB_KEY = 'eino.onto.s1tab'
@@ -500,6 +500,30 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
       onChange={(k) => { setS1Tab(k); localStorage.setItem(S1_TAB_KEY, k) }}
       items={[
         {
+          key: 'blank',
+          label: '空白新建',
+          children: (
+            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+              <Input
+                value={blankName}
+                onChange={(e) => setBlankName(e.target.value)}
+                placeholder="本体名称（必填；建议领域名+用途，如「设备故障运维」）"
+                status={dupName ? 'warning' : undefined}
+              />
+              {dupName && (
+                <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                  已存在同名本体「{dupName.name}」（{dupName.id}）——仍可创建（同名不被禁止），建议换名或 Fork 那份本体。
+                </Typography.Text>
+              )}
+              <Input value={blankDesc} onChange={(e) => setBlankDesc(e.target.value)} placeholder="描述（可选）" />
+              <Button type="primary" loading={blankBusy} onClick={doBlank}>
+                创建空白本体
+              </Button>
+              <ReferenceMaterialsPanel onStartFromSeed={doSeedKey} />
+            </Space>
+          ),
+        },
+        {
           key: 'import',
           label: '导入文件',
           children: (
@@ -786,30 +810,6 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
                 创建内置示例
               </Button>
             </>
-          ),
-        },
-        {
-          key: 'blank',
-          label: '空白新建',
-          children: (
-            <Space direction="vertical" style={{ width: '100%' }} size={8}>
-              <Input
-                value={blankName}
-                onChange={(e) => setBlankName(e.target.value)}
-                placeholder="本体名称（必填；建议领域名+用途，如「设备故障运维」）"
-                status={dupName ? 'warning' : undefined}
-              />
-              {dupName && (
-                <Typography.Text type="warning" style={{ fontSize: 12 }}>
-                  已存在同名本体「{dupName.name}」（{dupName.id}）——仍可创建（同名不被禁止），建议换名或 Fork 那份本体。
-                </Typography.Text>
-              )}
-              <Input value={blankDesc} onChange={(e) => setBlankDesc(e.target.value)} placeholder="描述（可选）" />
-              <Button type="primary" loading={blankBusy} onClick={doBlank}>
-                创建空白本体
-              </Button>
-              <ReferenceMaterialsPanel onStartFromSeed={doSeedKey} />
-            </Space>
           ),
         },
         {

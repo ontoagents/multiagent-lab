@@ -70,6 +70,8 @@ export default function GraphEditor({
     setDirty(false)
     setSaveErrors(null)
     setSelection(null)
+    undoStack.current = []
+    redoStack.current = []
     versionRef.current = baseVersion
   }, [spec, ontologyId, baseVersion])
 
@@ -90,15 +92,46 @@ export default function GraphEditor({
     [setNodes, setEdges, showInstances],
   )
 
+  // REQ-425②：撤销/重做栈（draft 本地快照粗粒度——每次 mutate 前压栈；外部 spec 变化/保存清栈）
+  const undoStack = useRef<Spec[]>([])
+  const redoStack = useRef<Spec[]>([])
+  const [, setHistTick] = useState(0) // 栈深变化触发按钮刷新（按钮 disabled 直读 ref）
+
   const mutate = useCallback(
     (next: Spec) => {
+      if (draft) undoStack.current.push(draft)
+      if (undoStack.current.length > 50) undoStack.current.shift() // 防无限增长
+      redoStack.current = []
       setDraft(next)
       setDirty(true)
       setSaveErrors(null)
       rebuild(next)
+      setHistTick((t) => t + 1)
     },
-    [rebuild],
+    [draft, rebuild],
   )
+
+  const undo = useCallback(() => {
+    const prev = undoStack.current.pop()
+    if (!prev || !draft) return
+    redoStack.current.push(draft)
+    setDraft(prev)
+    setDirty(true)
+    rebuild(prev)
+    setHistTick((t) => t + 1)
+    showToast('已撤销（本地草稿栈）')
+  }, [draft, rebuild, showToast])
+
+  const redo = useCallback(() => {
+    const next = redoStack.current.pop()
+    if (!next || !draft) return
+    undoStack.current.push(draft)
+    setDraft(next)
+    setDirty(true)
+    rebuild(next)
+    setHistTick((t) => t + 1)
+    showToast('已重做')
+  }, [draft, rebuild, showToast])
 
   const { onConnect, addConcept, addInstance, removeConcept, removeInstance, removeEdge } = useEditorActions({
     draft,
@@ -202,14 +235,41 @@ export default function GraphEditor({
     return { parent, child }
   }, [selEdgeId])
 
-  if (!spec || (spec.concepts?.length ?? 0) === 0) {
+  // REQ-425③：空画布冷启动引导（手动一等路径——「新建第一个概念」直达，不再推诿 Spec 编辑）。
+  // 空判据用本地 draft（mutate 后即脱离冷启动态——prop spec 未保存前不回弹）。
+  const view = draft ?? spec
+  if (!view || (view.concepts?.length ?? 0) === 0) {
     return (
       <div className="work-empty" style={{ minHeight: 220 }}>
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无概念；请先在 Spec 编辑中定义概念，再用图形编辑器扩展" />
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <span style={{ fontSize: 12, color: 'var(--c-ink-3)' }}>
+              空白画布——从「新建第一个概念」开始（REQ-425 冷启动引导）；概念/关系/实例都可在此编辑，无需先去 Spec JSON
+            </span>
+          }
+        >
+          <Space size={8} wrap>
+            <Button type="primary" data-testid="graph-coldstart-add" onClick={() => setAddOpen(true)}>
+              新建第一个概念
+            </Button>
+            {/* REQ-425②：撤销后处于冷启动态时仍可重做（主画布工具栏不在本分支渲染） */}
+            <Button size="small" data-testid="graph-redo" disabled={redoStack.current.length === 0} onClick={redo}>
+              重做
+            </Button>
+          </Space>
+        </Empty>
+        <AddConceptModal
+          open={addOpen}
+          form={addForm}
+          draft={view!}
+          onOk={() => addConcept()}
+          onCancel={() => setAddOpen(false)}
+        />
       </div>
     )
   }
-  const d = draft ?? spec
+  const d: Spec = view
 
   return (
     <div>
@@ -237,6 +297,9 @@ export default function GraphEditor({
               rebuild(d, v)
             }}
           />
+          {/* REQ-425②：撤销/重做（本地草稿快照栈粗粒度） */}
+          <Button size="small" disabled={undoStack.current.length === 0} onClick={undo} data-testid="graph-undo">撤销</Button>
+          <Button size="small" disabled={redoStack.current.length === 0} onClick={redo} data-testid="graph-redo">重做</Button>
           {dirty && <Tag color="orange">未保存修改</Tag>}
         </Space>
         <Space size={8}>
@@ -248,7 +311,7 @@ export default function GraphEditor({
                 setDirty(false)
                 setSaveErrors(null)
                 setSelection(null)
-                rebuild(spec)
+                rebuild(d)
               }}
             >
               放弃修改

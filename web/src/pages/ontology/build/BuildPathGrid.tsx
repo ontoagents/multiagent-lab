@@ -39,6 +39,10 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
           <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => onSelect(novice.key)} data-testid="build-novice-go">
             从一段描述开始
           </Button>
+          {/* REQ-425①：首屏判据区直达——零模型连接场景空白手动是唯一原生构建路径（与 AI 主推并列非替代） */}
+          <Button size="small" style={{ marginLeft: novice ? 0 : 'auto' }} onClick={() => { localStorage.setItem('eino.onto.s1tab', 'blank'); onSelect('custom') }} data-testid="build-blank-go">
+            无模型连接？从空白手动起步
+          </Button>
         </div>
       )}
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
@@ -67,6 +71,21 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0, minHeight: 34 }}>
               {p.desc}
             </Typography.Paragraph>
+            {p.key === 'custom' && (
+              // REQ-425①⑤：自定义卡显眼子入口——空白手动起步一等化（S1 blank tab 直达）
+              <Button
+                size="small"
+                block
+                onClick={(e) => {
+                  e.stopPropagation()
+                  localStorage.setItem('eino.onto.s1tab', 'blank')
+                  onSelect('custom')
+                }}
+                data-testid="build-custom-blank"
+              >
+                从空白手动起步
+              </Button>
+            )}
           </Card>
         ))}
       </div>
