@@ -72,6 +72,7 @@ func TestRegistryREQReferences(t *testing.T) {
 		"102": "Git 视图深链（01 头注引用）——注册表行缺位历史遗留",
 		"124": "折叠树（01 聚合行 REQ-01~06,REQ-124 引用）——无独立注册行",
 		"244": "02 迭代表 M70 引用——注册行缺位待核对",
+		"414": "01 v1.84 实用化批观察项（KB 富格式提级）引用——注册行随该批补登（并行批）",
 	}
 	for _, doc := range bigDocs {
 		text := readRepo(t, doc)
