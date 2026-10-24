@@ -42,6 +42,25 @@ const (
 	compactionMinTokens = 1500
 )
 
+// EffectiveContextMode REQ-393/M189：会话级上下文预算档合并序——会话覆盖 > Agent 级 > 全局默认
+// （standard；与 REQ-291 会话级模型覆盖/REQ-231 生效策略同构）。返回 (生效档, 来源)。
+func EffectiveContextMode(agentMode string, convOverride *string) (mode, source string) {
+	if convOverride != nil {
+		if *convOverride != "" {
+			return *convOverride, "conversation"
+		}
+		// 显式 ''=清除覆盖跟随 Agent 级
+		if agentMode != "" {
+			return agentMode, "agent"
+		}
+		return "standard", "default"
+	}
+	if agentMode != "" {
+		return agentMode, "agent"
+	}
+	return "standard", "default"
+}
+
 // ContextBudget 返回档位对应的 token 预算（0 = 不限量）。空值归一标准档。
 func ContextBudget(mode string) int {
 	switch mode {

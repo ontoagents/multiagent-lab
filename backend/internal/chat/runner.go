@@ -281,12 +281,15 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 
 	// 2) 组装输入：历史（含刚落库的用户消息；对比窗格用组级共享快照的按路副本）
 	// REQ-201/M37：tool 轮次保全 + 压缩 + 预算裁剪统一入口（context.go；full 档仅增强不裁剪）
+	// REQ-393/M189：上下文预算档合并序（会话覆盖 > Agent 级 > 全局默认）——生效值随
+	// run.started/context.stats 透出（与 REQ-291 模型覆盖/REQ-231 生效策略同构）
+	ctxMode, ctxModeSrc := EffectiveContextMode(agent.ContextMode, conv.ContextModeOverride)
 	var histMsgs []*schema.Message
 	var ctxWarns []string
 	var cr contextResult
 	if opts.HistMsgs != nil {
 		histMsgs = append([]*schema.Message(nil), opts.HistMsgs...)
-		if b := ContextBudget(agent.ContextMode); b > 0 {
+		if b := ContextBudget(ctxMode); b > 0 {
 			kept, desc := trimMessagesToBudget(histMsgs, b)
 			histMsgs = kept
 			if desc != "" {
@@ -320,6 +323,8 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	if apMode, apSrc := effectiveApprovalPolicy(agent, conv); apMode != "" || apSrc != "agent" {
 		startData["tool_approval"] = map[string]any{"mode": apMode, "source": apSrc}
 	}
+	// REQ-393/M189：会话级上下文预算档生效值透出（run.started——治「配了看不出」同 P-H2 语义）
+	startData["context_mode"] = map[string]any{"mode": ctxMode, "source": ctxModeSrc}
 	// REQ-291：运行配置审计——当轮生效的推理参数恒落（未设置不臆造数值，缺省=跟随后端协议默认，
 	// anthropic 通道温度钳 [0,1] 与 max_tokens 兜底见 modelbuild；协议级整形不在本键还原范围）
 	if agent.Temperature != nil {
@@ -391,9 +396,10 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			})
 		}
 	}
-	budgetTokens := ContextBudget(agent.ContextMode)
+	budgetTokens := ContextBudget(ctxMode)
 	stats := map[string]any{
-		"budget_mode":      contextModeLabel(agent.ContextMode),
+		"budget_mode":      contextModeLabel(ctxMode),
+		"budget_mode_source": ctxModeSrc,
 		"budget_tokens":    budgetTokens,
 		"history_messages": histCount,
 		"history_chars":    histChars,

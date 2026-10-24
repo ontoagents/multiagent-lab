@@ -1919,6 +1919,19 @@ export default function ChatWindow({
                   { value: 'off', label: '关闭' },
                 ]}
               />
+              <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
+              <Segmented
+                size="small"
+                value={conversation.context_mode ?? ''}
+                onChange={(v) => patchConv({ context_mode: v as string })}
+                options={[
+                  { value: '', label: '跟随' },
+                  { value: 'compact', label: '紧凑' },
+                  { value: 'standard', label: '标准' },
+                  { value: 'full', label: '完整' },
+                ]}
+                data-testid="conv-context-mode"
+              />
               <div className="proc-pop-title">会话检索参数（0=跟随知识库默认）</div>
               <div className="cs-row">
                 <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>top_k</Typography.Text>

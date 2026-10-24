@@ -169,7 +169,10 @@ type Conversation struct {
 	// ContextState 上下文压缩状态（REQ-201/M37：JSON 摘要+覆盖消息 ID；空=未压缩）
 	ContextState string `json:"context_state,omitempty"`
 	// TodoJSON todo_write 任务清单（REQ-202/M38：模型自写进度，机器可读侧；空=未写）
-	TodoJSON  string  `json:"todo_json,omitempty"`
+	TodoJSON string `json:"todo_json,omitempty"`
+	// ContextModeOverride 会话级上下文预算档覆盖（REQ-393/M189：nil=不改 | ''=跟随 Agent 级 |
+	// compact/standard/full=覆盖；合并序 会话>Agent>全局默认，与 REQ-291 同构）
+	ContextModeOverride *string `json:"context_mode,omitempty"`
 	TopK      int     `json:"top_k"`
 	MinScore  float64 `json:"min_score"`
 	CreatedAt string  `json:"created_at"`
