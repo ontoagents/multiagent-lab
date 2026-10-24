@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -216,6 +217,7 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 	s.mu.Lock()
 	s.tasks[task.ID] = task
 	s.mu.Unlock()
+	s.persistTask(task) // REQ-387/M183：任务写穿落库（重启 tasks/get 可查）
 
 	// 后台执行（外部客户端 tasks/get 轮询；沿 ai-draft 202 异步口径）——ctx 脱离请求生命周期
 	//（message/send 响应返回后请求 ctx 即取消，任务必须独立存活）
@@ -224,8 +226,8 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		defer cancel()
 		text, rerr := s.RunFunc(ctx, conv, agent, store.NewID(), input)
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		cur, ok := s.tasks[task.ID]
+		s.mu.Unlock()
 		if !ok {
 			return
 		}
@@ -240,8 +242,22 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 				{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
 			}
 		}
+		s.persistTask(cur) // REQ-387/M183：终态写穿
 	}()
 	writeJSON(w, http.StatusOK, rpcResult(req.ID, task.taskJSON()))
+}
+
+// persistTask REQ-387/M183：任务写穿落库（旁路失败仅日志不阻断响应）。
+func (s *Service) persistTask(t *Task) {
+	if s.Store == nil {
+		return
+	}
+	if err := s.Store.UpsertA2ATask(&store.A2ATaskRow{
+		ID: t.ID, ContextID: t.ContextID, AgentID: t.AgentID, State: t.State, Timestamp: t.Timestamp,
+		Payload: store.MarshalA2APayload(store.A2APayload{ArtifactText: t.ArtifactText, ErrorText: t.ErrorText, History: t.History}),
+	}); err != nil {
+		log.Printf("[a2a] 任务落库失败 %s: %v", t.ID, err)
+	}
 }
 
 // handleTasksGet tasks/get：任务快照（终态附 artifacts+history）。
@@ -257,6 +273,19 @@ func (s *Service) handleTasksGet(w http.ResponseWriter, req rpcRequest) {
 	t, ok := s.tasks[p.ID]
 	s.mu.Unlock()
 	if !ok {
+		// REQ-387/M183：进程内未命中回读 DB（重启后终态任务可查）
+		if row, gerr := s.Store.GetA2ATask(p.ID); gerr == nil && row != nil {
+			var pl store.A2APayload
+			_ = json.Unmarshal([]byte(row.Payload), &pl)
+			t = &Task{ID: row.ID, ContextID: row.ContextID, AgentID: row.AgentID,
+				State: row.State, Timestamp: row.Timestamp,
+				ArtifactText: pl.ArtifactText, ErrorText: pl.ErrorText, History: pl.History}
+			s.mu.Lock()
+			s.tasks[t.ID] = t
+			s.mu.Unlock()
+		}
+	}
+	if t == nil {
 		writeJSON(w, http.StatusOK, rpcError(req.ID, errTaskNotFound, "task 不存在（或服务重启丢进程内任务映射——请重新委派）"))
 		return
 	}

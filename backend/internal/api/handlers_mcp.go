@@ -6,6 +6,8 @@
 package api
 
 import (
+	"crypto/subtle"
+	"os"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -167,6 +169,13 @@ func (s *Server) mcpAuth(next http.Handler) http.Handler {
 			if a.McpServe.Enabled && a.McpServe.Token != "" && a.McpServe.Token == tok {
 				ok = true
 				break
+			}
+		}
+		// REQ-387/M183：全局平台凭证补位——PLATFORM_TOKEN 启用时 /mcp 同时接受
+		// 平台 Bearer（REQ-209 凭证跨面复用；agent 级 token 仍独立有效，未启用平台凭证=零变化）
+		if !ok {
+			if pt := os.Getenv("PLATFORM_TOKEN"); pt != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(pt)) == 1 {
+				ok = true
 			}
 		}
 		if !ok {

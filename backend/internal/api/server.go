@@ -124,6 +124,10 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	s.Delegates.StopRun = chatSvc.Stop
 	chatSvc.Assembler.Delegates = s.Delegates
 	s.Delegates.LoadOrphans()
+	// REQ-387/M183：A2A 任务启动对账——悬挂 working 标 failed（重启中断诚实报错重新委派）
+	if n, err := st.MarkOrphanA2ATasks(); err == nil && n > 0 {
+		log.Printf("[a2a] 启动对账：%d 条悬挂任务标 failed（重启中断，可重新委派）", n)
+	}
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器
 	s.routes()
