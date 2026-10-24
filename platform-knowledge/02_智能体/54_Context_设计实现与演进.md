@@ -39,7 +39,7 @@ synced: 2026-10-13
 1. **压缩策略不可配**——八段式摘要固定复用本 agent 模型连接，无策略/模型可选（51 号 W 系列未立项；Context 视角观察项）。
 2. **无 per-section token 归因**——预算消耗只有总账无分节账（39 号 A-8），调优靠 debug 装配快照间接观察。
 3. **外部 CLI 后端旁路**——inference_backend 为外部 CLI 时由其自身 historyLimit 治理，context_mode 不生效（REQ-201 交付诚实边界，与 53 号 W5 页签降维同批处理）。
-4. **会话级无预算覆盖**——context_mode 仅 agent 级；长会话临时降档需改 agent 配置（会话级覆盖列观察项，沿 REQ-231 生效透出先例可做 run.started 透出）。
+4. **会话级无预算覆盖**——context_mode 仅 agent 级；长会话临时降档需改 agent 配置（**已立项 REQ-393/M189：会话级 context_mode 覆盖——沿 REQ-231 生效透出先例 run.started 透出，2026-10-24 速赢批**）。
 5. **召回链深度**——伴生检索 LIMIT/向量缓存冷启动等检索纵深问题归伴生线（40 号 A-3），不在本层重复。
 
 > 体检来源：39 号 A-8「上下文纵深无 per-section 归因」即本档开放问题 2（39 号已于 2026-10-01 清理，结论归档于 00 号）。
