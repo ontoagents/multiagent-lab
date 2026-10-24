@@ -47,6 +47,9 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
                 {STATE_TAG[p.key].text}
               </Tag>
             </div>
+            <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+              适用：{p.when}
+            </Typography.Text>
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0, minHeight: 34 }}>
               {p.desc}
             </Typography.Paragraph>

@@ -53,7 +53,16 @@ export default function BuildPage() {
       {buildPath === 'kb' && (<><KbBuildFlow /><StructuredFlow /></>)}
       {buildPath === 'kg' && <KgGuidePage />}
       {buildPath === 'ontoextend' && <OntoExtendFlow />}
-      {buildPath === 'catalog' && <CatalogPane />}
+      {buildPath === 'catalog' && (
+        <CatalogPane
+          onCreated={(id) => {
+            // REQ-405/M201：Catalog onCreated 断头修复——引入成功深链资产详情（沿 DoneCTA 动线）
+            localStorage.setItem('eino.onto.sidebar', 'assets')
+            localStorage.setItem('eino.onto.asset.focus', id)
+            window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+          }}
+        />
+      )}
     </BuildLayout>
   )
 }
