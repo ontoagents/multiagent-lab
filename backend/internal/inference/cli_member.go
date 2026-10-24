@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -34,21 +35,28 @@ func (c *cliAdapter) LookPath() (string, error) {
 
 // DockerRunSpec REQ-427②：CLI 成员沙箱执行参数（docker CLI 直跑不引入 SDK，沿 runtime.DockerBackend
 // 学习尺度）。镜像须自备目标 CLI 二进制与登录态；Cwd 宿主绑定目录 → 容器 /workspace（安全根）；
-// Env 凭据态环境变量（REQ-427③，服务端绑定不进 LLM 上下文）。
+// Env 凭据态环境变量（REQ-427③，服务端绑定不进 LLM 上下文）；Hook 过程转译回调（REQ-428）。
 type DockerRunSpec struct {
 	Bin   string // docker CLI 路径（空 = PATH 查找）
 	Image string // 含目标 CLI 的镜像（如 eino-lab/agentd:dev）
 	Cwd   string // 宿主绑定目录（空 = 无绑定，容器内继承镜像工作目录）
 	Env   map[string]string
+	Hook  AuditHook // REQ-428：过程事件回调（nil=静默收集）
 }
+
+// AuditHook REQ-428：外部成员过程事件回调（proto_event=text|tool_use|result|a2a_history；
+// summary 已截断由调用方定长）——chat 层转译为 external.audit run_event（沿 REQ-206 S3 先例）。
+type AuditHook func(protoEvent, summary string)
 
 // memberCollector 成员委派输出收集器（宿主/沙箱两执行世界共用）：
 // stream-json 型（claude-code）result 行带 final 标记→取 result 为最终文本（避免 assistant
 // 中间文本与 result 重复拼接）；纯文本型拼接全部 delta。
+// Hook 非空时逐事件转译过程回调（REQ-428：text/tool_use/result）。
 type memberCollector struct {
 	text      strings.Builder
 	final     string
 	toolCalls int
+	hook      AuditHook
 }
 
 func (m *memberCollector) handle(ev Event) {
@@ -57,14 +65,34 @@ func (m *memberCollector) handle(ev Event) {
 		if v, _ := ev.Data["final"].(bool); v {
 			if d, _ := ev.Data["delta"].(string); d != "" {
 				m.final = strings.TrimSpace(d)
+				if m.hook != nil {
+					m.hook("result", strings.TrimSpace(d))
+				}
 			}
 			return
 		}
 		if d, _ := ev.Data["delta"].(string); d != "" {
 			m.text.WriteString(d)
+			if m.hook != nil {
+				m.hook("text", d)
+			}
 		}
 	case "tool.call":
 		m.toolCalls++
+		if m.hook != nil {
+			name, _ := ev.Data["name"].(string)
+			summary := name
+			if args, ok := ev.Data["args"].(map[string]any); ok && len(args) > 0 {
+				if raw, err := json.Marshal(args); err == nil {
+					s := string(raw)
+					if len(s) > 160 {
+						s = s[:160] + "…"
+					}
+					summary = name + " " + s
+				}
+			}
+			m.hook("tool_use", summary)
+		}
 	}
 }
 
@@ -78,11 +106,16 @@ func (m *memberCollector) result() string {
 // CLIMemberRun 外部 CLI 成员一次委派执行（宿主世界）：走适配器 Run（同一子进程与解析层），收集文本输出。
 // 返回（结果文本, CLI 侧工具调用次数, 错误）。
 func CLIMemberRun(ctx context.Context, b Backend, req *RunRequest) (string, int, error) {
+	return CLIMemberRunWithAudit(ctx, b, req, nil)
+}
+
+// CLIMemberRunWithAudit 同 CLIMemberRun 加过程事件回调（REQ-428：hook 非 null 时逐事件转译）。
+func CLIMemberRunWithAudit(ctx context.Context, b Backend, req *RunRequest, hook AuditHook) (string, int, error) {
 	ca, ok := b.(*cliAdapter)
 	if !ok {
 		return "", 0, fmt.Errorf("后端 %q 不是外部 CLI 型（成员通道仅承载 CLI 适配器）", b.Name())
 	}
-	mc := &memberCollector{}
+	mc := &memberCollector{hook: hook}
 	err := ca.Run(ctx, req, mc.handle)
 	if err != nil {
 		return "", mc.toolCalls, err
@@ -133,7 +166,7 @@ func CLIMemberRunInDocker(ctx context.Context, b Backend, req *RunRequest, spec 
 	if err := cmd.Start(); err != nil {
 		return "", 0, fmt.Errorf("启动沙箱容器: %w", err)
 	}
-	mc := &memberCollector{}
+	mc := &memberCollector{hook: spec.Hook}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {

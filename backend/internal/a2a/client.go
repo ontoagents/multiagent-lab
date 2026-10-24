@@ -35,11 +35,18 @@ type AgentCard struct {
 
 // RemoteTask 远端任务快照（tasks/get 轮询产物）。
 type RemoteTask struct {
-	ID           string `json:"id"`
-	ContextID    string `json:"contextId"`
-	State        string `json:"state"`
-	ArtifactText string // artifacts text parts 拼接
-	ErrorText    string // status.message / 终态错误
+	ID           string           `json:"id"`
+	ContextID    string           `json:"contextId"`
+	State        string           `json:"state"`
+	ArtifactText string           // artifacts text parts 拼接
+	ErrorText    string           // status.message / 终态错误
+	History      []HistoryMessage // REQ-428/M224：任务消息历史（role+text parts 拼接；过程转译源）
+}
+
+// HistoryMessage 任务历史单条消息（A2A Message：role=agent|user；text parts 拼接）。
+type HistoryMessage struct {
+	Role string
+	Text string
 }
 
 // cardURL 由连接目标推导卡地址：endpoint 或其基址 + /.well-known/agent-card.json
@@ -145,6 +152,13 @@ func taskStateOf(result json.RawMessage) (*RemoteTask, error) {
 				Text string `json:"text"`
 			} `json:"parts"`
 		} `json:"artifacts"`
+		History []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				Kind string `json:"kind"`
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"history"`
 	}
 	if err := json.Unmarshal(result, &t); err != nil {
 		return nil, fmt.Errorf("task 解析失败: %w", err)
@@ -167,6 +181,16 @@ func taskStateOf(result json.RawMessage) (*RemoteTask, error) {
 			}
 		}
 		rt.ErrorText = strings.TrimSpace(mb.String())
+	}
+	// REQ-428/M224：任务消息历史转译源（role+text parts 拼接，顺序保留供过程回放）
+	for _, h := range t.History {
+		var hb strings.Builder
+		for _, p := range h.Parts {
+			if p.Kind == "text" || p.Kind == "" {
+				hb.WriteString(p.Text)
+			}
+		}
+		rt.History = append(rt.History, HistoryMessage{Role: h.Role, Text: hb.String()})
 	}
 	return rt, nil
 }

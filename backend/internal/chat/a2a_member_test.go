@@ -155,3 +155,72 @@ func TestA2ASendDoneShortcut(t *testing.T) {
 		t.Fatal("working 非终态")
 	}
 }
+
+// REQ-428/M224：任务 history 过程转译——stub 远端回 history（agent+user 消息），
+// 成员工具调用应逐条转 external.audit（[role] 前缀 + source=a2a_member）。
+func TestA2AMemberHistoryAudit(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	endpoint := stubA2AEndpoint(t, "")
+	bt, err := newA2AMemberTool(a2aMemberDeps{Name: "外部审查员", Endpoint: endpoint, PollSec: 0.002})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = bt // stub 端点 history 在 parseRemoteTask 消费——端到端经 client
+	// 直接驱动 client 层断言 history 解析+工具层转译：
+	// stubA2AEndpoint 未返回 history，此处补一层带 history 的桩
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		result := map[string]any{
+			"id": "t-9", "contextId": "c-9", "kind": "task",
+			"status":    map[string]any{"state": "completed"},
+			"artifacts": []map[string]any{{"parts": []map[string]any{{"kind": "text", "text": "结论"}}}},
+			"history": []map[string]any{
+				{"role": "user", "parts": []map[string]any{{"kind": "text", "text": "任务输入"}}},
+				{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": "分析中"}}},
+				{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": "审查完成"}}},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}))
+	defer srv.Close()
+
+	ctx2, evts2 := withSink(context.Background())
+	bt2, err := newA2AMemberTool(a2aMemberDeps{Name: "外部审查员", Endpoint: srv.URL, PollSec: 0.002})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it2, ok := bt2.(einotool.InvokableTool)
+	if !ok {
+		t.Fatal("应为 InvokableTool")
+	}
+	if _, err := it2.InvokableRun(ctx2, `{"request":"审查"}`); err != nil {
+		t.Fatal(err)
+	}
+	audits := []capturedEvent{}
+	for _, e := range *evts2 {
+		if e.typ == "external.audit" {
+			audits = append(audits, e)
+		}
+	}
+	if len(audits) != 3 { // user 空文本除外？——user 消息有文本"任务输入"，共 3 条
+		t.Fatalf("应转译 3 条 history: %d", len(audits))
+	}
+	s0, _ := audits[0].data["summary"].(string)
+	if !strings.Contains(s0, "[user] 任务输入") {
+		t.Fatalf("首条应带 [user] 前缀: %s", s0)
+	}
+	s2, _ := audits[2].data["summary"].(string)
+	if !strings.Contains(s2, "[agent] 审查完成") {
+		t.Fatalf("末条应带 [agent] 前缀: %s", s2)
+	}
+	if audits[0].data["source"] != "a2a_member" || audits[0].data["channel"] != "a2a" || audits[0].data["proto_event"] != "a2a_history" {
+		t.Fatalf("external.audit data 形态不符: %v", audits[0].data)
+	}
+	_ = ctx
+	_ = evts
+}

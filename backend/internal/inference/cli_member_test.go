@@ -148,3 +148,52 @@ func TestCLIMemberRunInDockerNoCLI(t *testing.T) {
 		t.Fatalf("docker 缺失应报错: %v", err)
 	}
 }
+
+// ---- REQ-428/M224：AuditHook 过程转译——宿主/沙箱两执行世界事件序列 ----
+
+func TestCLIMemberRunWithAuditSequence(t *testing.T) {
+	stubCLIBin(t, "stubcc", `
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"第一步说明"}]}}'
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"read_file","input":{"path":"a.go"}}]}}'
+echo '{"type":"result","subtype":"success","result":"最终答案"}'
+`)
+	ca := &cliAdapter{name: "stub", bin: []string{"stubcc"}, versionArgs: []string{"--version"},
+		buildArgs: func(req *RunRequest) []string { return []string{req.Prompt} }, parseLine: parseClaudeCodeLine}
+	var seq []string
+	out, _, err := CLIMemberRunWithAudit(context.Background(), ca, &RunRequest{Prompt: "任务"}, func(protoEvent, summary string) {
+		seq = append(seq, protoEvent+"|"+summary)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "最终答案" {
+		t.Fatalf("结果文本: %q", out)
+	}
+	want := []string{"text|第一步说明", "tool_use|read_file {\"path\":\"a.go\"}", "result|最终答案"}
+	if len(seq) != len(want) {
+		t.Fatalf("事件序列长度: %v", seq)
+	}
+	for i, w := range want {
+		if seq[i] != w {
+			t.Fatalf("事件[%d]=%q want %q", i, seq[i], w)
+		}
+	}
+}
+
+func TestCLIMemberRunInDockerAuditHook(t *testing.T) {
+	stubCLIBin(t, "stubcc", `
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"沙箱内过程"}]}}'
+`)
+	stubDockerBin(t)
+	ca := &cliAdapter{name: "stub", bin: []string{"stubcc"}, versionArgs: []string{"--version"},
+		buildArgs: func(req *RunRequest) []string { return []string{req.Prompt} }, parseLine: parseClaudeCodeLine}
+	var got []string
+	_, _, err := CLIMemberRunInDocker(context.Background(), ca, &RunRequest{Prompt: "任务"},
+		DockerRunSpec{Image: "img:dev", Hook: func(protoEvent, summary string) { got = append(got, protoEvent+"|"+summary) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "text|沙箱内过程" {
+		t.Fatalf("沙箱 hook 转译: %v", got)
+	}
+}

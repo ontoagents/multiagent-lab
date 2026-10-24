@@ -80,7 +80,15 @@ func newA2AMemberTool(d a2aMemberDeps) (einotool.BaseTool, error) {
 			ctx, cancel := context.WithTimeout(ctx, DelegateRunTimeout)
 			defer cancel()
 
-			out, err := a2aDelegateRun(ctx, d, in.Request)
+			// REQ-428/M224：过程转译——远端任务 history（agent 消息）逐条转 external.audit
+			// run_event（沿 REQ-206 S3 先例；上限 20 条防刷屏，超出以尾注如实标注）
+			hook := func(protoEvent, summary string) {
+				tool.EmitEvent(ctx, "external.audit", map[string]any{
+					"source": "a2a_member", "member": d.Name, "channel": "a2a",
+					"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
+				})
+			}
+			out, err := a2aDelegateRun(ctx, d, in.Request, hook)
 			if err == nil {
 				return out, nil
 			}
@@ -118,7 +126,8 @@ func a2aSendDone(rt *a2a.RemoteTask) (done, failed bool) {
 }
 
 // a2aDelegateRun message/send + tasks/get 轮询（send 即回终态的同步型远端跳过轮询）。
-func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string) (string, error) {
+// REQ-428：hook 非 nil 时任务 history 逐条转译过程事件（上限 20 条，超出尾注标注）。
+func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string, hook func(protoEvent, summary string)) (string, error) {
 	poll := time.Duration(d.PollSec * float64(time.Second))
 	rt, err := a2a.Send(ctx, d.Endpoint, d.Headers, task)
 	if err != nil {
@@ -128,6 +137,23 @@ func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string) (string, 
 		rt, err = a2a.AwaitTerminal(ctx, d.Endpoint, d.Headers, rt.ID, poll)
 		if err != nil {
 			return "", err
+		}
+	}
+	if hook != nil {
+		const maxHistory = 20
+		n := len(rt.History)
+		for i, h := range rt.History {
+			if i >= maxHistory {
+				hook("a2a_history", fmt.Sprintf("（history 共 %d 条，仅转译前 %d 条）", n, maxHistory))
+				break
+			}
+			if strings.TrimSpace(h.Text) != "" {
+				role := h.Role
+				if role == "" {
+					role = "agent"
+				}
+				hook("a2a_history", "["+role+"] "+h.Text)
+			}
 		}
 	}
 	if rt.State != "completed" {

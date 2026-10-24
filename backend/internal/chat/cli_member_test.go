@@ -150,6 +150,7 @@ func stubClaudeBin(t *testing.T) {
 	dir := t.TempDir()
 	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-stub 9.9.9'; exit 0; fi\n" +
 		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub\"}]}}'\n" +
+		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"read_file\",\"input\":{\"path\":\"a.go\"}}]}}'\n" +
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"stub \u7ed3\u679c REQ427_TEST_ENV='\"$REQ427_TEST_ENV\"'\"}'" + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -385,5 +386,51 @@ func TestAssembleCLIMembersCredsEnvInject(t *testing.T) {
 	}
 	if !strings.Contains(out, "sk-secret") {
 		t.Fatalf("credentials.env 应注入子进程环境: %s", out)
+	}
+}
+
+// REQ-428/M224：CLI 成员过程转译端到端——装配链真实调用成员工具，stream-json 的
+// text/tool_use/result 逐条转 external.audit run_event（data 形态断言）。
+func TestAssembleCLIMembersProcessAudit(t *testing.T) {
+	stubClaudeBin(t)
+	asm, st := newCLIFixture(t)
+	c, err := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "过程成员",
+		Config: map[string]any{"backend": "claude-code"},
+		CardJSON: `{"type":"cli-probe","backend":"claude-code","version":"9.9.9"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &store.Agent{Name: "a", Connectors: []string{c.ID}}
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	if len(warns) != 0 || len(tools) != 1 {
+		t.Fatalf("装配失败: %v", warns)
+	}
+	it, ok := tools[0].(einotool.InvokableTool)
+	if !ok {
+		t.Fatal("应为 InvokableTool")
+	}
+	ctx, evts := withSink(context.Background())
+	if _, err := it.InvokableRun(ctx, `{"request":"过程任务"}`); err != nil {
+		t.Fatal(err)
+	}
+	var audits []capturedEvent
+	for _, e := range *evts {
+		if e.typ == "external.audit" {
+			audits = append(audits, e)
+		}
+	}
+	if len(audits) != 3 {
+		t.Fatalf("应转译 3 条过程事件（text/tool_use/result）: %d", len(audits))
+	}
+	if audits[0].data["proto_event"] != "text" || audits[1].data["proto_event"] != "tool_use" || audits[2].data["proto_event"] != "result" {
+		t.Fatalf("proto_event 序列不符: %v/%v/%v", audits[0].data["proto_event"], audits[1].data["proto_event"], audits[2].data["proto_event"])
+	}
+	if s, _ := audits[1].data["summary"].(string); !strings.Contains(s, "read_file") {
+		t.Fatalf("tool_use 摘要应含工具名: %s", s)
+	}
+	if audits[0].data["source"] != "cli_member" || audits[0].data["channel"] != "cli" || audits[0].data["member"] != "过程成员" {
+		t.Fatalf("external.audit data 形态不符: %v", audits[0].data)
 	}
 }

@@ -410,6 +410,11 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
       marks.push({ lane: 3, at: t, color: '#fa8c16', tip: `警告：${String(d?.message ?? '').slice(0, 60)}` })
     } else if (e.type === 'verify.failed' || e.type === 'verify.completed') {
       marks.push({ lane: 3, at: t, color: e.type === 'verify.failed' ? '#ff4d4f' : '#52c41a', tip: `验证背压 ${e.type === 'verify.failed' ? '失败' : '通过'}` })
+    } else if (e.type === 'external.audit') {
+      // REQ-428/M224：外部成员过程级泳道标记（channel 分色沿委派单口径：CLI volcano/A2A 紫/其他灰）
+      const chColor = d?.channel === 'cli' ? '#d46b08' : d?.channel === 'a2a' ? '#531dab' : '#8c8c8c'
+      const chLabel = d?.channel === 'cli' ? 'CLI' : d?.channel === 'a2a' ? 'A2A' : String(d?.source ?? '外部')
+      marks.push({ lane: 3, at: t, color: chColor, tip: `${chLabel} 成员过程 ${d?.member ?? ''} · ${String(d?.proto_event ?? '')} · ${String(d?.summary ?? '').slice(0, 60)}` })
     } else if (e.type === 'connector.degraded' || e.type === 'hook.denied') {
       marks.push({ lane: 3, at: t, color: '#ff4d4f', tip: describeEvent(e.type, d).text })
     }

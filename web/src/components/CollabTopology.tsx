@@ -26,6 +26,8 @@ type TopoNodeData = {
   endpoint?: string
   channel?: string
   backend?: string
+  /** REQ-428/M224：过程转译事件计数（external.audit 聚合——拓扑回放活动态） */
+  activity?: number
 }
 
 function TopoNode({ data }: NodeProps) {
@@ -52,7 +54,7 @@ function TopoNode({ data }: NodeProps) {
         {d.role === 'coordinator'
           ? '协调者'
           : d.external
-            ? `${d.channel === 'cli' ? '外部 CLI 成员' : '外部 A2A 成员'}${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}`
+            ? `${d.channel === 'cli' ? '外部 CLI 成员' : '外部 A2A 成员'}${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}${d.activity ? ` · 过程 ${d.activity} 条` : ''}`
             : `成员${d.count > 0 ? ` · 委派 ${d.count} 次` : ''}${d.via === 'transfer' ? ' · transfer' : ''}`}
       </div>
       {d.inStack && (
@@ -65,7 +67,7 @@ function TopoNode({ data }: NodeProps) {
 
 const nodeTypes: NodeTypes = { topo: TopoNode }
 
-type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string; delegates?: number; external?: boolean; endpoint?: string; channel?: string; backend?: string }
+type SubagentStat = { enters: number; exits: number; inStack: boolean; via?: string; delegates?: number; external?: boolean; endpoint?: string; channel?: string; backend?: string; activity?: number }
 
 /** subagent.enter/exit 事件升序聚合：每成员委派次数与在栈状态（transfer 也计入并标注）；
  * REQ-416/REQ-426：subagent.delegate channel=a2a/cli 聚合为外部成员（delegates 计数+
@@ -83,6 +85,15 @@ function aggregateSubagentEvents(events: RunEventDTO[]): Record<string, Subagent
       st.channel = String(d.channel)
       if (d.endpoint) st.endpoint = String(d.endpoint)
       if (d.backend) st.backend = String(d.backend)
+      continue
+    }
+    if (e.type === 'external.audit') {
+      // REQ-428/M224：过程转译事件聚合——外部成员节点回放活动计数（委派单之外的过程态）
+      if (!d.member) continue
+      const st = (stats[String(d.member)] ??= { enters: 0, exits: 0, inStack: false })
+      st.activity = (st.activity ?? 0) + 1
+      st.external = true
+      if (!st.channel && d.channel) st.channel = String(d.channel)
       continue
     }
     const name = String(d.agent ?? '')
@@ -178,7 +189,7 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         id: `ext:${name}`,
         type: 'topo',
         position: { x, y: 128 },
-        data: { name, role: 'member', count: st.delegates ?? 0, inStack: false, external: true, endpoint: st.endpoint, channel: st.channel, backend: st.backend } as unknown as Record<string, unknown>,
+        data: { name, role: 'member', count: st.delegates ?? 0, inStack: false, external: true, endpoint: st.endpoint, channel: st.channel, backend: st.backend, activity: st.activity } as unknown as Record<string, unknown>,
       })
       edges.push({
         id: `exte:${name}`,

@@ -498,10 +498,19 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 				if p := strings.TrimSpace(taskPrefix); p != "" {
 					task = p + "\n\n" + task
 				}
-				if dockerSpec != nil {
-					return inference.CLIMemberRunInDocker(ctx, b, &inference.RunRequest{Prompt: task}, *dockerSpec)
+				// REQ-428/M224：CLI stream-json 过程转译 external.audit run_event（沿 REQ-206 S3 先例）
+				hook := func(protoEvent, summary string) {
+					tool.EmitEvent(ctx, "external.audit", map[string]any{
+						"source": "cli_member", "member": name, "channel": "cli", "backend": backend,
+						"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
+					})
 				}
-				return inference.CLIMemberRun(ctx, b, &inference.RunRequest{Prompt: task, Cwd: cwd, Env: env})
+				if dockerSpec != nil {
+					spec := *dockerSpec
+					spec.Hook = hook
+					return inference.CLIMemberRunInDocker(ctx, b, &inference.RunRequest{Prompt: task}, spec)
+				}
+				return inference.CLIMemberRunWithAudit(ctx, b, &inference.RunRequest{Prompt: task, Cwd: cwd, Env: env}, hook)
 			},
 		})
 		if terr != nil {

@@ -97,6 +97,15 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       if (d?.phase === 'completed') return { text: `☑ 工作流节点完成 · ${d?.node ?? ''}${idx}` }
       return { text: `▶ 工作流节点开始 · ${d?.node ?? ''}${idx}［${d?.mode ?? ''}］` }
     }
+    // REQ-428/M224：外部成员过程转译（external.audit——CLI stream-json/A2A history 统一转译）
+    case 'external.audit': {
+      const summary = String(d?.summary ?? '').slice(0, 80)
+      if (d?.member) {
+        const ch = d?.channel === 'cli' ? 'CLI' : 'A2A'
+        return { text: `🔍 外部成员过程 · ${String(d.member)}（${ch}）· ${String(d?.proto_event ?? '')} · ${summary}` }
+      }
+      return { text: `🧾 外部后端审计 · ${summary}` }
+    }
     // REQ-224 H10：本体消费命中 / ①状态机变更
     case 'ontology.hit':
       return { text: `⚡ 本体命中 · ${d?.tool ?? ''}${d?.target ? ` · ${d.target}` : ''}（${d?.ontology_id ?? ''}）` }
