@@ -6,6 +6,7 @@
 package tool
 
 import (
+	"sync"
 	"context"
 	"fmt"
 	"strings"
@@ -54,9 +55,12 @@ var DangerousBuiltinTools = map[string]bool{
 }
 
 // IsDangerousTool REQ-231①：danger 档判定——内置写类 + 连接器/mcp 非 read-only 前缀工具
-// （{连接器实例名}__{tool} 形态一律视为危险：装配侧已对 read_only 连接器摘除写工具，
-// 但 mcp 直通无法静态判定，保守全审；SSH/k8s 同口径）。ontology__ onto_* 与内置只读免审，
+// （{连接器实例名}__{tool} 形态视为危险：装配侧已对 read_only 连接器摘除写工具，
+// mcp 直通无法静态判定保守全审；SSH/k8s 同口径）。ontology__ onto_* 与内置只读免审，
 // 但 REQ-366/M164 本体 spec 写类工具（upsert/delete，资产变更面）例外入 danger 档。
+// REQ-392/M188：MCP 官方 tool annotations readOnlyHint=true 收窄出 danger 全审
+// （53 号开放问题 1 的解药、REQ-356 观察项兑现）——注册表见 mcp.go（装配期 fetch 时填充）；
+// 无标注/显式 false 维持全审（诚实默认），审批三档与豁免清单零变化。
 func IsDangerousTool(name string) bool {
 	if DangerousBuiltinTools[name] {
 		return true
@@ -70,9 +74,35 @@ func IsDangerousTool(name string) bool {
 			}
 			return false
 		}
-		return true
+		if _, annotated := mcpReadOnlyHints.Load(name); annotated {
+			return !MCPReadOnlyHint(name) // 有官方标注：readOnlyHint=true 免审、false 全审
+		}
+		return true // 无标注：保守全审（诚实默认）
 	}
 	return false
+}
+
+// mcpReadOnlyHints MCP 工具只读提示注册表（fullName → readOnlyHint bool；装配期 fetch 填充）。
+var mcpReadOnlyHints sync.Map
+
+func setMCPReadOnlyHint(fullName string, ro bool) { mcpReadOnlyHints.Store(fullName, ro) }
+
+// MCPReadOnlyHint 查询工具的官方 readOnlyHint（未注册=false）。
+func MCPReadOnlyHint(fullName string) bool {
+	if v, ok := mcpReadOnlyHints.Load(fullName); ok {
+		ro, _ := v.(bool)
+		return ro
+	}
+	return false
+}
+
+// ResetMCPReadOnlyHintsForTest 测试注清空。
+func ResetMCPReadOnlyHintsForTest() { mcpReadOnlyHints.Range(func(k, _ any) bool { mcpReadOnlyHints.Delete(k); return true }) }
+
+// HasMCPReadOnlyAnnotation 工具是否有官方 annotations 标注（readOnlyHint 显式 true/false 均算）。
+func HasMCPReadOnlyAnnotation(fullName string) bool {
+	_, ok := mcpReadOnlyHints.Load(fullName)
+	return ok
 }
 
 type approvalTool struct {

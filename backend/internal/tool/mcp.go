@@ -191,6 +191,17 @@ func fetchMCPToolsDirect(ctx context.Context, serverName, url string, headers ma
 	if err != nil {
 		return nil, fmt.Errorf("mcp list tools: %w", err)
 	}
+	// REQ-392/M188：读取 MCP 官方 tool annotations（readOnlyHint）入注册表——danger 全审
+	// 收窄的判定源（approval.go IsDangerousTool 查询）。ListTools 与 GetTools 并行口径：
+	// 注释读取为轻量元数据往返（装配 TTL 缓存窗口内一次），无标注/读取失败=无注册（维持全审默认）。
+	if ltRes, lerr := cli.ListTools(cctx, mcp.ListToolsRequest{}); lerr == nil {
+		for _, mt := range ltRes.Tools {
+			full := serverName + "__" + mt.Name
+			if mt.Annotations.ReadOnlyHint != nil {
+				setMCPReadOnlyHint(full, *mt.Annotations.ReadOnlyHint)
+			}
+		}
+	}
 
 	out := make([]einotool.BaseTool, 0, len(bts))
 	prefix := serverName + "__"
