@@ -32,12 +32,12 @@ const mcpFetchTimeout = 10 * time.Second
 
 // Assembler 从平台配置装配 Eino Agent。
 type Assembler struct {
-	Store       *store.Store
-	Box         *secrets.Box
-	Tools       *tool.Registry
-	Composer    *skill.Composer   // M9：技能注入（nil 时技能不生效）
-	Ontology    *ontology.Service // M8：本体对接（nil 时本体不生效）
-	FilesRoot   string            // M11：项目文件根目录（空=save_file 不启用），如 ./data/projects
+	Store     *store.Store
+	Box       *secrets.Box
+	Tools     *tool.Registry
+	Composer  *skill.Composer   // M9：技能注入（nil 时技能不生效）
+	Ontology  *ontology.Service // M8：本体对接（nil 时本体不生效）
+	FilesRoot string            // M11：项目文件根目录（空=save_file 不启用），如 ./data/projects
 	// REQ-336：智能体默认文件根（如 <DB 同级>/agent-files）——未设置 work_dir 的智能体回落
 	// AgentFilesRoot/{agent_id} 作为文件工具安全根与对话附加文件落位（空=维持旧行为返回空）。
 	AgentFilesRoot string
@@ -87,7 +87,7 @@ type assembleScope struct {
 }
 
 // resolveWorkRoot REQ-202 ①：文件原语工具的安全根解析——项目会话沿用项目文件根
-//（ProjectDirRoot：绑定 local_dir 优先，回退 FilesRoot/{projectID}）；非项目会话用
+// （ProjectDirRoot：绑定 local_dir 优先，回退 FilesRoot/{projectID}）；非项目会话用
 // agent.work_dir（~ 展开 + IsAbsDir 校验，非法值告警返回空——不放松安全边界）；
 // REQ-336：未设置 work_dir 时回落默认目录 AgentFilesRoot/{agent_id}（web=仓库 data/、
 // 客户端=数据目录内，与 dir-files 视图/对话附加文件上传同一解析）。
@@ -165,14 +165,14 @@ func (a *Assembler) assembleSingle(ctx context.Context, ag *store.Agent, sc asse
 	}
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: b.Inst, EnableStreaming: true, CheckPointStore: a.CheckPoints})
 	return &BuildResult{
-		Runner:       runner,
-		AgentName:    ag.Name,
-		ModelLabel:   b.Meta.ModelLabel,
-		ConnID:       b.Meta.ConnID,
-		SourceOf:     b.Meta.SourceOf,
-		Warnings:     b.Meta.Warnings,
-		LoadedSkills: b.Meta.LoadedSkills,
-		MaxIteration: normalizeMaxIter(ag.MaxIteration), // REQ-311 A4：生效值透出（≤0 归一 25 不再只发生在 ADK 内部）
+		Runner:          runner,
+		AgentName:       ag.Name,
+		ModelLabel:      b.Meta.ModelLabel,
+		ConnID:          b.Meta.ConnID,
+		SourceOf:        b.Meta.SourceOf,
+		Warnings:        b.Meta.Warnings,
+		LoadedSkills:    b.Meta.LoadedSkills,
+		MaxIteration:    normalizeMaxIter(ag.MaxIteration), // REQ-311 A4：生效值透出（≤0 归一 25 不再只发生在 ADK 内部）
 		OntoUnavailable: b.Meta.OntoUnavailable,
 		Snapshot: snapshotOf("single", []map[string]any{
 			agentSnapshotEntry("single", ag.Name, b.Meta.ModelLabel, b.Meta.SourceOf, b.Meta.LoadedSkills, a.mcpSnapshotOf(ag), b.Meta.Instruction),
@@ -352,7 +352,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 		ModelLabel: label, ConnID: connID,
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
 		MaxIteration: normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
-			Snapshot:     snapshotOf("agent_as_tool", entries),
+		Snapshot:     snapshotOf("agent_as_tool", entries),
 	}, nil
 }
 
@@ -405,7 +405,7 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 // sequential/parallel/loop 以 Eino ADK 官方工作流原语装配（adk.NewSequentialAgent/
 // ParallelAgent/LoopAgent，transfer 基座全上下文共享）——确定性编排，无协调者 LLM 路由。
 // 口径复核（立项条款）：44 号「官方 NOT RECOMMENDED」在 eino v0.9.19 仍成立
-//（adk/workflow.go 三构造器注释原文推荐 ChatModelAgent+AgentTool）——本兑现如实保留
+// （adk/workflow.go 三构造器注释原文推荐 ChatModelAgent+AgentTool）——本兑现如实保留
 // 官方注记（快照 Warning+前端提示），agent_as_tool 仍为推荐默认（Q-4 不变）；
 // 工作流价值定位=确定性顺序/并行/循环拓扑（LG-7 理解确定性编排）。
 // 成员即节点（项目成员序）；loop 迭代上限固定 3（防无限循环，快照告警注明）。
@@ -561,7 +561,7 @@ func (a *Assembler) buildOne(ctx context.Context, ag *store.Agent, sc assembleSc
 // isSelfMCPEndpoint 判断 URL 是否指向本平台 /mcp 端点（环回主机 + 端口为本平台监听端口 +
 // 路径恰为 /mcp）。防止 agent 配置本平台对外端点造成 agent→server→agent 链式递归（§6.13 安全边界）。
 // REQ-214：路径须精确等于 /mcp——/connectors/{id}/mcp 等插件服务子路径不算自引用
-//（指向插件服务的直通绕过由装配层 PluginEndpoint 前缀防线单独拦截）。
+// （指向插件服务的直通绕过由装配层 PluginEndpoint 前缀防线单独拦截）。
 // REQ-206/M41 S2 真机修正：原「环回主机即自引用」过宽——本机任意端口的 /mcp 服务
 // （如本机开发 MCP 桩）被误杀；收紧为端口须等于本平台监听端口（ADDR，默认 8080）。
 func isSelfMCPEndpoint(raw string) bool {
@@ -624,108 +624,139 @@ type toolBundle struct {
 // 4) 本体 facade（挂载运行方案时）onto_* 工具，source=ontology:facade，失败 ontology.unavailable 降级；
 // function name 冲突先到先得 + 告警。
 func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assembleScope) (*toolBundle, error) {
+	// REQ-390②/M186 余项：装配管线步骤化（351 行单函数 → 8 个 step 方法；零行为变更——
+	// 语句逐字搬移，工具装配顺序/去重/告警/包装层级全部保持；每步职责注释随步迁移）。
 	tb := &toolBundle{Tools: []einotool.BaseTool{}, SourceOf: map[string]string{}, Warnings: []string{}}
+	if err := a.stepBuiltinTools(ctx, ag, tb); err != nil {
+		return nil, err
+	}
+	a.stepOnchatTools(ctx, ag, tb)
+	a.stepSkillTools(ctx, ag, tb)
+	a.stepMCPTools(ctx, ag, tb)
+	a.stepOntologyTools(ctx, ag, sc, tb)
+	a.stepFileTools(ctx, ag, sc, tb)
+	a.stepHookWrap(ag, tb)
+	if err := a.stepApprovalWrap(ctx, ag, sc, tb); err != nil {
+		return nil, err
+	}
+	a.stepNormalizeAndGate(ctx, ag, tb)
+	return tb, nil
+}
 
-	// 1) builtin 勾选
+// step 1) builtin 勾选。
+func (a *Assembler) stepBuiltinTools(ctx context.Context, ag *store.Agent, tb *toolBundle) error {
 	composed, err := a.Tools.Compose(ctx, append([]string{}, ag.Tools...))
 	if err != nil {
-		return nil, fmt.Errorf("compose tools: %w", err)
+		return fmt.Errorf("compose tools: %w", err)
 	}
 	tb.Tools = append(tb.Tools, composed.Tools...)
 	for k, v := range composed.SourceOf {
 		tb.SourceOf[k] = v
 	}
 	tb.Warnings = append(tb.Warnings, composed.Warnings...)
+	return nil
+}
 
-	// 1.5) 对话建本体能力开关（REQ-360/M161）：onchat_mode 非空 = 能力开启——装配层自动并入
-	// ontochat_* 四工具，与 Agent.Tools 手勾取并集（先到先得去重，存量手勾配置行为不变）；
-	// 来源标注 onchat（REQ-311 装配透镜可辨）。未开能力不装配=不静默改配置（03 §2.54 A）。
-	if ag.OnchatMode != "" && a.Tools != nil {
-		for _, id := range tool.OnchatToolIDs {
-			e, ok := a.Tools.Get(id)
+// step 1.5) 对话建本体能力开关（REQ-360/M161）：onchat_mode 非空 = 能力开启——装配层自动并入
+// ontochat_* 四工具，与 Agent.Tools 手勾取并集（先到先得去重，存量手勾配置行为不变）；
+// 来源标注 onchat（REQ-311 装配透镜可辨）。未开能力不装配=不静默改配置（03 §2.54 A）。
+func (a *Assembler) stepOnchatTools(ctx context.Context, ag *store.Agent, tb *toolBundle) {
+	if !(ag.OnchatMode != "" && a.Tools != nil) {
+		return
+	}
+	for _, id := range tool.OnchatToolIDs {
+		e, ok := a.Tools.Get(id)
+		if !ok {
+			tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 未注册，已跳过", id))
+			continue
+		}
+		if _, dup := tb.SourceOf[e.Name]; dup {
+			continue // 手勾或前序来源已装
+		}
+		bt, berr := e.New(ctx)
+		if berr != nil {
+			tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 实例化失败: %v", id, berr))
+			continue
+		}
+		tb.Tools = append(tb.Tools, bt)
+		tb.SourceOf[e.Name] = "onchat"
+	}
+}
+
+// step 2) 技能白名单（M9 挂载生效）。
+func (a *Assembler) stepSkillTools(ctx context.Context, ag *store.Agent, tb *toolBundle) {
+	if a.Composer == nil {
+		return
+	}
+	tb.LoadedSkills = a.Composer.LoadedSkills(ag)
+	for _, sk := range tb.LoadedSkills {
+		for _, tid := range sk.Tools {
+			e, ok := a.Tools.Get(tid)
 			if !ok {
-				tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 未注册，已跳过", id))
+				tb.Warnings = append(tb.Warnings, fmt.Sprintf("技能 %q 引用未知工具 %q，已跳过", sk.Name, tid))
 				continue
 			}
 			if _, dup := tb.SourceOf[e.Name]; dup {
-				continue // 手勾或前序来源已装
+				continue // agent.tools 已勾选或前序技能已装
 			}
 			bt, berr := e.New(ctx)
 			if berr != nil {
-				tb.Warnings = append(tb.Warnings, fmt.Sprintf("对话建本体工具 %q 实例化失败: %v", id, berr))
+				tb.Warnings = append(tb.Warnings, fmt.Sprintf("技能 %q 工具 %q 实例化失败: %v", sk.Name, tid, berr))
 				continue
 			}
 			tb.Tools = append(tb.Tools, bt)
-			tb.SourceOf[e.Name] = "onchat"
+			tb.SourceOf[e.Name] = "skill:" + sk.ID
 		}
 	}
+}
 
-	// 2) 技能白名单（M9 挂载生效）
-	if a.Composer != nil {
-		tb.LoadedSkills = a.Composer.LoadedSkills(ag)
-		for _, sk := range tb.LoadedSkills {
-			for _, tid := range sk.Tools {
-				e, ok := a.Tools.Get(tid)
-				if !ok {
-					tb.Warnings = append(tb.Warnings, fmt.Sprintf("技能 %q 引用未知工具 %q，已跳过", sk.Name, tid))
-					continue
-				}
-				if _, dup := tb.SourceOf[e.Name]; dup {
-					continue // agent.tools 已勾选或前序技能已装
-				}
-				bt, berr := e.New(ctx)
-				if berr != nil {
-					tb.Warnings = append(tb.Warnings, fmt.Sprintf("技能 %q 工具 %q 实例化失败: %v", sk.Name, tid, berr))
-					continue
-				}
-				tb.Tools = append(tb.Tools, bt)
-				tb.SourceOf[e.Name] = "skill:" + sk.ID
-			}
-		}
+// fetchMCPEndpoint 单端点拉取（步骤 3 的闭包提升为方法；REQ-131 自引用拦截/REQ-202 重试/
+// REQ-224 connector.degraded 事件语义不变）。
+func (a *Assembler) fetchMCPEndpoint(ctx context.Context, tb *toolBundle, name, target string, headers map[string]string) {
+	// REQ-131/M18：拦截本平台 /mcp 自引用（防 agent→server→agent 循环递归）
+	if isSelfMCPEndpoint(target) {
+		tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s(%s) 指向本平台 /mcp 端点（自引用），已拒绝装配", name, target))
+		return
 	}
-
-	// 3) MCP 端点装配（M9 §6.11；REQ-214/M46 起挂载单元 server → 连接器实例）：
-	//    a.Connectors 引用（agent 级连接白名单）——mcp 直通走 config.url，kubernetes/ssh 由平台
-	//    托管插件服务承载（同一条 MCP 客户端管线：{连接器实例名}__{tool} 前缀、审批/审计自动生效，
-	//    凭据服务端绑定不进工具参数）；ag.MCPServers 为存量兼容残留（启动迁移后为空，双保险保留）。
-	//    连接失败降级继续，不阻断运行。
-	fetchEndpoint := func(name, target string, headers map[string]string) {
-		// REQ-131/M18：拦截本平台 /mcp 自引用（防 agent→server→agent 循环递归）
-		if isSelfMCPEndpoint(target) {
-			tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s(%s) 指向本平台 /mcp 端点（自引用），已拒绝装配", name, target))
-			return
-		}
-		var bts []einotool.BaseTool
-		ferr := DoWithRetry(ctx, 2, func() error { // REQ-202 ④：幂等重试白名单（deadline/reset/5xx，N=2）
-			var e error
-			bts, e = tool.FetchMCPToolsWithHeaders(ctx, name, target, headers, mcpFetchTimeout)
-			return e
+	var bts []einotool.BaseTool
+	ferr := DoWithRetry(ctx, 2, func() error { // REQ-202 ④：幂等重试白名单（deadline/reset/5xx，N=2）
+		var e error
+		bts, e = tool.FetchMCPToolsWithHeaders(ctx, name, target, headers, mcpFetchTimeout)
+		return e
+	})
+	if ferr != nil {
+		tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s(%s) 连接失败（含幂等重试），本次运行不加载其工具: %v", name, target, ferr))
+		// REQ-224/M52（51 号 W1）：connector.degraded 结构化事件（SSE+落库；run.started warnings 兼容保留）
+		tool.EmitEvent(ctx, "connector.degraded", map[string]any{
+			"connector": name, "target": target, "reason": ferr.Error(),
 		})
-		if ferr != nil {
-			tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s(%s) 连接失败（含幂等重试），本次运行不加载其工具: %v", name, target, ferr))
-			// REQ-224/M52（51 号 W1）：connector.degraded 结构化事件（SSE+落库；run.started warnings 兼容保留）
-			tool.EmitEvent(ctx, "connector.degraded", map[string]any{
-				"connector": name, "target": target, "reason": ferr.Error(),
-			})
-			return
-		}
-		if len(bts) == 0 {
-			tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s 未暴露任何工具", name))
-			return
-		}
-		for _, bt := range bts {
-			ti, ierr := bt.Info(ctx)
-			if ierr != nil || ti == nil || ti.Name == "" {
-				continue
-			}
-			if _, dup := tb.SourceOf[ti.Name]; dup {
-				tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP 工具 %q 与已有工具重名，已跳过", ti.Name))
-				continue
-			}
-			tb.Tools = append(tb.Tools, bt)
-			tb.SourceOf[ti.Name] = "mcp:" + name
-		}
+		return
 	}
+	if len(bts) == 0 {
+		tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s 未暴露任何工具", name))
+		return
+	}
+	for _, bt := range bts {
+		ti, ierr := bt.Info(ctx)
+		if ierr != nil || ti == nil || ti.Name == "" {
+			continue
+		}
+		if _, dup := tb.SourceOf[ti.Name]; dup {
+			tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP 工具 %q 与已有工具重名，已跳过", ti.Name))
+			continue
+		}
+		tb.Tools = append(tb.Tools, bt)
+		tb.SourceOf[ti.Name] = "mcp:" + name
+	}
+}
+
+// step 3) MCP 端点装配（M9 §6.11；REQ-214/M46 起挂载单元 server → 连接器实例）：
+//
+//	a.Connectors 引用（agent 级连接白名单）——mcp 直通走 config.url，kubernetes/ssh 由平台
+//	托管插件服务承载（同一条 MCP 客户端管线：{连接器实例名}__{tool} 前缀、审批/审计自动生效，
+//	凭据服务端绑定不进工具参数）；ag.MCPServers 为存量兼容残留（启动迁移后为空，双保险保留）。
+//	连接失败降级继续，不阻断运行。
+func (a *Assembler) stepMCPTools(ctx context.Context, ag *store.Agent, tb *toolBundle) {
 	if a.Store != nil {
 		pluginBase := strings.TrimRight(a.PluginEndpoint, "/")
 		for _, id := range ag.Connectors {
@@ -761,45 +792,61 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 				tb.Warnings = append(tb.Warnings, fmt.Sprintf("MCP %s(%s) 指向本平台连接器插件服务（绕过连接器授权），已拒绝装配", c.Name, target))
 				continue
 			}
-			fetchEndpoint(c.Name, target, headers)
+			a.fetchMCPEndpoint(ctx, tb, c.Name, target, headers)
 		}
 	}
 	for _, ms := range ag.MCPServers {
 		if ms.URL == "" {
 			continue
 		}
-		fetchEndpoint(ms.Name, ms.URL, nil)
+		a.fetchMCPEndpoint(ctx, tb, ms.Name, ms.URL, nil)
 	}
+}
 
-	// 4) 本体 facade（M8 §6.10-1：挂载运行方案时并入 onto_* 工具；
-	// 单次失败即降级——ontology.unavailable 事件，不重试风暴，普通对话/知识库不受影响）
-	// REQ-366/M164 门控：facade 13 件扩展工具（spec CRUD/校验/CQ 基准）仅 Agent.OntoOps
-	// 开启时并入（默认关，存量零变化）；原 6 查询工具挂载即并入的既有语义不变。
-	if sc.Mount != "" && a.Ontology != nil {
-		bts, ferr := a.Ontology.FetchTools(ctx)
-		if ferr != nil {
-			tb.OntoIssue = &ontology.Issue{ProfileID: sc.Mount, Reason: ferr.Error()}
-		} else {
-			for _, bt := range bts {
-				ti, ierr := bt.Info(ctx)
-				if ierr != nil || ti == nil || ti.Name == "" {
-					continue
-				}
-				if tool.IsOntoOperationTool(ti.Name) && !ag.OntoOps {
-					continue
-				}
-				if _, dup := tb.SourceOf[ti.Name]; dup {
-					tb.Warnings = append(tb.Warnings, fmt.Sprintf("本体工具 %q 与已有工具重名，已跳过", ti.Name))
-					continue
-				}
-				tb.Tools = append(tb.Tools, bt)
-				tb.SourceOf[ti.Name] = "ontology:facade"
-			}
+// step 4) 本体 facade（M8 §6.10-1：挂载运行方案时并入 onto_* 工具；
+// 单次失败即降级——ontology.unavailable 事件，不重试风暴，普通对话/知识库不受影响）
+// REQ-366/M164 门控：facade 13 件扩展工具（spec CRUD/校验/CQ 基准）仅 Agent.OntoOps
+// 开启时并入（默认关，存量零变化）；原 6 查询工具挂载即并入的既有语义不变。
+func (a *Assembler) stepOntologyTools(ctx context.Context, ag *store.Agent, sc assembleScope, tb *toolBundle) {
+	if !(sc.Mount != "" && a.Ontology != nil) {
+		return
+	}
+	bts, ferr := a.Ontology.FetchTools(ctx)
+	if ferr != nil {
+		tb.OntoIssue = &ontology.Issue{ProfileID: sc.Mount, Reason: ferr.Error()}
+		return
+	}
+	for _, bt := range bts {
+		ti, ierr := bt.Info(ctx)
+		if ierr != nil || ti == nil || ti.Name == "" {
+			continue
 		}
+		if tool.IsOntoOperationTool(ti.Name) && !ag.OntoOps {
+			continue
+		}
+		if _, dup := tb.SourceOf[ti.Name]; dup {
+			tb.Warnings = append(tb.Warnings, fmt.Sprintf("本体工具 %q 与已有工具重名，已跳过", ti.Name))
+			continue
+		}
+		tb.Tools = append(tb.Tools, bt)
+		tb.SourceOf[ti.Name] = "ontology:facade"
 	}
+}
 
-	// 5) save_file 产物工具 + list_files/read_file 目录浏览读取（M11 §6.13 / REQ-102：
-	// 项目会话且文件根目录已配置时启用；写盘成功由 runner 依 tool.result 发 artifact.saved 事件）
+// step 5) save_file 产物工具 + list_files/read_file 目录浏览读取（M11 §6.13 / REQ-102：
+// 项目会话且文件根目录已配置时启用；写盘成功由 runner 依 tool.result 发 artifact.saved 事件）
+// + 5.5) 通用原语（REQ-202/M38 Harness 执行面）：http_fetch / todo_write 常备装配；
+// 文件原语（grep/glob/read_file/write_file）按「安全根」装配——项目会话沿用项目文件根
+// （步骤内已装 read_file 等，SourceOf 去重不重复注册）；非项目会话用 agent.work_dir
+// （fsutil 归一+IsAbsDir 校验），未配置则不装配（无根即无文件能力，安全边界不放松）。
+// 来源标注 builtin；run_command 按 REQ-202 口径默认关（沙箱执行世界+绑定目录+审批三前置
+// 中「沙箱内执行」未建，本期不装配，cmdGuard 规则表已在 hooks.go 先行）。
+// + 5.55) run_command（REQ-225②/M53 沙箱执行纵深；REQ-202 B1 三前置全满足才装配）：
+// ①沙箱执行世界（SANDBOX_EXEC_WORLD=1——agentd 容器内装配，docker.go Start 注入；
+// 平台主进程宿主机世界禁入）②绑定目录（work_dir 已配置且随容器 volume 绑定）③审批
+// 生效（danger/all——run_command 恒属危险清单，审批外层拦截）。任一不满足不装配；
+// 沙箱世界内不满足时如实 warning（world 外静默——默认关语义，不噪声化）。
+func (a *Assembler) stepFileTools(ctx context.Context, ag *store.Agent, sc assembleScope, tb *toolBundle) {
 	if sc.ProjectID != "" && a.FilesRoot != "" && a.Store != nil {
 		if sf, serr := tool.NewSaveFileTool(tool.SaveFileDeps{
 			Store: a.Store, ProjectID: sc.ProjectID, ConversationID: sc.ConversationID, Root: a.FilesRoot,
@@ -823,13 +870,6 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			tb.SourceOf["read_file"] = "builtin"
 		}
 	}
-
-	// 5.5) 通用原语（REQ-202/M38 Harness 执行面）：http_fetch / todo_write 常备装配；
-	// 文件原语（grep/glob/read_file/write_file）按「安全根」装配——项目会话沿用项目文件根
-	//（上方 5 步已装 read_file 等，SourceOf 去重不重复注册）；非项目会话用 agent.work_dir
-	//（fsutil 归一+IsAbsDir 校验），未配置则不装配（无根即无文件能力，安全边界不放松）。
-	// 来源标注 builtin；run_command 按 REQ-202 口径默认关（沙箱执行世界+绑定目录+审批三前置
-	// 中「沙箱内执行」未建，本期不装配，cmdGuard 规则表已在 hooks.go 先行）。
 	if _, dup := tb.SourceOf["http_fetch"]; !dup {
 		if bt, ferr := tool.NewHTTPFetchTool(); ferr == nil {
 			tb.Tools = append(tb.Tools, bt)
@@ -879,12 +919,7 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			tb.SourceOf[mk.name] = "builtin"
 		}
 	}
-
-	// 5.55) run_command（REQ-225②/M53 沙箱执行纵深；REQ-202 B1 三前置全满足才装配）：
-	// ①沙箱执行世界（SANDBOX_EXEC_WORLD=1——agentd 容器内装配，docker.go Start 注入；
-	// 平台主进程宿主机世界禁入）②绑定目录（work_dir 已配置且随容器 volume 绑定）③审批
-	// 生效（danger/all——run_command 恒属危险清单，审批外层拦截）。任一不满足不装配；
-	// 沙箱世界内不满足时如实 warning（world 外静默——默认关语义，不噪声化）。
+	// 5.55) run_command：三前置（沙箱世界/绑定目录/审批档）
 	if tool.SandboxExecWorld() {
 		execRoot := a.resolveWorkRoot(sc, ag)
 		execApproval := ag.ToolApproval
@@ -909,10 +944,12 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			}
 		}
 	}
+}
 
-	// 5.6) 工具 hooks 包装（REQ-202 ②：pre 守卫/post 观测，审批之外的确定性检查层；
-	// 包装在内层——审批在外层先生效，批准后才进 hook 守卫。REQ-232：链按 agent 级配置
-	// 构建（fetchGuard 启停+自定义 deny 规则；cmdGuard 随 run_command 接线生效））
+// step 5.6) 工具 hooks 包装（REQ-202 ②：pre 守卫/post 观测，审批之外的确定性检查层；
+// 包装在内层——审批在外层先生效，批准后才进 hook 守卫。REQ-232：链按 agent 级配置
+// 构建（fetchGuard 启停+自定义 deny 规则；cmdGuard 随 run_command 接线生效））。
+func (a *Assembler) stepHookWrap(ag *store.Agent, tb *toolBundle) {
 	hooks := tool.BuildHookChain(&tool.AgentHookConfig{
 		FetchGuardDisabled: ag.Hooks.FetchGuardDisabled,
 		DenyRules:          convertDenyRules(ag.Hooks.DenyRules),
@@ -922,18 +959,21 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			tb.Tools[i] = hooks.Wrap(bt)
 		}
 	}
+}
 
-	// 6) 工具调用人工审批（REQ-14 恢复② / LG-8：Agent 开启 tool_approval=all 时，
-	// 本 Agent 的全部工具调用前挂起等待批准/拒绝，恢复数据 approve/deny 定向续跑。
-	// 注意：本列表天然不含成员智能体 AgentTool——它们在外层装配函数追加、协作编排非外部副作用）
+// step 6) 工具调用人工审批（REQ-14 恢复② / LG-8：Agent 开启 tool_approval=all 时，
+// 本 Agent 的全部工具调用前挂起等待批准/拒绝，恢复数据 approve/deny 定向续跑。
+// 注意：本列表天然不含成员智能体 AgentTool——它们在外层装配函数追加、协作编排非外部副作用）。
+// REQ-231① 审批三档：""=off（不审批）| "danger"=危险清单（写类内置+连接器/mcp 非 read-only
+// 前缀工具；read-only 免审）| "all"=全部工具。豁免清单/超时经 ApprovalPolicy 注入（②③）。
+// REQ-231④ 生效策略透出（对话窗口/轨迹「当前生效审批档」显示；P-H2 治理）。
+func (a *Assembler) stepApprovalWrap(ctx context.Context, ag *store.Agent, sc assembleScope, tb *toolBundle) error {
 	approval := ag.ToolApproval
 	if sc.ToolApprovalOverride == "on" {
 		approval = "all"
 	} else if sc.ToolApprovalOverride == "off" {
 		approval = ""
 	}
-	// REQ-231① 审批三档：""=off（不审批）| "danger"=危险清单（写类内置+连接器/mcp 非 read-only
-	// 前缀工具；read-only 免审）| "all"=全部工具。豁免清单/超时经 ApprovalPolicy 注入（②③）。
 	if approval == "all" || approval == "danger" {
 		policy := &tool.ApprovalPolicy{ExemptTools: ag.ApprovalExempt, TimeoutHours: ag.ApprovalTimeoutHours}
 		for i, bt := range tb.Tools {
@@ -949,34 +989,37 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 			}
 		}
 	}
-	// REQ-231④ 生效策略透出（对话窗口/轨迹「当前生效审批档」显示；P-H2 治理）
 	switch approval {
 	case "danger":
 		tb.Warnings = append(tb.Warnings, "审批策略：danger（仅危险工具需人工批准"+exemptNote(ag.ApprovalExempt)+"；生效来源："+approvalSource(sc.ToolApprovalOverride, ag.ToolApproval)+"）")
 	case "all":
 		tb.Warnings = append(tb.Warnings, "审批策略：all（全部工具需人工批准"+exemptNote(ag.ApprovalExempt)+"；生效来源："+approvalSource(sc.ToolApprovalOverride, ag.ToolApproval)+"）")
 	}
-	// 7) 空参数归一化包装（toolargs.go：GLM 等 Anthropic 兼容端点空入参 tool_use 致命解析失败的统一收口）
-	//    + 工具容错包装（toolerrors.go：执行失败错误回喂不炸 run，中断/取消透传）
+	return nil
+}
+
+// step 7) 空参数归一化包装（toolargs.go：GLM 等 Anthropic 兼容端点空入参 tool_use 致命解析
+// 失败的统一收口）+ 工具容错包装（toolerrors.go：执行失败错误回喂不炸 run，中断/取消透传）。
+// step 8) REQ-213③ 装配期 gating：propose_assistant_config 为内置助手专属（apply 写内置行
+// 配置）——非 builtin 行即使勾选/技能携带/MCP 同名也剔除并告警（治理收口，透明如实）。
+func (a *Assembler) stepNormalizeAndGate(ctx context.Context, ag *store.Agent, tb *toolBundle) {
 	for i, bt := range tb.Tools {
 		tb.Tools[i] = tolerantTool(normalizeEmptyArgsTool(bt))
 	}
-	// 8) REQ-213③ 装配期 gating：propose_assistant_config 为内置助手专属（apply 写内置行配置）——
-	// 非 builtin 行即使勾选/技能携带/MCP 同名也剔除并告警（治理收口，透明如实）。
-	if !ag.IsBuiltin {
-		const assistantOnly = "propose_assistant_config"
-		kept := tb.Tools[:0]
-		for _, bt := range tb.Tools {
-			if info, ierr := bt.Info(ctx); ierr == nil && info != nil && info.Name == assistantOnly {
-				delete(tb.SourceOf, assistantOnly)
-				tb.Warnings = append(tb.Warnings, "工具 "+assistantOnly+" 为平台助手专属，已从本次装配剔除")
-				continue
-			}
-			kept = append(kept, bt)
-		}
-		tb.Tools = kept
+	if ag.IsBuiltin {
+		return
 	}
-	return tb, nil
+	const assistantOnly = "propose_assistant_config"
+	kept := tb.Tools[:0]
+	for _, bt := range tb.Tools {
+		if info, ierr := bt.Info(ctx); ierr == nil && info != nil && info.Name == assistantOnly {
+			delete(tb.SourceOf, assistantOnly)
+			tb.Warnings = append(tb.Warnings, "工具 "+assistantOnly+" 为平台助手专属，已从本次装配剔除")
+			continue
+		}
+		kept = append(kept, bt)
+	}
+	tb.Tools = kept
 }
 
 // exemptNote REQ-231②：豁免清单在策略文案中的附注。
@@ -1200,7 +1243,7 @@ func (a *Assembler) mcpHeaders(c *store.Connector) map[string]string {
 
 // mcpSnapshotOf 装配快照的 mcp 字段（REQ-117 契约保持 name@target 形态）：
 // 存量 MCPServers + 连接器实例。脱敏口径：kubernetes/ssh 连接器只透出实例名与类型
-//（config/凭据服务端绑定，不进装配快照/模型上下文——REQ-214 验收断言点）。
+// （config/凭据服务端绑定，不进装配快照/模型上下文——REQ-214 验收断言点）。
 func (a *Assembler) mcpSnapshotOf(ag *store.Agent) []store.MCPServer {
 	out := append([]store.MCPServer{}, ag.MCPServers...)
 	if a.Store == nil {

@@ -26,7 +26,7 @@ type a2aMemberDeps struct {
 	Name     string // 工具名（=连接器实例名；冲突时装配层改名）
 	Endpoint string // A2A JSON-RPC 端点（config.url）
 	Headers  map[string]string
-	CardJSON string // 注册握手落库的 agent card 原文（工具描述合成源）
+	CardJSON string  // 注册握手落库的 agent card 原文（工具描述合成源）
 	PollSec  float64 // tasks/get 轮询间隔（config.poll_interval_seconds，缺省 2s）
 }
 
