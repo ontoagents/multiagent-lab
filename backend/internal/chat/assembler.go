@@ -55,6 +55,9 @@ type Assembler struct {
 	// REQ-427/M223：docker 可达探测（sandbox_mode=docker 的 CLI 成员三前置之沙箱执行世界；
 	// nil=docker 视为不可用。生产装配在 main.go 从 runtime 后端注入，单测用桩注入）。
 	DockerProbe func(ctx context.Context) bool
+	// KBRetriever REQ-430/M226：知识库检索闭包（外部成员上下文供给源之二；nil=KB 源不参与。
+	// 生产装配在 main.go 从 KBSource 适配器注入——经接口反转防包环，沿 REQ-355 R1 先例）。
+	KBRetriever func(ctx context.Context, kb *store.KnowledgeBase, query string, topK int, minScore float64) (string, error)
 }
 
 // WorkflowMeta 工作流装配元数据（REQ-205/M40：workflow_mode 兑现——节点清单与模式，
@@ -91,6 +94,9 @@ type assembleScope struct {
 	ConversationID       string // 产物归属会话
 	SkillsDisabled       bool   // 会话级技能开关：enable_skills=false 时本次装配不注入技能
 	ToolApprovalOverride string // REQ-135②：对话级工具审批覆盖（''=跟随 Agent 级 | on | off）
+	// ExtContext REQ-430/M226：外部成员委派上下文供给闭包（项目文件清单/知识库检索/本体概念
+	// 三源打包；nil=会话无可用源）。连接器 context_injection=auto 时成员委派按任务惰性取用。
+	ExtContext func(ctx context.Context, task string) string
 }
 
 // resolveWorkRoot REQ-202 ①：文件原语工具的安全根解析——项目会话沿用项目文件根
@@ -119,6 +125,105 @@ func (a *Assembler) resolveWorkRoot(sc assembleScope, ag *store.Agent) string {
 	return ""
 }
 
+// buildExtContext REQ-430/M226：外部成员委派上下文供给闭包——按会话能力组装三源：
+// ①项目文件清单（ProjectID+FilesRoot，静态惰性一次）②知识库检索（会话挂载 KB，按任务文本
+// 检索 top-k 渲染文本）③本体概念（挂载运行方案 guide 摘要截 2000）。任一源失败降级空串不阻断
+// （与 recallKB 降级口径一致）。返回 nil=会话无可用源。
+func (a *Assembler) buildExtContext(ctx context.Context, conv *store.Conversation, mount string) func(context.Context, string) string {
+	var sources []func(ctx context.Context, task string) string
+	if conv.ProjectID != nil && *conv.ProjectID != "" && a.FilesRoot != "" && a.Store != nil {
+		if root, err := tool.ProjectDirRoot(tool.ProjectDirDeps{Store: a.Store, ProjectID: *conv.ProjectID, FilesRoot: a.FilesRoot}); err == nil && root != "" {
+			sources = append(sources, func(context.Context, string) string {
+				return projectFileSummary(root)
+			})
+		}
+	}
+	if conv.EnableKB && conv.KBID != nil && *conv.KBID != "" && a.KBRetriever != nil && a.Store != nil {
+		kbID := *conv.KBID
+		topK, minScore := conv.TopK, conv.MinScore
+		if topK <= 0 {
+			topK = 4 // 检索命中注入上限（成员上下文贵在精炼）
+		}
+		sources = append(sources, func(ctx context.Context, task string) string {
+			kbcfg, err := a.Store.GetKnowledgeBase(kbID)
+			if err != nil {
+				return ""
+			}
+			text, err := a.KBRetriever(ctx, kbcfg, task, topK, minScore)
+			if err != nil || strings.TrimSpace(text) == "" {
+				return ""
+			}
+			return "# 知识库检索命中（按任务自动检索）\n" + text
+		})
+	}
+	if mount != "" && a.Ontology != nil {
+		sources = append(sources, func(ctx context.Context, _ string) string {
+			guide, err := a.Ontology.FetchGuide(ctx, mount, "")
+			if err != nil || strings.TrimSpace(guide) == "" {
+				return ""
+			}
+			g := strings.TrimSpace(guide)
+			if len(g) > 2000 {
+				g = g[:2000] + "…（guide 已截断）"
+			}
+			return "# 本体概念（挂载运行方案指引摘要）\n" + g
+		})
+	}
+	if len(sources) == 0 {
+		return nil
+	}
+	return func(ctx context.Context, task string) string {
+		var b strings.Builder
+		for _, src := range sources {
+			if seg := strings.TrimSpace(src(ctx, task)); seg != "" {
+				b.WriteString(seg + "\n")
+			}
+		}
+		if b.Len() == 0 {
+			return ""
+		}
+		return "# 平台注入的项目上下文（随本任务提供给外部成员，仅供参考）\n" + b.String()
+	}
+}
+
+// projectFileSummary 项目文件清单摘要（相对路径+大小，字典序上限 30 条——外部成员的项目视野）。
+func projectFileSummary(root string) string {
+	var names []string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			if name := d.Name(); name == ".git" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		if info, ierr := d.Info(); ierr == nil {
+			names = append(names, fmt.Sprintf("- %s（%d B）", rel, info.Size()))
+		} else {
+			names = append(names, "- "+rel)
+		}
+		return nil
+	})
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	const capN = 30
+	head := names
+	tail := ""
+	if len(names) > capN {
+		head = names[:capN]
+		tail = fmt.Sprintf("\n（共 %d 个文件，仅列前 %d）", len(names), capN)
+	}
+	return "# 项目文件清单\n" + strings.Join(head, "\n") + tail
+}
+
 func (a *Assembler) Assemble(ctx context.Context, agent *store.Agent, conv *store.Conversation) (*BuildResult, error) {
 	if agent == nil {
 		return nil, fmt.Errorf("agent is nil")
@@ -131,6 +236,7 @@ func (a *Assembler) Assemble(ctx context.Context, agent *store.Agent, conv *stor
 		if conv.ProjectID != nil {
 			sc.ProjectID = *conv.ProjectID
 		}
+		sc.ExtContext = a.buildExtContext(ctx, conv, sc.Mount) // REQ-430/M226
 		// 会话级技能开关（§6.12）：false 时本次装配剥离 Skills（单点生效，覆盖指令注入 + 工具白名单 + skill.loaded）
 		if conv.EnableSkills != nil && !*conv.EnableSkills {
 			sc.SkillsDisabled = true
@@ -323,7 +429,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 
 	// REQ-426/M222：外部 A2A 成员（协调者 kind=a2a 连接器）进入协作面——工具描述自注册握手
 	// 卡片合成，执行走 message/send+tasks/get 轮询，失败沿 REQ-319 语义降级回喂
-	a2aTools, a2aEntries, a2aWarns := a.assembleA2AMembers(ctx, coord, src)
+	a2aTools, a2aEntries, a2aWarns := a.assembleA2AMembers(ctx, coord, src, sc)
 	// REQ-427/M223：外部成员治理拉齐——审批档解析（对话级覆盖 > Agent 级，与 stepApprovalWrap 同序）
 	memberApproval := coord.ToolApproval
 	if sc.ToolApprovalOverride == "on" {
@@ -331,7 +437,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	} else if sc.ToolApprovalOverride == "off" {
 		memberApproval = ""
 	}
-	cliTools, cliEntries, cliWarns := a.assembleCLIMembers(ctx, coord, src, memberApproval)
+	cliTools, cliEntries, cliWarns := a.assembleCLIMembers(ctx, coord, src, memberApproval, sc)
 	tools = append(tools, a2aTools...)
 	entries = append(entries, a2aEntries...)
 	allWarns = append(allWarns, a2aWarns...)
@@ -381,7 +487,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 // 协作面委派工具（工具名=连接器实例名，冲突加 -a2a 后缀并告警；工具描述自注册握手卡片
 // 合成；凭据头沿 credentials.headers 先例；轮询间隔 config.poll_interval_seconds 缺省 2s）。
 // 装配期不拨号（注册/测试期已真握手）——卡片缺失按通用描述降级并告警。
-func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, src map[string]string) ([]einotool.BaseTool, []map[string]any, []string) {
+func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, src map[string]string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
 	var tools []einotool.BaseTool
 	var entries []map[string]any
 	var warns []string
@@ -407,9 +513,11 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 		if v, ok := c.Config["poll_interval_seconds"].(float64); ok && v > 0 {
 			pollSec = v
 		}
+		injectAuto, _ := c.Config["context_injection"].(string)
 		bt, terr := newA2AMemberTool(a2aMemberDeps{
 			Name: name, Endpoint: endpoint, Headers: a.mcpHeaders(c),
 			CardJSON: c.CardJSON, PollSec: pollSec,
+			DecorateTask: extContextDecorator(sc, injectAuto), // REQ-430/M226：上下文注入装饰
 		})
 		if terr != nil {
 			warns = append(warns, fmt.Sprintf("A2A 外部成员 %s 工具构建失败: %v", name, terr))
@@ -432,7 +540,7 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 // 三前置沿 run_command 形态（①docker 可达 ②绑定目录 config.cwd ③审批档 danger/all），
 // 任一不满足不装配（沙箱请求=沙箱必要，不静默降级宿主世界）；sandbox_image 必填（镜像
 // 须自备目标 CLI 与登录态）；credentials.env 凭据态注入容器/子进程环境（服务端绑定）。
-func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string) ([]einotool.BaseTool, []map[string]any, []string) {
+func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
 	var tools []einotool.BaseTool
 	var entries []map[string]any
 	var warns []string
@@ -456,6 +564,7 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 		}
 		taskPrefix, _ := c.Config["task_prefix"].(string)
 		cwd, _ := c.Config["cwd"].(string)
+		injectAuto, _ := c.Config["context_injection"].(string) // REQ-430：auto=委派时注入项目上下文
 		env := a.connectorEnv(c) // REQ-427③：凭据态 env（明文仅装配栈内存）
 		var dockerSpec *inference.DockerRunSpec
 		if sandboxMode, _ := c.Config["sandbox_mode"].(string); sandboxMode == "docker" {
@@ -499,6 +608,11 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 			Name: name, Backend: backend, Version: cliProbeVersion(c.CardJSON), TaskPrefix: taskPrefix,
 			SandboxLabel: sandboxLabel, Matrix: matrix,
 			Run: func(ctx context.Context, task string) (string, int, error) {
+				if injectAuto == "auto" && sc.ExtContext != nil {
+					if pre := sc.ExtContext(ctx, task); pre != "" {
+						task = pre + "\n\n# 任务\n" + task
+					}
+				}
 				if p := strings.TrimSpace(taskPrefix); p != "" {
 					task = p + "\n\n" + task
 				}
@@ -1573,4 +1687,19 @@ func convertDenyRules(rs []store.AgentHookDenyRule) []tool.AgentHookDenyRule {
 		out = append(out, tool.AgentHookDenyRule{Name: r.Name, ToolPattern: r.ToolPattern, ArgsPattern: r.ArgsPattern, Reason: r.Reason})
 	}
 	return out
+}
+
+// extContextDecorator REQ-430/M226：外部成员任务装饰闭包——context_injection=auto 且会话有
+// 可用源时，把平台项目上下文前置到任务描述（委派单事件仍记录原始任务，装饰只影响外发内容）。
+func extContextDecorator(sc assembleScope, injectAuto string) func(ctx context.Context, task string) string {
+	if injectAuto != "auto" || sc.ExtContext == nil {
+		return nil
+	}
+	return func(ctx context.Context, task string) string {
+		pre := sc.ExtContext(ctx, task)
+		if pre == "" {
+			return task
+		}
+		return pre + "\n\n# 任务\n" + task
+	}
 }

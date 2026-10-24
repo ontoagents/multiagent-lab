@@ -119,6 +119,14 @@ func main() {
 	})
 
 	kbSrc, kbAdmin := api.NewKBChatSource(kbSvc) // REQ-355 R1：kb→chat 接口反转装配（适配器，nil=未接入）
+	// REQ-430/M226：外部成员上下文供给——KB 检索源注入装配器（经适配器闭包取渲染文本；
+	// nil=KB 源不参与。项目文件清单/本体概念源在 Assemble 内按会话能力组装）
+	if kbSrc != nil {
+		asm.KBRetriever = func(ctx context.Context, cfg *store.KnowledgeBase, query string, topK int, minScore float64) (string, error) {
+			text, _, _, _, err := kbSrc.RetrieveContext(ctx, cfg, query, topK, minScore)
+			return text, err
+		}
+	}
 	svc := chat.NewService(st, asm, kbSrc)
 	// REQ-192/M32：平台助手配置单源归一引导——builtin 行 instruction 空时写入当前默认基座
 	//（一次性移植 assistant_config 存量微调），此后 agent 内置行即配置单源、assistant_config 退役。

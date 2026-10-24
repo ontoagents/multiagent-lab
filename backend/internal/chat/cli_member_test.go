@@ -171,7 +171,7 @@ func TestAssembleCLIMembersEndToEnd(t *testing.T) {
 	}
 	ag := &store.Agent{Name: "协调者", Connectors: []string{c.ID}}
 	src := map[string]string{}
-	tools, entries, warns := asm.assembleCLIMembers(context.Background(), ag, src, "")
+	tools, entries, warns := asm.assembleCLIMembers(context.Background(), ag, src, "", assembleScope{})
 	if len(warns) != 0 {
 		t.Fatalf("成功路径不应有告警: %v", warns)
 	}
@@ -222,7 +222,7 @@ func TestAssembleCLIMembersDegrades(t *testing.T) {
 		Kind: store.ConnectorKindCLI, Name: "坏配置", Config: map[string]any{"backend": "no-such"},
 	})
 	ag := &store.Agent{Name: "a", Connectors: []string{c1.ID, c2.ID}}
-	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", assembleScope{})
 	if len(tools) != 0 {
 		t.Fatal("两件均不应装配")
 	}
@@ -240,7 +240,7 @@ func TestAssembleCLIMembersRenameAndNilRegistry(t *testing.T) {
 	})
 	// 重名：内部成员已占用同名工具名 → -cli 后缀 + 告警
 	src := map[string]string{"撞名成员": "agent:x"}
-	tools, _, warns := asm.assembleCLIMembers(context.Background(), &store.Agent{Name: "a", Connectors: []string{c.ID}}, src, "")
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), &store.Agent{Name: "a", Connectors: []string{c.ID}}, src, "", assembleScope{})
 	if len(tools) != 1 {
 		t.Fatal("重名应改名装配而非跳过")
 	}
@@ -253,7 +253,7 @@ func TestAssembleCLIMembersRenameAndNilRegistry(t *testing.T) {
 	}
 	// 注册表未接（旧构造路径）→ 如实告警不炸
 	asmNil := &Assembler{Store: st}
-	tools2, _, warns2 := asmNil.assembleCLIMembers(context.Background(), &store.Agent{Name: "a", Connectors: []string{c.ID}}, map[string]string{}, "")
+	tools2, _, warns2 := asmNil.assembleCLIMembers(context.Background(), &store.Agent{Name: "a", Connectors: []string{c.ID}}, map[string]string{}, "", assembleScope{})
 	if len(tools2) != 0 || !strings.Contains(strings.Join(warns2, "\n"), "未接推理后端注册表") {
 		t.Fatalf("nil 注册表应告警: %v", warns2)
 	}
@@ -327,18 +327,18 @@ func TestAssembleCLIMembersSandboxGates(t *testing.T) {
 	c3 := mk("沙箱3", map[string]any{"backend": "claude-code", "sandbox_mode": "docker", "cwd": "/tmp/ws", "sandbox_image": "img:dev"})
 	asm.DockerProbe = func(context.Context) bool { return true }
 	ag := &store.Agent{Name: "a", Connectors: []string{c1.ID}}
-	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", assembleScope{})
 	if len(tools) != 0 || !strings.Contains(strings.Join(warns, "\n"), "绑定目录缺失") {
 		t.Fatalf("缺 cwd 应告警: %v", warns)
 	}
 	ag.Connectors = []string{c2.ID}
-	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", assembleScope{})
 	if len(tools) != 0 || !strings.Contains(strings.Join(warns, "\n"), "审批档未启用") {
 		t.Fatalf("缺审批应告警: %v", warns)
 	}
 	ag.Connectors = []string{c3.ID}
 	// 全前置满足（danger 档即可）→ 装配 + 描述含沙箱世界
-	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "danger")
+	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "danger", assembleScope{})
 	if len(warns) != 0 || len(tools) != 1 {
 		t.Fatalf("全前置应装配: %v", warns)
 	}
@@ -348,7 +348,7 @@ func TestAssembleCLIMembersSandboxGates(t *testing.T) {
 	}
 	// docker 不可达 → 未装配
 	asm.DockerProbe = func(context.Context) bool { return false }
-	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "all")
+	tools, _, warns = asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "all", assembleScope{})
 	if len(tools) != 0 || !strings.Contains(strings.Join(warns, "\n"), "docker 不可达") {
 		t.Fatalf("docker 不可达应告警: %v", warns)
 	}
@@ -366,7 +366,7 @@ func TestAssembleCLIMembersCredsEnvInject(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag := &store.Agent{Name: "a", Connectors: []string{c.ID}}
-	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", assembleScope{})
 	if len(warns) != 0 || len(tools) != 1 {
 		t.Fatalf("装配失败: %v", warns)
 	}
@@ -403,7 +403,7 @@ func TestAssembleCLIMembersProcessAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag := &store.Agent{Name: "a", Connectors: []string{c.ID}}
-	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "")
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", assembleScope{})
 	if len(warns) != 0 || len(tools) != 1 {
 		t.Fatalf("装配失败: %v", warns)
 	}
@@ -482,5 +482,137 @@ func TestProfileMatrixSummaryAndDescription(t *testing.T) {
 	desc := cliMemberDescription(cliMemberDeps{Name: "m", Backend: "claude-code", Matrix: s})
 	if !strings.Contains(desc, "能力画像：") || !strings.Contains(desc, "MCP:instruction") {
 		t.Fatalf("描述应含能力画像: %s", desc)
+	}
+}
+
+// ---- REQ-430/M226：外部成员上下文供给——三源打包/auto 装饰注入 ----
+
+func TestBuildExtContextSources(t *testing.T) {
+	stubClaudeBin(t)
+	asm, st := newCLIFixture(t)
+	asm.FilesRoot = t.TempDir()
+	// ①项目文件清单源
+	proj, err := st.CreateProject(&store.Project{Name: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(asm.FilesRoot, proj.ID), 0o755)
+	os.WriteFile(filepath.Join(asm.FilesRoot, proj.ID, "main.go"), []byte("package main"), 0o644)
+	// ②KB 检索源（桩 retriever；KB 配置真实落库供 GetKnowledgeBase）
+	kbc, err := st.CreateKnowledgeBase(&store.KnowledgeBase{Name: "测试库"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kbID := kbc.ID
+	asm.KBRetriever = func(ctx context.Context, kb *store.KnowledgeBase, query string, topK int, minScore float64) (string, error) {
+		return "KB 命中：关键设计决策", nil
+	}
+	// ③本体 guide 源（桩 Ontology——用接口替换困难，直接置 nil 跳过；guide 源由 FetchGuide 降级覆盖）
+	conv := &store.Conversation{ID: "c1", ProjectID: &proj.ID, EnableKB: true, KBID: &kbID}
+	mount := ""
+	ec := asm.buildExtContext(context.Background(), conv, mount)
+	if ec == nil {
+		t.Fatal("有项目+KB 源应非 nil")
+	}
+	out := ec(context.Background(), "实现任务")
+	if !strings.Contains(out, "# 项目文件清单") || !strings.Contains(out, "main.go") {
+		t.Fatalf("应含文件清单: %s", out)
+	}
+	if !strings.Contains(out, "KB 命中：关键设计决策") {
+		t.Fatalf("应含 KB 检索命中: %s", out)
+	}
+	if !strings.Contains(out, "平台注入的项目上下文") {
+		t.Fatalf("应含注入标注头: %s", out)
+	}
+	// 无能力会话 → nil（不注入）
+	conv2 := &store.Conversation{ID: "c2"}
+	if asm.buildExtContext(context.Background(), conv2, "") != nil {
+		t.Fatal("无源会话应为 nil")
+	}
+}
+
+func TestExtContextDecoratorInjects(t *testing.T) {
+	sc := assembleScope{ExtContext: func(ctx context.Context, task string) string { return "# 注入上下文" }}
+	dec := extContextDecorator(sc, "auto")
+	if dec == nil {
+		t.Fatal("auto+有源应返回装饰器")
+	}
+	got := dec(context.Background(), "原始任务")
+	if !strings.HasPrefix(got, "# 注入上下文") || !strings.Contains(got, "# 任务\n原始任务") {
+		t.Fatalf("装饰形态: %s", got)
+	}
+	if extContextDecorator(sc, "") != nil {
+		t.Fatal("关档不装饰")
+	}
+	scNil := assembleScope{}
+	if extContextDecorator(scNil, "auto") != nil {
+		t.Fatal("无源不装饰")
+	}
+}
+
+// stubClaudeEchoBin 回显任务文本的 stub（$2=任务；注入装饰断言用）。
+func stubClaudeEchoBin(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-stub 9.9.9'; exit 0; fi\n" +
+		`T=$(printf '%s' "$2" | tr '\n' ' ')` + "\n" +
+		`echo '{"type":"result","subtype":"success","result":"ECHO:'"$T"'"}'` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestAssembleCLIMembersContextInjection(t *testing.T) {
+	stubClaudeEchoBin(t)
+	asm, st := newCLIFixture(t)
+	c, err := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "注入成员",
+		Config: map[string]any{"backend": "claude-code", "context_injection": "auto"},
+		CardJSON: `{"type":"cli-probe","backend":"claude-code","version":"9.9.9"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &store.Agent{Name: "a", Connectors: []string{c.ID}}
+	sc := assembleScope{ExtContext: func(ctx context.Context, task string) string { return "# 注入的文件清单" }}
+	tools, _, warns := asm.assembleCLIMembers(context.Background(), ag, map[string]string{}, "", sc)
+	if len(warns) != 0 || len(tools) != 1 {
+		t.Fatalf("装配: %v", warns)
+	}
+	it, ok := tools[0].(einotool.InvokableTool)
+	if !ok {
+		t.Fatal("应为 InvokableTool")
+	}
+	ctx, evts := withSink(context.Background())
+	out, rerr := it.InvokableRun(ctx, `{"request":"做任务"}`)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !strings.Contains(out, "ECHO:# 注入的文件清单") {
+		t.Fatalf("注入上下文应进入 CLI prompt（echo stub 回显）: %s", out)
+	}
+	// 委派单事件记录原始任务（装饰只影响外发）
+	d := findEvent(evts, "subagent.delegate")
+	if d == nil || d.data["task"] != "做任务" {
+		t.Fatalf("委派单应记录原始任务: %v", d.data)
+	}
+	// 关档：连接器未开 context_injection → 不注入（同源 ExtContext 也不取用）
+	c2, err := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "关档成员",
+		Config: map[string]any{"backend": "claude-code"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools2, _, _ := asm.assembleCLIMembers(context.Background(), &store.Agent{Name: "a", Connectors: []string{c2.ID}}, map[string]string{}, "", assembleScope{ExtContext: sc.ExtContext})
+	if len(tools2) != 1 {
+		t.Fatal("关档也应装配")
+	}
+	it2, _ := tools2[0].(einotool.InvokableTool)
+	ctx2, _ := withSink(context.Background())
+	out2, _ := it2.InvokableRun(ctx2, `{"request":"做任务"}`)
+	if strings.Contains(out2, "ECHO:# 注入的文件清单") {
+		t.Fatalf("关档不应注入: %s", out2)
 	}
 }

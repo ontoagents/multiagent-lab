@@ -28,6 +28,9 @@ type a2aMemberDeps struct {
 	Headers  map[string]string
 	CardJSON string  // 注册握手落库的 agent card 原文（工具描述合成源）
 	PollSec  float64 // tasks/get 轮询间隔（config.poll_interval_seconds，缺省 2s）
+	// DecorateTask REQ-430/M226：任务装饰闭包（context_injection=auto 时前置平台项目上下文；
+	// nil=原样——委派单事件记录原始任务，装饰只影响外发内容）。
+	DecorateTask func(ctx context.Context, task string) string
 }
 
 // a2aMemberDescription 卡片合成工具描述（skills+description 如实透出给协调者）。
@@ -88,7 +91,11 @@ func newA2AMemberTool(d a2aMemberDeps) (einotool.BaseTool, error) {
 					"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
 				})
 			}
-			out, err := a2aDelegateRun(ctx, d, in.Request, hook)
+			task := in.Request
+			if d.DecorateTask != nil {
+				task = d.DecorateTask(ctx, task)
+			}
+			out, err := a2aDelegateRun(ctx, d, task, hook)
 			if err == nil {
 				return out, nil
 			}

@@ -102,6 +102,7 @@ export function ConnectorsPane() {
       cwd: c.config?.cwd ?? '',
       sandbox_mode: c.config?.sandbox_mode ?? undefined,
       sandbox_image: c.config?.sandbox_image ?? '',
+      context_injection: c.config?.context_injection ?? undefined,
       kubeconfig_path: c.config?.kubeconfig_path ?? '',
       context: c.config?.context ?? '',
       namespace: c.config?.namespace ?? '',
@@ -127,6 +128,8 @@ export function ConnectorsPane() {
         config.url = (v.url ?? '').trim()
         const poll = Number(v.poll_interval_seconds)
         if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
+        // REQ-430/M226：上下文注入（auto=委派时项目上下文随任务外发对端）
+        if (v.context_injection === 'auto') config.context_injection = 'auto'
       }
       if (kind === 'cli') {
         // REQ-426/M222：CLI 外部智能体（注册时 PATH 探测真握手，能力入库；不可达即注册失败）
@@ -138,6 +141,8 @@ export function ConnectorsPane() {
           config.sandbox_mode = 'docker'
           if ((v.sandbox_image ?? '').trim()) config.sandbox_image = (v.sandbox_image ?? '').trim()
         }
+        // REQ-430/M226：上下文注入（auto=委派时项目上下文随任务外发对端）
+        if (v.context_injection === 'auto') config.context_injection = 'auto' 
         // REQ-427/M223③：凭据 env（API key 等，加密落库，注入子进程/容器环境，不进 LLM 上下文）
         if ((v.env_json ?? '').trim()) {
           try {
@@ -229,6 +234,7 @@ export function ConnectorsPane() {
         if (kind === 'a2a') {
           const poll = Number(v.poll_interval_seconds)
           if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
+          if (v.context_injection === 'auto') config.context_injection = 'auto'
         }
         if ((v.headers_json ?? '').trim()) {
           try {
@@ -249,6 +255,7 @@ export function ConnectorsPane() {
           config.sandbox_mode = 'docker'
           if ((v.sandbox_image ?? '').trim()) config.sandbox_image = (v.sandbox_image ?? '').trim()
         }
+        if (v.context_injection === 'auto') config.context_injection = 'auto'
         if ((v.env_json ?? '').trim()) {
           try {
             const parsed = JSON.parse(v.env_json)
@@ -499,9 +506,18 @@ export function ConnectorsPane() {
                 <Input placeholder={kindWatched === 'a2a' ? 'http://other-host:8080/api/a2a/agents/{id}' : 'http://127.0.0.1:8092/mcp'} />
               </Form.Item>
               {kindWatched === 'a2a' && (
-                <Form.Item name="poll_interval_seconds" label="任务轮询间隔（秒）" extra="委派后经 tasks/get 轮询至终态（无 stream 订阅，与对端 capabilities.streaming=false 对称）；缺省 2 秒">
-                  <InputNumber min={0.2} max={30} step={0.5} style={{ width: 160 }} placeholder="2" />
-                </Form.Item>
+                <>
+                  <Form.Item name="poll_interval_seconds" label="任务轮询间隔（秒）" extra="委派后经 tasks/get 轮询至终态（无 stream 订阅，与对端 capabilities.streaming=false 对称）；缺省 2 秒">
+                    <InputNumber min={0.2} max={30} step={0.5} style={{ width: 160 }} placeholder="2" />
+                  </Form.Item>
+                  <Form.Item name="context_injection" label="上下文注入（REQ-430）" extra="auto=委派时平台项目上下文（文件清单/知识库检索/本体概念）随任务提供给对端——内容将外发，请确认数据边界；默认关">
+                    <Select
+                      allowClear
+                      placeholder="关（默认，任务须自包含）"
+                      options={[{ value: 'auto', label: 'auto（自动注入项目上下文）' }]}
+                    />
+                  </Form.Item>
+                </>
               )}
               <Form.Item
                 name="headers_json"
@@ -544,6 +560,13 @@ export function ConnectorsPane() {
                   <Input placeholder="registry.example.com/cli-agent:latest" />
                 </Form.Item>
               )}
+              <Form.Item name="context_injection" label="上下文注入（REQ-430）" extra="auto=委派时平台项目上下文（文件清单/知识库检索/本体概念）拼入任务描述发给 CLI——内容将外发（沙箱模式随容器），请确认数据边界；默认关">
+                <Select
+                  allowClear
+                  placeholder="关（默认，任务须自包含）"
+                  options={[{ value: 'auto', label: 'auto（自动注入项目上下文）' }]}
+                />
+              </Form.Item>
               <Form.Item
                 name="env_json"
                 label="凭据 env（可选）"

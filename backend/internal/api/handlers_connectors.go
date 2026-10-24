@@ -112,6 +112,9 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		if urlOf(in.Config) == "" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "A2A 连接器须提供 config.url（外部智能体 A2A 端点，如 http://host:8080/api/a2a/agents/{id}）"}
 		}
+		if ci := strOf(in.Config, "context_injection"); ci != "" && ci != "auto" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "context_injection 取值须为 空（关，默认）| auto（委派时注入项目上下文——内容随任务外发对端，请确认数据边界）"}
+		}
 	case store.ConnectorKindCLI:
 		if strOf(in.Config, "backend") == "" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器须提供 config.backend（外部 CLI 后端名：claude-code/opencode/aider/deepseek-harness）"}
@@ -121,6 +124,9 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		}
 		if sm := strOf(in.Config, "sandbox_mode"); sm != "" && sm != "docker" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器 sandbox_mode 取值须为 空（宿主进程，默认）| docker（沙箱世界，三前置闸门——docker 可达/绑定目录/审批档）"}
+		}
+		if ci := strOf(in.Config, "context_injection"); ci != "" && ci != "auto" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "context_injection 取值须为 空（关，默认）| auto（委派时注入项目上下文——内容随任务外发对端，请确认数据边界）"}
 		}
 	case store.ConnectorKindKubernetes:
 		if strOf(in.Config, "kubeconfig_path") == "" && credStr(in.Credentials, "kubeconfig") == "" {
