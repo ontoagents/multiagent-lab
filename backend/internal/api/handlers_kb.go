@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"fmt"
 	"strings"
 	"time"
 
@@ -91,6 +92,10 @@ func (s *Server) listKBDocs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, docs)
 }
 
+// MaxKBImportBytes 单文档导入文本上限（REQ-413②/M209：10MB 文本≈500 万汉字量级——
+// 常规长文充裕，超大语料应走拆分导入；var 便于单测缩限）。
+var MaxKBImportBytes = 10 << 20
+
 // importKBDoc 粘贴文本导入并同步索引（§341 流程：切分→embed→upsert→状态回写）。
 func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -104,6 +109,14 @@ func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(in.Content) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
+		return
+	}
+	// REQ-413②/M209：大文档导入护栏——超限即 400 引导拆分（抽取/切分/embed 前置拦截，
+	// 防单请求打满内存与 embedding 预算；进度式/分块导入维持池内）
+	if len(in.Content) > MaxKBImportBytes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("文档过大（%.1f MB > 上限 %d MB）——请拆分后分批导入（护栏 REQ-413；进度式导入维持池内）", float64(len(in.Content))/(1<<20), MaxKBImportBytes>>(20)),
+		})
 		return
 	}
 	content := in.Content

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"net/http"
 	"os"
 	"sync"
@@ -458,8 +459,26 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": mnc.Error()})
 		return
 	}
+	// REQ-413③/M209：SQLite 写冲突诚实提示——busy_timeout 5s 兜底后仍锁（长写事务如
+	// 备份 VACUUM/批量导入）→ 503 人话+重试指引（原样 500 "database is locked" 对用户不可解释）
+	if isSQLiteBusy(err) {
+		log.Printf("[api] sqlite busy: %v", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "数据库写入冲突（另一操作正在写库）——请稍后重试；若反复出现，请避开备份/批量导入窗口（REQ-413）",
+		})
+		return
+	}
 	log.Printf("[api] internal error: %v", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+}
+
+// isSQLiteBusy SQLITE_BUSY/locked 判定（错误串匹配——驱动侧 SQLITE_BUSY 文案两种形态）。
+func isSQLiteBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "SQLITE_BUSY")
 }
 
 // healthz 汇总后端依赖状态（§6.10/§8：模型默认连接、本体 facade、知识库向量后端可达性）。
