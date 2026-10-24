@@ -16,11 +16,12 @@ import { loadDraft, saveDraft, clearDraft } from '../../lib/draftStore'
 // 与自定义构建 S1~S4 互不共用页面；产物入库走构建平面（POST /api/ontologies + PUT spec）。
 // ---------------------------------------------------------------------------
 
+// REQ-405②：流程语言统一——步名带序号（①~④，四流程同款）
 const STEPS = [
-  { key: 'kb', title: '选择知识库' },
-  { key: 'config', title: '策略与 CQ' },
-  { key: 'preview', title: '生成与预览' },
-  { key: 'done', title: '入库' },
+  { key: 'kb', title: '① 选择知识库' },
+  { key: 'config', title: '② 策略与 CQ' },
+  { key: 'preview', title: '③ 生成与预览' },
+  { key: 'done', title: '④ 入库' },
 ]
 
 const MODE_TAG: Record<string, { color: string; text: string }> = {

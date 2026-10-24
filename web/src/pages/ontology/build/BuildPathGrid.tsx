@@ -1,4 +1,4 @@
-import { Card, Tag, Typography } from 'antd'
+import { Button, Card, Tag, Typography } from 'antd'
 import {
   ApartmentOutlined,
   BookOutlined,
@@ -25,10 +25,24 @@ const PATH_ICON: Record<string, React.ReactNode> = {
 }
 
 export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath) => void }) {
+  const novice = PATHS.find((p) => p.novice)
   return (
     <div data-testid="build-path-grid">
+      {/* REQ-405③/M201：首页分众——新手首屏单叙事（一条主推路径+直达钮），老手下方六卡自选 */}
+      {novice && (
+        <div
+          data-testid="build-novice-banner"
+          style={{ border: '1px solid var(--c-brand, #4f7cff)', background: 'rgba(79,124,255,0.06)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
+        >
+          <Typography.Text strong style={{ fontSize: 13 }}>第一次构建本体？</Typography.Text>
+          <Typography.Text style={{ fontSize: 12.5 }}>推荐从「{novice.label}」开始——只需一段领域描述，访谈问答中成型（{novice.desc.split('（')[0]}）。</Typography.Text>
+          <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => onSelect(novice.key)} data-testid="build-novice-go">
+            从一段描述开始
+          </Button>
+        </div>
+      )}
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-        选择一条构建路径进入独立创建页；同一个本体可以由不同路径建成（学习要点各不相同），产物统一进入「本体资产」栏管理。
+        选择一条构建路径进入独立创建页；同一个本体可以由不同路径建成（学习要点各不相同），产物统一进入「本体资产」栏管理。各流程步数按流程需要（3~5 步），步名统一带序号（REQ-405②）。
       </Typography.Paragraph>
       <div className="build-path-grid">
         {PATHS.map((p) => (

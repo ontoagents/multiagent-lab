@@ -26,11 +26,12 @@ import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
 //   S5~S7 卡片移交运行/资产栏的既有口径不变（本页尾部提示条承载）。
 // ---------------------------------------------------------------------------
 
+// REQ-405②：流程语言统一——步名带序号（①~④，与 OntoChat ①~⑤ 同款；key 保持 s1~s4 存量记忆兼容）
 const CUSTOM_STAGES = [
-  { key: 's1', title: 'S1 本体来源' },
-  { key: 's2', title: 'S2 编辑' },
-  { key: 's3', title: 'S3 校验' },
-  { key: 's4', title: 'S4 可视化' },
+  { key: 's1', title: '① 本体来源' },
+  { key: 's2', title: '② 编辑' },
+  { key: 's3', title: '③ 校验' },
+  { key: 's4', title: '④ 可视化' },
 ]
 
 const CUSTOM_STEP_KEY = 'eino.onto.build.customStep'
@@ -134,7 +135,7 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
           showIcon
           style={{ marginTop: 12 }}
           title={`当前工作本体：${activeId}`}
-          description="S1~S4 完成后：到「本体资产」栏查看产物与版本，到「本体运行」栏部署为运行方案（S5~S7 已移交）。"
+          description="①~④ 完成后：到「本体资产」栏查看产物与版本，到「本体运行」栏部署为运行方案（原 S5~S7 已移交）。"
           action={
             <Button
               size="small"

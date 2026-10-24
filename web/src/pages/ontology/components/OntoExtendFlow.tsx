@@ -264,8 +264,8 @@ export default function OntoExtendFlow() {
 
   const stepItems =
     mode === 'cqrag'
-      ? [{ title: '选目标本体' }, { title: 'CQ 与生成' }, { title: '审查入库' }]
-      : [{ title: '选目标本体' }, { title: 'ODP + 词表' }, { title: '审查入库' }]
+      ? [{ title: '① 选目标本体' }, { title: '② CQ 与生成' }, { title: '③ 审查入库' }] // REQ-405②：流程语言统一
+      : [{ title: '① 选目标本体' }, { title: '② ODP + 词表' }, { title: '③ 审查入库' }]
 
   return (
     <Card className="work-card" size="small">
