@@ -73,3 +73,27 @@ func MarshalA2APayload(p A2APayload) string {
 	}
 	return string(b)
 }
+
+// ListA2ATasks REQ-418/M214：协议面任务列表（updated_at 倒序，limit 缺省 100 上限 500）。
+func (s *Store) ListA2ATasks(limit int) ([]*A2ATaskRow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.DB.Query(`SELECT id, context_id, agent_id, state, timestamp, payload, created_at, updated_at FROM a2a_task ORDER BY updated_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*A2ATaskRow
+	for rows.Next() {
+		var r A2ATaskRow
+		if err := rows.Scan(&r.ID, &r.ContextID, &r.AgentID, &r.State, &r.Timestamp, &r.Payload, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}

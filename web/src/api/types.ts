@@ -86,6 +86,27 @@ export interface Connector {
   updated_at: string
 }
 
+/** REQ-418/M214：协议面——外部 A2A 智能体卡片条目（/api/a2a/cards） */
+export interface A2aCardEntry {
+  agent_id: string
+  name: string
+  is_builtin: boolean
+  card: Record<string, unknown>
+}
+
+/** REQ-418/M214：协议面——A2A 任务行（/api/a2a/tasks，a2a_task 投影+终态产物/错误） */
+export interface A2aTaskInfo {
+  id: string
+  context_id: string
+  agent_id: string
+  state: string
+  timestamp: string
+  created_at: string
+  updated_at: string
+  artifact_text?: string
+  error_text?: string
+}
+
 /** REQ-131/M18：mcp-serve 管理端点返回（Token 掩码 + 调用示例） */
 export interface McpServeInfo {
   enabled: boolean

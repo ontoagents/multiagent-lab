@@ -91,9 +91,9 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       return { text: parts.join(' · ') }
     }
     case 'tool.call':
-      return { text: `⚙ 调用工具 ${d?.tool_name ?? ''}` }
+      return { text: `⚙ 调用工具 ${d?.tool_name ?? ''}${mcpSourceSuffix(d)}` }
     case 'tool.result':
-      return { text: `⚙ 工具结果 ${d?.tool_name ?? ''}` }
+      return { text: `⚙ 工具结果 ${d?.tool_name ?? ''}${mcpSourceSuffix(d)}` }
     case 'skill.loaded': {
       // §6.5 v0.6 payload 为 skills[{id,name}]；兼容旧的 skill_name/name 单值写法
       const many = Array.isArray(d?.skills) ? d.skills.map((s: any) => s?.name).filter(Boolean).join('、') : ''
@@ -273,6 +273,16 @@ function eventSource(evType: string | undefined, evData: any): EventSource {
   if (name.startsWith('onto_')) return 'onto'
   if (name.startsWith('mcp_') || name.includes('__')) return 'mcp'
   return 'builtin'
+}
+
+/** REQ-418②/M214：MCP 工具调用连接器来源标注——source=mcp:{server} 或 {server}__{tool} 命名 */
+function mcpSourceSuffix(d: any): string {
+  const src = typeof d?.source === 'string' ? d.source : ''
+  if (src.startsWith('mcp:')) return ` · MCP:${src.slice(4)}`
+  const name = String(d?.tool_name ?? '')
+  const i = name.indexOf('__')
+  if (i > 0 && !name.startsWith('mcp_')) return ` · MCP:${name.slice(0, i)}`
+  return ''
 }
 
 // REQ-311 A2：提示词装配透镜——分段来源标签与配色（与后端 instructionSegments source 键对应）

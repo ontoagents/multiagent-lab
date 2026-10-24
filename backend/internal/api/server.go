@@ -327,6 +327,9 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/a2a/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.A2A.HandleRPC(w, r, r.PathValue("id"))
 	})
+	// REQ-418/M214：协议面可视化（设置页「协议」总览数据源）
+	m.HandleFunc("GET /api/a2a/cards", s.listA2aCards)
+	m.HandleFunc("GET /api/a2a/tasks", s.listA2aTasks)
 
 	// 技能库（M7，§6.12）
 	// Knowledge base（M6，§450）

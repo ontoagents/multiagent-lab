@@ -167,6 +167,9 @@ export const api = {
   deleteAgent: (id: string) => req<{ deleted: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
   /** REQ-131/M18：对外 MCP 服务化——端点/工具名/调用示例（Token 掩码） */
   getAgentMcpServe: (id: string) => req<McpServeInfo>(`/api/agents/${id}/mcp-serve`),
+  // REQ-418/M214：协议面可视化
+  listA2aCards: () => req<{ cards: import('./types').A2aCardEntry[]; count: number }>('/api/a2a/cards'),
+  listA2aTasks: (limit = 100) => req<{ tasks: import('./types').A2aTaskInfo[]; count: number }>(`/api/a2a/tasks?limit=${limit}`),
   /** REQ-131/M18：重置对外服务 Token */
   resetAgentMcpToken: (id: string) => req<{ token_mask: string }>(`/api/agents/${id}/mcp-serve/reset`, { method: 'POST' }),
 
