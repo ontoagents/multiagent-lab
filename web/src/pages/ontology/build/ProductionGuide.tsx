@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Space, Steps, Tooltip, Typography } from 'antd'
+import { api } from '../../../api/client'
 import {
   AuditOutlined,
   CloudServerOutlined,
@@ -22,9 +23,12 @@ import { ONTO_SIDEBAR_KEY } from '../OntologyModule'
 
 const GUIDE_KEY = 'eino.onto.prodguide'
 
-/** 跨栏跳转（沿演化按钮/gotoAuditPane 同款动线：写记忆 + onto-sidebar-change 事件）。 */
-function gotoPane(sidebar: 'assets' | 'runtime' | 'audit') {
+/** 跨栏跳转（沿演化按钮/gotoAuditPane 同款动线：写记忆 + onto-sidebar-change 事件）。
+ *  REQ-407/M203：gotoAsset 额外写 eino.onto.asset.focus 深链——「去质量门禁/去发布」直达
+ *  本体详情（AssetsPage 挂载即消费该键选中+进详情），不再裸跳资产栏。 */
+function gotoPane(sidebar: 'assets' | 'runtime' | 'audit', assetId?: string) {
   localStorage.setItem(ONTO_SIDEBAR_KEY, sidebar)
+  if (assetId) localStorage.setItem('eino.onto.asset.focus', assetId)
   window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
 }
 
@@ -51,8 +55,16 @@ const STEP_ITEMS = [
   },
 ]
 
-export default function ProductionGuide({ onGoBuild }: { onGoBuild: () => void }) {
+export default function ProductionGuide({ onGoBuild, focusAssetId }: { onGoBuild: () => void; focusAssetId?: string | null }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(GUIDE_KEY) === 'off')
+  // REQ-407/M203：首页无选中态——惰性取最近创建本体作「去质量门禁/去发布」的深链目标
+  const [latestOntoId, setLatestOntoId] = useState<string | null>(null)
+  useEffect(() => {
+    api
+      .listOntologies()
+      .then((ls) => setLatestOntoId(ls[0]?.id ?? null))
+      .catch(() => setLatestOntoId(null))
+  }, [])
 
   const collapse = () => {
     localStorage.setItem(GUIDE_KEY, 'off')
@@ -114,10 +126,10 @@ export default function ProductionGuide({ onGoBuild }: { onGoBuild: () => void }
         <Button size="small" icon={<UpOutlined />} data-testid="prod-guide-go-build" onClick={onGoBuild}>
           开始构建 / 导入
         </Button>
-        <Button size="small" icon={<SafetyCertificateOutlined />} data-testid="prod-guide-go-quality" onClick={() => gotoPane('assets')}>
+        <Button size="small" icon={<SafetyCertificateOutlined />} data-testid="prod-guide-go-quality" onClick={() => gotoPane('assets', focusAssetId ?? latestOntoId ?? undefined)}>
           去质量门禁
         </Button>
-        <Button size="small" icon={<CloudUploadOutlined />} data-testid="prod-guide-go-publish" onClick={() => gotoPane('assets')}>
+        <Button size="small" icon={<CloudUploadOutlined />} data-testid="prod-guide-go-publish" onClick={() => gotoPane('assets', focusAssetId ?? latestOntoId ?? undefined)}>
           去发布
         </Button>
         <Button size="small" icon={<CloudServerOutlined />} data-testid="prod-guide-go-runtime" onClick={() => gotoPane('runtime')}>

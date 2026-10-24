@@ -806,10 +806,10 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
           children: (
             <>
               <p className="onto-detail-empty">
-                以已有知识库（RAG chunk 语料 / GraphRAG KG）为数据源生成本体草稿——数据来自 KB 而非自然语言，与「AI 创建」互补（D-O14/REQ-108）。
+                以已有知识库（RAG chunk 语料 / GraphRAG KG）为数据源生成本体草稿——数据来自 KB 而非自然语言，与「AI 创建」互补（D-O14/REQ-108）。该能力以六路径「由知识库构建」独立流程页为唯一入口（REQ-407 双入口去重），此处仅作引导跳转。
               </p>
               <Button type="primary" icon={<DatabaseOutlined />} onClick={() => onGoKbPath?.()}>
-                进入「由知识库构建」流程
+                前往「由知识库构建」流程
               </Button>
             </>
           ),

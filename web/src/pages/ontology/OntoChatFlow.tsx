@@ -318,6 +318,8 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     try {
       const s = await api.getOntoChatSession(id)
       setActive(s)
+      // REQ-407/M203：「已还原 N 轮」提示激活——重进既有会话（服务端持久化恢复）即如实标注
+      setRestored(s.round > 0 ? { round: s.round, draft: !!(s.context?.draft_spec || s.context?.draft_story) } : null)
       // 从上下文恢复草稿预览（refine/done 阶段重进不丢）
       if (s.context?.draft_spec) {
         try {

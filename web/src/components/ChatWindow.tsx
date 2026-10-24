@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Avatar, Alert, Button, Checkbox, Collapse, Dropdown, Input, InputNumber, Modal, Popover, Segmented, Select, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
 import { BookOutlined, BulbOutlined, CaretDownOutlined, CheckSquareOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, PaperClipOutlined, StopOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons'
@@ -1594,11 +1594,15 @@ export default function ChatWindow({
 
   // REQ-19e 窗格消息流条目（与单路 listItems 同构映射：消息走角色、事件卡无边框；
   // REQ-174 同构归组 + REQ-362 整轮运行块同构——完成收起/最终回答外显与主区一致）
-  const paneListItems = (i: number) =>
-    toBubbleList(
-      groupRunBlocks(groupToolPhases(withSubDepth(paneItems[i] ?? []), running), running),
-      `p${i}`,
-    )
+  // REQ-407/M203：对比窗格列 memoize（此前每帧 render 全量重算归组管线）
+  const paneListItems = useCallback(
+    (i: number) =>
+      toBubbleList(
+        groupRunBlocks(groupToolPhases(withSubDepth(paneItems[i] ?? []), running), running),
+        `p${i}`,
+      ),
+    [paneItems, running],
+  )
 
   // 中断恢复（M11 收尾 + REQ-14 审批）：会话挂起的 ask_human 提问 / 工具审批（随会话数据同步）
   const [interrupt, setInterrupt] = useState<{
@@ -1828,7 +1832,7 @@ export default function ChatWindow({
       const blob = new Blob([JSON.stringify(evs, null, 2)], { type: 'application/json;charset=utf-8' })
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `(conversation.title || '对话').replace(/[\/:*?"<>|]/g, '_') + '-events.json'`
+      a.download = `${(conversation.title || '对话').replace(/[\/:*?"<>|]/g, '_')}-events.json`
       a.click()
       URL.revokeObjectURL(a.href)
     } catch (e: any) {
