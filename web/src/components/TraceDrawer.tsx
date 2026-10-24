@@ -64,6 +64,8 @@ export default function TraceDrawer({
   debugLevel,
   showRaw: showRawProp, // REQ-403/M199：单源——复用头部过程面板 state（本地双份退役）
   onShowRawChange,
+  focusGroup,
+  onFocusGroupConsumed,
 }: {
   conversationId: string
   title: string
@@ -72,8 +74,18 @@ export default function TraceDrawer({
   debugLevel: number
   showRaw?: boolean // REQ-403/M199：单源（头部过程面板 state）
   onShowRawChange?: (v: boolean) => void
+  focusGroup?: string // REQ-406②/M202：打开时预选过滤组（如 companion——回放摘要行直达）
+  onFocusGroupConsumed?: () => void
 }) {
   const [events, setEvents] = useState<RunEventDTO[]>([])
+  // REQ-406②/M202：外部直达（伴生摘要行点击）——打开时预选过滤组，一次性消费
+  useEffect(() => {
+    if (open && focusGroup) {
+      setTypeGroups([focusGroup])
+      onFocusGroupConsumed?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, focusGroup])
   const [loading, setLoading] = useState(false)
   const [typeGroups, setTypeGroups] = useState<string[]>([])
   const [runFilter, setRunFilter] = useState<string>('')

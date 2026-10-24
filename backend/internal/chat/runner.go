@@ -443,6 +443,9 @@ type finalizeOpts struct {
 // （stopped/run.error/interrupted/default completed）→ verify_on_stop 背压（VerifyOnStop）→
 // 不变量检查（InvariantCheck）。runOnce 与 Resume 共用；finishData 含耗时/usage/finish_reason。
 func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.Conversation, agent *store.Agent, runID string, start time.Time, emit EmitFn, res *RunResult, opts finalizeOpts) *RunResult {
+	// REQ-406①/M202：收尾刷尾段——message.segment 完整分解本轮正文（回放以段重建交错流，
+	// 与 assistant 消息全文互补；分段事件先落，确保 ts 序在终态事件前）
+	s.flushTextSegment(rc, conv, runID, emit)
 	if len(rc.buf) > 0 {
 		asg := &store.Message{ConversationID: conv.ID, Role: "assistant", Content: string(rc.buf), Meta: opts.AssistantMeta}
 		if m, err := s.Store.InsertMessage(asg); err == nil {
@@ -872,6 +875,10 @@ type runConsumer struct {
 	persistDeltas bool // REQ-224⑤：message.delta 随 debug_persist 门控落库
 
 	buf     []byte
+	// segmentMark REQ-406①/M202：正文分段落点（buf 偏移）——工具调用边界/收尾时此前增量
+	// 作为 message.segment 事件持久化（按段非按 token，有界存储），回放据此重建交错正文
+	segmentMark int
+	segSeq      int
 	stopped bool
 	// REQ-210：工具调用/结果计数（completed 收尾不变量检查用）
 	toolCalls   int
@@ -1046,7 +1053,9 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 					}
 				}
 			}
-			// 流结束：输出聚合完成的 tool.call（含入参 JSON 与 source）
+			// 流结束：先刷正文段（REQ-406①——工具调用边界的中间正文持久化），
+			// 再输出聚合完成的 tool.call（含入参 JSON 与 source）
+			s.flushTextSegment(rc, conv, runID, emit)
 			flushToolCalls(s, rc, conv, runID, rt, emit)
 			for k := range rc.toolAgg {
 				delete(rc.toolAgg, k)
@@ -1098,6 +1107,9 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 			}
 			if mo.Message.Content != "" {
 				rc.recordDelta(mo.Message.Content)
+			}
+			if len(mo.Message.ToolCalls) > 0 {
+				s.flushTextSegment(rc, conv, runID, emit) // REQ-406①：工具调用边界刷段
 			}
 			for _, tc := range mo.Message.ToolCalls {
 				emitToolCall(s, rc, conv, runID, rt, tc, emit)
@@ -1278,6 +1290,24 @@ func (rc *runConsumer) settleUsageDelta(prev *usageSnapshot, cur *schema.TokenUs
 		delete(rc.toolCallUsage, id)
 	}
 	_ = rem
+}
+
+// flushTextSegment REQ-406①/M202：正文分段持久化——buf 自上次落点以来的增量作为
+// message.segment 事件落库（回放重建交错正文；与 message.delta 按门控落库互补——
+// segment 按模型步边界有界存储，delta 逐 token 仅调试档）。emitAndRecord 恒落库。
+func (s *Service) flushTextSegment(rc *runConsumer, conv *store.Conversation, runID string, emit EmitFn) {
+	if rc == nil || len(rc.buf) <= rc.segmentMark {
+		return
+	}
+	seg := string(rc.buf[rc.segmentMark:])
+	rc.segmentMark = len(rc.buf)
+	if strings.TrimSpace(seg) == "" {
+		return
+	}
+	s.emitAndRecord(rc.ctx, conv, runID, newEvent("message.segment", runID, map[string]any{
+		"text": seg, "seq": rc.segSeq,
+	}), emit)
+	rc.segSeq++
 }
 
 // pendingToolCall 流式 tool_calls 增量聚合（Index -> 名称/参数累积）。

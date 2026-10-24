@@ -806,9 +806,29 @@ export default function ChatWindow({
         if (!alive) return
         seenEventsRef.current = new Set(evs.map((e) => e.id)) // REQ-281：已回放事件标记，轮询只补增量
         const timeline: { ts: string; item: ChatItem }[] = []
-        msgs.forEach((m) =>
-          timeline.push({ ts: m.created_at, item: { kind: 'msg', role: m.role, content: m.content } }),
-        )
+        // REQ-406①/M202：message.segment 分段重建——先按 run 聚合段文本，助手消息与聚合
+        // 文本精确匹配时以段代显（交错正文回放）；不匹配/无段（存量轮）走原消息气泡
+        const segTextByRun: Record<string, string> = {}
+        for (const e of evs) {
+          if (e.type !== 'message.segment') continue
+          try {
+            const d = e.data ? JSON.parse(e.data) : {}
+            segTextByRun[e.run_id ?? '_'] = (segTextByRun[e.run_id ?? '_'] ?? '') + (d.text ?? '')
+          } catch {
+            /* 忽略非 JSON 数据 */
+          }
+        }
+        const segTextsConsumed = new Set<string>()
+        msgs.forEach((m) => {
+          if (m.role === 'assistant' && m.content) {
+            const hit = Object.entries(segTextByRun).find(([, txt]) => txt === m.content && !segTextsConsumed.has(txt))
+            if (hit) {
+              segTextsConsumed.add(hit[1])
+              return // 以段代显：segment 事件按 ts 交错进入 timeline
+            }
+          }
+          timeline.push({ ts: m.created_at, item: { kind: 'msg', role: m.role, content: m.content } })
+        })
         const reasoningCards: Record<string, ChatItem> = {}
         for (const e of evs) {
           let d: any = {}
@@ -818,6 +838,15 @@ export default function ChatWindow({
             /* 忽略非 JSON 数据 */
           }
           if (e.type === 'message.delta') continue // 正文已由消息表还原，避免重复
+          if (e.type === 'message.segment') {
+            // 已以段代显的 run：段入 timeline（淡一档正文段，与 live 交错形态对称）；
+            // 未消费（如消息已删）也照常呈现，不丢内容
+            timeline.push({
+              ts: e.created_at,
+              item: { kind: 'event', evType: 'message.segment', evData: { run_id: e.run_id, text: d.text ?? '' } },
+            })
+            continue
+          }
           if (e.type === 'reasoning.delta') {
             const k = e.run_id || '_'
             if (!reasoningCards[k]) {
@@ -1154,15 +1183,35 @@ export default function ChatWindow({
 
   // REQ-330④：回放态伴生管线摘要行节点（listItems 平铺映射与 RunBlock 块体渲染共用）
   const companionSummaryNode = (s: CompanionSummaryItem, key: string): ReactNode => {
-    const txt = `🧩 伴生沉淀 · ${s.n} 条过程${s.cand > 0 ? ` · 候选 ${s.cand} 条` : ''}${s.ingested > 0 ? ` · 自动入图 ${s.ingested} 条` : ''}${s.failed ? ' · 失败' : ''} · 过程详情见「调用轨迹」`
+    // REQ-406②/M202：回放摘要行可点直达轨迹「伴生沉淀」组——与 live 胶囊「点击展开明细」
+    // 同一信息架构（两形态一套呈现语义）
+    const txt = `🧩 伴生沉淀 · ${s.n} 条过程${s.cand > 0 ? ` · 候选 ${s.cand} 条` : ''}${s.ingested > 0 ? ` · 自动入图 ${s.ingested} 条` : ''}${s.failed ? ' · 失败' : ''} · 点击查看过程`
     return (
-      <div key={key} className="event-card src-onto companion-summary-line" data-testid="companion-summary-line" style={{ '--sub-depth': s.subDepth } as CSSProperties}>
+      <div
+        key={key}
+        className="event-card src-onto companion-summary-line"
+        data-testid="companion-summary-line"
+        style={{ '--sub-depth': s.subDepth, cursor: 'pointer' } as CSSProperties}
+        onClick={() => {
+          setTraceFocusGroup('companion')
+          setTraceOpen(true)
+        }}
+      >
         <span>{txt}</span>
       </div>
     )
   }
 
   const renderEventCard = (it: ChatItem, i: number) => {
+    // REQ-406①/M202：回放正文段（message.segment 以段代显的交错正文——淡一档 run-seg 呈现，
+    // 与 live 模型步分段形态对称）
+    if (it.evType === 'message.segment') {
+      return (
+        <div key={i} className="run-seg" data-testid="replay-text-segment" style={{ whiteSpace: 'pre-wrap', fontSize: 13.5, lineHeight: 1.72, padding: '2px 4px' }}>
+          {it.evData?.text ?? ''}
+        </div>
+      )
+    }
     if (it.evType === 'reasoning') {
       const len = it.reasoning?.length ?? 0
       const cardKey = it.evKey ?? `reasoning-${i}`
@@ -1490,6 +1539,7 @@ export default function ChatWindow({
                 if (it.evType && levelGated(it.evType, debugLevel)) return false
                 if (!showReasoning && it.evType === 'reasoning') return false
                 if (it.kind === 'msg' || !it.evType) return true
+                if (it.evType === 'message.segment') return true // REQ-406①：正文段以段代显，恒显示
                 if (granularity === 'off') return false
                 if (granularity === 'key') {
                   return it.evType.startsWith('tool.') || it.evType.startsWith('run.') || it.evType === 'artifact.saved' ||
@@ -1628,20 +1678,14 @@ export default function ChatWindow({
   const [extApprovalState, setExtApproval] = useState<{ toolName: string; kind: string } | null>(null)
     // REQ-217①/M48：调用轨迹面板（重放并入面板——头部「重放」按钮退役，EventReplayDrawer 作面板内动作）
   const [traceOpen, setTraceOpen] = useState(false)
+  // REQ-406②/M202：轨迹抽屉打开时预选的过滤组（伴生摘要行点击直达）
+  const [traceFocusGroup, setTraceFocusGroup] = useState<string | null>(null)
   useEffect(() => {
+    // REQ-406③/M202：挂起状态收敛单源——此处内联映射退役，与 SSE（run.interrupted）/
+    // 对比窗格同走 toInterruptState（三路写入→单一翻译函数）
     try {
       const st = conversation.interrupt_state ? JSON.parse(conversation.interrupt_state) : null
-      setInterrupt(
-        st && (st.question || st.tool_name)
-          ? {
-              kind: st.kind === 'approval' || (!st.question && st.tool_name) ? 'approval' : 'ask_human',
-              question: st.question ?? '',
-              choices: Array.isArray(st.choices) ? st.choices : [],
-              toolName: st.tool_name ?? '',
-              arguments: st.arguments ?? '',
-            }
-          : null,
-      )
+      setInterrupt(st && (st.question || st.tool_name) ? toInterruptState(st) : null)
     } catch {
       setInterrupt(null)
     }
@@ -2646,6 +2690,8 @@ export default function ChatWindow({
           debugLevel={debugLevel}
           showRaw={showRaw}
           onShowRawChange={setShowRaw}
+          focusGroup={traceFocusGroup ?? undefined}
+          onFocusGroupConsumed={() => setTraceFocusGroup(null)}
         />
       )}
     </div>
