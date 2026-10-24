@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -458,6 +459,20 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 				"completion_tokens": rc.lastUsage.CompletionTokens,
 				"total_tokens":      rc.lastUsage.TotalTokens,
 			}
+			// REQ-397/M193：per-tool 成本归因（差值口径；末步未决调用无「结果回喂」差值不归属——
+			// 诚实边界：并行调用均摊、unknown=聚合时名字不可得）
+			if len(rc.toolUsageAgg) > 0 {
+				type toolTok struct {
+					Tool        string `json:"tool"`
+					TotalTokens int    `json:"total_tokens"`
+				}
+				arr := make([]toolTok, 0, len(rc.toolUsageAgg))
+				for t, n := range rc.toolUsageAgg {
+					arr = append(arr, toolTok{Tool: t, TotalTokens: n})
+				}
+				sort.Slice(arr, func(i, j int) bool { return arr[i].TotalTokens > arr[j].TotalTokens })
+				data["usage_by_tool"] = arr
+			}
 		}
 		if rc.lastFinish != "" {
 			data["finish_reason"] = rc.lastFinish
@@ -868,6 +883,8 @@ type runConsumer struct {
 	toolAgg     map[int]*pendingToolCall
 	toolCallAt  map[string]time.Time // REQ-117：tool.call 发出时刻 → tool.result 计算执行耗时
 	toolCallArg map[string]string    // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
+	toolCallUsage map[string]*usageSnapshot // REQ-397/M193：tool_call_id → 发起步 usage 快照（差值归因）
+	toolUsageAgg  map[string]int            // REQ-397：工具名 → 归因 total_tokens 聚合
 	lastAgent   string
 }
 
@@ -880,6 +897,8 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		toolAgg:       map[int]*pendingToolCall{},
 		toolCallAt:    map[string]time.Time{},
 		toolCallArg:   map[string]string{},
+		toolCallUsage: map[string]*usageSnapshot{},
+		toolUsageAgg:  map[string]int{},
 	}
 	rc.subagentLeave = func(name string) {
 		if name != "" && name != rc.rootAgent {
@@ -1019,6 +1038,7 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 				mergeToolCallChunk(rc.toolAgg, chunk.ToolCalls)
 				if chunk.ResponseMeta != nil {
 					if chunk.ResponseMeta.Usage != nil {
+						rc.settleUsageDelta(snapshotUsage(rc.lastUsage), chunk.ResponseMeta.Usage) // REQ-397：差值归因
 						rc.lastUsage = chunk.ResponseMeta.Usage
 					}
 					if chunk.ResponseMeta.FinishReason != "" {
@@ -1084,6 +1104,7 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 			}
 			if mo.Message.ResponseMeta != nil {
 				if mo.Message.ResponseMeta.Usage != nil {
+					rc.settleUsageDelta(snapshotUsage(rc.lastUsage), mo.Message.ResponseMeta.Usage) // REQ-397：差值归因
 					rc.lastUsage = mo.Message.ResponseMeta.Usage
 				}
 				if mo.Message.ResponseMeta.FinishReason != "" {
@@ -1193,6 +1214,72 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	}), nil
 }
 
+// usageSnapshot REQ-397/M193：模型步 usage 快照（差值归因基线）。
+type usageSnapshot struct {
+	Prompt     int
+	Completion int
+	Total      int
+}
+
+// snapshotUsage 当前 lastUsage 快照（nil 安全）。
+func snapshotUsage(u *schema.TokenUsage) *usageSnapshot {
+	if u == nil {
+		return nil
+	}
+	return &usageSnapshot{Prompt: u.PromptTokens, Completion: u.CompletionTokens, Total: u.TotalTokens}
+}
+
+// settleUsageDelta REQ-397：模型步 usage 更新时结算未决 tool_call 的差值归因——
+// 快照基线（发起该调用的模型步）与新步 usage 之差≈「工具结果喂回模型」的增量消耗；
+// 同步并行的 N 个调用均摊差值（余数归首个）。工具名聚合入 toolUsageAgg（run.finished 透出）。
+func (rc *runConsumer) settleUsageDelta(prev *usageSnapshot, cur *schema.TokenUsage) {
+	if cur == nil {
+		return
+	}
+	if len(rc.toolCallUsage) == 0 {
+		return
+	}
+	delta := 0
+	if prev != nil {
+		delta = cur.TotalTokens - prev.Total
+	} else {
+		delta = cur.TotalTokens
+	}
+	if delta < 0 {
+		delta = 0
+	}
+	names := make([]string, 0, len(rc.toolCallUsage))
+	// 配对工具名：toolAgg 流式聚合（未 flush 时）或事件期已知名——经 toolCallArg 不可得名字，
+	// 用 pendingToolCall 聚合的名称（flushToolCalls 已清空则回退 unknown）
+	for id := range rc.toolCallUsage {
+		names = append(names, id)
+	}
+	sort.Strings(names)
+	per := 0
+	if len(names) > 0 {
+		per = delta / len(names)
+	}
+	rem := delta
+	for i, id := range names {
+		d := per
+		if i == 0 {
+			d = delta - per*(len(names)-1) // 余数归首个
+		}
+		rem -= d
+		// 工具名：toolAgg 现存优先（流式未 flush），否则 unknown（如实标注）
+		toolName := "unknown"
+		for _, p := range rc.toolAgg {
+			if p.ID == id && p.Name != "" {
+				toolName = p.Name
+				break
+			}
+		}
+		rc.toolUsageAgg[toolName] += d
+		delete(rc.toolCallUsage, id)
+	}
+	_ = rem
+}
+
 // pendingToolCall 流式 tool_calls 增量聚合（Index -> 名称/参数累积）。
 type pendingToolCall struct {
 	ID   string
@@ -1242,6 +1329,9 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 			rc.toolCallAt[tc.ID] = time.Now()
 			if rc.toolCallArg != nil {
 				rc.toolCallArg[tc.ID] = tc.Function.Arguments
+			}
+			if rc.toolCallUsage != nil {
+				rc.toolCallUsage[tc.ID] = snapshotUsage(rc.lastUsage) // REQ-397：发起步 usage 基线
 			}
 		}
 	}
