@@ -420,7 +420,27 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	rc.consume(rt.Runner.Run(runCtx, histMsgs, adk.WithCheckPointID(checkPointIDOf(runID))))
 	rc.subagentLeave(rc.lastAgent)
 
-	// 4) 持久化助手消息（对比窗格：meta 记录 pane 序号与单项覆盖）
+	// 4)+5) run 收尾单源（REQ-390①/M186：assistant 落库+finishData+终态事件+verify 背压+
+	// 不变量检查——runOnce/Resume 两处 ~126 行近重复与漂移消除；行为口径见 runFinalize 注）
+	return s.runFinalize(runCtx, rc, conv, agent, runID, start, emit, res, finalizeOpts{
+		AssistantMeta:  opts.AssistantMeta,
+		VerifyOnStop:   true, // runOnce 语义：verify_on_stop 背压生效（失败不标记 completed）
+		InvariantCheck: true, // REQ-210：completed 收尾不变量检查
+	}), nil
+}
+
+// finalizeOpts run 收尾分叉参数（REQ-390①：单源化时如实保留两路既有行为差异——
+// Resume 收尾历史上不跑 verify 背压与不变量检查〔对齐口径随 REQ-388 C4 轮评估〕）。
+type finalizeOpts struct {
+	AssistantMeta  string // 对比窗格 meta
+	VerifyOnStop   bool
+	InvariantCheck bool
+}
+
+// runFinalize run 收尾单源函数（REQ-390①/M186）：assistant 消息落库 → 终态事件四分支
+// （stopped/run.error/interrupted/default completed）→ verify_on_stop 背压（VerifyOnStop）→
+// 不变量检查（InvariantCheck）。runOnce 与 Resume 共用；finishData 含耗时/usage/finish_reason。
+func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.Conversation, agent *store.Agent, runID string, start time.Time, emit EmitFn, res *RunResult, opts finalizeOpts) *RunResult {
 	if len(rc.buf) > 0 {
 		asg := &store.Message{ConversationID: conv.ID, Role: "assistant", Content: string(rc.buf), Meta: opts.AssistantMeta}
 		if m, err := s.Store.InsertMessage(asg); err == nil {
@@ -429,8 +449,6 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			log.Printf("[chat] save assistant message: %v", err)
 		}
 	}
-
-	// 5) 终态事件（附带耗时 / token 用量 / finish_reason，供前端执行细节展示）
 	finishData := func(reason string) map[string]any {
 		data := map[string]any{"reason": reason, "elapsed_ms": time.Since(start).Milliseconds()}
 		if rc.lastUsage != nil {
@@ -447,18 +465,18 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	}
 	switch {
 	case rc.stopped:
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("stopped")), emit)
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("stopped")), emit)
 		res.Stopped = true
 	case rc.runErr != "":
 		errData := map[string]any{"code": "run_failed", "message": rc.runErr, "elapsed_ms": time.Since(start).Milliseconds()}
 		if rc.lastFinish != "" { // 截断类失败的关键证据（max_tokens/length），排障可见
 			errData["finish_reason"] = rc.lastFinish
 		}
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.error", runID, errData), emit)
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.error", runID, errData), emit)
 		res.Error = rc.runErr
 	case rc.interrupted:
 		// M11 收尾：挂起等待答复（区别于 completed / stopped）
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("interrupted")), emit)
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("interrupted")), emit)
 	default:
 		// REQ-202 ③ verify_on_stop 背压：验证命令失败不标记 completed（verify_failed + 事件透出输出）
 		if agent != nil && agent.VerifyCommand != "" {
@@ -470,40 +488,40 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 				}
 				dir = a.resolveWorkRoot(assembleScope{ProjectID: pid}, agent)
 			}
-			if out, verr := RunVerification(runCtx, agent.VerifyCommand, dir); verr != nil {
+			if out, verr := RunVerification(ctx, agent.VerifyCommand, dir); verr != nil {
 				// REQ-224/M52（51 号 W1）：verify 升独立事件（失败；run.warning/run.finished reason 兼容保留）
-				s.emitAndRecord(runCtx, conv, runID, newEvent("verify.failed", runID, map[string]any{
+				s.emitAndRecord(ctx, conv, runID, newEvent("verify.failed", runID, map[string]any{
 					"command": agent.VerifyCommand, "output": truncateRunes(out, 1500), "error": verr.Error(),
 				}), emit)
-				s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{
+				s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 					"message": "verify_on_stop 验证未通过，本次运行不标记完成: " + verr.Error(),
 					"output":  truncateRunes(out, 1500),
 				}), emit)
 				fin := finishData("verify_failed")
-				s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, fin), emit)
+				s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, fin), emit)
 				res.VerifyFailed = true
 				res.Error = "verify_failed: " + verr.Error()
-				return res, nil
+				return res
 			}
 		}
 		if agent != nil && agent.VerifyCommand != "" {
 			// REQ-224/M52（51 号 W1）：verify 升独立事件（通过）
-			s.emitAndRecord(runCtx, conv, runID, newEvent("verify.completed", runID, map[string]any{
+			s.emitAndRecord(ctx, conv, runID, newEvent("verify.completed", runID, map[string]any{
 				"command": agent.VerifyCommand,
 			}), emit)
 		}
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("completed")), emit)
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("completed")), emit)
 		// REQ-210/M37 随轮兑现：运行时不变量检查（01 §9 搭车件）——completed 收尾时工具调用/结果计数
 		// 必须配对（"模型可见即已记录"），不一致以 run.warning 诚实透出（dangling 调用已被历史重建
 		// 补「结果未知」合成文本，context.go mergeToolTurns；中断/停止收尾的悬空调用属预期不告警）。
-		if rc.toolCalls != rc.toolResults {
-			s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{
+		if opts.InvariantCheck && rc.toolCalls != rc.toolResults {
+			s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 				"message":    fmt.Sprintf("运行时不变量检查：工具调用/结果计数不一致（%d call / %d result），悬空调用已在历史重建中补「结果未知」文本", rc.toolCalls, rc.toolResults),
 				"tool_calls": rc.toolCalls, "tool_results": rc.toolResults,
 			}), emit)
 		}
 	}
-	return res, nil
+	return res
 }
 
 // RunCompare 对比模式运行（REQ-19e/19f）：一次提问 → N 路（2~4 窗格）并行，事件经同一 SSE 流
@@ -1165,48 +1183,13 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	rc.consume(iter)
 	rc.subagentLeave(rc.lastAgent)
 
-	if len(rc.buf) > 0 {
-		asg := &store.Message{ConversationID: conv.ID, Role: "assistant", Content: string(rc.buf)}
-		if m, err := s.Store.InsertMessage(asg); err == nil {
-			res.AssistantMessageID = m.ID
-		} else {
-			log.Printf("[chat] save assistant message: %v", err)
-		}
-	}
-	finishData := func(reason string) map[string]any {
-		data := map[string]any{"reason": reason, "elapsed_ms": time.Since(start).Milliseconds()}
-		if rc.lastUsage != nil {
-			data["usage"] = map[string]any{
-				"prompt_tokens":     rc.lastUsage.PromptTokens,
-				"completion_tokens": rc.lastUsage.CompletionTokens,
-				"total_tokens":      rc.lastUsage.TotalTokens,
-			}
-		}
-		return data
-	}
-	switch {
-	case rc.stopped:
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("stopped")), emit)
-		res.Stopped = true
-	case rc.runErr != "":
-		errData := map[string]any{"code": "run_failed", "message": rc.runErr, "elapsed_ms": time.Since(start).Milliseconds()}
-		if rc.lastFinish != "" { // 截断类失败的关键证据（max_tokens/length），排障可见
-			errData["finish_reason"] = rc.lastFinish
-		}
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.error", runID, errData), emit)
-		res.Error = rc.runErr
-	case rc.interrupted:
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("interrupted")), emit)
-	default:
-		if agent != nil && agent.VerifyCommand != "" {
-			// REQ-224/M52（51 号 W1）：verify 升独立事件（通过）
-			s.emitAndRecord(runCtx, conv, runID, newEvent("verify.completed", runID, map[string]any{
-				"command": agent.VerifyCommand,
-			}), emit)
-		}
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.finished", runID, finishData("completed")), emit)
-	}
-	return res, nil
+	// REQ-390①/M186：Resume 收尾走同一 runFinalize（漂移消除）——VerifyOnStop=false 如实保留
+	// 「Resume 不跑 verify 背压」的既有行为分叉（对齐口径随 REQ-388 C4 轮评估）；
+	// finish_reason 注入与 runOnce 对齐（原 Resume 缺失=漂移缺陷顺修，事件载荷增键向后兼容）
+	return s.runFinalize(runCtx, rc, conv, agent, runID, start, emit, res, finalizeOpts{
+		VerifyOnStop:   false,
+		InvariantCheck: false,
+	}), nil
 }
 
 // pendingToolCall 流式 tool_calls 增量聚合（Index -> 名称/参数累积）。
