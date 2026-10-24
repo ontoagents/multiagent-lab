@@ -62,12 +62,16 @@ export default function TraceDrawer({
   open,
   onClose,
   debugLevel,
+  showRaw: showRawProp, // REQ-403/M199：单源——复用头部过程面板 state（本地双份退役）
+  onShowRawChange,
 }: {
   conversationId: string
   title: string
   open: boolean
   onClose: () => void
   debugLevel: number
+  showRaw?: boolean // REQ-403/M199：单源（头部过程面板 state）
+  onShowRawChange?: (v: boolean) => void
 }) {
   const [events, setEvents] = useState<RunEventDTO[]>([])
   const [loading, setLoading] = useState(false)
@@ -82,7 +86,8 @@ export default function TraceDrawer({
   const [runPage, setRunPage] = useState(1)
   const [runPageSize, setRunPageSize] = useState(5)
   // REQ-336：原始事件 payload 开关改轨迹局部（外置会话流口径归头部「过程」面板）
-  const [showRaw, setShowRaw] = useState(false)
+  const showRaw = showRawProp ?? false
+  const setShowRaw = (v: boolean) => onShowRawChange?.(v)
 
   const load = () => {
     if (!conversationId) return

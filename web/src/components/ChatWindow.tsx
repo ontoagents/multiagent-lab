@@ -671,7 +671,12 @@ export default function ChatWindow({
     if (initialDraft) setInput(initialDraft)
   }, [initialDraft])
   const [running, setRunning] = useState(false)
-  const [showRaw, setShowRaw] = useState(false) // 原始事件 JSON 调试开关（并入过程展示面板）
+  // REQ-403/M199：原始事件 JSON 开关单源化——头部过程面板唯一配置点（localStorage 按会话记忆），
+  // TraceDrawer 经 props 消费同一 state（其工具栏本地双份退役）
+  const [showRaw, setShowRaw] = useState(() => localStorage.getItem(`eino.showraw.${conversation?.id ?? ''}`) === '1')
+  useEffect(() => {
+    if (conversation?.id) localStorage.setItem(`eino.showraw.${conversation.id}`, showRaw ? '1' : '0')
+  }, [conversation?.id, showRaw])
   // REQ-135②③：对话级过程展示配置——粒度 all|key|off + 深度思考显隐（localStorage 按会话记忆）
   const [granularity, setGranularity] = useState<'all' | 'key' | 'off'>('all')
   const [showReasoning, setShowReasoning] = useState(true)
@@ -1868,6 +1873,15 @@ export default function ChatWindow({
   }
 
   const subjectName = isProjectScope ? project?.name : agent?.name
+  // REQ-403/M199：会话级模型覆盖选项源 + 生效审批档人话标签
+  const [modelConns, setModelConns] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    api
+      .listConnections()
+      .then((cs) => setModelConns((cs as any[]).filter((c: any) => c.conn_type === 'chat' && c.enabled).map((c: any) => ({ id: c.id as string, name: c.name as string }))))
+      .catch(() => setModelConns([]))
+  }, [])
+  const agentApprovalLabel = agent?.tool_approval === 'danger' ? '危险工具审批' : agent?.tool_approval === 'all' ? '全部审批' : '关闭（直接执行）'
   const canSend = isProjectScope ? !!project : !!agent
   const placeholder = canSend
     ? `给「${subjectName}」发消息…`
@@ -1929,6 +1943,35 @@ export default function ChatWindow({
                   { value: 'off', label: '关闭' },
                 ]}
               />
+              {/* REQ-403/M199：会话生效配置总览（合并序一屏可见）+ 会话级模型覆盖入口恢复（REQ-291 数据层在、REQ-336 退役 UI 入口） */}
+              <div className="proc-pop-title">会话级模型覆盖（REQ-291）</div>
+              <Select
+                size="small"
+                allowClear
+                value={conversation.model_conn_id || undefined}
+                placeholder="跟随智能体默认"
+                onChange={(v) => patchConv({ model_conn_id: v ?? '' })}
+                options={(modelConns ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                data-testid="conv-model-override"
+                style={{ width: '100%' }}
+              />
+              <div className="proc-pop-title">生效配置总览（合并序：会话 &gt; 智能体 &gt; 全局）</div>
+              <div style={{ fontSize: 11.5, lineHeight: 1.9 }}>
+                <div>
+                  模型：{conversation.model_conn_id ? <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>会话覆盖</Tag> : <Tag style={{ margin: 0, fontSize: 10 }}>智能体默认</Tag>}
+                  {(modelConns ?? []).find((c) => c.id === conversation.model_conn_id)?.name ?? subjectName ?? '跟随'}
+                </div>
+                <div>
+                  审批：{conversation.tool_approval === 'off' ? '会话关闭' : conversation.tool_approval === 'on' ? '会话开启' : '跟随智能体'}
+                  {conversation.tool_approval !== 'off' && conversation.tool_approval !== 'on' && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>（{agentApprovalLabel}）</Typography.Text>
+                  )}
+                </div>
+                <div>
+                  上下文预算：{conversation.context_mode ? <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>会话覆盖</Tag> : <Tag style={{ margin: 0, fontSize: 10 }}>智能体档</Tag>}
+                  {conversation.context_mode || '跟随'}
+                </div>
+              </div>
               <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
               <Segmented
                 size="small"
@@ -2601,6 +2644,8 @@ export default function ChatWindow({
           open={traceOpen}
           onClose={() => setTraceOpen(false)}
           debugLevel={debugLevel}
+          showRaw={showRaw}
+          onShowRawChange={setShowRaw}
         />
       )}
     </div>
