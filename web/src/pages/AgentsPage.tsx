@@ -5,6 +5,7 @@ import type { Agent, Conversation } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import Sidebar from '../components/Sidebar'
+import OnboardingGuide from '../components/OnboardingGuide'
 import ChatWindow from '../components/ChatWindow'
 import AgentModal from '../components/AgentModal'
 import AgentSidePanel from '../components/AgentSidePanel'
@@ -106,6 +107,8 @@ export default function AgentsPage() {
   }
 
   return (
+    <>
+    <OnboardingGuide />
     <Splitter
       className="main sidebar-splitter"
       onResizeEnd={sidebarRemember}
@@ -171,5 +174,6 @@ export default function AgentsPage() {
         {createOpen && <AgentModal onClose={() => setCreateOpen(false)} onCreated={onAgentCreated} />}
       </Splitter.Panel>
     </Splitter>
+    </>
   )
 }

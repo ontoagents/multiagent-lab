@@ -28,6 +28,29 @@ export interface ProviderPreset {
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
+  // REQ-408/M204：本地模型预设（零 API key 跑通——Ollama/LM Studio/vLLM OpenAI 兼容端点）。
+  // 本地端点无控制台（console 缺省）；defaultModel 为各运行时常见缺省，表单内可改。
+  {
+    key: 'ollama',
+    name: 'Ollama（本机）',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    defaultModel: 'qwen2.5:7b',
+    connType: 'chat',
+  },
+  {
+    key: 'lmstudio',
+    name: 'LM Studio（本机）',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    defaultModel: 'local-model',
+    connType: 'chat',
+  },
+  {
+    key: 'vllm',
+    name: 'vLLM（自建）',
+    baseUrl: 'http://127.0.0.1:8000/v1',
+    defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
+    connType: 'chat',
+  },
   {
     key: 'deepseek',
     name: 'DeepSeek 深度求索',
