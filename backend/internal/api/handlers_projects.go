@@ -118,6 +118,11 @@ func (s *Server) downloadProjectFile(w http.ResponseWriter, r *http.Request) {
 // 导致文件视图与对话工具按错误路径寻址——REQ-101 修复：检测接口展开校验，入库必须同规则）。
 func normalizeProjectLocalDir(w http.ResponseWriter, p *store.Project) bool {
 	p.LocalDir = fsutil.NormalizeDir(p.LocalDir)
+	if p.LocalDir == "." {
+		// REQ-417 顺修：Clean("") 产物 "." = 请求未携带 local_dir（模板/API 直建场景），
+		// 归位未绑定——按「非空非绝对」400 会误杀一切不带目录的建项目请求
+		p.LocalDir = ""
+	}
 	if p.LocalDir != "" && !fsutil.IsAbsDir(p.LocalDir) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "local_dir 必须是绝对路径（以 / 开头，Windows 用 C:\\ 开头，或以 ~ 开头，保存时自动展开 ~）；收到: " + p.LocalDir})
 		return false

@@ -103,10 +103,17 @@ func TestIfMatchProjectUpdate(t *testing.T) {
 		s.updateProject(rec, req)
 		return rec
 	}
-	if rec := mk(""); rec.Code == http.StatusConflict {
-		t.Fatal("头缺省应放行")
+	// REQ-417 顺修：头缺省放行曾因「无 local_dir 被 Clean(".") 400 拦下」的副作用而恒真
+	//（updated_at 未变掩盖了次序缺陷）——normalizeProjectLocalDir 修 "." 后放行应真正 200，
+	// 第二步必须用步进后的最新 updated_at
+	if rec := mk(""); rec.Code != http.StatusOK {
+		t.Fatalf("头缺省应放行且成功，得 %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := mk(p.UpdatedAt); rec.Code == http.StatusConflict {
+	cur, gerr := s.Store.GetProject(p.ID)
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if rec := mk(cur.UpdatedAt); rec.Code == http.StatusConflict {
 		t.Fatalf("一致应放行: %s", rec.Body.String())
 	}
 	if rec := mk("2020-01-01T00:00:00Z"); rec.Code != http.StatusConflict {

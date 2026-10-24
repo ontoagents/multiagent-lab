@@ -9,6 +9,7 @@ import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import ProjectModal from '../components/ProjectModal'
 import ProjectSidePanel, { type PanelView } from '../components/ProjectSidePanel'
+import DevTeamTemplate from '../components/DevTeamTemplate'
 
 /**
  * 项目视图（原型 06 §3.2）：
@@ -122,6 +123,8 @@ export default function ProjectsPage() {
                       <Button disabled={!activeProject} icon={<FolderOutlined />} onClick={() => { setSidePanelOpen(true); setPanelView('config') }}>
                         项目配置 / 侧边栏
                       </Button>
+                      {/* REQ-417/M213：协作研发模板一键创建（三角色+种子任务） */}
+                      <DevTeamTemplate agents={agents} onCreated={(pid) => { reload(); setActiveProjectId(pid) }} />
                     </Space>
                   }
                 />
