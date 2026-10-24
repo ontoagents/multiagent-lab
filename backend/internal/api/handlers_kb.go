@@ -94,8 +94,9 @@ func (s *Server) listKBDocs(w http.ResponseWriter, r *http.Request) {
 // importKBDoc 粘贴文本导入并同步索引（§341 流程：切分→embed→upsert→状态回写）。
 func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Title   string `json:"title"`
-		Content string `json:"content"`
+		Title    string `json:"title"`
+		Content  string `json:"content"`
+		Filename string `json:"filename"` // REQ-414/M210：富格式分发（.pdf/.docx 后缀判定）
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -105,11 +106,28 @@ func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
 		return
 	}
+	content := in.Content
+	// REQ-414/M210：富格式分发——PDF/DOCX 走文本层抽取（零新依赖；抽取为空/加密/扫描件 400 明确报错）
+	if in.Filename != "" {
+		lf := strings.ToLower(in.Filename)
+		if strings.HasSuffix(lf, ".pdf") || strings.HasSuffix(lf, ".docx") {
+			text, xerr := kb.ExtractText(in.Filename, []byte(in.Content))
+			if xerr != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "富格式文本层抽取失败: " + xerr.Error()})
+				return
+			}
+			content = text
+		}
+	}
+	if strings.TrimSpace(content) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "抽取后文本为空（扫描件/图片型 PDF 不支持——OCR 维持池内）"})
+		return
+	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		title = truncateTitle(in.Content)
+		title = truncateTitle(content)
 	}
-	doc, err := s.KB.Import(r.Context(), r.PathValue("id"), title, in.Content)
+	doc, err := s.KB.Import(r.Context(), r.PathValue("id"), title, content)
 	if err != nil {
 		writeErr(w, err)
 		return
