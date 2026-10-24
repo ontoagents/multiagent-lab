@@ -16,7 +16,7 @@ import { RuntimeEnvPane } from './settings/RuntimeEnvPane'
 import { ConnectorsPane } from './settings/ConnectorsPane'
 import { isBuiltinVendor, providerOfName, vendorDisplayOf, vendorKeyOf, type ProviderGroup } from './settings/grouping'
 
-type Category = 'models' | 'connectors' | 'stats' | 'inference' | 'runtime' | 'security'
+type Category = 'models' | 'connectors' | 'stats' | 'inference' | 'runtime' | 'security' | 'diag'
 /** 统计维度：供应商为前端归并（后端无提供商实体），其余直接映射后端 group_by */
 type StatsDimension = 'model' | 'supplier' | 'agent' | 'project'
 
@@ -309,6 +309,7 @@ export default function SettingsPage() {
               { key: 'stats', label: '使用统计' },
               { key: 'runtime', label: <Space size={6}>运行环境</Space> },
               { key: 'security', label: '数据与安全' },
+              { key: 'diag', label: '诊断与备份' },
             ]}
           />
           <div className="settings-note" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -329,6 +330,26 @@ export default function SettingsPage() {
             <RuntimeEnvPane />
           ) : category === 'security' ? (
             <SecurityPanel />
+          ) : category === 'diag' ? (
+            <div>
+              <div className="settings-head">
+                <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+                  诊断与备份
+                  <HintIcon text="诊断包=healthz 快照+最近错误样本+脱敏配置（JSON，不出模型 Key 与地址）。备份沿 16 号：停服后复制 data/ 目录（WAL 热复制亦可读）。" />
+                </Typography.Title>
+              </div>
+              <Space direction="vertical" size={8}>
+                <Button
+                  data-testid="export-diagnostics"
+                  onClick={() => window.open('/api/diagnostics/export', '_blank')}
+                >
+                  导出诊断包（JSON）
+                </Button>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  升级指南见平台知识「部署与运行」（16 号）：桌面覆盖升级 / 引擎容器重建（REQ-236）/ 迁移自动跑（REQ-391 schema_migrations）。
+                </Typography.Text>
+              </Space>
+            </div>
           ) : category === 'stats' ? (
             <>
               <div className="settings-head">

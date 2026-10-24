@@ -236,6 +236,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	m.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
 	m.HandleFunc("GET /api/conversations/{id}/messages/paged", s.listMessagesPaged) // REQ-413/M209 长会话分页护栏
+	m.HandleFunc("GET /api/diagnostics/export", s.exportDiagnostics)               // REQ-410/M206 诊断自助包
 	m.HandleFunc("GET /api/conversations/{id}/events", s.listEvents)
 	m.HandleFunc("POST /api/conversations/{id}/runs", s.runConversation)
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)
