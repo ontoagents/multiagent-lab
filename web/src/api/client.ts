@@ -158,7 +158,12 @@ export const api = {
   harnessAudit: (agentId: string, limit = 50) =>
     req<{ events: HarnessAuditEvent[]; total: number }>(`/api/agents/${agentId}/harness-audit?limit=${limit}`),
   createAgent: (a: Partial<Agent>) => req<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(a) }),
-  updateAgent: (id: string, a: Partial<Agent>) => req<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(a) }),
+  updateAgent: (id: string, a: Partial<Agent>, ifMatch?: string) =>
+    req<Agent>(`/api/agents/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(a),
+      headers: ifMatch ? { 'If-Match': ifMatch } : undefined,
+    }),
   deleteAgent: (id: string) => req<{ deleted: string }>(`/api/agents/${id}`, { method: 'DELETE' }),
   /** REQ-131/M18：对外 MCP 服务化——端点/工具名/调用示例（Token 掩码） */
   getAgentMcpServe: (id: string) => req<McpServeInfo>(`/api/agents/${id}/mcp-serve`),
@@ -168,7 +173,12 @@ export const api = {
   // projects
   listProjects: () => req<Project[]>('/api/projects'),
   createProject: (p: Partial<Project>) => req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(p) }),
-  updateProject: (id: string, p: Partial<Project>) => req<Project>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
+  updateProject: (id: string, p: Partial<Project>, ifMatch?: string) =>
+    req<Project>(`/api/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(p),
+      headers: ifMatch ? { 'If-Match': ifMatch } : undefined,
+    }),
   setProjectAgents: (id: string, members: { agent_id: string; role: 'coordinator' | 'member' }[]) =>
     req<Project>(`/api/projects/${id}/agents`, { method: 'PUT', body: JSON.stringify(members) }),
   deleteProject: (id: string) => req<{ deleted: string }>(`/api/projects/${id}`, { method: 'DELETE' }),
@@ -210,7 +220,12 @@ export const api = {
     return req<Conversation[]>(`/api/conversations${qs ? '?' + qs : ''}`)
   },
   createConversation: (c: Partial<Conversation>) => req<Conversation>('/api/conversations', { method: 'POST', body: JSON.stringify(c) }),
-  updateConversation: (id: string, c: Partial<Conversation>) => req<Conversation>(`/api/conversations/${id}`, { method: 'PUT', body: JSON.stringify(c) }),
+  updateConversation: (id: string, c: Partial<Conversation>, ifMatch?: string) =>
+    req<Conversation>(`/api/conversations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(c),
+      headers: ifMatch ? { 'If-Match': ifMatch } : undefined,
+    }),
   deleteConversation: (id: string) => req<{ deleted: string }>(`/api/conversations/${id}`, { method: 'DELETE' }),
   listMessages: (id: string) => req<Message[]>(`/api/conversations/${id}/messages`),
   // M27/REQ-166：平台助手配置与 AI 内容优化

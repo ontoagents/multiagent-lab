@@ -132,6 +132,12 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.ID = r.PathValue("id")
+	// REQ-400/M196：If-Match 乐观锁（头缺省不校验——存量兼容；前端主保存链路已透传）
+	if prev, perr := s.Store.GetAgent(a.ID); perr == nil && prev != nil {
+		if !checkIfMatch(w, r, prev.UpdatedAt) {
+			return
+		}
+	}
 	// REQ-186：内置助手行不可删除；REQ-192/M32②+REQ-213：编辑走**字段白名单**——
 	// instruction/model_conn_id/temperature + tools/skills/mcp_servers/max_tokens/max_iteration
 	// 放行（能力面与普通智能体统一，REQ-213②）；tools 经 builtinToolsUnion 做基座并集保护
@@ -313,6 +319,12 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.ID = r.PathValue("id")
+	// REQ-400/M196：If-Match 乐观锁（同 updateAgent 口径）
+	if prev, perr := s.Store.GetProject(p.ID); perr == nil && prev != nil {
+		if !checkIfMatch(w, r, prev.UpdatedAt) {
+			return
+		}
+	}
 	if !normalizeProjectLocalDir(w, &p) {
 		return
 	}

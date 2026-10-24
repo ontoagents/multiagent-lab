@@ -872,7 +872,7 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
         workflow_mode: workflowMode,
         constraints: project.constraints,
         local_dir: project.local_dir ?? '',
-      })
+      }, project.updated_at) // REQ-400：If-Match 乐观锁（三字段清零事故路径）
       await api.setProjectAgents(project.id, members)
       showToast('已保存')
       bumpData()

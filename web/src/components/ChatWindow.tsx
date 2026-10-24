@@ -1015,10 +1015,16 @@ export default function ChatWindow({
   // 对话级配置落库（M8）：后端 PUT 为 full-replace，必须合并当前会话字段，避免重置 title/kb_id/top_k 等
   const patchConv = async (patch: Partial<Conversation>, opts?: { silent?: boolean }) => {
     try {
-      await api.updateConversation(conversation.id, { ...conversation, ...patch })
+      // REQ-400/M196：If-Match 乐观锁（全量载荷+updated_at 基线——并发窗口后写覆盖前写 409 提示刷新）
+      await api.updateConversation(conversation.id, { ...conversation, ...patch }, conversation.updated_at)
       if (!opts?.silent) showToast('对话配置已更新')
       onConversationUpdated()
     } catch (e: any) {
+      if (e?.status === 409) {
+        showToast('对话配置已被其他窗口修改——已刷新为最新配置，请重新编辑', 'err')
+        onConversationUpdated()
+        return
+      }
       showToast(e.message, 'err')
     }
   }

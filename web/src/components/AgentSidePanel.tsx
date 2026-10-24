@@ -1082,7 +1082,7 @@ function AgentConfigForm({
         return
       }
       // REQ-219：载荷统一走 agentFullPayload（表单值+非表单字段透传防清零；含 tool_approval 顺修）
-      await api.updateAgent(agent.id, agentFullPayload(agent, v))
+      await api.updateAgent(agent.id, agentFullPayload(agent, v), agent.updated_at) // REQ-400：If-Match 乐观锁
       showToast('已保存，下次运行生效')
       bumpData()
       onChanged?.()

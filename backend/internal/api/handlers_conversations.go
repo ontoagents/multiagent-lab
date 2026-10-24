@@ -62,6 +62,12 @@ func (s *Server) updateConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.ID = r.PathValue("id")
+	// REQ-400/M196：If-Match 乐观锁（同 updateAgent 口径）
+	if prev, perr := s.Store.GetConversation(c.ID); perr == nil && prev != nil {
+		if !checkIfMatch(w, r, prev.UpdatedAt) {
+			return
+		}
+	}
 	updated, err := s.Store.UpdateConversation(&c)
 	if err != nil {
 		writeErr(w, err)
