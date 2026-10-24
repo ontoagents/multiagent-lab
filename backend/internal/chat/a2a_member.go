@@ -31,6 +31,9 @@ type a2aMemberDeps struct {
 	// DecorateTask REQ-430/M226：任务装饰闭包（context_injection=auto 时前置平台项目上下文；
 	// nil=原样——委派单事件记录原始任务，装饰只影响外发内容）。
 	DecorateTask func(ctx context.Context, task string) string
+	// Streaming REQ-432/M228：对端 capabilities.streaming（card 能力随行——true 走 message/stream
+	// SSE 订阅、失败回落 send+轮询；false 纯轮询沿现状）。
+	Streaming bool
 }
 
 // a2aMemberDescription 卡片合成工具描述（skills+description 如实透出给协调者）。
@@ -132,15 +135,60 @@ func a2aSendDone(rt *a2a.RemoteTask) (done, failed bool) {
 	return false, false
 }
 
-// a2aDelegateRun message/send + tasks/get 轮询（send 即回终态的同步型远端跳过轮询）。
-// REQ-428：hook 非 nil 时任务 history 逐条转译过程事件（上限 20 条，超出尾注标注）。
+// a2aDelegateRun 委派执行：对端声明流式能力时走 message/stream SSE 订阅（REQ-432①，失败回落
+// send+轮询），否则纯轮询（send 即回终态的同步型远端跳过轮询）。
+// REQ-428：hook 非 nil 时任务 history/stream 快照逐条转译过程事件（history 上限 20 条，超出尾注标注）。
 func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string, hook func(protoEvent, summary string)) (string, error) {
 	poll := time.Duration(d.PollSec * float64(time.Second))
-	rt, err := a2a.Send(ctx, d.Endpoint, d.Headers, task)
-	if err != nil {
-		return "", err
+	var rt *a2a.RemoteTask
+	var err error
+	if d.Streaming {
+		lastArt := 0
+		rt, err = a2a.SendStream(ctx, d.Endpoint, d.Headers, task, func(u *a2a.RemoteTask) {
+			if hook == nil || u == nil {
+				return
+			}
+			// 流式快照转译：产物增量 + 状态文本变化各一条（快照全量、按增量发防刷屏）
+			if len(u.ArtifactText) > lastArt {
+				hook("a2a_stream", u.ArtifactText[lastArt:])
+				lastArt = len(u.ArtifactText)
+			} else if strings.TrimSpace(u.ErrorText) != "" {
+				hook("a2a_stream", "["+u.State+"] "+u.ErrorText)
+			}
+		})
+		if err != nil {
+			// 回落 send+轮询（对端实际不支持流式/中途断流——能力声明与实现的差异如实回落）
+			rt, err = a2a.Send(ctx, d.Endpoint, d.Headers, task)
+			if err != nil {
+				return "", err
+			}
+		}
+	} else {
+		rt, err = a2a.Send(ctx, d.Endpoint, d.Headers, task)
+		if err != nil {
+			return "", err
+		}
+	}
+	// REQ-432②：input-required 交互通道——外部成员人工介入请求不再按失败降级，结构化透传
+	// 协调者（向用户转述问题获取答案后附答案再次委派；协调者有 ask_human 工具时可先走审批面/
+	// 追问语义）。非失败态：不 emit run.warning；不进轮询（等人工输入的任务对端不会自行推进）。
+	if rt.State == "input-required" {
+		q := rt.ErrorText
+		if q == "" {
+			q = "（对端未附问题文本）"
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"status":   "input_required",
+			"member":   d.Name,
+			"question": truncateRunes(q, 400),
+			"hint":     "外部成员请求人工输入。请向用户转述问题并获取答案，然后把答案附在任务描述中再次委派本成员（或改派其他成员/自行完成）。",
+		})
+		return string(payload), nil
 	}
 	if done, failed := a2aSendDone(rt); !done || failed {
+		if rt.ID == "" {
+			return "", err
+		}
 		rt, err = a2a.AwaitTerminal(ctx, d.Endpoint, d.Headers, rt.ID, poll)
 		if err != nil {
 			return "", err

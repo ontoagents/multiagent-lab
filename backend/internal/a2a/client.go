@@ -5,6 +5,7 @@
 package a2a
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -197,6 +198,78 @@ func taskStateOf(result json.RawMessage) (*RemoteTask, error) {
 		rt.History = append(rt.History, HistoryMessage{Role: h.Role, Text: hb.String()})
 	}
 	return rt, nil
+}
+
+// SendStream REQ-432/M228①：message/stream SSE 订阅委派（对端 capabilities.streaming=true 时
+// 替代纯轮询）——每条 SSE data 为 JSON-RPC 响应（result=任务快照），逐快照合并回调 onEvent
+//（过程转译源），连接关闭即终态返回。对端不支持/中途失败由调用方回落 send+轮询。
+func SendStream(ctx context.Context, endpoint string, headers map[string]string, task string, onEvent func(*RemoteTask)) (*RemoteTask, error) {
+	params := map[string]any{
+		"message": map[string]any{
+			"role":      "user",
+			"kind":      "message",
+			"messageId": fmt.Sprintf("m-%d", time.Now().UnixNano()),
+			"parts":     []map[string]any{{"kind": "text", "text": task}},
+		},
+	}
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": time.Now().UnixNano(), "method": "message/stream", "params": params})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		return nil, fmt.Errorf("对端不支持 message/stream（HTTP %d %s）", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var final *RemoteTask
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		var env struct {
+			Result json.RawMessage `json:"result"`
+			Error  *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(payload), &env) != nil {
+			continue
+		}
+		if env.Error != nil {
+			return final, fmt.Errorf("message/stream 错误: %s", env.Error.Message)
+		}
+		rt, err := taskStateOf(env.Result)
+		if err != nil || rt == nil {
+			continue
+		}
+		if onEvent != nil {
+			onEvent(rt)
+		}
+		final = rt
+		if done, _ := taskTerminal(rt.State); done {
+			break
+		}
+	}
+	if final == nil {
+		return nil, fmt.Errorf("message/stream 无任务快照返回")
+	}
+	return final, nil
 }
 
 // Send message/send 委派（立即回任务——通常 working 态；终态经 AwaitTerminal 轮询）。

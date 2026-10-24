@@ -514,9 +514,15 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 			pollSec = v
 		}
 		injectAuto, _ := c.Config["context_injection"].(string)
+		streaming := false
+		if p := ExternalMemberProfile(c, nil); p != nil {
+			if v, ok := p["streaming"].(bool); ok {
+				streaming = v // REQ-432①：对端流式能力随行（card capabilities.streaming）
+			}
+		}
 		bt, terr := newA2AMemberTool(a2aMemberDeps{
 			Name: name, Endpoint: endpoint, Headers: a.mcpHeaders(c),
-			CardJSON: c.CardJSON, PollSec: pollSec,
+			CardJSON: c.CardJSON, PollSec: pollSec, Streaming: streaming,
 			DecorateTask: extContextDecorator(sc, injectAuto), // REQ-430/M226：上下文注入装饰
 		})
 		if terr != nil {

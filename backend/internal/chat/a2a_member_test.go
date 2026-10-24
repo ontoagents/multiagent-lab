@@ -224,3 +224,137 @@ func TestA2AMemberHistoryAudit(t *testing.T) {
 	_ = ctx
 	_ = evts
 }
+
+// ---- REQ-432/M228：A2A client 交互补强——message/stream 订阅+回落/input-required 交互通道 ----
+
+// stubA2AStreamEndpoint 流式桩：capabilities.streaming=true 的卡 + message/stream SSE 增量回传。
+func stubA2AStreamEndpoint(t *testing.T, inputRequired bool) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/.well-known/agent-card.json") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name": "流式对端", "protocolVersion": "0.3.0",
+				"capabilities": map[string]any{"streaming": true},
+			})
+			return
+		}
+		var req struct {
+			ID     any             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Method != "message/stream" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32601, "message": "no stream"}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl := w.(http.Flusher)
+		snap := func(state string, artifact string, msg string) string {
+			task := map[string]any{"id": "ts-1", "contextId": "c-1", "kind": "task", "status": map[string]any{"state": state}}
+			if artifact != "" {
+				task["artifacts"] = []map[string]any{{"parts": []map[string]any{{"kind": "text", "text": artifact}}}}
+			}
+			if msg != "" {
+				task["status"].(map[string]any)["message"] = map[string]any{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": msg}}}
+			}
+			b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": task})
+			return string(b)
+		}
+		if inputRequired {
+			_, _ = w.Write([]byte("data: " + snap("input-required", "", "请提供目标文件路径") + "\n\n"))
+			fl.Flush()
+			return
+		}
+		_, _ = w.Write([]byte("data: " + snap("working", "第一段", "") + "\n\n"))
+		fl.Flush()
+		_, _ = w.Write([]byte("data: " + snap("completed", "第一段第二段", "") + "\n\n"))
+		fl.Flush()
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestA2AMemberStreamPath(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	endpoint := stubA2AStreamEndpoint(t, false)
+	bt, err := newA2AMemberTool(a2aMemberDeps{Name: "流式成员", Endpoint: endpoint, PollSec: 0.002, Streaming: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := bt.(einotool.InvokableTool)
+	out, rerr := it.InvokableRun(ctx, `{"request":"任务"}`)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !strings.Contains(out, "第一段第二段") {
+		t.Fatalf("SSE 增量应拼接为最终产物: %s", out)
+	}
+	// 流式快照过程转译
+	streams := 0
+	for _, e := range *evts {
+		if e.typ == "external.audit" && e.data["proto_event"] == "a2a_stream" {
+			streams++
+		}
+	}
+	if streams == 0 {
+		t.Fatal("流式快照应转译 a2a_stream 过程事件")
+	}
+}
+
+func TestA2AMemberStreamFallback(t *testing.T) {
+	// 对端卡声明 streaming 但 message/stream 报不支持 → 回落 send+轮询（桩对端两类方法都实现）
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/.well-known/agent-card.json") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"name": "宣称流式", "capabilities": map[string]any{"streaming": true}})
+			return
+		}
+		if req.Method == "message/stream" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32601, "message": "unsupported"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+			"id": "tf-1", "kind": "task", "status": map[string]any{"state": "completed"},
+			"artifacts": []map[string]any{{"parts": []map[string]any{{"kind": "text", "text": "回落路径产物"}}}},
+		}})
+	}))
+	t.Cleanup(srv.Close)
+	ctx, _ := withSink(context.Background())
+	bt, err := newA2AMemberTool(a2aMemberDeps{Name: "回落成员", Endpoint: srv.URL, PollSec: 0.002, Streaming: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, rerr := bt.(einotool.InvokableTool).InvokableRun(ctx, `{"request":"任务"}`)
+	if rerr != nil || !strings.Contains(out, "回落路径产物") {
+		t.Fatalf("stream 失败应回落 send+轮询: %v %s", rerr, out)
+	}
+}
+
+func TestA2AMemberInputRequired(t *testing.T) {
+	ctx, evts := withSink(context.Background())
+	endpoint := stubA2AStreamEndpoint(t, true)
+	bt, err := newA2AMemberTool(a2aMemberDeps{Name: "追问成员", Endpoint: endpoint, Streaming: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, rerr := bt.(einotool.InvokableTool).InvokableRun(ctx, `{"request":"任务"}`)
+	if rerr != nil {
+		t.Fatalf("input-required 是交互态不是失败: %v", rerr)
+	}
+	if !strings.Contains(out, `"input_required"`) || !strings.Contains(out, "请提供目标文件路径") || !strings.Contains(out, "再次委派") {
+		t.Fatalf("应结构化透传问题: %s", out)
+	}
+	for _, e := range *evts {
+		if e.typ == "run.warning" {
+			t.Fatal("input-required 非失败态，不应 emit run.warning")
+		}
+	}
+}
