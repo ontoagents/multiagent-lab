@@ -220,6 +220,10 @@ export const api = {
     return req<Conversation[]>(`/api/conversations${qs ? '?' + qs : ''}`)
   },
   createConversation: (c: Partial<Conversation>) => req<Conversation>('/api/conversations', { method: 'POST', body: JSON.stringify(c) }),
+  /** REQ-412/M208：定时任务清单（conversation_schedule 全量） */
+  listSchedules: () => req<{ conversation_id: string; interval_minutes: number; max_runs: number; done: number; created_at: string; updated_at: string }[]>(`/api/schedules`),
+  /** REQ-412/M208：摘除定时任务（按会话） */
+  deleteSchedule: (convId: string) => req<{ status: string }>(`/api/conversations/${convId}/schedule`, { method: 'DELETE' }),
   updateConversation: (id: string, c: Partial<Conversation>, ifMatch?: string) =>
     req<Conversation>(`/api/conversations/${id}`, {
       method: 'PUT',

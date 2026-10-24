@@ -29,6 +29,7 @@ const fmtNum = (n?: number) => (n ?? 0).toLocaleString()
  * - 右栏「使用统计」：按模型 / 供应商 / 智能体 / 项目聚合 + 时间范围筛选。
  * REQ-172：添加/编辑提供商、添加/编辑模型弹窗与自动发现面板拆分至 ./settings/ 组件。
  */
+import ScheduleList from '../components/ScheduleList'
 import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 export default function SettingsPage() {
   const rail = useSidebarCollapse('eino.settings.sidebar.collapsed')
@@ -349,6 +350,10 @@ export default function SettingsPage() {
                   升级指南见平台知识「部署与运行」（16 号）：桌面覆盖升级 / 引擎容器重建（REQ-236）/ 迁移自动跑（REQ-391 schema_migrations）。
                 </Typography.Text>
               </Space>
+              <div style={{ marginTop: 16 }}>
+                <Typography.Title level={5} style={{ marginTop: 0 }}>定时任务（REQ-412 周期化）</Typography.Title>
+                <ScheduleList />
+              </div>
             </div>
           ) : category === 'stats' ? (
             <>

@@ -22,7 +22,10 @@ import (
 
 const (
 	scheduleMinIntervalMin = 1
-	scheduleMaxRuns        = 50
+	scheduleMaxRuns        = 200 // REQ-412/M208：周期任务长期跑（原 50 为一次性定时续跑口径）
+	// scheduleMaxIntervalMin REQ-412/M208：周期化粒度上限=7 天（10080min）——覆盖 小时/天/周
+	// 级周期；cron 表达式不引入（新依赖，固定分钟间隔已覆盖单机学习尺度的周期语义）
+	scheduleMaxIntervalMin = 7 * 24 * 60
 	scheduleRunInput       = "定时续跑：请按当前任务清单（若已用 todo_write 建立清单则按清单推进一个有界增量并更新状态；若无清单则推进当前任务的一小步并汇报）。回复保持简短。"
 )
 
@@ -76,8 +79,8 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	if in.IntervalMinutes < scheduleMinIntervalMin || in.MaxRuns < 1 || in.MaxRuns > scheduleMaxRuns {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("interval_minutes ≥%d 且 1≤max_runs≤%d", scheduleMinIntervalMin, scheduleMaxRuns)})
+	if in.IntervalMinutes < scheduleMinIntervalMin || in.IntervalMinutes > scheduleMaxIntervalMin || in.MaxRuns < 1 || in.MaxRuns > scheduleMaxRuns {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("interval_minutes ∈ [%d, %d]（≤7 天周期粒度），1≤max_runs≤%d", scheduleMinIntervalMin, scheduleMaxIntervalMin, scheduleMaxRuns)})
 		return
 	}
 	if _, err := s.Store.GetConversation(convID); err != nil {
