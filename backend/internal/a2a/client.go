@@ -25,12 +25,16 @@ type CardSkill struct {
 
 // AgentCard 远端 Agent Card（注册握手入库的最小面；全卡另存 CardJSON）。
 type AgentCard struct {
-	Name              string      `json:"name"`
-	Description       string      `json:"description"`
-	URL               string      `json:"url"`
-	ProtocolVersion   string      `json:"protocolVersion"`
-	PreferredTransport string     `json:"preferredTransport"`
-	Skills            []CardSkill `json:"skills"`
+	Name               string         `json:"name"`
+	Description        string         `json:"description"`
+	URL                string         `json:"url"`
+	ProtocolVersion    string         `json:"protocolVersion"`
+	PreferredTransport string         `json:"preferredTransport"`
+	Skills             []CardSkill    `json:"skills"`
+	Capabilities       struct {       // REQ-429/M225：能力画像（streaming=流式在环性）
+		Streaming bool `json:"streaming"`
+	} `json:"capabilities"`
+	Properties map[string]any `json:"properties"` // REQ-429/M225：对端自定义属性（成本档等如实透出）
 }
 
 // RemoteTask 远端任务快照（tasks/get 轮询产物）。

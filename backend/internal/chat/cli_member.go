@@ -26,6 +26,7 @@ type cliMemberDeps struct {
 	Version      string // 注册探测入库的版本（工具描述合成用，可空）
 	TaskPrefix   string // config.task_prefix 角色化指令前缀（可空——成员约束随任务拼接）
 	SandboxLabel string // REQ-427②：执行世界标注（非空=docker 沙箱〔镜像 …〕，如实透出给协调者）
+	Matrix       string // REQ-429：能力矩阵摘要（对话/流式/技能/MCP 注入形态——路由信号）
 	Run          func(ctx context.Context, task string) (string, int, error) // 成员执行（宿主/沙箱分支已并入；taskPrefix 已拼入）
 }
 
@@ -39,6 +40,9 @@ func cliMemberDescription(d cliMemberDeps) string {
 	b.WriteString("）。")
 	if d.SandboxLabel != "" {
 		b.WriteString("执行世界：" + d.SandboxLabel + "。")
+	}
+	if d.Matrix != "" {
+		b.WriteString("能力画像：" + d.Matrix + "。")
 	}
 	if p := strings.TrimSpace(d.TaskPrefix); p != "" {
 		if len(p) > 200 {

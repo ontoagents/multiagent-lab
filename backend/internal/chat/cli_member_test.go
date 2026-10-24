@@ -434,3 +434,53 @@ func TestAssembleCLIMembersProcessAudit(t *testing.T) {
 		t.Fatalf("external.audit data 形态不符: %v", audits[0].data)
 	}
 }
+
+// ---- REQ-429/M225：成员能力画像合成——描述注入/画像卡/成本档口径 ----
+
+func TestExternalMemberProfile(t *testing.T) {
+	asm, st := newCLIFixture(t)
+	// cli：探测载荷 + 注册表能力矩阵
+	c, _ := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindCLI, Name: "cli画像", Config: map[string]any{"backend": "claude-code"},
+		CardJSON: `{"type":"cli-probe","backend":"claude-code","version":"9.9.9"}`,
+	})
+	p := ExternalMemberProfile(c, asm.Inference)
+	if p["channel"] != "cli" || p["version"] != "9.9.9" || p["matrix"] == nil {
+		t.Fatalf("cli 画像形态: %v", p)
+	}
+	if !strings.Contains(p["cost"].(string), "对端 CLI 自管") {
+		t.Fatalf("成本档应如实标注: %v", p["cost"])
+	}
+	// a2a：card（capabilities.streaming+properties）
+	c2, _ := st.CreateConnector(&store.Connector{
+		Kind: store.ConnectorKindA2A, Name: "a2a画像",
+		CardJSON: `{"name":"对端","protocolVersion":"0.3.0","preferredTransport":"JSONRPC","capabilities":{"streaming":true},"properties":{"billing":"per-task"},"skills":[{"id":"s","name":"审查"}]}`,
+	})
+	p2 := ExternalMemberProfile(c2, nil)
+	if p2["streaming"] != true || p2["transport"] != "JSONRPC" || p2["protocol"] != "0.3.0" {
+		t.Fatalf("a2a 画像形态: %v", p2)
+	}
+	if !strings.Contains(p2["inloop"].(string), "对端支持流式") {
+		t.Fatalf("在环性应如实标注: %v", p2["inloop"])
+	}
+	if p2["properties"].(map[string]any)["billing"] != "per-task" {
+		t.Fatalf("对端 properties 应透出: %v", p2["properties"])
+	}
+	// 非 External kind → nil
+	c3, _ := st.CreateConnector(&store.Connector{Kind: store.ConnectorKindMCP, Name: "m", Config: map[string]any{"url": "http://x"}})
+	if ExternalMemberProfile(c3, nil) != nil {
+		t.Fatal("mcp 连接器无成员画像")
+	}
+}
+
+func TestProfileMatrixSummaryAndDescription(t *testing.T) {
+	s := profileMatrixSummary(inference.Capabilities{Chat: true, Stream: true, SkillsMode: "instruction", MCPMode: "instruction"})
+	if !strings.Contains(s, "对话✓") || !strings.Contains(s, "流式✓") || !strings.Contains(s, "技能:instruction") {
+		t.Fatalf("矩阵摘要: %s", s)
+	}
+	// CLI 描述注入画像（路由信号）
+	desc := cliMemberDescription(cliMemberDeps{Name: "m", Backend: "claude-code", Matrix: s})
+	if !strings.Contains(desc, "能力画像：") || !strings.Contains(desc, "MCP:instruction") {
+		t.Fatalf("描述应含能力画像: %s", desc)
+	}
+}

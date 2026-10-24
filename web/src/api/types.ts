@@ -80,6 +80,8 @@ export interface Connector {
   tested_at?: string
   /** REQ-416/M212：a2a 注册握手的 agent card / REQ-426：cli 注册探测 cli-probe 载荷（只读预览） */
   card?: Record<string, unknown>
+  /** REQ-429/M225：成员能力画像（技能/在环性/成本档——连接器面呈现+协调者路由信号） */
+  profile?: Record<string, unknown>
   is_builtin: boolean
   refs: string[]
   created_at: string

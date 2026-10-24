@@ -491,9 +491,13 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 		if dockerSpec != nil {
 			sandboxLabel = "docker 沙箱世界（镜像 " + dockerSpec.Image + "）"
 		}
+		matrix := ""
+		if caps := b.Capabilities(); caps.Chat || caps.Stream {
+			matrix = profileMatrixSummary(caps)
+		}
 		bt, terr := newCLIMemberTool(cliMemberDeps{
 			Name: name, Backend: backend, Version: cliProbeVersion(c.CardJSON), TaskPrefix: taskPrefix,
-			SandboxLabel: sandboxLabel,
+			SandboxLabel: sandboxLabel, Matrix: matrix,
 			Run: func(ctx context.Context, task string) (string, int, error) {
 				if p := strings.TrimSpace(taskPrefix); p != "" {
 					task = p + "\n\n" + task

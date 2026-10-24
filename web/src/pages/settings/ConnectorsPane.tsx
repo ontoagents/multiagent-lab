@@ -34,6 +34,13 @@ const CLI_BACKENDS = [
   { value: 'deepseek-harness', label: 'DeepSeek Harness（dsh headless）' },
 ]
 
+/** REQ-429：能力矩阵对象 → 展示摘要（与后端 profileMatrixSummary 同口径） */
+function fmtMatrix(m: unknown): string | null {
+  if (!m || typeof m !== 'object') return null
+  const x = m as Record<string, unknown>
+  return `对话${x.chat ? '✓' : '✗'} · 流式${x.stream ? '✓' : '✗'} · 技能:${String(x.skills_mode ?? '—')} · MCP:${String(x.mcp_mode ?? '—')}`
+}
+
 /** config 摘要（非敏感字段展示） */
 function configSummary(c: Connector): string {
   if (c.kind === 'mcp' || c.kind === 'a2a') return String(c.config?.url ?? '—')
@@ -325,6 +332,20 @@ export function ConnectorsPane() {
                     CLI 探测（注册握手来源 {String(c.config?.backend ?? '')}）：版本 <b>{String(c.card.version ?? '—')}</b>
                     {c.card.path ? <>，路径 <code>{String(c.card.path)}</code></> : null}
                   </Typography.Text>
+                  {c.profile && (
+                    <div style={{ marginTop: 6 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {/* REQ-429/M225：能力画像（技能/在环性/成本档——协调者路由信号同源呈现） */}
+                        画像：{[
+                          c.profile.backend ? `后端 ${String(c.profile.backend)}` : null,
+                          c.profile.version ? String(c.profile.version) : null,
+                          fmtMatrix(c.profile.matrix),
+                          c.profile.inloop ? String(c.profile.inloop) : null,
+                          c.profile.cost ? `成本${String(c.profile.cost)}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </Typography.Text>
+                    </div>
+                  )}
                   <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
                     授权后该智能体在项目 agent_as_tool 协作面成为外部成员：协调者委派任务经 CLI 子进程执行（模型由 CLI 自身配置决定），纯文本结果回传，失败沿 REQ-319 语义降级回喂。
                   </Typography.Text>
@@ -339,6 +360,15 @@ export function ConnectorsPane() {
                   <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {(c.tools ?? []).map((t) => <Tag key={t} color="geekblue" style={{ margin: 0 }}>技能：{t}</Tag>)}
                   </div>
+                  {c.profile && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                      画像：{[
+                        c.profile.protocol ? `协议 ${String(c.profile.protocol)}` : null,
+                        c.profile.inloop ? String(c.profile.inloop) : null,
+                        c.profile.cost ? `成本${String(c.profile.cost)}` : null,
+                      ].filter(Boolean).join(' · ')}
+                    </Typography.Text>
+                  )}
                   <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
                     授权后该智能体在项目 agent_as_tool 协作面成为外部成员：协调者委派任务经 message/send + tasks/get 轮询，纯文本结果回传。
                   </Typography.Text>

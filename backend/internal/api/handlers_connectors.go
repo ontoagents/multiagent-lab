@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/connector"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
 )
@@ -33,6 +35,7 @@ type connectorOut struct {
 	Tools          []string       `json:"tools"`     // REQ-214 P2：工具名清单（test 落库；授权前知情）
 	TestedAt       string         `json:"tested_at"` // REQ-214 P2：最近测试时间（状态时效）
 	Card           map[string]any `json:"card,omitempty"` // REQ-416/M212：a2a 注册握手的 agent card（只读预览）
+	Profile        map[string]any `json:"profile,omitempty"` // REQ-429/M225：成员能力画像（技能/在环性/成本档——连接器面呈现）
 	IsBuiltin      bool           `json:"is_builtin"`
 	Refs           []string       `json:"refs"` // 引用该连接器的 agent 名（删除保护）
 	CreatedAt      string         `json:"created_at"`
@@ -51,11 +54,13 @@ func (s *Server) connectorOut(c *store.Connector) connectorOut {
 	if c.CardJSON != "" {
 		_ = json.Unmarshal([]byte(c.CardJSON), &card)
 	}
+	profile := chat.ExternalMemberProfile(c, s.chatRegistry())
 	return connectorOut{
 		ID: c.ID, Kind: c.Kind, Name: c.Name, Description: c.Description,
 		Config: c.Config, HasCredentials: c.HasCredentials,
 		Status: c.Status, StatusDetail: c.StatusDetail, Tools: c.Tools, TestedAt: c.TestedAt,
 		Card: card,
+		Profile: profile,
 		IsBuiltin: c.IsBuiltin,
 		Refs: refs, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
@@ -360,6 +365,14 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 // handshakeA2A a2a 连接器 agent card 真握手（凭据头沿 credentials.headers 先例注入）。
 func (s *Server) handshakeA2A(ctx context.Context, c *store.Connector) (*a2a.AgentCard, []byte, error) {
 	return a2a.FetchAgentCard(ctx, urlOf(c.Config), s.mcpHeaders(c), 12*time.Second)
+}
+
+// chatRegistry 成员画像合成的注册表访问（Chat 未接时 nil——画像降级为 card 原文）。
+func (s *Server) chatRegistry() *inference.Registry {
+	if s.Chat == nil {
+		return nil
+	}
+	return s.Chat.Inference
 }
 
 // probeCLIBackend cli 连接器真握手（REQ-426/M222）：backend 须为注册表内外部 CLI 型，

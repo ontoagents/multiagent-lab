@@ -480,3 +480,33 @@ func TestConnectorCLISandboxModeValidation(t *testing.T) {
 		t.Fatalf("sandbox_mode=docker 应注册成功: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// REQ-429/M225：连接器出参透出成员能力画像（cli 矩阵/a2a streaming——连接器面呈现源）。
+func TestConnectorProfileInOut(t *testing.T) {
+	s := newCLIConnectorAPIFixture(t)
+	w := doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "cli", "name": "profiled", "config": map[string]any{"backend": "stub-cli"},
+	})
+	if w.Code != 201 {
+		t.Fatalf("注册: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Profile map[string]any `json:"profile"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.Profile == nil || out.Profile["channel"] != "cli" || out.Profile["matrix"] == nil {
+		t.Fatalf("cli 画像应随出参透出: %v", out.Profile)
+	}
+	if !strings.Contains(out.Profile["cost"].(string), "对端 CLI 自管") {
+		t.Fatalf("成本档: %v", out.Profile["cost"])
+	}
+	// mcp 连接器无画像
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{"kind": "mcp", "name": "plain", "config": map[string]any{"url": "http://127.0.0.1:1/mcp"}})
+	var out2 struct {
+		Profile map[string]any `json:"profile"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out2)
+	if out2.Profile != nil {
+		t.Fatalf("mcp 无画像: %v", out2.Profile)
+	}
+}
