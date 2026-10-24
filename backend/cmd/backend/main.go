@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -63,6 +64,21 @@ func main() {
 		// 安全根与对话附加文件落位回落于此（web=仓库 data/；客户端=data.location 数据目录内）
 		AgentFilesRoot: filepath.Join(filepath.Dir(dbPath), "agent-files"),
 		Inference:      infReg, // REQ-426/M222：CLI 外部成员装配（nil=不装配兼容旧构造路径）
+	}
+	// REQ-427/M223②：docker 可达探测（sandbox_mode=docker 的 CLI 成员三前置之沙箱执行世界）——
+	// docker version 子进程探测（仅在装配含沙箱 CLI 成员的项目会话时触发，不做常驻缓存）
+	asm.DockerProbe = func(ctx context.Context) bool {
+		bin := getenv("DOCKER_BIN", "")
+		if bin == "" {
+			if p, err := exec.LookPath("docker"); err == nil {
+				bin = p
+			}
+		}
+		if bin == "" {
+			return false
+		}
+		out, err := exec.CommandContext(ctx, bin, "version", "--format", "{{.Server.Version}}").Output()
+		return err == nil && strings.TrimSpace(string(out)) != ""
 	}
 	// 知识库服务（M6，§6.9）：向量后端按 KB_VECTOR_BACKEND（qdrant|sqlite），Qdrant 走 REST（QDRANT_URL）
 	kbSvc, err := kb.NewService(st, box,

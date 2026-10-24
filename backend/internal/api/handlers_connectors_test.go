@@ -462,3 +462,21 @@ func TestConnectorCLIRegistrationGate(t *testing.T) {
 		t.Fatalf("test 应探测成功: %s", w.Body.String())
 	}
 }
+
+func TestConnectorCLISandboxModeValidation(t *testing.T) {
+	s := newCLIConnectorAPIFixture(t)
+	// sandbox_mode 非法取值 → 400
+	w := doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "cli", "name": "x", "config": map[string]any{"backend": "stub-cli", "sandbox_mode": "k8s"},
+	})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "sandbox_mode") {
+		t.Fatalf("非法 sandbox_mode 应 400: %d %s", w.Code, w.Body.String())
+	}
+	// sandbox_mode=docker 合法（三前置在装配期闸门，注册不拦）
+	w = doConnectorReq(s, "POST", "/api/connectors", map[string]any{
+		"kind": "cli", "name": "sandboxed", "config": map[string]any{"backend": "stub-cli", "sandbox_mode": "docker", "cwd": "/tmp/ws", "sandbox_image": "img:dev"},
+	})
+	if w.Code != 201 {
+		t.Fatalf("sandbox_mode=docker 应注册成功: %d %s", w.Code, w.Body.String())
+	}
+}

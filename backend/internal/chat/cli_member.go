@@ -21,14 +21,15 @@ import (
 
 // cliMemberDeps 外部 CLI 成员工具构建参数。
 type cliMemberDeps struct {
-	Name       string // 工具名（=连接器实例名；冲突时装配层加 -cli 后缀）
-	Backend    string // inference 注册表内外部 CLI 后端名（claude-code 首件）
-	Version    string // 注册探测入库的版本（工具描述合成用，可空）
-	TaskPrefix string // config.task_prefix 角色化指令前缀（可空——成员约束随任务拼接）
-	Run        func(ctx context.Context, task string) (string, int, error) // 成员执行（inference.CLIMemberRun 适配；taskPrefix 已并入）
+	Name         string // 工具名（=连接器实例名；冲突时装配层加 -cli 后缀）
+	Backend      string // inference 注册表内外部 CLI 后端名（claude-code 首件）
+	Version      string // 注册探测入库的版本（工具描述合成用，可空）
+	TaskPrefix   string // config.task_prefix 角色化指令前缀（可空——成员约束随任务拼接）
+	SandboxLabel string // REQ-427②：执行世界标注（非空=docker 沙箱〔镜像 …〕，如实透出给协调者）
+	Run          func(ctx context.Context, task string) (string, int, error) // 成员执行（宿主/沙箱分支已并入；taskPrefix 已拼入）
 }
 
-// cliMemberDescription 工具描述合成（backend/版本/角色前缀如实透出给协调者）。
+// cliMemberDescription 工具描述合成（backend/版本/角色前缀/执行世界如实透出给协调者）。
 func cliMemberDescription(d cliMemberDeps) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("委派任务给外部 CLI 智能体（协议 CLI 子进程，后端 %s", d.Backend))
@@ -36,6 +37,9 @@ func cliMemberDescription(d cliMemberDeps) string {
 		b.WriteString(" " + d.Version)
 	}
 	b.WriteString("）。")
+	if d.SandboxLabel != "" {
+		b.WriteString("执行世界：" + d.SandboxLabel + "。")
+	}
 	if p := strings.TrimSpace(d.TaskPrefix); p != "" {
 		if len(p) > 200 {
 			p = p[:200] + "…"

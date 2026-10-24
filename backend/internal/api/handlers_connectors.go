@@ -114,6 +114,9 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		if strOf(in.Config, "backend") == "eino-adk" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器 backend 须为外部 CLI 型（eino-adk 为平台内管线，不经成员通道）"}
 		}
+		if sm := strOf(in.Config, "sandbox_mode"); sm != "" && sm != "docker" {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "CLI 连接器 sandbox_mode 取值须为 空（宿主进程，默认）| docker（沙箱世界，三前置闸门——docker 可达/绑定目录/审批档）"}
+		}
 	case store.ConnectorKindKubernetes:
 		if strOf(in.Config, "kubeconfig_path") == "" && credStr(in.Credentials, "kubeconfig") == "" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "Kubernetes 连接器须提供 config.kubeconfig_path 或 credentials.kubeconfig（二选一）"}

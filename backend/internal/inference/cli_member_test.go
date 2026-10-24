@@ -82,3 +82,69 @@ func TestCLILookPathCandidates(t *testing.T) {
 		t.Fatal("全部候选缺失应报错")
 	}
 }
+
+// ---- REQ-427/M223：CLIMemberRunInDocker 沙箱执行——argv 构造/绑定目录/凭据 env 注入/解析层复用 ----
+
+// stubDockerBin 仿真 docker CLI：跳过 run --rm/-v/-w/-e 旗标后取镜像与命令并 exec（argv 落 $ARGS_FILE）。
+func stubDockerBin(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "docker")
+	script := `#!/bin/bash
+shift
+img=""
+flags=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rm) flags+=("--rm"); shift;;
+    -v|-w) flags+=("$1" "$2"); shift 2;;
+    -e) export "$2"; flags+=("$1" "$2"); shift 2;;
+    *) img="$1"; shift; { printf 'IMAGE=%s\n' "$img"; printf '%s\n' "${flags[@]}"; printf '%s\n' "$@"; } > "${ARGS_FILE:-/dev/null}"; exec "$@";;
+  esac
+done
+exit 9
+`
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return p
+}
+
+func TestCLIMemberRunInDocker(t *testing.T) {
+	stubCLIBin(t, "stubcc", `
+echo '{"type":"result","subtype":"success","result":"沙箱内执行完成 REQ427_ENV='"$REQ427_ENV"'"}'
+`)
+	argsFile := filepath.Join(t.TempDir(), "argv.txt")
+	t.Setenv("ARGS_FILE", argsFile)
+	stubDockerBin(t)
+	ca := &cliAdapter{name: "stub", bin: []string{"stubcc"}, versionArgs: []string{"--version"},
+		buildArgs: func(req *RunRequest) []string { return []string{"-p", req.Prompt, "--output-format", "stream-json", "--verbose"} }, parseLine: parseClaudeCodeLine}
+	out, calls, err := CLIMemberRunInDocker(context.Background(), ca,
+		&RunRequest{Prompt: "任务"},
+		DockerRunSpec{Image: "sandbox-img:dev", Cwd: "/tmp/ws", Env: map[string]string{"REQ427_ENV": "sk-test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "沙箱内执行完成") || !strings.Contains(out, "sk-test") {
+		t.Fatalf("沙箱执行应回传结果且 -e 凭据注入生效: %q", out)
+	}
+	if calls != 0 {
+		t.Fatalf("工具计数: %d", calls)
+	}
+	argv, _ := os.ReadFile(argsFile)
+	argvS := string(argv)
+	for _, want := range []string{"IMAGE=sandbox-img:dev", "-v", "/tmp/ws:/workspace", "-w", "/workspace", "-e", "REQ427_ENV=sk-test", "stubcc", "-p", "任务", "--output-format", "stream-json"} {
+		if !strings.Contains(argvS, want) {
+			t.Fatalf("docker argv 缺 %q: %s", want, argvS)
+		}
+	}
+}
+
+func TestCLIMemberRunInDockerNoCLI(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // 无 docker
+	ca := &cliAdapter{name: "stub", bin: []string{"stubcc"}, buildArgs: func(*RunRequest) []string { return nil }}
+	if _, _, err := CLIMemberRunInDocker(context.Background(), ca, &RunRequest{}, DockerRunSpec{Image: "x"}); err == nil || !strings.Contains(err.Error(), "docker CLI 不可达") {
+		t.Fatalf("docker 缺失应报错: %v", err)
+	}
+}

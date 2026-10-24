@@ -22,7 +22,7 @@ const KIND_META: { value: Connector['kind']; label: string; color: string; desc:
   { value: 'ssh', label: 'SSH', color: 'cyan', desc: '远程主机命令执行（每次调用独立连接）' },
   { value: 'a2a', label: 'A2A 智能体', color: 'geekblue', desc: '外部 A2A 智能体（agent card 握手注册；agent_as_tool 项目协作面作外部成员委派）' },
   // REQ-426/M222：CLI 外部智能体成员（PATH 探测真握手；协作面 channel=cli 委派）
-  { value: 'cli', label: 'CLI 智能体', color: 'volcano', desc: '外部 CLI 智能体（Claude Code 等，PATH 探测真握手注册；agent_as_tool 项目协作面作外部成员委派，执行复用平台 CLI 适配器）' },
+  { value: 'cli', label: 'CLI 智能体', color: 'volcano', desc: '外部 CLI 智能体（Claude Code 等，PATH 探测真握手注册；agent_as_tool 项目协作面作外部成员委派，执行复用平台 CLI 适配器；可入 docker 沙箱〔REQ-427 三前置〕，凭据 env 服务端绑定）' },
 ]
 const kindMeta = (k: string) => KIND_META.find((x) => x.value === k) ?? KIND_META[0]
 
@@ -38,7 +38,7 @@ const CLI_BACKENDS = [
 function configSummary(c: Connector): string {
   if (c.kind === 'mcp' || c.kind === 'a2a') return String(c.config?.url ?? '—')
   if (c.kind === 'cli') {
-    const parts = [c.config?.backend, c.config?.cwd].filter(Boolean)
+    const parts = [c.config?.backend, c.config?.cwd, c.config?.sandbox_mode === 'docker' ? 'docker 沙箱' : null].filter(Boolean)
     return parts.length ? parts.join(' · ') : '—'
   }
   if (c.kind === 'kubernetes') {
@@ -61,6 +61,7 @@ export function ConnectorsPane() {
   const [previewing, setPreviewing] = useState(false)
   const [form] = Form.useForm()
   const kindWatched = (Form.useWatch('kind', form) ?? 'mcp') as Connector['kind']
+  const sandboxWatched = Form.useWatch('sandbox_mode', form)
 
   const load = useCallback(() => {
     api
@@ -92,6 +93,8 @@ export function ConnectorsPane() {
       backend: c.config?.backend ?? '',
       task_prefix: c.config?.task_prefix ?? '',
       cwd: c.config?.cwd ?? '',
+      sandbox_mode: c.config?.sandbox_mode ?? undefined,
+      sandbox_image: c.config?.sandbox_image ?? '',
       kubeconfig_path: c.config?.kubeconfig_path ?? '',
       context: c.config?.context ?? '',
       namespace: c.config?.namespace ?? '',
@@ -123,6 +126,26 @@ export function ConnectorsPane() {
         config.backend = (v.backend ?? '').trim()
         if ((v.task_prefix ?? '').trim()) config.task_prefix = (v.task_prefix ?? '').trim()
         if ((v.cwd ?? '').trim()) config.cwd = (v.cwd ?? '').trim()
+        // REQ-427/M223②：沙箱执行世界（docker=三前置闸门在装配期校验；空=宿主进程）
+        if (v.sandbox_mode === 'docker') {
+          config.sandbox_mode = 'docker'
+          if ((v.sandbox_image ?? '').trim()) config.sandbox_image = (v.sandbox_image ?? '').trim()
+        }
+        // REQ-427/M223③：凭据 env（API key 等，加密落库，注入子进程/容器环境，不进 LLM 上下文）
+        if ((v.env_json ?? '').trim()) {
+          try {
+            const parsed = JSON.parse(v.env_json)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              credentials.env = parsed
+            } else {
+              showToast('凭据 env 须为 JSON 对象（如 {"ANTHROPIC_API_KEY": "sk-…"}）', 'err')
+              return
+            }
+          } catch {
+            showToast('凭据 env 须为合法 JSON 对象', 'err')
+            return
+          }
+        }
       }
       if (kind === 'kubernetes') {
         if ((v.kubeconfig_path ?? '').trim()) config.kubeconfig_path = (v.kubeconfig_path ?? '').trim()
@@ -215,6 +238,19 @@ export function ConnectorsPane() {
         config.backend = (v.backend ?? '').trim()
         if ((v.task_prefix ?? '').trim()) config.task_prefix = (v.task_prefix ?? '').trim()
         if ((v.cwd ?? '').trim()) config.cwd = (v.cwd ?? '').trim()
+        if (v.sandbox_mode === 'docker') {
+          config.sandbox_mode = 'docker'
+          if ((v.sandbox_image ?? '').trim()) config.sandbox_image = (v.sandbox_image ?? '').trim()
+        }
+        if ((v.env_json ?? '').trim()) {
+          try {
+            const parsed = JSON.parse(v.env_json)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) credentials.env = parsed
+          } catch {
+            showToast('凭据 env 须为合法 JSON 对象', 'err')
+            return
+          }
+        }
       }
       if (kind === 'kubernetes') {
         if ((v.kubeconfig_path ?? '').trim()) config.kubeconfig_path = (v.kubeconfig_path ?? '').trim()
@@ -461,8 +497,29 @@ export function ConnectorsPane() {
               <Form.Item name="task_prefix" label="角色约束前缀（可选）" extra="每次委派拼在任务描述前，如「只输出 diff 不改文件」——成员角色化约束">
                 <Input placeholder="只输出审查结论，不修改任何文件" />
               </Form.Item>
-              <Form.Item name="cwd" label="子进程工作目录（可选）" extra="空 = 继承平台后端进程工作目录；填绝对路径则 CLI 在该目录内执行（编码类成员指向项目目录）">
+              <Form.Item name="cwd" label="子进程工作目录（可选）" extra="空 = 继承平台后端进程工作目录；填绝对路径则 CLI 在该目录内执行（编码类成员指向项目目录）；docker 沙箱模式下为容器绑定目录（安全根）">
                 <Input placeholder="/home/user/my-project" />
+              </Form.Item>
+              <Form.Item name="sandbox_mode" label="执行世界" extra="宿主进程=CLI 直接跑在平台宿主（默认）；docker 沙箱=子进程迁入容器（REQ-427 三前置闸门：docker 可达 + 绑定目录 + 审批档 danger/all，任一不满足不装配）">
+                <Select
+                  allowClear
+                  placeholder="宿主进程（默认）"
+                  options={[
+                    { value: 'docker', label: 'docker 沙箱（三前置闸门）' },
+                  ]}
+                />
+              </Form.Item>
+              {sandboxWatched === 'docker' && (
+                <Form.Item name="sandbox_image" label="沙箱镜像" extra="须自备目标 CLI 二进制与登录态（如 eino-lab/agentd:dev 定制镜像）；必填于 docker 模式">
+                  <Input placeholder="registry.example.com/cli-agent:latest" />
+                </Form.Item>
+              )}
+              <Form.Item
+                name="env_json"
+                label="凭据 env（可选）"
+                extra={modal.editing?.has_credentials ? '已加密存储，留空保持不变' : 'CLI 登录凭据以环境变量注入（REQ-427③，如 {"ANTHROPIC_API_KEY": "sk-…"}）；加密落库，不进模型上下文、不进工具参数'}
+              >
+                <Input.TextArea rows={2} placeholder='{"ANTHROPIC_API_KEY": "sk-…"}' />
               </Form.Item>
             </>
           )}
