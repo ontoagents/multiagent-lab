@@ -846,8 +846,8 @@ export default function AssetsPage() {
                   // REQ-326③：Maximizeable「最大化编辑」页内最大化补丁退役——详情已升页级工作区
                   <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
                 )}
-                {secKey === 'reltypes' && <RelationTypesPane spec={spec} />}
-                {secKey === 'dataprops' && <DataPropertiesPane spec={spec} />}
+                {secKey === 'reltypes' && active && <RelationTypesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />}
+                {secKey === 'dataprops' && active && <DataPropertiesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />}
                 {secKey === 'axioms' && <AxiomsPane spec={spec} />}
                 {secKey === 'export' && <ExportPane ontology={active} />}
                 {secKey === 'ingest' && (

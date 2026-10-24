@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react'
-import { Alert, Empty, Input, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import { PlusOutlined } from '@ant-design/icons'
+import { api } from '../../../../api/client'
 import type { Spec, SpecDataProperty } from '../../../../api/types'
 
 // ---------------------------------------------------------------------------
 // REQ-268/M77（D-O22 实用化升级批次二）：数据属性管理页签——spec.data_properties 声明集中管理：
-//   名称/标签/定义/定义域/值域类型/实例引用计数（instance attributes 键反查）；纯前端从 spec 派生零接口。
-//   v1 只读（编辑经 Spec JSON / 导入捕获 / LLM·结构化路径生成）；图形编辑器画布渲染未含数据属性（诚实边界）。
+//   名称/标签/定义/定义域/值域类型/实例引用计数（instance attributes 键反查）。
+// REQ-420/M216（v1.95 范围扩容）：v1 只读 → CRUD——新增/编辑/删除走构建面元素级端点
+// （/elements/attribute，Validate+版本门禁服务端单源沿 REQ-436），消除「手动建模最大单点堵点」。
 // ---------------------------------------------------------------------------
 
 interface DpRow {
@@ -15,8 +18,12 @@ interface DpRow {
   refs: string[] // 引用该属性的实例名（instance attributes 键命中）
 }
 
-export default function DataPropertiesPane({ spec }: { spec: Spec | null }) {
+export default function DataPropertiesPane({ spec, ontologyId, onSaved }: { spec: Spec | null; ontologyId: string; onSaved: () => void }) {
   const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  // REQ-420：编辑表单态（null=关闭；name=''=新增）
+  const [editing, setEditing] = useState<{ name: string; label: string; definition: string; domain: string; range: string } | null>(null)
+  const [form] = Form.useForm()
   const rows = useMemo<DpRow[]>(() => {
     if (!spec) return []
     const usage = new Map<string, string[]>()
@@ -69,6 +76,43 @@ export default function DataPropertiesPane({ spec }: { spec: Spec | null }) {
       },
     },
     {
+      title: '操作',
+      key: 'ops',
+      width: 110,
+      render: (_: unknown, r) => (
+        <Space size={4}>
+          <Button
+            size="small"
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() => {
+              setEditing({ name: r.dp.name, label: r.dp.label ?? '', definition: r.dp.definition ?? '', domain: r.dp.domain ?? '', range: r.dp.range || 'string' })
+              form.setFieldsValue({ name: r.dp.name, label: r.dp.label ?? '', definition: r.dp.definition ?? '', domain: r.dp.domain ?? '', range: r.dp.range || 'string' })
+            }}
+          >
+            编辑
+          </Button>
+          <Popconfirm
+            title={`删除属性声明「${r.dp.name}」？实例侧同名属性值不动（将成为未声明键）。`}
+            onConfirm={async () => {
+              setBusy(true)
+              try {
+                await api.elementDelete(ontologyId, 'attribute', r.dp.name)
+                message.success(`属性「${r.dp.name}」已删除`)
+                onSaved()
+              } catch (e: any) {
+                message.error(e?.message ?? '删除失败')
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <Button size="small" type="link" danger style={{ padding: 0 }} disabled={busy}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+    {
       title: '实例引用',
       dataIndex: 'refs',
       width: 110,
@@ -83,16 +127,86 @@ export default function DataPropertiesPane({ spec }: { spec: Spec | null }) {
     },
   ]
 
+
+  // REQ-420：属性声明表单（服务端 Validate——400 校验明细如实回喂；空态/非空态共用）
+  const dpModal = (
+    <Modal
+        open={!!editing}
+        title={editing?.name ? `编辑属性「${editing.name}」` : '新增属性声明'}
+        okText={editing?.name ? '保存' : '新增'}
+        okButtonProps={{ loading: busy }}
+        onCancel={() => setEditing(null)}
+        cancelText="取消"
+        onOk={async () => {
+          try {
+            const v = await form.validateFields()
+            setBusy(true)
+            const body: Record<string, unknown> = { name: v.name.trim(), label: v.label ?? '', definition: v.definition ?? '', domain: v.domain ?? '', range: v.range || 'string' }
+            if (editing?.name) body.name = editing.name // 编辑时名不可改（按名定位锚）
+            await api.elementUpsert(ontologyId, 'attribute', body)
+            message.success(editing?.name ? `属性「${editing.name}」已更新` : `属性「${v.name.trim()}」已新增`)
+            setEditing(null)
+            onSaved()
+          } catch (e: any) {
+            if (e?.errorFields) return
+            message.error(e?.message ?? '保存失败（校验明细见响应）')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="属性名（唯一标识）" rules={[{ required: true, message: '请输入属性名' }]}>
+            <Input placeholder="如 重量" disabled={!!editing?.name} />
+          </Form.Item>
+          <Form.Item name="label" label="显示名（可选）">
+            <Input />
+          </Form.Item>
+          <Form.Item name="definition" label="定义（可选）">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="domain" label="定义域（可选=不限）">
+            <Select
+              allowClear
+              options={(spec?.concepts ?? []).map((c) => ({ value: c.name, label: c.label || c.name }))}
+              placeholder="不限定义域"
+            />
+          </Form.Item>
+          <Form.Item name="range" label="值域类型" initialValue="string">
+            <Select options={['string', 'number', 'integer', 'boolean', 'date'].map((v) => ({ value: v, label: v }))} />
+          </Form.Item>
+        </Form>
+      </Modal>
+  )
+
+  // REQ-420：新增表单态提炼（空态与非空态共用同一入口/Modal）
+  const addBtn = (
+    <Button
+      size="small"
+      icon={<PlusOutlined />}
+      onClick={() => {
+        setEditing({ name: '', label: '', definition: '', domain: '', range: 'string' })
+        form.setFieldsValue({ name: '', label: '', definition: '', domain: '', range: 'string' })
+      }}
+    >
+      新增属性声明
+    </Button>
+  )
+
   if (!rows.length) {
     return (
-      <Empty
-        description={
-          <span style={{ fontSize: 12, color: 'var(--c-ink-3)' }}>
-            本体尚无数据属性声明——可经导入（owl:DatatypeProperty 自动捕获）、Spec JSON 编辑 data_properties 字段、或 LLM/结构化生成路径产生
-          </span>
-        }
-        style={{ padding: '32px 0' }}
-      />
+      <div>
+        <Space style={{ marginBottom: 8, width: '100%', justifyContent: 'flex-end' }}>{addBtn}</Space>
+        <Empty
+          description={
+            <span style={{ fontSize: 12, color: 'var(--c-ink-3)' }}>
+              本体尚无数据属性声明——点上方「新增属性声明」直接建（REQ-420 声明面 CRUD）；或经导入（owl:DatatypeProperty 自动捕获）、Spec JSON、LLM/结构化生成路径产生
+            </span>
+          }
+          style={{ padding: '32px 0' }}
+        />
+        {dpModal}
+      </div>
     )
   }
 
@@ -112,14 +226,27 @@ export default function DataPropertiesPane({ spec }: { spec: Spec | null }) {
           message={`未声明的实例属性键：${undeclared.slice(0, 8).join('、')}${undeclared.length > 8 ? ` 等 ${undeclared.length} 个（qualitygate undeclared_attribute_key info 级）` : ''}`}
         />
       )}
-      <Input.Search
-        allowClear
-        size="small"
-        placeholder="搜索属性名/标签/定义/定义域"
-        style={{ width: 260, marginBottom: 8 }}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      <Space style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }}>
+        <Input.Search
+          allowClear
+          size="small"
+          placeholder="搜索属性名/标签/定义/定义域"
+          style={{ width: 260 }}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        {/* REQ-420：声明面 CRUD 入口 */}
+        <Button
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditing({ name: '', label: '', definition: '', domain: '', range: 'string' })
+            form.setFieldsValue({ name: '', label: '', definition: '', domain: '', range: 'string' })
+          }}
+        >
+          新增属性声明
+        </Button>
+      </Space>
       <Table<DpRow>
         size="small"
         rowKey="key"
@@ -127,6 +254,7 @@ export default function DataPropertiesPane({ spec }: { spec: Spec | null }) {
         dataSource={filtered}
         pagination={filtered.length > 20 ? { pageSize: 20 } : false}
       />
+      {dpModal}
     </div>
   )
 }

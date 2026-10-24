@@ -462,6 +462,17 @@ export const api = {
         ? { 'Content-Type': 'application/json', 'If-Match': `v${baseVersion}` }
         : { 'Content-Type': 'application/json' },
     }),
+  // REQ-436/M232：元素级端点（构建面一等 REST——Validate/版本门禁服务端单源；REQ-420 手动建模 CRUD 消费）
+  elementUpsert: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance', body: Record<string, unknown>) =>
+    req<{ operation: string; saved: boolean; base_version: number; version: number; detail: string }>(
+      `/api/ontologies/${encodeURIComponent(id)}/elements/${kind}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  elementDelete: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance', name: string) =>
+    req<{ operation: string; saved: boolean }>(
+      `/api/ontologies/${encodeURIComponent(id)}/elements/${kind}/${encodeURIComponent(name)}`,
+      { method: 'DELETE' },
+    ),
   /** REQ-292/M96 对象级 overlay（编辑三层）：清单 / 对象编辑（revision 乐观锁+幂等键）/ 撤回到 base */
   listOverlays: (id: string) =>
     req<{ ontology_id: string; count: number; overlays: OverlayRow[] }>(`/api/ontologies/${id}/overlays`),
