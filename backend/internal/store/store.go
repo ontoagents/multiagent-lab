@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,18 +57,20 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) migrate() error {
-	// 迁移记录表：SQLite 不支持 ADD COLUMN IF NOT EXISTS，通过记录已应用迁移
-	// 保证 006 等 ALTER 型迁移在重复启动时幂等（001~005 均为 IF NOT EXISTS/OR IGNORE，重放安全）。
-	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_migration (
-		name TEXT PRIMARY KEY,
-		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	// REQ-391/M187：迁移版本表统一（复用 REQ-381 ontology-service/runtime-manager 已交付模式）
+	// ——schema_migrations(version 主键) 已记录版本跳过；重复执行遇 duplicate column 视为
+	// legacy 已应用并补记（058 迁移已把旧 schema_migration 单数表记录全量转入+编号重复治理映射，
+	// 存量库零重放；此后 rename/drop 类迁移不再被重放误伤）。
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL
 	)`); err != nil {
-		return fmt.Errorf("create schema_migration: %w", err)
+		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 	applied := map[string]bool{}
-	rows, err := s.DB.Query(`SELECT name FROM schema_migration`)
+	rows, err := s.DB.Query(`SELECT version FROM schema_migrations`)
 	if err != nil {
-		return fmt.Errorf("read schema_migration: %w", err)
+		return fmt.Errorf("read schema_migrations: %w", err)
 	}
 	for rows.Next() {
 		var n string
@@ -101,9 +104,16 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		if _, err := s.DB.Exec(string(b)); err != nil {
+			// REQ-391：duplicate column = 存量库 legacy 已应用（一次性收敛语义，同 REQ-381）
+			if strings.Contains(err.Error(), "duplicate column name") {
+				if _, err := s.DB.Exec(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`, name); err != nil {
+					return fmt.Errorf("record legacy migration %s: %w", name, err)
+				}
+				continue
+			}
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
-		if _, err := s.DB.Exec(`INSERT OR IGNORE INTO schema_migration (name) VALUES (?)`, name); err != nil {
+		if _, err := s.DB.Exec(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`, name); err != nil {
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 	}
