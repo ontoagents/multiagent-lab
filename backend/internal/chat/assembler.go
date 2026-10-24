@@ -1074,6 +1074,36 @@ func (a *Assembler) stepMCPTools(ctx context.Context, ag *store.Agent, tb *toolB
 			case store.ConnectorKindMCP:
 				target, _ = c.Config["url"].(string)
 				headers = a.mcpHeaders(c) // REQ-214 P2：认证头（凭据态解密；明文仅装配栈内存）
+			case store.ConnectorKindStdio:
+				// REQ-433/M229：stdio 桥接——spawn 本地 npx/node MCP server（工具清单+每调用
+				// 独立 spawn 执行，零孤儿进程沿 MCP stdio stdin-close 约定）
+				cfg, serr := tool.ParseStdioConfig(c.Config)
+				if serr != nil {
+					tb.Warnings = append(tb.Warnings, fmt.Sprintf("stdio 连接器 %s 配置不符: %v", c.Name, serr))
+					continue
+				}
+				var bts []einotool.BaseTool
+				if ferr := DoWithRetry(ctx, 2, func() error {
+					var e error
+					bts, e = tool.FetchStdioMCPTools(ctx, c.Name, cfg, mcpFetchTimeout)
+					return e
+				}); ferr != nil {
+					tb.Warnings = append(tb.Warnings, fmt.Sprintf("stdio MCP %s spawn/装载失败（含幂等重试），本次运行不加载其工具: %v", c.Name, ferr))
+					tool.EmitEvent(ctx, "connector.degraded", map[string]any{"connector": c.Name, "target": cfg.Command + " " + strings.Join(cfg.Args, " "), "reason": ferr.Error()})
+					continue
+				}
+				for _, bt := range bts {
+					ti, ierr := bt.Info(ctx)
+					if ierr != nil || ti == nil || ti.Name == "" {
+						continue
+					}
+					if _, dup := tb.SourceOf[ti.Name]; dup {
+						continue
+					}
+					tb.Tools = append(tb.Tools, bt)
+					tb.SourceOf[ti.Name] = "stdio:" + c.Name
+				}
+				continue
 			case store.ConnectorKindA2A:
 				// REQ-416/M212：a2a 连接器不进 MCP 工具管线——由 agent_as_tool 协作面消费
 				//（assembleA2AMembers）；single/transfer 模式下如实告警不误报「缺连接目标」

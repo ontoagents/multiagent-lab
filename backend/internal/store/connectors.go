@@ -13,17 +13,18 @@ import (
 )
 
 // 连接器类型（阶段一 mcp；阶段二 kubernetes/ssh；REQ-416 起 a2a——外部 A2A 智能体成员；
-// REQ-426/M222 起 cli——外部 CLI 智能体成员，PATH 探测真握手）。
+// REQ-426/M222 起 cli——外部 CLI 智能体成员；REQ-433/M229 起 stdio——本地 npx/node MCP server 桥接）。
 const (
 	ConnectorKindMCP        = "mcp"
 	ConnectorKindKubernetes = "kubernetes"
 	ConnectorKindSSH        = "ssh"
 	ConnectorKindA2A        = "a2a"
 	ConnectorKindCLI        = "cli"
+	ConnectorKindStdio      = "stdio"
 )
 
 // ConnectorKinds 合法类型白名单。
-var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH, ConnectorKindA2A, ConnectorKindCLI}
+var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH, ConnectorKindA2A, ConnectorKindCLI, ConnectorKindStdio}
 
 func scanConnector(row interface{ Scan(...any) error }) (*Connector, error) {
 	var c Connector

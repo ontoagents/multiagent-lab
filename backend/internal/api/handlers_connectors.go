@@ -98,7 +98,7 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		}
 	}
 	if !kindOK {
-		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh|a2a|cli"}
+		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "kind 取值须为 mcp|kubernetes|ssh|a2a|cli|stdio"}
 	}
 	if in.Name == "" {
 		return &store.HTTPError{Status: http.StatusBadRequest, Msg: "name 必填（连接器实例名，装配前缀槽位）"}
@@ -114,6 +114,11 @@ func validateConnectorIn(in *connectorIn) *store.HTTPError {
 		}
 		if ci := strOf(in.Config, "context_injection"); ci != "" && ci != "auto" {
 			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "context_injection 取值须为 空（关，默认）| auto（委派时注入项目上下文——内容随任务外发对端，请确认数据边界）"}
+		}
+	case store.ConnectorKindStdio:
+		// REQ-433/M229：stdio 桥接——command 白名单校验（ParseStdioConfig 同口径）
+		if _, serr := tool.ParseStdioConfig(in.Config); serr != nil {
+			return &store.HTTPError{Status: http.StatusBadRequest, Msg: "stdio 连接器：" + serr.Error()}
 		}
 	case store.ConnectorKindCLI:
 		if strOf(in.Config, "backend") == "" {
@@ -355,6 +360,19 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 			tools = connector.SSHToolNames()
 		}
 		return ok, detail, tools, nil
+	case store.ConnectorKindStdio:
+		// REQ-433/M229：stdio 探测 = spawn+initialize+tools/list 真握手（工具清单入库）
+		cfg, serr := tool.ParseStdioConfig(c.Config)
+		if serr != nil {
+			return false, "配置不符：" + serr.Error(), nil, nil
+		}
+		names, defs, ferr := tool.ProbeStdioMCP(ctx, cfg, 30*time.Second)
+		if ferr != nil {
+			return false, "spawn/握手失败：" + ferr.Error(), nil, nil
+		}
+		card = map[string]any{"type": "stdio-probe", "command": strOf(c.Config, "command"), "tools": names, "count": len(names)}
+		tools = defsToNames(defs)
+		return true, fmt.Sprintf("握手成功：暴露 %d 个工具", len(names)), tools, card
 	case store.ConnectorKindCLI:
 		// REQ-426/M222：cli 探测 = backend 合法性 + PATH + --version（真握手，能力入库刷新 card）
 		detail, raw, ferr := s.probeCLIBackend(ctx, c)
@@ -566,4 +584,13 @@ func (s *Server) kubectlBin() string {
 		return s.RuntimeEnv.Defaults.KubectlBin
 	}
 	return os.Getenv("KUBECTL_BIN")
+}
+
+// defsToNames stdio 工具定义 → 名称清单（REQ-433 tools 列承载）。
+func defsToNames(defs []tool.StdioToolDef) []string {
+	out := make([]string, 0, len(defs))
+	for _, d := range defs {
+		out = append(out, d.Name)
+	}
+	return out
 }

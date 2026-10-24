@@ -23,6 +23,8 @@ const KIND_META: { value: Connector['kind']; label: string; color: string; desc:
   { value: 'a2a', label: 'A2A 智能体', color: 'geekblue', desc: '外部 A2A 智能体（agent card 握手注册；agent_as_tool 项目协作面作外部成员委派）' },
   // REQ-426/M222：CLI 外部智能体成员（PATH 探测真握手；协作面 channel=cli 委派）
   { value: 'cli', label: 'CLI 智能体', color: 'volcano', desc: '外部 CLI 智能体（Claude Code 等，PATH 探测真握手注册；agent_as_tool 项目协作面作外部成员委派，执行复用平台 CLI 适配器；可入 docker 沙箱〔REQ-427 三前置〕，凭据 env 服务端绑定）' },
+  // REQ-433/M229：stdio 桥接（本地 npx/node MCP server）
+  { value: 'stdio', label: 'stdio 桥接', color: 'gold', desc: '本地 npx/node MCP server 桥接（平台托管 spawn 进程；命令白名单 npx/node——uvx/Python 触 D-O15 先裁定；每调用独立 spawn 零孤儿进程）' },
 ]
 const kindMeta = (k: string) => KIND_META.find((x) => x.value === k) ?? KIND_META[0]
 
@@ -43,6 +45,10 @@ function fmtMatrix(m: unknown): string | null {
 
 /** config 摘要（非敏感字段展示） */
 function configSummary(c: Connector): string {
+  if (c.kind === 'stdio') {
+    const args = typeof c.config?.args_json === 'string' ? String(c.config.args_json) : '[]'
+    return [c.config?.command, args].filter(Boolean).join(' ')
+  }
   if (c.kind === 'mcp' || c.kind === 'a2a') return String(c.config?.url ?? '—')
   if (c.kind === 'cli') {
     const parts = [c.config?.backend, c.config?.cwd, c.config?.sandbox_mode === 'docker' ? 'docker 沙箱' : null].filter(Boolean)
@@ -100,6 +106,9 @@ export function ConnectorsPane() {
       backend: c.config?.backend ?? '',
       task_prefix: c.config?.task_prefix ?? '',
       cwd: c.config?.cwd ?? '',
+      command: c.config?.command ?? '',
+      args_json: c.config?.args_json ?? '',
+      stdio_env_json: '',
       sandbox_mode: c.config?.sandbox_mode ?? undefined,
       sandbox_image: c.config?.sandbox_image ?? '',
       context_injection: c.config?.context_injection ?? undefined,
@@ -130,6 +139,24 @@ export function ConnectorsPane() {
         if (Number.isFinite(poll) && poll > 0) config.poll_interval_seconds = poll
         // REQ-430/M226：上下文注入（auto=委派时项目上下文随任务外发对端）
         if (v.context_injection === 'auto') config.context_injection = 'auto'
+      }
+      if (kind === 'stdio') {
+        // REQ-433/M229：stdio 桥接（spawn 进程托管——注册时真握手列工具清单）
+        config.command = (v.command ?? '').trim()
+        if ((v.args_json ?? '').trim()) config.args_json = (v.args_json ?? '').trim()
+        if ((v.env_json ?? '').trim()) {
+          try {
+            const parsed = JSON.parse(v.env_json)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) credentials.env = parsed
+            else {
+              showToast('env_json 须为 JSON 对象', 'err')
+              return
+            }
+          } catch {
+            showToast('env_json 须为合法 JSON 对象', 'err')
+            return
+          }
+        }
       }
       if (kind === 'cli') {
         // REQ-426/M222：CLI 外部智能体（注册时 PATH 探测真握手，能力入库；不可达即注册失败）
@@ -242,6 +269,19 @@ export function ConnectorsPane() {
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) credentials.headers = parsed
           } catch {
             showToast('认证头须为合法 JSON 对象', 'err')
+            return
+          }
+        }
+      }
+      if (kind === 'stdio') {
+        config.command = (v.command ?? '').trim()
+        if ((v.args_json ?? '').trim()) config.args_json = (v.args_json ?? '').trim()
+        if ((v.stdio_env_json ?? '').trim()) {
+          try {
+            const parsed = JSON.parse(v.env_json)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) credentials.env = parsed
+          } catch {
+            showToast('env_json 须为合法 JSON 对象', 'err')
             return
           }
         }
@@ -525,6 +565,30 @@ export function ConnectorsPane() {
                 extra={modal.editing?.has_credentials ? '已加密存储，留空保持不变' : '需鉴权的外部服务填写，如 {"Authorization": "Bearer sk-…"}（JSON 对象；加密落库，请求时注入）'}
               >
                 <Input.TextArea rows={2} placeholder='{"Authorization": "Bearer …"}' />
+              </Form.Item>
+            </>
+          )}
+
+          {kindWatched === 'stdio' && (
+            <>
+              {/* REQ-433/M229：stdio 桥接——命令白名单 npx/node（uvx/Python 触 D-O15 先裁定） */}
+              <Form.Item
+                name="command"
+                label="启动命令"
+                rules={[{ required: true, message: '命令必填' }]}
+                extra="仅 npx | node（REQ-433 先行范围；uvx/Python 触 D-O15 需先裁定）；保存时即 spawn+握手列工具清单"
+              >
+                <Input placeholder="npx" />
+              </Form.Item>
+              <Form.Item name="args_json" label="启动参数（JSON 数组）" extra={'如 ["-y","@modelcontextprotocol/server-memory"]'}>
+                <Input.TextArea rows={2} placeholder='["-y","@modelcontextprotocol/server-memory"]' />
+              </Form.Item>
+              <Form.Item
+                name="stdio_env_json"
+                label="进程环境变量（可选）"
+                extra='注入 spawn 进程（如 {"API_KEY":"…"}）；加密落库，不进模型上下文'
+              >
+                <Input.TextArea rows={2} placeholder='{"API_KEY": "…"}' />
               </Form.Item>
             </>
           )}

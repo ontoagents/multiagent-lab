@@ -67,7 +67,7 @@ export interface Agent {
 /** REQ-214/M46：外部连接器（统一 agent 连接外部能力的产品抽象；凭据服务端加密绑定，永不回传） */
 export interface Connector {
   id: string
-  kind: 'mcp' | 'kubernetes' | 'ssh' | 'a2a' | 'cli'
+  kind: 'mcp' | 'kubernetes' | 'ssh' | 'a2a' | 'cli' | 'stdio'
   name: string
   description: string
   config: Record<string, unknown>
