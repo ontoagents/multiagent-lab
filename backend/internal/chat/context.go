@@ -269,6 +269,7 @@ type ContextCompression struct {
 	BeforeTokens int
 	AfterTokens  int
 	Dropped      int
+	Compactor    string `json:",omitempty"` // REQ-396：压缩执行方（agent-model | off | low-cost:<连接 id>）
 }
 
 // buildRunContext REQ-201 主入口：tool 轮次保全（A1）→ 压缩状态应用/生成（A3）→ 预算裁剪（A2）。
@@ -341,8 +342,10 @@ func (s *Service) buildRunContext(ctx context.Context, conv *store.Conversation,
 		dropped = dropped[1:]
 	}
 
+	// REQ-396/M192：压缩策略解析——''=默认本 agent 模型 | off=关闭摘要仅剪枝 | <连接 id>=指定（低成本）连接
+	compactAgent, compactor := s.resolveCompactAgent(ctx, agent)
 	summarized := false
-	if !stateApplied && droppedTokens >= compactionMinTokens && s.canSummarize(ctx, agent) {
+	if !stateApplied && droppedTokens >= compactionMinTokens && compactAgent != nil && s.canSummarize(ctx, compactAgent) {
 		throughID := ""
 		for i := keepFrom - 1; i >= 0; i-- {
 			if curSrc[i] != "" {
@@ -351,7 +354,7 @@ func (s *Service) buildRunContext(ctx context.Context, conv *store.Conversation,
 			}
 		}
 		if throughID != "" {
-			if summary, serr := s.summarizeContext(ctx, agent, dropped); serr == nil && summary != "" {
+			if summary, serr := s.summarizeContext(ctx, compactAgent, dropped); serr == nil && summary != "" {
 				st := contextState{Summary: summary, ThroughMessageID: throughID, CompactedAt: time.Now().UTC().Format(time.RFC3339)}
 				if b, jerr := json.Marshal(st); jerr == nil {
 					_ = s.Store.SaveContextState(conv.ID, string(b))
@@ -376,8 +379,33 @@ func (s *Service) buildRunContext(ctx context.Context, conv *store.Conversation,
 	res.Compression = &ContextCompression{
 		Kind: map[bool]string{true: "summarized", false: "trimmed"}[summarized],
 		BeforeTokens: estimateMessages(hist), AfterTokens: estimateMessages(res.Messages), Dropped: len(dropped),
+		Compactor: compactor, // REQ-396：压缩执行方透出（agent-model | off | low-cost:<conn>）
 	}
 	return res, nil
+}
+
+// resolveCompactAgent REQ-396/M192：按 Agent.CompactPolicy 解析摘要执行方——
+// ''=本 agent 模型连接（compactor=agent-model）| off=nil（仅剪枝，compactor=off）|
+// <连接 id>=以该连接构造摘要 agent（compactor=low-cost:<id>；连接不可解析回落 nil 诚实降级纯裁剪）。
+func (s *Service) resolveCompactAgent(ctx context.Context, agent *store.Agent) (*store.Agent, string) {
+	if agent == nil {
+		return nil, "off"
+	}
+	switch p := agent.CompactPolicy; {
+	case p == "off":
+		return nil, "off"
+	case p != "":
+		cp := *agent
+		cp.ModelConnID = &p
+		if s.Assembler != nil {
+			if _, _, _, err := s.Assembler.buildModel(ctx, &cp); err == nil {
+				return &cp, "low-cost:" + p
+			}
+		}
+		return nil, "off" // 指定连接不可解析：诚实降级仅剪枝
+	default:
+		return agent, "agent-model"
+	}
 }
 
 // canSummarize 压缩摘要前提：agent 可解析出模型实例（失败降级纯裁剪，不阻断运行）。

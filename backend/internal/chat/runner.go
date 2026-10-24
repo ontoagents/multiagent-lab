@@ -354,6 +354,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			data["compression"] = map[string]any{
 				"kind": cr.Compression.Kind, "before_tokens": cr.Compression.BeforeTokens,
 				"after_tokens": cr.Compression.AfterTokens, "dropped": cr.Compression.Dropped,
+				"compactor": cr.Compression.Compactor, // REQ-396：压缩执行方透出
 			}
 		}
 		s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, data), emit)

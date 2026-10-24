@@ -46,6 +46,8 @@ export interface Agent {
   companion_auto_threshold?: number
   /** REQ-201/M37：上下文预算档位（'' = 标准档；compact 紧凑 / standard 标准 / full 完整不限量） */
   context_mode?: string
+  /** REQ-396/M192：上下文压缩策略（空=本智能体模型 | off=仅剪枝 | 连接 id=低成本摘要） */
+  compact_policy?: string
   /** REQ-202/M38：工作目录（文件原语安全根，SafeJoin 约束；空=仅项目会话文件工具） */
   work_dir?: string
   /** REQ-202/M38：verify_on_stop 验证命令（空=不验证；失败标记 verify_failed） */

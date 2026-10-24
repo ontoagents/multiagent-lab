@@ -48,6 +48,9 @@ type Agent struct {
 	CompanionAutoThreshold float64 `json:"companion_auto_threshold"`
 	// REQ-201/M37：上下文预算档位（'' = 标准档；compact 紧凑 / standard 标准 / full 完整不限量=存量行为）
 	ContextMode string `json:"context_mode"`
+	// CompactPolicy REQ-396/M192：上下文压缩策略（''=默认复用本 agent 模型连接八段式摘要 |
+	// off=关闭摘要压缩仅剪枝 | <模型连接 id>=用指定（低成本）连接生成摘要）
+	CompactPolicy string `json:"compact_policy"`
 	// REQ-202/M38：工作目录（读写/grep/glob 的安全根，fsutil.SafeJoin 约束；空=仅项目会话文件工具）
 	WorkDir string `json:"work_dir"`
 	// REQ-202/M38：结束前验证命令（verify_on_stop 背压；空=不验证；失败不标记 completed）

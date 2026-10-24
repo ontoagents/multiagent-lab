@@ -539,6 +539,7 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
         inference_backend: agent.inference_backend ?? 'eino-adk',
         logo_url: (agent.logo_url ?? '').trim(),
         context_mode: agent.context_mode ?? '', // REQ-201：full-replace 透传防清零（伴生表单不含此字段）
+        compact_policy: agent.compact_policy ?? '', // REQ-396：压缩策略透传防清零
         work_dir: agent.work_dir ?? '', // REQ-202：透传防清零
         verify_command: agent.verify_command ?? '', // REQ-202：透传防清零
         tools: agent.tools ?? [],
@@ -792,6 +793,7 @@ function agentFullPayload(agent: Agent, v: Record<string, any>) {
     sandbox_cpus: v.sandbox_cpus ?? agent.sandbox_cpus ?? 0,
     inference_backend: v.inference_backend ?? agent.inference_backend ?? 'eino-adk',
     context_mode: v.context_mode ?? agent.context_mode ?? '', // REQ-201/M37：上下文预算档位（Context 层）
+    compact_policy: v.compact_policy ?? agent.compact_policy ?? '', // REQ-396：压缩策略
     work_dir: (v.work_dir ?? agent.work_dir ?? '').trim(), // REQ-202/M38：文件原语安全根（Harness 层）
     verify_command: (v.verify_command ?? agent.verify_command ?? '').trim(), // REQ-202/M38：verify_on_stop 背压（Harness 层）
     tool_approval: v.tool_approval ?? agent.tool_approval ?? '', // REQ-219 顺修：审批开关（'' = 关闭为合法值）
@@ -1231,6 +1233,22 @@ function AgentConfigForm({
                         { value: 'compact', label: '紧凑（约 6k tokens）' },
                         { value: 'standard', label: '标准（约 24k tokens）' },
                         { value: 'full', label: '完整（不限量，存量行为）' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="compact_policy"
+                    label="压缩策略"
+                    className="item-inline"
+                    tooltip="REQ-396：历史压缩摘要的执行方——默认复用本智能体模型连接；「关闭」仅按预算剪枝不生成摘要；可选指定低成本模型连接执行摘要（省成本）"
+                  >
+                    <Select
+                      allowClear
+                      disabled={isBuiltin}
+                      placeholder="默认（本智能体模型）"
+                      options={[
+                        { value: 'off', label: '关闭压缩（仅剪枝）' },
+                        ...(conns.map((c) => ({ value: c.id, label: `低成本摘要：${c.name}` }))),
                       ]}
                     />
                   </Form.Item>
