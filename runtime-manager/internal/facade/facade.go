@@ -117,6 +117,15 @@ func (f *Facade) addTools(s *server.MCPServer) {
 		mcp.WithNumber("limit", mcp.Description("可选：最多返回的概念名个数（缺省全部，硬上限 500 防工具结果过大）")),
 	), f.handleListConcepts())
 
+	// REQ-415/M211：可回答性预检（99 号 D1 借鉴）——确定性预检不引入 LLM：
+	// question 分词与概念标签 containment 匹配，覆盖度→{answerable, matched_concepts, suggestion}。
+	// 治「agent 盲跑后才发现本体不含该域」；check_readiness 不另立（healthz/loaded_status 已对位）。
+	s.AddTool(mcp.NewTool("check_answerable",
+		mcp.WithDescription("预检本体能否回答某问题（确定性关键词/标签匹配，零 LLM）：返回 answerable、matched_concepts（命中概念）与 suggestion（建议调用序）。提问前先调用可避免盲跑。"),
+		oid("ontology_id", "本体仓库 id"),
+		oid("question", "用户问题原文"),
+	), f.handleCheckAnswerable())
+
 	f.addSparqlQueryTool(s)
 	// REQ-368/M166：伴生图时序化查询面（snapshot/evolution/evidence 三模式）——只读挂载即并入。
 	f.addCompanionHistoryTool(s)

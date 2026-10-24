@@ -501,6 +501,8 @@ func (s *Server) guide(w http.ResponseWriter, r *http.Request) {
 		}
 		okIDs = append(okIDs, gotID)
 		if g := strings.TrimSpace(guide); g != "" {
+			// REQ-415②/M211（99 号 O1 搭车）：guide 尾部补建议调用序——先定位再执行，防盲跑
+			g = g + "\n建议调用序：提问前先 check_answerable 预检覆盖 → list_concepts/get_concept 定位概念 → neighbors/sparql_query 取数据。"
 			parts = append(parts, fmt.Sprintf("来源：%s\n%s", gotID, g))
 		}
 	}
