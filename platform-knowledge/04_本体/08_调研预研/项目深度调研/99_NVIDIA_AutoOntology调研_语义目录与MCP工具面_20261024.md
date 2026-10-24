@@ -3,7 +3,7 @@ module: 本体
 topic: NVIDIA Auto Ontology 调研（语义目录与 MCP 工具面）
 desc: 开发者指令「调研这篇文章中涉及到的项目」——DataFun《NVIDIA 开源 Auto Ontology，本体创建时间缩短 90%》（2026-10-23）：NVIDIA 2026-10-21 开源的语义目录（semantic catalog）框架（Agent Knowledge Foundation 首件），FastAPI+Next.js+pgvector+NIM 栈，Discover/Ground/Validate/Expose/Learn 五环节，九只读 MCP 工具（术语中心+ask_question+可回答性预检），定义 candidate/reviewed/certified 三态认证；与 Palantir（74 号 E10）/Snowflake（74 号专档）/Databricks 三方格局对比（新增多源中立开源目录层选手）；与本项目十项映射（6 ✅ 同构 / 2 🟡 粒度差 / 2 缺口→借鉴决策 D1 预检工具·D2 实体级认证状态）
 synced: 2026-10-24
-状态: v1.0 调研归档（🔭 对照参考不引入——Python/NIM 重栈 D-O15 不符；借鉴点 D1 入需求池候选、D2 观察池，待拍板）
+状态: v1.1 调研归档（🔭 对照参考不引入——Python/NIM 重栈 D-O15 不符；**D1 已立项 REQ-415/M211**〔2026-10-24 开发者指令「按建议立项」；撞号注：REQ-408~414/M204~210 被并行实用化批占用顺延〕；D2 观察池——前置 REQ-405 已交付就绪；O1 并入 REQ-415 搭车；L1/L2 学习素材本档承载）
 动因: 开发者指令「调研这篇文章中涉及到的项目，已有调研文档的项目在原文档中扩充，不要新建重复文档。分析当前项目可以借鉴的地方」（2026-10-24，文章 https://mp.weixin.qq.com/s/DXdqHAA-5enaRKvY5bkt-g）
 ---
 
@@ -130,6 +130,7 @@ synced: 2026-10-24
 - **借鉴点**：`check_answerable` 形态——在执行 SPARQL/工具前，按 **CQ 关键词/概念覆盖**判定「本本体能否回答该问题」（便宜预检，避免 agent 盲跑长查询后才发现本体不含该域）；`check_readiness` 形态已有对位（引擎自检/healthz/loaded_status/质量快评）不另立。
 - **项目落点**：runtime-manager facade 新只读工具 `check_answerable(question)`——实现候选=spec.CQ 关键词命中 + concepts/labels 检索覆盖度，返回 {answerable, matched_concepts, suggestion}；与 cqbench（离线评测）和 REQ-382（执行级对齐）互补，不引入 LLM 调用（确定性词法匹配起步）。
 - **触发条件**：消费侧真实出现「盲问失败」案例（agent 对不含该域的本体反复提问失败）再领取；当前 guide 紧凑指引+list_concepts 已部分兜底。
+- **立项状态（2026-10-24）**：开发者指令「按建议立项」——D1 转正 **REQ-415/M211**（03 §2.59，P3 📋 待领取，触发提级条件保留；撞号注：REQ-408~414/M204~210 被并行实用化批占用顺延）；O1（guide 建议调用序）作为搭车项并入 REQ-415 范围。
 
 ### D2（⏸ 观察池）：实体级定义认证状态
 
@@ -173,7 +174,7 @@ Auto Ontology 五环节把 Learn 列为一等环节（认证纠正回流本体�
 
 | 优先级 | 问题 | 影响 | 需要谁确认 |
 | --- | --- | --- | --- |
-| P2 | D1（可回答性预检）是否入 03 需求池 | 唯一立项决策点 | 董奎拍板 |
+| P2 | ~~D1（可回答性预检）是否入 03 需求池~~ **已拍板：REQ-415/M211（2026-10-24「按建议立项」）** | 唯一立项决策点已决 | ✅ |
 | P3 | Databricks Genie/Metric Views 是否值得专档（当前被 74 号+本档对比节覆盖） | 对比面完整性 | 有真实对标诉求再议 |
 
 ---
@@ -183,3 +184,4 @@ Auto Ontology 五环节把 Learn 列为一等环节（认证纠正回流本体�
 | 版本 | 日期 | 变更 |
 | --- | --- | --- |
 | v1.0 | 2026-10-24 | 初版：全景（架构/五环节/九工具/安全）+ 三方对比（引用 74 号防重复）+ 证据台账六条 + 十项映射 + D1/D2/O1/L1/L2 决策 + 不做清单；74 号同步增补 §9；15 号登记第七类 |
+| v1.1 | 2026-10-24 | D1 转正 REQ-415/M211（开发者指令「按建议立项」；撞号顺延注）；D2 观察池前置就绪注（REQ-405 已交付）；O1 并入 REQ-415 搭车；frontmatter/§5/§7/§8 同步；03 v1.91/18 v4.38/02 v0.301 同批 |
