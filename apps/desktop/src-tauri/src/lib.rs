@@ -205,10 +205,13 @@ fn spawn_services(
         .env("MIGRATIONS_DIR", res("migrations/ontology-service"))
         .env("SIDECAR_SCRIPT", res("tools/rdf-sidecar/sidecar.py"))
         .env("PLATFORM_URL", ports.backend_url());
-    #[cfg(not(windows))]
-    if let Some(py) = probe_sidecar_python() {
-        // run-dev.sh/mlabd 同款：含 rdflib 的解释器显式透传（xcrun shim 损坏机自动绕开）
-        ont.env("SIDECAR_PYTHON", py);
+    // run-dev.sh/mlabd 同款：含 rdflib 的解释器显式透传（xcrun shim 损坏机自动绕开；Windows 侧
+    // REQ-325 待办销账——py/python/python3 探测，WindowsApps 空壳 alias 因 import 失败自然滤除）；
+    // 已设 SIDECAR_PYTHON 则尊重（与 run-dev.sh 口径对齐）
+    if std::env::var_os("SIDECAR_PYTHON").is_none() {
+        if let Some(py) = probe_sidecar_python() {
+            ont.env("SIDECAR_PYTHON", py);
+        }
     }
     set_hidden(&mut ont, &log("ontology-service.log"));
 
@@ -236,7 +239,6 @@ fn spawn_services(
         .env("WEB_DIST", res("web-dist"))
         .env("KB_VECTOR_BACKEND", "sqlite")
         .env("DOCS_ROOT", res("docs"))
-        .env("RESEARCH_ROOT", res("research"))
         .env("KNOWLEDGE_ROOT", res("platform-knowledge"))
         .env("BUILD_SVC_URL", ports.ontology_url())
         .env("RUNTIME_MGR_URL", ports.runtime_url());
@@ -283,8 +285,13 @@ fn spawn_services(
     Ok(())
 }
 
-#[cfg(not(windows))]
+// sidecar python 探测（run-dev.sh 同款语义：找到含 rdflib 的解释器显式透传）。Windows 候选
+// py 启动器/python/python3：探测真执行 import rdflib 成功才命中——WindowsApps 空壳 alias
+// （exit 9009）与缺 rdflib 的解释器自然滤除；命中后解析 where 首个绝对路径（防 PATH 后续变化）。
 fn probe_sidecar_python() -> Option<String> {
+    #[cfg(windows)]
+    let candidates = ["py", "python", "python3"];
+    #[cfg(not(windows))]
     let candidates = [
         "python3",
         "/usr/local/bin/python3.12",
@@ -293,15 +300,18 @@ fn probe_sidecar_python() -> Option<String> {
         "/usr/local/bin/python3.10",
     ];
     for py in candidates {
-        let ok = Command::new(py)
-            .arg("-c")
-            .arg("import rdflib")
+        let mut cmd = Command::new(py);
+        cmd.arg("-c").arg("import rdflib")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+            .stderr(Stdio::null());
+        // GUI 壳派生探测进程不闪控制台窗（unix 无此语义）
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
         if ok {
+            #[cfg(windows)]
+            let resolved = where_first(py).unwrap_or_else(|| py.to_string());
+            #[cfg(not(windows))]
             let resolved = Command::new("which")
                 .arg(py)
                 .output()
@@ -313,6 +323,21 @@ fn probe_sidecar_python() -> Option<String> {
         }
     }
     None
+}
+
+// where 解析首个绝对路径（失败回落裸名由调用方兜底——ontologyd 侧 CreateProcess 仍走 PATH）
+#[cfg(windows)]
+fn where_first(name: &str) -> Option<String> {
+    let out = Command::new("where")
+        .arg(name)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn port_open(port: u16) -> bool {

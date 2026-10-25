@@ -224,7 +224,33 @@ func buildServices(root, dataDir string) []service {
 	if fileExists(oxigraph) {
 		svcs[1].env = append(svcs[1].env, [2]string{"OXIGRAPH_BIN", oxigraph})
 	}
+	// sidecar python 探测注入（REQ-325 待办销账）：含 rdflib 的解释器显式透传给 ontologyd
+	//（Tauri 壳/run-dev.sh 同款语义）；未命中不注入，ontologyd 按缺省处理并给人话指引
+	if py := probeSidecarPython(); py != "" {
+		svcs[0].env = append(svcs[0].env, [2]string{"SIDECAR_PYTHON", py})
+	}
 	return svcs
+}
+
+// probeSidecarPython 探测含 rdflib 的解释器：候选 py 启动器/python/python3，真执行
+// import rdflib 成功才命中——WindowsApps 空壳 alias（exit 9009）与缺 rdflib 的解释器自然
+// 滤除；已设 SIDECAR_PYTHON 则尊重。返回空串表示未命中（不注入）。
+func probeSidecarPython() string {
+	if os.Getenv("SIDECAR_PYTHON") != "" {
+		return ""
+	}
+	for _, name := range []string{"py", "python", "python3"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		cmd := exec.Command(path, "-c", "import rdflib")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+		if err := cmd.Run(); err == nil {
+			return filepath.ToSlash(path)
+		}
+	}
+	return ""
 }
 
 func spawn(svc service, root, logDir string) (*exec.Cmd, error) {

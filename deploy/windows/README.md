@@ -8,7 +8,7 @@
 | 产物 | 说明 |
 | --- | --- |
 | `dist/MultiAgentLab_0.<N>-<git短id>_x64-setup.exe`（约 27~28 MB，NSIS/Tauri 壳，当前默认路径） | **版本口径（2026-10-16 定版，同 mac build.sh）**：主版本 0 固定；次版本随每次成功构建 +1（`build\.build-number` 计数器，失败尝试不消耗号；接续 mac 全局序列）；构建时 git 短提交 id 作后缀（tauri conf 注入 semver 形态 `0.<N>.0-<id>`，安装包文件名用展示名 `0.<N>-<id>`）。双击中文向导 per-user 安装；`/S` 静默〔Git Bash 下须 `cmd /c "... /S"` 传参，直呼会被 MSYS 路径转换吞参变交互向导〕。`-Shell go` 遗留路径产物仍为 `MultiAgentLab_1.0.0_setup.exe`（约 36 MB，Go 引导器 SFX/ISCC） |
-| 安装后目录（约 95 MB+） | `multiagentlab-desktop.exe`（Tauri 壳）+ `backend/ontologyd/runtimed/oxigraph.exe`（三服务+内置引擎，随包根目录）、`web-dist`、`migrations`、`docs/ + platform-knowledge/ + research/`（平台知识随包）、`tools\rdf-sidecar\`、`uninstall.exe` |
+| 安装后目录（约 95 MB+） | `multiagentlab-desktop.exe`（Tauri 壳）+ `backend/ontologyd/runtimed/oxigraph.exe`（三服务+内置引擎，随包根目录）、`web-dist`、`migrations`、`docs/ + platform-knowledge/`（平台知识随包；research/ 已随 REQ-184 收尾退役，2026-10-25 Tauri 壳映射漏网顺修后不再入包）、`tools\rdf-sidecar\`、`uninstall.exe` |
 | 数据目录 | `%LOCALAPPDATA%\multiagent-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 内置随包**（REQ-321 零捆绑口径 2026-10-15 反转）：壳首启把随包副本种子到 `multiagent-lab\bin`（已存在不覆盖——一键更新/手动换版本不被回滚），运行页引擎即装即用；后续版本更新仍走「一键安装」 |
 
 ## 构建
@@ -57,7 +57,7 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 
 - 单机单实例；不支持开机自启/系统托盘/自动更新（跨端方案 R-X9/X10，后续按需）。
 - WebView2 Runtime 需系统预装（Win11 自带；缺失时壳自动回退默认浏览器并提示安装）。
-- 本体 TTL/OWL **导入**需系统 Python3+rdflib（未装自动降级并提示）；**导出与引擎启动已脱离 python**（REQ-321 迭代：Go 原生 TTL 导出，与 sidecar 输出字节级一致）。owlrl 推理检查（质量报告可选档）仍需 python。
+- 本体 **OWL/RDF-XML、JSON-LD 导入**需系统 Python+rdflib（TTL 导入为 Go 原生不需要）；壳自动探测可用解释器（REQ-325 待办销账 2026-10-25：候选 py 启动器/python/python3，真执行 `import rdflib` 成功才命中——WindowsApps 空壳 alias 自动滤除，命中后注入 `SIDECAR_PYTHON`；已设该 env 则尊重）；**导出与引擎启动已脱离 python**（REQ-321 迭代：Go 原生 TTL 导出，与 sidecar 输出字节级一致）。owlrl 推理检查（质量报告可选档）仍需 python。
 - Docker 沙箱执行需自行安装 Docker Desktop；Qdrant 向量库不在包内（默认 SQLite 向量后端）。
 - SFX 兜底安装包的安装向导为英文/简洁形态（中文向导走 Inno Setup 路径）；卸载完成提示为英文。
 - 壳窗口图标为系统默认（应用图标 P2）；oxigraph 由用户首启一键下载（Apache-2.0/MIT，源 https://github.com/oxigraph/oxigraph）。
@@ -81,5 +81,5 @@ MultiAgentLab.exe -stop      # 停止全部平台服务
 Windows 上 Fuseki 引擎全链可用：**运行页「一键下载安装」**（zip 发行包 apache-jena-fuseki-6.2.0，镜像序北大→华为云→清华→阿里云→官方→archive，写入数据根 `data\bin` 即时生效）或「上传发行包安装」（.tar.gz/.zip 均可）。启动不经 shell 脚本/bat——runtimed 直接 `java -jar fuseki-server.jar`（config 路径已做正斜杠消毒）。**运行依赖（产品不代装，引擎卡 Hint 指引）**：
 
 - **JDK 17+**（Temurin 等发行版均可；仅 JRE 时推理形态的规则解出不可用——依赖 JDK 的 jar 工具）。
-- **python3 + rdflib**（本体导入/导出 sidecar，非 fuseki 专属）：python.org 安装器只装 `python.exe`，Windows 自带 `python3` App 执行别名是空壳（调用 exit 9009）——装真 python 后可在其目录复制一份 `python3.exe`，或设 `SIDECAR_PYTHON` 指向 `python.exe`。
+- **python3 + rdflib**（本体导入 sidecar，非 fuseki 专属）：python.org 安装器只装 `python.exe`，Windows 自带 `python3` App 执行别名是空壳（调用 exit 9009）——壳侧探测已规避（2026-10-25 起 py/python/python3 自动探测滤空壳），无需再手工复制 `python3.exe`；特殊场景仍可设 `SIDECAR_PYTHON` 显式指定（壳尊重不覆盖）。
 - 一键安装的文件落在**数据根** `data\bin`（数据随安装目录时即 `<安装目录>\data\bin`）；`FUSEKI_BIN` 可显式覆盖。

@@ -35,7 +35,6 @@
       "resources/migrations": "migrations",
       "resources/docs": "docs",
       "resources/platform-knowledge": "platform-knowledge",
-      "resources/research": "research",
       "resources/tools": "tools"
     },
     "externalBin": [
