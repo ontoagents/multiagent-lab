@@ -65,6 +65,34 @@ func (s *Store) MarkOrphanA2ATasks() (int64, error) {
 	return res.RowsAffected()
 }
 
+// CleanupOldA2ATasks REQ-441 批 REQ-445/M241：保留窗口清理——删除 updated_at 早于 olderThan 的
+// 行（Go 侧逐行解析比较：RFC3339Nano 文本带可选小数位，字典序不可靠；先收齐 id 再删——
+// rows 未关时同池 Exec 会等连接死锁）。
+func (s *Store) CleanupOldA2ATasks(olderThan time.Time) (int64, error) {
+	rows, err := s.DB.Query(`SELECT id, updated_at FROM a2a_task`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id, upd string
+		if err := rows.Scan(&id, &upd); err != nil {
+			continue
+		}
+		if ts, perr := time.Parse(time.RFC3339Nano, upd); perr == nil && ts.Before(olderThan) {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	var n int64
+	for _, id := range ids {
+		if _, derr := s.DB.Exec(`DELETE FROM a2a_task WHERE id=?`, id); derr == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // marshalA2APayload 载荷序列化。
 func MarshalA2APayload(p A2APayload) string {
 	b, err := json.Marshal(p)

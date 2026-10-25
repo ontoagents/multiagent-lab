@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
@@ -185,6 +186,10 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	// REQ-387/M183：A2A 任务启动对账——悬挂 working 标 failed（重启中断诚实报错重新委派）
 	if n, err := st.MarkOrphanA2ATasks(); err == nil && n > 0 {
 		log.Printf("[a2a] 启动对账：%d 条悬挂任务标 failed（重启中断，可重新委派）", n)
+	}
+	// REQ-445/M241：a2a_task 保留窗口——30 天前终态行启动清理
+	if n, err := st.CleanupOldA2ATasks(time.Now().AddDate(0, 0, -30)); err == nil && n > 0 {
+		log.Printf("[a2a] 保留窗口清理：%d 条 30 天前任务行删除", n)
 	}
 	s.sched = newScheduler(s)
 	s.sched.load() // REQ-224/M52：重启按 DB 活跃行重新装配定时器

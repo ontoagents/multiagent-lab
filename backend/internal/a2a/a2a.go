@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,12 +36,20 @@ type Task struct {
 	History      []map[string]any `json:"-"`
 }
 
-// taskJSON A2A wire 形态（artifacts 内含最终文本产物）。
+// taskJSON A2A wire 形态（artifacts 内含最终文本产物；ErrorText 经 status.message 外发——
+// REQ-444/M240 起，input-required 问题文本/失败原因对客户端可见，与 client 解析端对偶）。
 func (t *Task) taskJSON() map[string]any {
+	status := map[string]any{"state": t.State, "timestamp": t.Timestamp}
+	if t.ErrorText != "" {
+		status["message"] = map[string]any{
+			"role":  "agent",
+			"parts": []map[string]any{{"kind": "text", "text": t.ErrorText}},
+		}
+	}
 	out := map[string]any{
 		"id":        t.ID,
 		"contextId": t.ContextID,
-		"status":    map[string]any{"state": t.State, "timestamp": t.Timestamp},
+		"status":    status,
 		"kind":      "task",
 	}
 	if t.History != nil {
@@ -100,7 +109,7 @@ func (s *Service) AgentCard(agent *store.Agent) map[string]any {
 		}
 		skillDesc = inst
 	}
-	return map[string]any{
+	card := map[string]any{
 		"name":            agent.Name,
 		"description":     desc,
 		"url":             fmt.Sprintf("%s/api/a2a/agents/%s", s.BaseURL, agent.ID),
@@ -120,7 +129,16 @@ func (s *Service) AgentCard(agent *store.Agent) map[string]any {
 			"tags":        []string{"eino-multiagent-lab", "agent"},
 		}},
 		"preferredTransport": "JSONRPC",
+		// REQ-444/M240：provider 元数据 + 鉴权声明（PLATFORM_TOKEN 启用时 bearer——凭据要求对外可发现）
+		"provider": map[string]any{"organization": "eino-multiagent-lab", "url": s.BaseURL},
 	}
+	if os.Getenv("PLATFORM_TOKEN") != "" {
+		card["securitySchemes"] = map[string]any{
+			"bearer": map[string]any{"type": "http", "scheme": "bearer"},
+		}
+		card["security"] = []map[string]any{{"bearer": []string{}}}
+	}
+	return card
 }
 
 // ---- JSON-RPC ----
@@ -240,6 +258,7 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 	}
 	s.mu.Lock()
 	s.tasks[task.ID] = task
+	s.evictTerminalLocked() // REQ-445/M241
 	s.mu.Unlock()
 	s.persistTask(task) // REQ-387/M183：任务写穿落库（重启 tasks/get 可查）
 
@@ -268,7 +287,7 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		cur.Timestamp = time.Now().UTC().Format(time.RFC3339)
 		switch {
 		case rerr != nil:
-			cur.State, cur.ErrorText = "failed", rerr.Error()
+			cur.State, cur.ErrorText = "failed", sanitizeExternalError(rerr.Error()) // REQ-444/M240 脱敏
 		default:
 			// REQ-443/M239：ask_human 挂起→input-required 终态（问题文本外发——外部调用方
 			// 可同 contextId 携答案再委派续跑；A2A 协议语义本为此设计）
@@ -355,6 +374,7 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	}
 	s.mu.Lock()
 	s.tasks[task.ID] = task
+	s.evictTerminalLocked() // REQ-445/M241
 	s.mu.Unlock()
 	s.persistTask(task)
 
@@ -407,7 +427,7 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	task.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	switch {
 	case rerr != nil:
-		task.State, task.ErrorText = "failed", rerr.Error()
+		task.State, task.ErrorText = "failed", sanitizeExternalError(rerr.Error()) // REQ-444/M240 脱敏
 	default:
 		if q := s.pendingHumanQuestion(conv.ID); q != "" { // REQ-443/M239：ask_human 挂起→input-required
 			task.State, task.ErrorText = "input-required", q
@@ -423,6 +443,49 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	s.mu.Unlock()
 	s.persistTask(task)
 	snap(&cur)
+}
+
+// sanitizeExternalError REQ-444/M240：对外错误脱敏——内部细节（文件路径/.go 行号）不外泄，
+// 概要保留（截 200 字符）。仅用于 failed 任务 ErrorText；input-required 问题文本是对外语义不脱敏。
+func sanitizeExternalError(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return msg
+	}
+	msg = extPathRe.ReplaceAllString(msg, "〈内部路径〉")
+	msg = extLineRe.ReplaceAllString(msg, "内部代码位置")
+	if len(msg) > 200 {
+		msg = msg[:200] + "…"
+	}
+	return msg
+}
+
+var (
+	extPathRe = regexp.MustCompile(`(?:/[\w.\-]+){2,}|[A-Za-z]:\\[\\\w.\-]+`)
+	extLineRe = regexp.MustCompile(`[\w.\-]+\.go:\d+`)
+)
+
+// evictTerminalLocked REQ-445/M241：终态任务 map 淘汰（>240 清至 200——working/submitted 永不
+// 淘汰；历史终态任务经 DB 回读仍可查）。调用方须持 mu。
+func (s *Service) evictTerminalLocked() {
+	if len(s.tasks) <= 240 {
+		return
+	}
+	over := len(s.tasks) - 200
+	doomed := make([]string, 0, over)
+	for id, t := range s.tasks {
+		if over <= 0 {
+			break
+		}
+		switch t.State {
+		case "completed", "failed", "canceled", "rejected", "input-required":
+			doomed = append(doomed, id)
+			over--
+		}
+	}
+	for _, id := range doomed {
+		delete(s.tasks, id)
+	}
 }
 
 // pendingHumanQuestion REQ-443/M239：会话中断态中的 ask_human 追问文本（""=无挂起）——
@@ -473,7 +536,8 @@ func (s *Service) handleTasksGet(w http.ResponseWriter, req rpcRequest) {
 	t, ok := s.tasks[p.ID]
 	s.mu.Unlock()
 	if !ok {
-		// REQ-387/M183：进程内未命中回读 DB（重启后终态任务可查）
+		// REQ-387/M183：进程内未命中回读 DB（重启后终态任务可查）；REQ-445/M241：仅非终态回插
+		// map（终态走 DB 每查——防 map 回涨），cancel 路径同样回读（旧终态按 TaskNotCancelable 如实）
 		if row, gerr := s.Store.GetA2ATask(p.ID); gerr == nil && row != nil {
 			var pl store.A2APayload
 			_ = json.Unmarshal([]byte(row.Payload), &pl)
@@ -481,7 +545,9 @@ func (s *Service) handleTasksGet(w http.ResponseWriter, req rpcRequest) {
 				State: row.State, Timestamp: row.Timestamp,
 				ArtifactText: pl.ArtifactText, ErrorText: pl.ErrorText, History: pl.History}
 			s.mu.Lock()
-			s.tasks[t.ID] = t
+			if t.State == "working" || t.State == "submitted" {
+				s.tasks[t.ID] = t
+			}
 			s.mu.Unlock()
 		}
 	}
@@ -505,7 +571,17 @@ func (s *Service) handleTasksCancel(w http.ResponseWriter, r *http.Request, req 
 	t, ok := s.tasks[p.ID]
 	s.mu.Unlock()
 	if !ok {
-		writeJSON(w, http.StatusOK, rpcError(req.ID, errTaskNotFound, "task 不存在（或服务重启丢进程内任务映射）"))
+		// REQ-445/M241：淘汰/重启后的任务回读 DB（旧终态→TaskNotCancelable 如实；working→可取消）
+		if row, gerr := s.Store.GetA2ATask(p.ID); gerr == nil && row != nil {
+			var pl store.A2APayload
+			_ = json.Unmarshal([]byte(row.Payload), &pl)
+			t = &Task{ID: row.ID, ContextID: row.ContextID, AgentID: row.AgentID,
+				State: row.State, Timestamp: row.Timestamp,
+				ArtifactText: pl.ArtifactText, ErrorText: pl.ErrorText, History: pl.History}
+		}
+	}
+	if t == nil {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errTaskNotFound, "task 不存在（或服务重启丢进程内任务映射——请重新委派）"))
 		return
 	}
 	if t.State != "working" && t.State != "submitted" {
