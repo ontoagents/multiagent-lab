@@ -85,8 +85,8 @@ func TestAgentCardShape(t *testing.T) {
 		t.Fatalf("url 应为 JSON-RPC 端点: %v", card["url"])
 	}
 	caps := card["capabilities"].(map[string]any)
-	if caps["streaming"] != false {
-		t.Fatal("v1 不做 streaming，capabilities 应如实 false")
+	if caps["streaming"] != true {
+		t.Fatal("REQ-442/M238 起 server 侧 message/stream 已启用，capabilities.streaming 应为 true")
 	}
 	skills := card["skills"].([]map[string]any)
 	if len(skills) != 1 || skills[0]["id"] != testAgent.ID {
@@ -182,10 +182,10 @@ func TestMessageSendTaskLifecycle(t *testing.T) {
 		t.Fatalf("应回 TaskNotFound: %v", errObj)
 	}
 
-	// ⑦ 未支持方法
-	_, out = rpc(t, svc, aid, map[string]any{"jsonrpc": "2.0", "id": 7, "method": "message/stream", "params": map[string]any{}})
+	// ⑦ 未支持方法（message/stream 已支持——REQ-442/M238；换 pushNotifications/set 验证未知方法分支）
+	_, out = rpc(t, svc, aid, map[string]any{"jsonrpc": "2.0", "id": 7, "method": "pushNotifications/set", "params": map[string]any{}})
 	if out["error"].(map[string]any)["code"] != float64(errMethodNotSupported) {
-		t.Fatalf("message/stream 应未支持: %v", out["error"])
+		t.Fatalf("未知方法应 MethodNotSupported: %v", out["error"])
 	}
 
 	// ⑧ 不存在智能体

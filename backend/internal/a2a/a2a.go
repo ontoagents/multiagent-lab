@@ -69,9 +69,12 @@ type Service struct {
 	Stop func(conversationID string) bool
 	// Busy 会话运行判据（api 装配注入 chat.IsRunning；nil=不设闸）——REQ-441/M237：
 	// 同 contextId 并发 message/send 双跑防互踩（会话级单运行）。
-	Busy  func(conversationID string) bool
-	mu    sync.Mutex
-	tasks map[string]*Task
+	Busy func(conversationID string) bool
+	// RunStreamFunc REQ-442/M238：流式执行器（message/stream 用）——onProgress 回调携带
+	// 累积部分文本（服务端节流为对外快照）；nil=回落 RunFunc（仅首末快照）。
+	RunStreamFunc func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, onProgress func(partial string)) (string, error)
+	mu            sync.Mutex
+	tasks         map[string]*Task
 }
 
 // New 构造（始终可用；BaseURL 读 A2A_AGENT_BASE_URL）。
@@ -101,7 +104,7 @@ func (s *Service) AgentCard(agent *store.Agent) map[string]any {
 		"version":         "0.1.0",
 		"protocolVersion": "1.0",
 		"capabilities": map[string]any{
-			"streaming":              false,
+			"streaming":              true, // REQ-442/M238：server 侧 message/stream SSE 已启用（与 client SendStream 对偶）
 			"pushNotifications":      false,
 			"stateTransitionHistory": false,
 		},
@@ -156,12 +159,12 @@ func (s *Service) HandleRPC(w http.ResponseWriter, r *http.Request, agentID stri
 	switch req.Method {
 	case "message/send":
 		s.handleMessageSend(w, r, req, agent)
+	case "message/stream":
+		s.handleMessageStream(w, r, req, agent) // REQ-442/M238：SSE 流式应答
 	case "tasks/get":
 		s.handleTasksGet(w, req)
 	case "tasks/cancel":
 		s.handleTasksCancel(w, r, req)
-	case "message/stream":
-		writeJSON(w, http.StatusOK, rpcError(req.ID, errMethodNotSupported, "message/stream 未启用（capabilities.streaming=false，REQ-369 v1）"))
 	default:
 		writeJSON(w, http.StatusOK, rpcError(req.ID, errMethodNotSupported, "方法未支持: "+req.Method))
 	}
@@ -258,6 +261,131 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		s.persistTask(cur) // REQ-387/M183：终态写穿
 	}()
 	writeJSON(w, http.StatusOK, rpcResult(req.ID, task.taskJSON()))
+}
+
+// handleMessageStream REQ-442/M238：message/stream——SSE 流式应答（与 client SendStream wire
+// 对偶：每条 data: 行=JSON-RPC 响应 envelope，result=任务快照）。运行**内联**于请求生命周期
+// （客户端断连即 r.Context() 取消——与 message/send 的后台执行相反）：初始 working 快照 →
+// RunStreamFunc onProgress 累积文本的过程快照（500ms 节流）→ 终态快照；canceled 守则沿 REQ-441。
+func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, req rpcRequest, agent *store.Agent) {
+	var p struct {
+		Message struct {
+			Role      string `json:"role"`
+			Kind      string `json:"kind"`
+			MessageID string `json:"messageId"`
+			ContextID string `json:"contextId"`
+			Parts     []struct {
+				Kind string `json:"kind"`
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errInvalidParams, "params 解析失败: "+err.Error()))
+		return
+	}
+	var b strings.Builder
+	for _, part := range p.Message.Parts {
+		if part.Kind == "text" || part.Kind == "" {
+			b.WriteString(part.Text)
+		}
+	}
+	input := strings.TrimSpace(b.String())
+	if input == "" {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errInvalidParams, "message.parts 缺 text 文本"))
+		return
+	}
+	var conv *store.Conversation
+	if cid := strings.TrimSpace(p.Message.ContextID); cid != "" {
+		if c, gerr := s.Store.GetConversation(cid); gerr == nil && c != nil && c.Scope == "agent" && c.AgentID != nil && *c.AgentID == agent.ID {
+			conv = c
+		}
+	}
+	if conv == nil {
+		c, cerr := s.Store.CreateConversation(&store.Conversation{
+			Scope: "agent", AgentID: &agent.ID, Title: "[A2A] " + agent.Name,
+		})
+		if cerr != nil {
+			writeJSON(w, http.StatusInternalServerError, rpcError(req.ID, -32603, "会话创建失败: "+cerr.Error()))
+			return
+		}
+		conv = c
+	}
+	if s.Busy != nil && s.Busy(conv.ID) {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errConversationBusy, "会话已有进行中的任务（A2A 单会话串行），请待终态后重发"))
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, -32603, "传输层不支持流式（无 Flusher）"))
+		return
+	}
+	task := &Task{
+		ID: store.NewID(), ContextID: conv.ID, AgentID: agent.ID,
+		State: "working", Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	s.mu.Lock()
+	s.tasks[task.ID] = task
+	s.mu.Unlock()
+	s.persistTask(task)
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	snap := func(t *Task) {
+		data, _ := json.Marshal(rpcResult(req.ID, t.taskJSON()))
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+	snap(task)
+
+	// 过程增量快照（节流 500ms；仅 working 态透出，终态由收尾统一发）
+	var lastEmit time.Time
+	progress := func(partial string) {
+		now := time.Now()
+		if now.Sub(lastEmit) < 500*time.Millisecond {
+			return
+		}
+		lastEmit = now
+		s.mu.Lock()
+		if task.State == "working" {
+			task.ArtifactText = partial
+		}
+		cur := *task
+		s.mu.Unlock()
+		snap(&cur)
+	}
+
+	ctx := r.Context() // 客户端断连即取消
+	var text string
+	var rerr error
+	if s.RunStreamFunc != nil {
+		text, rerr = s.RunStreamFunc(ctx, conv, agent, store.NewID(), input, progress)
+	} else {
+		text, rerr = s.RunFunc(ctx, conv, agent, store.NewID(), input)
+	}
+	s.mu.Lock()
+	if task.State == "canceled" { // tasks/cancel 并发路径已落库——终态不被覆写（REQ-441 同守则）
+		cur := *task
+		s.mu.Unlock()
+		snap(&cur)
+		return
+	}
+	task.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	switch {
+	case rerr != nil:
+		task.State, task.ErrorText = "failed", rerr.Error()
+	default:
+		task.State, task.ArtifactText = "completed", text
+		task.History = []map[string]any{
+			{"role": "user", "parts": []map[string]any{{"kind": "text", "text": input}}, "kind": "message"},
+			{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
+		}
+	}
+	cur := *task
+	s.mu.Unlock()
+	s.persistTask(task)
+	snap(&cur)
 }
 
 // persistTask REQ-387/M183：任务写穿落库（旁路失败仅日志不阻断响应）。
