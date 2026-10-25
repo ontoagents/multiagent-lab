@@ -44,7 +44,7 @@ func seedWikiDoc(t *testing.T, st *store.Store, kbID, title, content string) *st
 	if err := st.InsertKnowledgeChunks(chunks); err != nil {
 		t.Fatalf("insert chunks: %v", err)
 	}
-	if err := st.UpdateKnowledgeDocStatus(doc.ID, "success", len(chunks), ""); err != nil {
+	if err := st.UpdateKnowledgeDocStatus(doc.ID, "success", len(chunks), 0, ""); err != nil {
 		t.Fatalf("status: %v", err)
 	}
 	out, _ := st.GetKnowledgeDoc(doc.ID)

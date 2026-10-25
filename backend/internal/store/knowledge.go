@@ -41,7 +41,9 @@ type KnowledgeDoc struct {
 	Title      string `json:"title"`
 	Status     string `json:"status"`
 	ChunkCount int    `json:"chunk_count"`
-	Error      string `json:"error"`
+	// Dim 向量维度（REQ-439/REQ-54：12 §3.3 既有口径补实现；wiki 库 chunksOnly 零 embedding，0=如实零维）
+	Dim   int    `json:"dim"`
+	Error string `json:"error"`
 	Source     string `json:"source"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
@@ -81,7 +83,7 @@ type KnowledgeChunk struct {
 }
 
 const kbCols = `id,name,description,mode,top_k,min_score,kb_vector,kb_graph,kg_conn_id,kg_prompt,kg_ontology_id,kg_max_chunks,created_at,updated_at`
-const kdocCols = `id,kb_id,title,status,chunk_count,error,source,created_at,updated_at,wiki_hash`
+const kdocCols = `id,kb_id,title,status,chunk_count,dim,error,source,created_at,updated_at,wiki_hash`
 const kchunkCols = `id,kb_id,doc_id,seq,content,parent_content,vector,vector_ref,store_backend,created_at`
 
 func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
@@ -99,7 +101,7 @@ func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
 
 func scanKDoc(row interface{ Scan(...any) error }) (*KnowledgeDoc, error) {
 	var d KnowledgeDoc
-	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt, &d.WikiHash); err != nil {
+	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Dim, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt, &d.WikiHash); err != nil {
 		return nil, err
 	}
 	return &d, nil
@@ -283,18 +285,19 @@ func (s *Store) CreateKnowledgeDoc(d *KnowledgeDoc) (*KnowledgeDoc, error) {
 	if d.Source == "" {
 		d.Source = "paste"
 	}
-	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Error, d.Source, now(), now(), d.WikiHash)
+	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Dim, d.Error, d.Source, now(), now(), d.WikiHash)
 	if err != nil {
 		return nil, err
 	}
 	return s.GetKnowledgeDoc(d.ID)
 }
 
-// UpdateKnowledgeDocStatus 索引状态回写（indexing/success/failed + chunk_count/error）。
-func (s *Store) UpdateKnowledgeDocStatus(id, status string, chunkCount int, errMsg string) error {
-	_, err := s.DB.Exec(`UPDATE knowledge_doc SET status=?,chunk_count=?,error=?,updated_at=? WHERE id=?`,
-		status, chunkCount, errMsg, now(), id)
+// UpdateKnowledgeDocStatus 索引状态回写（indexing/success/failed + chunk_count/dim/error；
+// REQ-439：dim 随 success 回写——embedding 维度库内单值可辨，换模型不一致提示沿 KB-O3 池）。
+func (s *Store) UpdateKnowledgeDocStatus(id, status string, chunkCount, dim int, errMsg string) error {
+	_, err := s.DB.Exec(`UPDATE knowledge_doc SET status=?,chunk_count=?,dim=?,error=?,updated_at=? WHERE id=?`,
+		status, chunkCount, dim, errMsg, now(), id)
 	return err
 }
 

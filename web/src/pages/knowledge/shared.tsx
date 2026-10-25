@@ -184,7 +184,14 @@ export function KbListColumn({
   )
 }
 
-/** 文档表列（三类型共用显示；KG 抽取徽标仅 graphrag 库文档携带数据时出现） */
+/** RFC3339 → 「MM-DD HH:mm」本地展示（时间列 REQ-439/REQ-54；异常值原样回退） */
+export function fmtTime(v?: string): string {
+  if (!v) return '—'
+  return v.length >= 16 ? v.slice(5, 10) + ' ' + v.slice(11, 16) : v
+}
+
+/** 文档表列（三类型共用显示；KG 抽取徽标仅 graphrag 库文档携带数据时出现；
+ *  REQ-439：维度（dim；wiki 库 0=零 embedding 如实「—」）与更新时间列补齐 REQ-54 字段面） */
 export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc) => void, reindexing: string | null): ColumnsType<KBDoc> {
   return [
     {
@@ -199,6 +206,13 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
       width: 90,
       align: 'right',
       render: (v?: number) => (v ?? '—'),
+    },
+    {
+      title: '维度',
+      dataIndex: 'dim',
+      width: 80,
+      align: 'right',
+      render: (v?: number) => (v && v > 0 ? v : <Tooltip title="零维 = 未向量化（wiki 库零 embedding 或失败态）"><span>—</span></Tooltip>),
     },
     {
       title: '状态',
@@ -226,6 +240,12 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
           </Space>
         )
       },
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updated_at',
+      width: 110,
+      render: (v?: string) => <Tooltip title={v || ''}><span>{fmtTime(v)}</span></Tooltip>,
     },
     {
       title: '操作',
@@ -301,11 +321,46 @@ export function HitsList({ hits }: { hits: KBHit[] | null }) {
   )
 }
 
-/** 上传文档：粘贴文本，或选择本地 txt / md 读取文本填入（仅读取文本，不传文件本体） */
+/** 富格式后缀判定（REQ-439：PDF/DOCX 走 b64 二进制通道；txt/md 读文本进编辑框） */
+const RICH_EXT_RE = /\.(pdf|docx)$/i
+
+/**
+ * 上传文档（REQ-439 富格式链路收口）：
+ * - txt / md / 粘贴文本：读文本填入 TextArea，可预览编辑（原路径）；
+ * - pdf / docx：浏览器 arrayBuffer → 分块 btoa（file.text() 读二进制必失真 U+FFFD），
+ *   二进制不进编辑框只承载，POST content_b64 + filename 由服务器端文本层抽取（REQ-414）。
+ */
 export function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase; onClose: () => void; onUploaded: () => void }) {
   const { showToast } = useUI()
   const [form] = Form.useForm()
   const [busy, setBusy] = useState(false)
+  const [binFile, setBinFile] = useState<{ name: string; b64: string } | null>(null)
+
+  const pickFile = (file: File) => {
+    if (RICH_EXT_RE.test(file.name)) {
+      file
+        .arrayBuffer()
+        .then((buf) => {
+          const bytes = new Uint8Array(buf)
+          let bin = ''
+          const CHUNK = 0x8000 // 分块拼接防 String.fromCharCode 展开栈溢出
+          for (let i = 0; i < bytes.length; i += CHUNK) {
+            bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+          }
+          setBinFile({ name: file.name, b64: btoa(bin) })
+          form.setFieldsValue({ content: '', name: form.getFieldValue('name') || file.name })
+        })
+        .catch(() => showToast('读取文件失败', 'err'))
+    } else {
+      file
+        .text()
+        .then((t) => {
+          setBinFile(null)
+          form.setFieldsValue({ content: t, name: form.getFieldValue('name') || file.name })
+        })
+        .catch(() => showToast('读取文件失败', 'err'))
+    }
+  }
 
   const save = async () => {
     let v: any
@@ -314,14 +369,16 @@ export function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase;
     } catch {
       return
     }
-    if (!String(v.content ?? '').trim()) {
+    if (!binFile && !String(v.content ?? '').trim()) {
       showToast('文档内容不能为空', 'err')
       return
     }
     setBusy(true)
     try {
-      await api.uploadKBDoc(kb.id, { name: v.name, content: v.content })
-      showToast('已上传，索引在后台进行')
+      await api.uploadKBDoc(kb.id, binFile
+        ? { name: v.name, content: '', filename: binFile.name, contentB64: binFile.b64 }
+        : { name: v.name, content: v.content })
+      showToast(binFile ? `已上传并完成索引（${binFile.name} 文本层抽取）` : '已上传并完成索引')
       onUploaded()
     } catch (e: any) {
       showToast(e.message, 'err')
@@ -347,18 +404,13 @@ export function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase;
       }
     >
       <Form form={form} layout="vertical" requiredMark={false}>
-        <Form.Item label="从文件读取（txt / md）" extra="仅在浏览器本地读取文本填入下方，不上传文件本体。">
+        <Form.Item label="从文件读取（txt / md / pdf / docx）" extra="txt / md 在浏览器本地读取文本填入下方；pdf / docx 以二进制上传，服务器端提取文本层（扫描件/图片型不支持）。">
           <Upload
-            accept=".txt,.md,text/plain,text/markdown"
+            accept=".txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             maxCount={1}
             showUploadList={false}
             beforeUpload={(file) => {
-              file
-                .text()
-                .then((t) => {
-                  form.setFieldsValue({ content: t, name: form.getFieldValue('name') || file.name })
-                })
-                .catch(() => showToast('读取文件失败', 'err'))
+              pickFile(file)
               return false
             }}
           >
@@ -368,8 +420,32 @@ export function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase;
         <Form.Item name="name" label="文档名" rules={[{ required: true, message: '文档名必填' }]}>
           <Input placeholder="如：deployment-guide.md" maxLength={120} />
         </Form.Item>
-        <Form.Item name="content" label="内容" rules={[{ required: true, message: '内容必填' }]}>
-          <Input.TextArea autoSize={{ minRows: 8, maxRows: 18 }} placeholder="粘贴文本，或从上方选择 txt / md 文件自动填入" />
+        {binFile && (
+          <Form.Item>
+            <Space>
+              <Tag color="geekblue" data-testid="kb-bin-file">
+                {binFile.name}
+              </Tag>
+              <Typography.Text type="secondary">二进制文件（{(binFile.b64.length * 0.75 / 1024 / 1024).toFixed(2)} MB）——不进编辑框，上传后服务器端抽取文本层</Typography.Text>
+              <Button
+                size="small"
+                onClick={() => {
+                  setBinFile(null)
+                }}
+              >
+                移除
+              </Button>
+            </Space>
+          </Form.Item>
+        )}
+        <Form.Item
+          name="content"
+          label="内容"
+          rules={[
+            { required: true, message: '内容必填（或选择 pdf / docx 文件）', validator: (_r: unknown, val: string) => (binFile || String(val ?? '').trim() ? Promise.resolve() : Promise.reject(new Error('内容为空'))) },
+          ]}
+        >
+          <Input.TextArea autoSize={{ minRows: 8, maxRows: 18 }} placeholder="粘贴文本，或从上方选择 txt / md 文件自动填入" disabled={!!binFile} />
         </Form.Item>
       </Form>
     </Modal>

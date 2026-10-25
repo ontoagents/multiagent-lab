@@ -316,8 +316,12 @@ export const api = {
   updateKB: (id: string, k: Partial<KnowledgeBase>) => req<KnowledgeBase>(`/api/kb/${id}`, { method: 'PUT', body: JSON.stringify(k) }),
   deleteKB: (id: string) => req<{ deleted: string }>(`/api/kb/${id}`, { method: 'DELETE' }),
   listKBDocs: (kbId: string) => req<KBDoc[]>(`/api/kb/${kbId}/docs`),
-  uploadKBDoc: (kbId: string, doc: { name: string; content: string }) =>
-    req<KBDoc>(`/api/kb/${kbId}/docs`, { method: 'POST', body: JSON.stringify({ title: doc.name, content: doc.content }) }),
+  uploadKBDoc: (kbId: string, doc: { name: string; content: string; filename?: string; contentB64?: string }) =>
+    req<KBDoc>(`/api/kb/${kbId}/docs`, {
+      method: 'POST',
+      // REQ-439：PDF/DOCX 走 content_b64 二进制通道（file.text() 读二进制必失真）+filename 供后端分发抽取（REQ-414）
+      body: JSON.stringify({ title: doc.name, content: doc.content, filename: doc.filename, content_b64: doc.contentB64 }),
+    }),
   deleteKBDoc: (kbId: string, docId: string) => req<{ deleted: string }>(`/api/kb/${kbId}/docs/${docId}`, { method: 'DELETE' }),
   reindexKBDoc: (kbId: string, docId: string) => req<KBDoc>(`/api/kb/${kbId}/docs/${docId}/reindex`, { method: 'POST' }),
   searchPreview: (kbId: string, q: string, topK?: number, minScore?: number) =>

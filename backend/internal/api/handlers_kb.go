@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -97,31 +98,59 @@ func (s *Server) listKBDocs(w http.ResponseWriter, r *http.Request) {
 var MaxKBImportBytes = 10 << 20
 
 // importKBDoc 粘贴文本导入并同步索引（§341 流程：切分→embed→upsert→状态回写）。
+// REQ-439：增 content_b64 二进制通道——PDF/DOCX 等富格式经 base64 无损传输
+//（file.text() 读二进制必失真 U+FFFD；前端 arrayBuffer→分块 btoa），
+// 解码后按 filename 分发文本层抽取（REQ-414/M210 richtext.go）。
 func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Title    string `json:"title"`
 		Content  string `json:"content"`
 		Filename string `json:"filename"` // REQ-414/M210：富格式分发（.pdf/.docx 后缀判定）
+		ContentB64 string `json:"content_b64"` // REQ-439：二进制安全通道（与 content 二选一；优先于 content）
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
 		return
 	}
-	if strings.TrimSpace(in.Content) == "" {
+	if strings.TrimSpace(in.Content) == "" && in.ContentB64 == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is required"})
 		return
 	}
-	// REQ-413②/M209：大文档导入护栏——超限即 400 引导拆分（抽取/切分/embed 前置拦截，
-	// 防单请求打满内存与 embedding 预算；进度式/分块导入维持池内）
-	if len(in.Content) > MaxKBImportBytes {
+	content := in.Content
+	if len(content) > MaxKBImportBytes {
+		// REQ-413②/M209：大文档导入护栏——超限即 400 引导拆分（抽取/切分/embed 前置拦截，
+		// 防单请求打满内存与 embedding 预算；进度式/分块导入维持池内）
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("文档过大（%.1f MB > 上限 %d MB）——请拆分后分批导入（护栏 REQ-413；进度式导入维持池内）", float64(len(in.Content))/(1<<20), MaxKBImportBytes>>(20)),
+			"error": fmt.Sprintf("文档过大（%.1f MB > 上限 %d MB）——请拆分后分批导入（护栏 REQ-413；进度式导入维持池内）", float64(len(content))/(1<<20), MaxKBImportBytes>>(20)),
 		})
 		return
 	}
-	content := in.Content
-	// REQ-414/M210：富格式分发——PDF/DOCX 走文本层抽取（零新依赖；抽取为空/加密/扫描件 400 明确报错）
-	if in.Filename != "" {
+	// REQ-439：二进制通道优先——base64 解码（原始字节计护栏）→按 filename 分发抽取或按 UTF-8 文本直用
+	if in.ContentB64 != "" {
+		raw, berr := base64.StdEncoding.DecodeString(in.ContentB64)
+		if berr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content_b64 不是合法 base64: " + berr.Error()})
+			return
+		}
+		if len(raw) > MaxKBImportBytes {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("文档过大（%.1f MB > 上限 %d MB）——请拆分后分批导入（护栏 REQ-413；进度式导入维持池内）", float64(len(raw))/(1<<20), MaxKBImportBytes>>(20)),
+			})
+			return
+		}
+		lf := strings.ToLower(in.Filename)
+		if strings.HasSuffix(lf, ".pdf") || strings.HasSuffix(lf, ".docx") {
+			text, xerr := kb.ExtractText(in.Filename, raw)
+			if xerr != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "富格式文本层抽取失败: " + xerr.Error()})
+				return
+			}
+			content = text
+		} else {
+			content = string(raw) // 文本文件走 b64 通道时等价于 content（无损 UTF-8）
+		}
+	} else if in.Filename != "" {
+		// REQ-414/M210：文本路径富格式分发（历史形态保留——b64 通道为正路，此处兜底 curl 文本直传）
 		lf := strings.ToLower(in.Filename)
 		if strings.HasSuffix(lf, ".pdf") || strings.HasSuffix(lf, ".docx") {
 			text, xerr := kb.ExtractText(in.Filename, []byte(in.Content))

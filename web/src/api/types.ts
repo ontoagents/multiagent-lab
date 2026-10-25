@@ -377,10 +377,13 @@ export interface KBDoc {
   kb_id: string
   title: string
   chunk_count?: number
+  /** 向量维度（REQ-439/REQ-54；wiki 库零 embedding 为 0 如实零维） */
+  dim?: number
   status: 'pending' | 'indexing' | 'success' | 'failed'
   error?: string
   graphrag?: KBGraphragInfo
   created_at: string
+  updated_at?: string
 }
 
 /** 检索试运行命中（§6.9 retrieval 事件 hits 结构；B1 起附命中区间高亮） */

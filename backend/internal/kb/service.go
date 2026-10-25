@@ -53,7 +53,7 @@ func (s *Service) Import(ctx context.Context, kbID, title, content string) (*sto
 	}
 	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, pieces)
 	if err != nil {
-		s.Store.UpdateKnowledgeDocStatus(doc.ID, "failed", 0, err.Error())
+		s.Store.UpdateKnowledgeDocStatus(doc.ID, "failed", 0, 0, err.Error())
 		return nil, fmt.Errorf("索引失败: %w", err)
 	}
 	out, err := s.Store.GetKnowledgeDoc(doc.ID)
@@ -104,10 +104,10 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 	if kbcfg.Mode == "wiki" {
 		_ = s.Store.SetDocWikiHash(kbID, docID, "")
 	}
-	s.Store.UpdateKnowledgeDocStatus(docID, "indexing", 0, "")
+	s.Store.UpdateKnowledgeDocStatus(docID, "indexing", 0, 0, "")
 	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, SplitPieces(sb.String()))
 	if err != nil {
-		s.Store.UpdateKnowledgeDocStatus(docID, "failed", 0, err.Error())
+		s.Store.UpdateKnowledgeDocStatus(docID, "failed", 0, 0, err.Error())
 		return nil, fmt.Errorf("索引失败: %w", err)
 	}
 	out, err := s.Store.GetKnowledgeDoc(doc.ID)
@@ -136,7 +136,7 @@ func (s *Service) indexDoc(ctx context.Context, kbcfg *store.KnowledgeBase, kbID
 		if err := s.Store.InsertKnowledgeChunks(chunks); err != nil {
 			return nil, fmt.Errorf("save chunks: %w", err)
 		}
-		if err := s.Store.UpdateKnowledgeDocStatus(doc.ID, "success", len(pieces), ""); err != nil {
+		if err := s.Store.UpdateKnowledgeDocStatus(doc.ID, "success", len(pieces), 0, ""); err != nil { // wiki 零 embedding：dim=0 如实
 			return nil, err
 		}
 		log.Printf("[kb] doc %q indexed (wiki, no embedding): %d chunks, %s", doc.Title, len(pieces), time.Since(start).Round(time.Millisecond))
@@ -191,7 +191,7 @@ func (s *Service) indexDoc(ctx context.Context, kbcfg *store.KnowledgeBase, kbID
 	if err := s.Store.InsertKnowledgeChunks(chunks); err != nil {
 		return nil, fmt.Errorf("save chunks: %w", err)
 	}
-	if err := s.Store.UpdateKnowledgeDocStatus(doc.ID, "success", len(pieces), ""); err != nil {
+	if err := s.Store.UpdateKnowledgeDocStatus(doc.ID, "success", len(pieces), dim, ""); err != nil {
 		return nil, err
 	}
 	withParent := 0
