@@ -26,13 +26,13 @@ type CardSkill struct {
 
 // AgentCard 远端 Agent Card（注册握手入库的最小面；全卡另存 CardJSON）。
 type AgentCard struct {
-	Name               string         `json:"name"`
-	Description        string         `json:"description"`
-	URL                string         `json:"url"`
-	ProtocolVersion    string         `json:"protocolVersion"`
-	PreferredTransport string         `json:"preferredTransport"`
-	Skills             []CardSkill    `json:"skills"`
-	Capabilities       struct {       // REQ-429/M225：能力画像（streaming=流式在环性）
+	Name               string      `json:"name"`
+	Description        string      `json:"description"`
+	URL                string      `json:"url"`
+	ProtocolVersion    string      `json:"protocolVersion"`
+	PreferredTransport string      `json:"preferredTransport"`
+	Skills             []CardSkill `json:"skills"`
+	Capabilities       struct {    // REQ-429/M225：能力画像（streaming=流式在环性）
 		Streaming bool `json:"streaming"`
 	} `json:"capabilities"`
 	Properties map[string]any `json:"properties"` // REQ-429/M225：对端自定义属性（成本档等如实透出）
@@ -55,7 +55,7 @@ type HistoryMessage struct {
 }
 
 // cardURL 由连接目标推导卡地址：endpoint 或其基址 + /.well-known/agent-card.json
-//（已是卡地址则原样）。
+// （已是卡地址则原样）。
 func cardURL(endpoint string) string {
 	e := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if strings.HasSuffix(e, "/.well-known/agent-card.json") {
@@ -202,7 +202,7 @@ func taskStateOf(result json.RawMessage) (*RemoteTask, error) {
 
 // SendStream REQ-432/M228①：message/stream SSE 订阅委派（对端 capabilities.streaming=true 时
 // 替代纯轮询）——每条 SSE data 为 JSON-RPC 响应（result=任务快照），逐快照合并回调 onEvent
-//（过程转译源），连接关闭即终态返回。对端不支持/中途失败由调用方回落 send+轮询。
+// （过程转译源），连接关闭即终态返回。对端不支持/中途失败由调用方回落 send+轮询。
 func SendStream(ctx context.Context, endpoint string, headers map[string]string, task string, onEvent func(*RemoteTask)) (*RemoteTask, error) {
 	params := map[string]any{
 		"message": map[string]any{
@@ -296,6 +296,13 @@ func TasksGet(ctx context.Context, endpoint string, headers map[string]string, t
 		return nil, err
 	}
 	return taskStateOf(result)
+}
+
+// CancelTask REQ-441/M237：远端任务取消（best-effort——委派超时/打断时止住远端白跑；
+// 远端已终态回 TaskNotCancelable 属正常响应不放大）。
+func CancelTask(ctx context.Context, endpoint string, headers map[string]string, taskID string) error {
+	_, err := rpcDo(ctx, endpoint, headers, "tasks/cancel", map[string]any{"id": taskID})
+	return err
 }
 
 // taskTerminal 终态判定（A2A 状态机：submitted/working 非终态；input-required 无交互通道按失败如实报）。

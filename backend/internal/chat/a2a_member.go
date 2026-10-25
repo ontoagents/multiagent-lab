@@ -140,6 +140,16 @@ func a2aSendDone(rt *a2a.RemoteTask) (done, failed bool) {
 // REQ-428：hook 非 nil 时任务 history/stream 快照逐条转译过程事件（history 上限 20 条，超出尾注标注）。
 func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string, hook func(protoEvent, summary string)) (string, error) {
 	poll := time.Duration(d.PollSec * float64(time.Second))
+	// REQ-441/M237：ctx 超时/打断时 best-effort 取消远端任务（治弃单后远端白跑至自身超时——
+	// 协议有 tasks/cancel 且平台 server 面已实现，client 面此前从未调用）
+	var remoteID string
+	defer func() {
+		if ctx.Err() != nil && remoteID != "" {
+			cctx, cc := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cc()
+			_ = a2a.CancelTask(cctx, d.Endpoint, d.Headers, remoteID)
+		}
+	}()
 	var rt *a2a.RemoteTask
 	var err error
 	if d.Streaming {
@@ -173,6 +183,7 @@ func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string, hook func
 	// 协调者（向用户转述问题获取答案后附答案再次委派；协调者有 ask_human 工具时可先走审批面/
 	// 追问语义）。非失败态：不 emit run.warning；不进轮询（等人工输入的任务对端不会自行推进）。
 	if rt.State == "input-required" {
+		remoteID = rt.ID
 		q := rt.ErrorText
 		if q == "" {
 			q = "（对端未附问题文本）"
@@ -189,6 +200,7 @@ func a2aDelegateRun(ctx context.Context, d a2aMemberDeps, task string, hook func
 		if rt.ID == "" {
 			return "", err
 		}
+		remoteID = rt.ID
 		rt, err = a2a.AwaitTerminal(ctx, d.Endpoint, d.Headers, rt.ID, poll)
 		if err != nil {
 			return "", err

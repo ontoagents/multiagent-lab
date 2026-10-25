@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"strings"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
@@ -26,9 +26,9 @@ import (
 
 // Server 聚合依赖并持有路由。
 type Server struct {
-	Store         *store.Store
-	Box           *secrets.Box
-	Chat          *chat.Service
+	Store *store.Store
+	Box   *secrets.Box
+	Chat  *chat.Service
 	// Delegates REQ-208/M42 余项：可继续子 Agent 后台委派管理器（nil=未启用）
 	Delegates     *chat.DelegateManager
 	A2A           *a2a.Service // REQ-369：A2A 协议端点服务
@@ -115,6 +115,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 		return "", nil
 	}
 	s.A2A.Stop = chatSvc.Stop
+	s.A2A.Busy = chatSvc.IsRunning // REQ-441/M237：同 contextId 并发 message/send 单运行闸
 	// REQ-208/M42 余项：可继续子 Agent 后台委派管理器（运行执行器与 A2A RunFunc 同管线；
 	// 装配器经 chatSvc.Assembler.Delegates 拿到同实例——delegate_* 工具族挂 agent_as_tool 模式）
 	s.Delegates = chat.NewDelegateManager(st)
@@ -237,8 +238,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)
 	m.HandleFunc("GET /api/conversations/{id}/messages", s.listMessages)
 	m.HandleFunc("GET /api/conversations/{id}/messages/paged", s.listMessagesPaged) // REQ-413/M209 长会话分页护栏
-	m.HandleFunc("GET /api/diagnostics/export", s.exportDiagnostics)               // REQ-410/M206 诊断自助包
-	m.HandleFunc("GET /api/backup/export", s.exportBackup)                        // REQ-411/M207 一键备份 zip
+	m.HandleFunc("GET /api/diagnostics/export", s.exportDiagnostics)                // REQ-410/M206 诊断自助包
+	m.HandleFunc("GET /api/backup/export", s.exportBackup)                          // REQ-411/M207 一键备份 zip
 	m.HandleFunc("GET /api/conversations/{id}/events", s.listEvents)
 	m.HandleFunc("POST /api/conversations/{id}/runs", s.runConversation)
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)

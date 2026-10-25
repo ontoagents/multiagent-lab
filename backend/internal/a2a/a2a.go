@@ -13,8 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -66,7 +66,10 @@ type Service struct {
 	RunFunc RunFunc
 
 	// Stop 会话打断钩子（api 装配注入 chat.Stop——a2a 包不反向依赖 chat；nil=取消仅改状态）
-	Stop  func(conversationID string) bool
+	Stop func(conversationID string) bool
+	// Busy 会话运行判据（api 装配注入 chat.IsRunning；nil=不设闸）——REQ-441/M237：
+	// 同 contextId 并发 message/send 双跑防互踩（会话级单运行）。
+	Busy  func(conversationID string) bool
 	mu    sync.Mutex
 	tasks map[string]*Task
 }
@@ -135,6 +138,7 @@ const (
 	errMethodNotSupported = -32601
 	errInvalidParams      = -32602
 	errTaskNotCancelable  = -32002
+	errConversationBusy   = -32003 // REQ-441/M237：会话级单运行闸（同 contextId 并发 send 拒绝）
 )
 
 // HandleRPC POST /api/a2a/agents/{id}——JSON-RPC 2.0 入口。
@@ -210,6 +214,11 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		}
 		conv = c
 	}
+	// REQ-441/M237：会话级单运行闸——同 contextId 并发 send 双跑互踩（chat.IsRunning 判据注入）
+	if s.Busy != nil && s.Busy(conv.ID) {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errConversationBusy, "会话已有进行中的任务（A2A 单会话串行），请待终态后重发"))
+		return
+	}
 	task := &Task{
 		ID: store.NewID(), ContextID: conv.ID, AgentID: agent.ID,
 		State: "working", Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -229,6 +238,10 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		cur, ok := s.tasks[task.ID]
 		s.mu.Unlock()
 		if !ok {
+			return
+		}
+		// REQ-441/M237：canceled 为终态——后台完成不得覆写（调用方已收 canceled 应答，对外契约自洽）
+		if cur.State == "canceled" {
 			return
 		}
 		cur.Timestamp = time.Now().UTC().Format(time.RFC3339)
@@ -320,6 +333,7 @@ func (s *Service) handleTasksCancel(w http.ResponseWriter, r *http.Request, req 
 	t.State = "canceled"
 	t.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	s.mu.Unlock()
+	s.persistTask(t) // REQ-441/M237：cancel 写穿（重启对账不再 working→failed 语义漂移）
 	writeJSON(w, http.StatusOK, rpcResult(req.ID, t.taskJSON()))
 }
 
