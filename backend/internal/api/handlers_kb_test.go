@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 	"testing"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
@@ -103,8 +104,21 @@ func TestKBImportBase64DOCX(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
+	// REQ-440：端点已异步化——响应为 indexing 态，轮询至后台收敛
+	if doc.Status != "indexing" {
+		t.Fatalf("异步端点应返回 indexing 态，得 %s", doc.Status)
+	}
+	for i := 0; i < 100 && doc.Status == "indexing"; i++ {
+		time.Sleep(50 * time.Millisecond)
+		var err error
+		got, err := s.Store.GetKnowledgeDoc(doc.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc = *got
+	}
 	if doc.Status != "success" || doc.ChunkCount == 0 {
-		t.Fatalf("wiki 全链应 success 且有 chunks，得 status=%s chunks=%d", doc.Status, doc.ChunkCount)
+		t.Fatalf("wiki 全链应收敛 success 且有 chunks，得 status=%s chunks=%d", doc.Status, doc.ChunkCount)
 	}
 	if doc.Dim != 0 {
 		t.Fatalf("wiki 库零 embedding，dim 应如实为 0，得 %d", doc.Dim)

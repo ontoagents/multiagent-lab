@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge, Button, Empty, Form, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography, Upload } from 'antd'
 import type { BadgeProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -190,6 +190,21 @@ export function fmtTime(v?: string): string {
   return v.length >= 16 ? v.slice(5, 10) + ' ' + v.slice(11, 16) : v
 }
 
+/**
+ * REQ-440/KB-8③：docs 列表轮询至稳定——存在 indexing/pending 文档时每 2s 刷新
+ * （索引已异步化：上传/重建秒回，embedding/KG 抽取后台完成，状态机沿 REQ-55）。
+ * 三类型页共用；reload 闭包只引用稳定 setter（旧闭包安全，deps 不含 reload）。
+ */
+export function useDocsPolling(docs: KBDoc[] | null, activeId: string | null, reload: (id: string) => void) {
+  const busy = !!docs?.some((d) => d.status === 'indexing' || d.status === 'pending')
+  useEffect(() => {
+    if (!activeId || !busy) return
+    const t = setInterval(() => reload(activeId), 2000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, activeId])
+}
+
 /** 文档表列（三类型共用显示；KG 抽取徽标仅 graphrag 库文档携带数据时出现；
  *  REQ-439：维度（dim；wiki 库 0=零 embedding 如实「—」）与更新时间列补齐 REQ-54 字段面） */
 export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc) => void, reindexing: string | null): ColumnsType<KBDoc> {
@@ -378,7 +393,7 @@ export function UploadDocModal({ kb, onClose, onUploaded }: { kb: KnowledgeBase;
       await api.uploadKBDoc(kb.id, binFile
         ? { name: v.name, content: '', filename: binFile.name, contentB64: binFile.b64 }
         : { name: v.name, content: v.content })
-      showToast(binFile ? `已上传并完成索引（${binFile.name} 文本层抽取）` : '已上传并完成索引')
+      showToast('已上传，索引在后台进行（列表实时刷新状态）')
       onUploaded()
     } catch (e: any) {
       showToast(e.message, 'err')

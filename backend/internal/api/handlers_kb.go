@@ -169,7 +169,9 @@ func (s *Server) importKBDoc(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = truncateTitle(content)
 	}
-	doc, err := s.KB.Import(r.Context(), r.PathValue("id"), title, content)
+	// REQ-440/KB-8③：落库即返回（status=indexing），embedding/KG 抽取后台队列完成——
+	// 治大文档导入同步阻塞；前端轮询 docs 列表至稳定（KG 结果经 graphrag_json 落库回显）。
+	doc, err := s.KB.ImportAsync(r.Context(), r.PathValue("id"), title, content)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -187,7 +189,8 @@ func (s *Server) deleteKBDoc(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reindexKBDoc(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.KB.Reindex(r.Context(), r.PathValue("id"), r.PathValue("did"))
+	// REQ-440：置 indexing 即返回，清旧/重索/重抽 KG 后台完成
+	doc, err := s.KB.ReindexAsync(r.Context(), r.PathValue("id"), r.PathValue("did"))
 	if err != nil {
 		writeErr(w, err)
 		return

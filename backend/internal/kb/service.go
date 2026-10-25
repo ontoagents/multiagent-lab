@@ -23,6 +23,9 @@ type Service struct {
 	// wikiLLM wiki 页面生成注入点（REQ-241：chat.GenerateStructured 的转接闭包，api 层装配；
 	// nil = wiki 重建引导态「生成器未装配」）
 	wikiLLM WikiLLMFunc
+
+	// jobs 后台索引队列（REQ-440/KB-8③：NewService 起单 worker；容量见 async.go）
+	jobs chan indexJob
 }
 
 // NewService 构造（backend=qdrant|sqlite，qdrantURL 见 §469 QDRANT_URL）。
@@ -31,13 +34,16 @@ func NewService(st *store.Store, box *secrets.Box, backend, qdrantURL string) (*
 	if err != nil {
 		return nil, err
 	}
-	return &Service{Store: st, Box: box, Vector: vs}, nil
+	s := &Service{Store: st, Box: box, Vector: vs}
+	s.startIndexWorker() // REQ-440：后台串行索引队列（ImportAsync/ReindexAsync 消费）
+	return s, nil
 }
 
 // embedder 惰性构造（依赖 Store/Box）。
 func (s *Service) embedder() *Embedder { return &Embedder{Store: s.Store, Box: s.Box} }
 
-// Import 粘贴文本导入并同步索引（学习平台数据量小，同步完成；状态机 pending→indexing→success|failed）。
+// Import 粘贴文本导入并同步索引（内部路径：chat.KBAdminSource/平台助手等单条小文本场景；
+// HTTP 端点走 ImportAsync——REQ-440 落库即返回+后台队列）。
 func (s *Service) Import(ctx context.Context, kbID, title, content string) (*store.KnowledgeDoc, error) {
 	kbcfg, err := s.Store.GetKnowledgeBase(kbID)
 	if err != nil {
@@ -61,12 +67,13 @@ func (s *Service) Import(ctx context.Context, kbID, title, content string) (*sto
 		return nil, err
 	}
 	if kbcfg.Mode == "graphrag" {
-		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // M14 ②：chunks → worker KG 抽取（降级不阻断）
+		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // M14 ②：chunks → KG 抽取（降级不阻断）
+		s.persistGraphrag(kbID, doc.ID, out.Graphrag)     // REQ-440：结果落库（与异步路径一致）
 	}
 	return out, nil
 }
 
-// Reindex 重建文档索引（先清旧向量与 chunks）。
+// Reindex 重建文档索引（同步内部路径；HTTP 端点走 ReindexAsync——REQ-440）。
 func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.KnowledgeDoc, error) {
 	kbcfg, err := s.Store.GetKnowledgeBase(kbID)
 	if err != nil {
@@ -79,33 +86,12 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 	if doc.KBID != kbID {
 		return nil, store.ErrNotFound
 	}
-	// 旧正文在删 chunks 前取出（重新切分用原文；正文即 chunk 拼接，避免额外存储）
-	old, err := s.Store.ListKnowledgeChunksByDoc(docID)
+	pieces, err := s.clearForReindex(ctx, kbID, docID, kbcfg) // 旧正文拼接+清理（async.go 共用）
 	if err != nil {
 		return nil, err
 	}
-	var sb strings.Builder
-	for i, c := range old {
-		if i > 0 {
-			sb.WriteString("\n")
-		}
-		sb.WriteString(c.Content)
-	}
-	if sb.Len() == 0 {
-		return nil, fmt.Errorf("文档无可重建的原文内容")
-	}
-	if err := s.Vector.DeleteByDoc(ctx, kbID, docID); err != nil {
-		return nil, fmt.Errorf("清理旧向量: %w", err)
-	}
-	if err := s.Store.DeleteKnowledgeChunksByDoc(docID); err != nil {
-		return nil, err
-	}
-	// REQ-241：内容将变，wiki 指纹失效（下次重建按变更重生成 summary）
-	if kbcfg.Mode == "wiki" {
-		_ = s.Store.SetDocWikiHash(kbID, docID, "")
-	}
 	s.Store.UpdateKnowledgeDocStatus(docID, "indexing", 0, 0, "")
-	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, SplitPieces(sb.String()))
+	chunks, err := s.indexDoc(ctx, kbcfg, kbID, doc, pieces)
 	if err != nil {
 		s.Store.UpdateKnowledgeDocStatus(docID, "failed", 0, 0, err.Error())
 		return nil, fmt.Errorf("索引失败: %w", err)
@@ -115,7 +101,8 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 		return nil, err
 	}
 	if kbcfg.Mode == "graphrag" {
-		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // M14 ②：重建后同步重抽 KG（降级不阻断）
+		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // 同步重抽 KG（降级不阻断）
+		s.persistGraphrag(kbID, doc.ID, out.Graphrag)     // REQ-440：结果落库（与异步路径一致）
 	}
 	return out, nil
 }

@@ -32,6 +32,7 @@ import {
   WIKI_TYPE_META,
   modeOf,
   useDocColumns,
+  useDocsPolling,
   type KbTypePageProps,
 } from './shared'
 
@@ -72,6 +73,9 @@ export default function WikiPage({ kbs, loadErr, onReloadKBs, onCreate, focusId,
       .catch(() => setDocs([]))
       .finally(() => setDocsLoading(false))
   }
+
+  // REQ-440：索引异步化——docs 含 indexing/pending 时 2s 轮询至稳定
+  useDocsPolling(docs, active?.id ?? null, reloadDocs)
 
   useEffect(() => {
     api.listConnections().then((cs) => setConns(cs.filter((c) => c.conn_type === 'chat')))

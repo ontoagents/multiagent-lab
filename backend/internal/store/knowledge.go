@@ -49,9 +49,12 @@ type KnowledgeDoc struct {
 	UpdatedAt  string `json:"updated_at"`
 	// REQ-241：wiki 摄取输入指纹（chunk 拼接 sha256；重建时与现值一致 = 未变更跳过 summary 生成）
 	WikiHash string `json:"-"`
-	// Graphrag M14 D-KB4：graphrag 模式文档索引后的 worker 联动结果
-	// （非落库字段，仅当次接口回显；nil = rag 模式或老数据）。
+	// Graphrag M14 D-KB4：graphrag 模式文档索引后的 KG 抽取结果。
+	// REQ-440/KB-8③：经 graphrag_json 持久化（原「仅当次接口回显」——异步化后必须落库，
+	// KG 徽标/失败原因刷新不丢）；nil = rag 模式或尚无抽取结果。
 	Graphrag *GraphragInfo `json:"graphrag,omitempty"`
+	// GraphragJSON GraphragInfo 的落库承载（内部字段，非 API 面；空 = 无）
+	GraphragJSON string `json:"-"`
 }
 
 // GraphragInfo graphrag 文档与 KG 抽取的联动结果（M14 ②⑥ 建制；D-O15 起自研抽取，degraded 不阻断语义保留）。
@@ -83,7 +86,7 @@ type KnowledgeChunk struct {
 }
 
 const kbCols = `id,name,description,mode,top_k,min_score,kb_vector,kb_graph,kg_conn_id,kg_prompt,kg_ontology_id,kg_max_chunks,created_at,updated_at`
-const kdocCols = `id,kb_id,title,status,chunk_count,dim,error,source,created_at,updated_at,wiki_hash`
+const kdocCols = `id,kb_id,title,status,chunk_count,dim,error,source,created_at,updated_at,wiki_hash,graphrag_json`
 const kchunkCols = `id,kb_id,doc_id,seq,content,parent_content,vector,vector_ref,store_backend,created_at`
 
 func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
@@ -101,8 +104,14 @@ func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
 
 func scanKDoc(row interface{ Scan(...any) error }) (*KnowledgeDoc, error) {
 	var d KnowledgeDoc
-	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Dim, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt, &d.WikiHash); err != nil {
+	if err := row.Scan(&d.ID, &d.KBID, &d.Title, &d.Status, &d.ChunkCount, &d.Dim, &d.Error, &d.Source, &d.CreatedAt, &d.UpdatedAt, &d.WikiHash, &d.GraphragJSON); err != nil {
 		return nil, err
+	}
+	if d.GraphragJSON != "" { // REQ-440：KG 抽取结果落库回读（老行/rag 模式为空跳过）
+		var gi GraphragInfo
+		if json.Unmarshal([]byte(d.GraphragJSON), &gi) == nil {
+			d.Graphrag = &gi
+		}
 	}
 	return &d, nil
 }
@@ -285,8 +294,8 @@ func (s *Store) CreateKnowledgeDoc(d *KnowledgeDoc) (*KnowledgeDoc, error) {
 	if d.Source == "" {
 		d.Source = "paste"
 	}
-	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Dim, d.Error, d.Source, now(), now(), d.WikiHash)
+	_, err := s.DB.Exec(`INSERT INTO knowledge_doc (`+kdocCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.KBID, d.Title, d.Status, d.ChunkCount, d.Dim, d.Error, d.Source, now(), now(), d.WikiHash, d.GraphragJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +307,13 @@ func (s *Store) CreateKnowledgeDoc(d *KnowledgeDoc) (*KnowledgeDoc, error) {
 func (s *Store) UpdateKnowledgeDocStatus(id, status string, chunkCount, dim int, errMsg string) error {
 	_, err := s.DB.Exec(`UPDATE knowledge_doc SET status=?,chunk_count=?,dim=?,error=?,updated_at=? WHERE id=?`,
 		status, chunkCount, dim, errMsg, now(), id)
+	return err
+}
+
+// SetDocGraphrag KG 抽取结果落库（REQ-440/KB-8③：异步化后结果持久可见——KG 徽标/失败原因刷新不丢）。
+func (s *Store) SetDocGraphrag(kbID, docID, js string) error {
+	_, err := s.DB.Exec(`UPDATE knowledge_doc SET graphrag_json=?, updated_at=? WHERE id=? AND kb_id=?`,
+		js, now(), docID, kbID)
 	return err
 }
 
