@@ -73,8 +73,11 @@ type Service struct {
 	// RunStreamFunc REQ-442/M238：流式执行器（message/stream 用）——onProgress 回调携带
 	// 累积部分文本（服务端节流为对外快照）；nil=回落 RunFunc（仅首末快照）。
 	RunStreamFunc func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, onProgress func(partial string)) (string, error)
-	mu            sync.Mutex
-	tasks         map[string]*Task
+	// ResumeFunc REQ-443/M239：答案续跑执行器——同 contextId 再 send 且会话挂起 ask_human 时
+	// input 作答走本执行器（api 装配注入 chat.Resume 管线）；nil=按新 Run 处理。
+	ResumeFunc RunFunc
+	mu         sync.Mutex
+	tasks      map[string]*Task
 }
 
 // New 构造（始终可用；BaseURL 读 A2A_AGENT_BASE_URL）。
@@ -142,6 +145,7 @@ const (
 	errInvalidParams      = -32602
 	errTaskNotCancelable  = -32002
 	errConversationBusy   = -32003 // REQ-441/M237：会话级单运行闸（同 contextId 并发 send 拒绝）
+	errApprovalRequired   = -32004 // REQ-443/M239：审批档闸门（tool_approval≠off 对外面预拒绝）
 )
 
 // HandleRPC POST /api/a2a/agents/{id}——JSON-RPC 2.0 入口。
@@ -200,6 +204,12 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		writeJSON(w, http.StatusOK, rpcError(req.ID, errInvalidParams, "message.parts 缺 text 文本"))
 		return
 	}
+	// REQ-443/M239：审批档闸门——对外面无交互面，tool_approval≠off 预拒绝（沿 /mcp server
+	// 模式先例；治「审批挂起等死 10min 按 failed 收场」）
+	if agent.ToolApproval != "" && agent.ToolApproval != "off" {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errApprovalRequired, "该智能体开启工具审批（"+agent.ToolApproval+"），A2A 对外面无交互面不可委派（沿 /mcp 先例预拒绝）"))
+		return
+	}
 	// contextId=平台会话 id：存在且归属本智能体则多轮延续，否则新建
 	var conv *store.Conversation
 	if cid := strings.TrimSpace(p.Message.ContextID); cid != "" {
@@ -222,6 +232,8 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		writeJSON(w, http.StatusOK, rpcError(req.ID, errConversationBusy, "会话已有进行中的任务（A2A 单会话串行），请待终态后重发"))
 		return
 	}
+	// REQ-443/M239：会话挂起 ask_human 时 input 作答——走 ResumeFunc 续跑（chat.Resume 管线）
+	resuming := s.ResumeFunc != nil && s.pendingHumanQuestion(conv.ID) != ""
 	task := &Task{
 		ID: store.NewID(), ContextID: conv.ID, AgentID: agent.ID,
 		State: "working", Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -236,7 +248,13 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		text, rerr := s.RunFunc(ctx, conv, agent, store.NewID(), input)
+		var text string
+		var rerr error
+		if resuming {
+			text, rerr = s.ResumeFunc(ctx, conv, agent, store.NewID(), input)
+		} else {
+			text, rerr = s.RunFunc(ctx, conv, agent, store.NewID(), input)
+		}
 		s.mu.Lock()
 		cur, ok := s.tasks[task.ID]
 		s.mu.Unlock()
@@ -252,10 +270,16 @@ func (s *Service) handleMessageSend(w http.ResponseWriter, r *http.Request, req 
 		case rerr != nil:
 			cur.State, cur.ErrorText = "failed", rerr.Error()
 		default:
-			cur.State, cur.ArtifactText = "completed", text
-			cur.History = []map[string]any{
-				{"role": "user", "parts": []map[string]any{{"kind": "text", "text": input}}, "kind": "message"},
-				{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
+			// REQ-443/M239：ask_human 挂起→input-required 终态（问题文本外发——外部调用方
+			// 可同 contextId 携答案再委派续跑；A2A 协议语义本为此设计）
+			if q := s.pendingHumanQuestion(conv.ID); q != "" {
+				cur.State, cur.ErrorText = "input-required", q
+			} else {
+				cur.State, cur.ArtifactText = "completed", text
+				cur.History = []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"kind": "text", "text": input}}, "kind": "message"},
+					{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
+				}
 			}
 		}
 		s.persistTask(cur) // REQ-387/M183：终态写穿
@@ -293,6 +317,11 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	input := strings.TrimSpace(b.String())
 	if input == "" {
 		writeJSON(w, http.StatusOK, rpcError(req.ID, errInvalidParams, "message.parts 缺 text 文本"))
+		return
+	}
+	// REQ-443/M239：审批档闸门（同 message/send——沿 /mcp 先例预拒绝）
+	if agent.ToolApproval != "" && agent.ToolApproval != "off" {
+		writeJSON(w, http.StatusOK, rpcError(req.ID, errApprovalRequired, "该智能体开启工具审批（"+agent.ToolApproval+"），A2A 对外面无交互面不可委派（沿 /mcp 先例预拒绝）"))
 		return
 	}
 	var conv *store.Conversation
@@ -359,9 +388,13 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	ctx := r.Context() // 客户端断连即取消
 	var text string
 	var rerr error
-	if s.RunStreamFunc != nil {
+	resuming := s.ResumeFunc != nil && s.pendingHumanQuestion(conv.ID) != "" // REQ-443/M239：携答案续跑
+	switch {
+	case resuming:
+		text, rerr = s.ResumeFunc(ctx, conv, agent, store.NewID(), input)
+	case s.RunStreamFunc != nil:
 		text, rerr = s.RunStreamFunc(ctx, conv, agent, store.NewID(), input, progress)
-	} else {
+	default:
 		text, rerr = s.RunFunc(ctx, conv, agent, store.NewID(), input)
 	}
 	s.mu.Lock()
@@ -376,16 +409,42 @@ func (s *Service) handleMessageStream(w http.ResponseWriter, r *http.Request, re
 	case rerr != nil:
 		task.State, task.ErrorText = "failed", rerr.Error()
 	default:
-		task.State, task.ArtifactText = "completed", text
-		task.History = []map[string]any{
-			{"role": "user", "parts": []map[string]any{{"kind": "text", "text": input}}, "kind": "message"},
-			{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
+		if q := s.pendingHumanQuestion(conv.ID); q != "" { // REQ-443/M239：ask_human 挂起→input-required
+			task.State, task.ErrorText = "input-required", q
+		} else {
+			task.State, task.ArtifactText = "completed", text
+			task.History = []map[string]any{
+				{"role": "user", "parts": []map[string]any{{"kind": "text", "text": input}}, "kind": "message"},
+				{"role": "agent", "parts": []map[string]any{{"kind": "text", "text": text}}, "kind": "message"},
+			}
 		}
 	}
 	cur := *task
 	s.mu.Unlock()
 	s.persistTask(task)
 	snap(&cur)
+}
+
+// pendingHumanQuestion REQ-443/M239：会话中断态中的 ask_human 追问文本（""=无挂起）——
+// input-required 生产与答案续跑判定的共用判据。
+func (s *Service) pendingHumanQuestion(convID string) string {
+	c, err := s.Store.GetConversation(convID)
+	if err != nil || c == nil || strings.TrimSpace(c.InterruptState) == "" {
+		return ""
+	}
+	var st struct {
+		Kind     string   `json:"kind"`
+		Question string   `json:"question"`
+		Choices  []string `json:"choices"`
+	}
+	if json.Unmarshal([]byte(c.InterruptState), &st) != nil || st.Kind != "ask_human" {
+		return ""
+	}
+	q := st.Question
+	if len(st.Choices) > 0 {
+		q += "（可选：" + strings.Join(st.Choices, " / ") + "）"
+	}
+	return q
 }
 
 // persistTask REQ-387/M183：任务写穿落库（旁路失败仅日志不阻断响应）。

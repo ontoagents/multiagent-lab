@@ -116,6 +116,28 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	}
 	s.A2A.Stop = chatSvc.Stop
 	s.A2A.Busy = chatSvc.IsRunning // REQ-441/M237：同 contextId 并发 message/send 单运行闸
+	// REQ-443/M239：A2A 答案往返执行器——同 contextId 携答案再 send（会话挂起 ask_human）时
+	// 走 chat.Resume 以答案续跑（跨协议人机交互闭环的续跑半边）
+	s.A2A.ResumeFunc = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		res, rerr := chatSvc.Resume(ctx, conv, agent, runID, input, 0, false, nil)
+		if rerr != nil {
+			return "", rerr
+		}
+		comp.OnRunComplete(conv, agent, runID)
+		comp.RecordHits(conv.ID, runID)
+		if res.Error != "" {
+			return "", errors.New(res.Error)
+		}
+		msgs, merr := st.ListMessages(conv.ID)
+		if merr == nil {
+			for i := len(msgs) - 1; i >= 0; i-- {
+				if msgs[i].ID == res.AssistantMessageID {
+					return msgs[i].Content, nil
+				}
+			}
+		}
+		return "", nil
+	}
 	// REQ-442/M238：A2A message/stream 流式执行器——chat.Run emit 的 message.delta 增量累积为
 	// 对外过程快照（与 SSE 对话流同源同管线；首末快照由 a2a 层负责）
 	s.A2A.RunStreamFunc = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, onProgress func(string)) (string, error) {
