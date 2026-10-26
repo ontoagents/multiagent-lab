@@ -279,7 +279,7 @@ export default function GraphEditor({
             添加概念
           </Button>
           <Button size="small" type="primary" ghost onClick={() => {
-            addInstForm.setFieldsValue({ attributes: '' })
+            addInstForm.resetFields() // REQ-449：全清（含 dpVals 表单化字段残留）——原仅清 attributes 会串实例
             setAddInstOpen(true)
           }}>
             添加实例

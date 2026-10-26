@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AutoComplete, Empty, Segmented, Splitter, Tag, Tooltip, Tree, Typography } from 'antd'
+import { AutoComplete, Button, Empty, Form, Input, Modal, Popconfirm, Segmented, Select, Splitter, Tag, Tooltip, Tree, Typography, message } from 'antd'
 import type { DataNode } from 'antd/es/tree'
+import { PlusOutlined } from '@ant-design/icons'
 import type { Ontology, Spec, SpecConcept, SpecDataProperty, SpecInstance, SpecRelation } from '../../../../api/types'
+import { api } from '../../../../api/client'
 import './hierarchy.css'
 
 // ---------------------------------------------------------------------------
@@ -19,6 +21,11 @@ import './hierarchy.css'
 //     关系 From/To、实例 Concept、子概念、数据属性 Domain、公理主宾；空态诚实）
 //   大 spec 防线沿 REQ-304/305：分区懒挂载（本分区激活才挂载）+ antd Tree height 虚拟滚动。
 //   树不替代图形视图：SpecGraph/Graph3D/WebVOWL 全保留，选择总线双向联动互补。
+// REQ-448/M244（Protégé 手动建模兑现批①，REQ-363 P2③ 脱窗兑现）：树上编辑——HierarchyPane
+//   自只读导航升级编辑入口：类树根新增/+子概念〔挂选定父〕/挂父/摘父（DescPanel 父 Tag ✕）/
+//   删除；实例树实例删除。全部走构建面元素级端点（kind=concept/instance，Validate+版本门禁
+//   服务端单源沿 REQ-436）——「重排 parents」v1 以挂父/摘父达成（拖拽在 DAG 投影复现节点上
+//   语义模糊留观察）；被引用删除由校验 400 如实回喂。Protégé 树-画布分工：树管层级，画布管拓扑。
 // ---------------------------------------------------------------------------
 
 /** 跨视图选择单源载荷（REQ-253① 总线；kind+name 二元组，元素身份=类型+名） */
@@ -64,8 +71,9 @@ function NodeTitle(props: { name: string; label?: string; def?: string; extra?: 
   )
 }
 
-/** A 类层级树：Concept.Parents DAG → 树投影（多继承跨父复现；悬空父归根+标注；环防护） */
-function buildClassTree(spec: Spec) {
+/** A 类层级树：Concept.Parents DAG → 树投影（多继承跨父复现；悬空父归根+标注；环防护）；
+ *  REQ-448：ops 回调为选中概念渲染树上快捷操作钮（+子/挂父/删除——hover 显隐） */
+function buildClassTree(spec: Spec, ops?: (name: string) => React.ReactNode) {
   const concepts = spec.concepts ?? []
   const byName = new Map(concepts.map((c) => [c.name, c] as const))
   const declared = new Set(byName.keys())
@@ -146,6 +154,7 @@ function buildClassTree(spec: Spec) {
                   <span className="onto-hier-badge">{ic}</span>
                 </Tooltip>
               )}
+              {ops?.(c.name)}
             </>
           }
         />
@@ -157,8 +166,8 @@ function buildClassTree(spec: Spec) {
   return { data, index }
 }
 
-/** B 实例树：按 Instance.Concept 类型分组；未声明类型/悬空归「未分组」 */
-function buildInstanceTree(spec: Spec) {
+/** B 实例树：按 Instance.Concept 类型分组；未声明类型/悬空归「未分组」；REQ-448：实例叶子挂删除钮 */
+function buildInstanceTree(spec: Spec, instOps?: (name: string) => React.ReactNode) {
   const byName = new Map((spec.concepts ?? []).map((c) => [c.name, c] as const))
   const declared = new Set(byName.keys())
   const byConcept = new Map<string, SpecInstance[]>()
@@ -188,7 +197,7 @@ function buildInstanceTree(spec: Spec) {
       return {
         key: k,
         title: (
-          <NodeTitle name={it.name} extra={<span className="onto-hier-count">属 {it.concept}</span>} />
+          <NodeTitle name={it.name} extra={<span className="onto-hier-count">属 {it.concept}</span>} badge={instOps?.(it.name)} />
         ),
       }
     })
@@ -220,7 +229,7 @@ function buildInstanceTree(spec: Spec) {
         index.set(k, { sel: { kind: 'instance', name: it.name }, parentKey: gkey })
         return {
           key: k,
-          title: <NodeTitle name={it.name} extra={<span className="onto-hier-count">属 {it.concept || '—'}</span>} />,
+          title: <NodeTitle name={it.name} extra={<span className="onto-hier-count">属 {it.concept || '—'}</span>} badge={instOps?.(it.name)} />,
         }
       }),
     })
@@ -368,9 +377,9 @@ function RefTag(props: { label: string; sel?: OntoSelection; onSelect: (s: OntoS
   )
 }
 
-/** D 实体描述面板：选中实体聚合呈现（Protégé Description view 对应物） */
-function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; onSelect: (s: OntoSelection) => void }) {
-  const { ontology, spec, sel, onSelect } = props
+/** D 实体描述面板：选中实体聚合呈现（Protégé Description view 对应物）；REQ-448：父概念 Tag ✕=摘父 */
+function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; onSelect: (s: OntoSelection) => void; onDetachParent?: (concept: string, parent: string) => void }) {
+  const { ontology, spec, sel, onSelect, onDetachParent } = props
   const uri = entityUri(ontology.id, sel)
   const concepts = spec.concepts ?? []
   const byName = new Map(concepts.map((c) => [c.name, c] as const))
@@ -400,7 +409,17 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
               {parents.length > 0 ? (
                 parents.map((p) =>
                   p.live ? (
-                    <Tag key={p.name} style={{ margin: '0 6px 4px 0', cursor: 'pointer' }} onClick={() => onSelect({ kind: 'concept', name: p.name })}>
+                    <Tag
+                      key={p.name}
+                      style={{ margin: '0 6px 4px 0', cursor: 'pointer' }}
+                      onClick={() => onSelect({ kind: 'concept', name: p.name })}
+                      closable={!!onDetachParent}
+                      closeIcon={<span data-testid={`hierarchy-detach-${p.name}`} style={{ fontSize: 10 }}>✕</span>}
+                      onClose={(e) => {
+                        e.preventDefault()
+                        onDetachParent?.(sel.name, p.name)
+                      }}
+                    >
                       {p.name}
                     </Tag>
                   ) : (
@@ -621,17 +640,107 @@ export interface HierarchyPaneProps {
   /** 跨视图选择单源（AssetsPage 提升；可视化 2D 消费同源） */
   selection: OntoSelection | null
   onSelect: (s: OntoSelection | null) => void
+  /** REQ-448：树上编辑保存后刷新 spec（AssetsPage.refreshAfterSave 同源） */
+  onSaved?: () => void
 }
 
-export default function HierarchyPane({ ontology, spec, selection, onSelect }: HierarchyPaneProps) {
+export default function HierarchyPane({ ontology, spec, selection, onSelect, onSaved }: HierarchyPaneProps) {
   const [mode, setMode] = useState<TreeMode>('class')
   const [q, setQ] = useState('')
   const [expanded, setExpanded] = useState<React.Key[]>([])
+  // REQ-448：树上编辑态——mode=create（新建，parent=选定父/undefined=根）| attach（挂父）；busy=请求在途
+  const [elemModal, setElemModal] = useState<{ mode: 'create' | 'attach'; parent?: string; concept?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [form] = Form.useForm()
 
-  const classTree = useMemo(() => (spec ? buildClassTree(spec) : { data: [], index: new Map<string, NodeMeta>() }), [spec])
-  const instTree = useMemo(() => (spec ? buildInstanceTree(spec) : { data: [], index: new Map<string, NodeMeta>(), grouped: 0 }), [spec])
   const propTree = useMemo(() => (spec ? buildPropTree(spec) : { data: [], index: new Map<string, NodeMeta>() }), [spec])
-  const cur = mode === 'class' ? classTree : mode === 'instance' ? instTree : propTree
+
+  // ---- REQ-448：元素级操作（Validate+版本门禁服务端单源；400 校验明细如实回喂）----
+  const runElem = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      message.success(ok)
+      setElemModal(null)
+      form.resetFields()
+      onSaved?.()
+    } catch (e: any) {
+      message.error(e?.message ?? '操作失败（校验明细见响应）')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const submitElemModal = async () => {
+    if (!elemModal) return
+    try {
+      const v = await form.validateFields()
+      if (elemModal.mode === 'create') {
+        const parents = elemModal.parent ? [elemModal.parent] : []
+        await runElem(
+          () => api.elementUpsert(ontology.id, 'concept', { name: v.name.trim(), label: v.label ?? '', definition: v.definition ?? '', parents }),
+          elemModal.parent ? `概念「${v.name.trim()}」已创建（父概念：${elemModal.parent}）` : `根概念「${v.name.trim()}」已创建`,
+        )
+      } else if (elemModal.concept) {
+        const c = (spec?.concepts ?? []).find((x) => x.name === elemModal.concept)
+        const add = Array.isArray(v.parent) ? v.parent : [v.parent]
+        const next = [...new Set([...(c?.parents ?? []), ...add])]
+        await runElem(
+          () => api.elementUpsert(ontology.id, 'concept', { name: elemModal.concept, parents: next }),
+          `「${elemModal.concept}」父集合已更新（共 ${next.length} 个）`,
+        )
+      }
+    } catch (e: any) {
+      if (!e?.errorFields) message.error(e?.message ?? '操作失败')
+    }
+  }
+  const detachParent = (concept: string, parent: string) => {
+    const c = (spec?.concepts ?? []).find((x) => x.name === concept)
+    if (!c) return
+    runElem(
+      () => api.elementUpsert(ontology.id, 'concept', { name: concept, parents: (c.parents ?? []).filter((p) => p !== parent) }),
+      `「${concept}」已摘除父概念「${parent}」`,
+    )
+  }
+  const deleteConcept = (name: string) =>
+    runElem(() => api.elementDelete(ontology.id, 'concept', name), `概念「${name}」已删除`)
+  const deleteInstance = (name: string) =>
+    runElem(() => api.elementDelete(ontology.id, 'instance', name), `实例「${name}」已删除`)
+
+  // 树上快捷操作钮（hover 显隐；DAG 复现节点共享同一组操作——按概念名定位，不按树键）
+  const classOps = (name: string) => (
+    <span className="onto-hier-ops" data-testid={`hierarchy-ops-${name}`}>
+      <Tooltip title={`在「${name}」下新建子概念`}>
+        <button type="button" className="onto-hier-op" onClick={(e) => { e.stopPropagation(); setElemModal({ mode: 'create', parent: name }); form.resetFields() }}>＋子</button>
+      </Tooltip>
+      <Tooltip title={`为「${name}」挂父概念（多继承）`}>
+        <button type="button" className="onto-hier-op" onClick={(e) => { e.stopPropagation(); setElemModal({ mode: 'attach', concept: name }); form.resetFields() }}>挂父</button>
+      </Tooltip>
+      <Popconfirm
+        title={`删除概念「${name}」？`}
+        description="若被关系/实例/子概念引用，校验会拒绝并给出悬空定位。"
+        onConfirm={(e) => { e?.stopPropagation(); deleteConcept(name) }}
+        onCancel={(e) => e?.stopPropagation()}
+      >
+        <button type="button" className="onto-hier-op danger" onClick={(e) => e.stopPropagation()}>删</button>
+      </Popconfirm>
+    </span>
+  )
+  const instanceOps = (name: string) => (
+    <span className="onto-hier-ops">
+      <Popconfirm title={`删除实例「${name}」？`} onConfirm={(e) => { e?.stopPropagation(); deleteInstance(name) }} onCancel={(e) => e?.stopPropagation()}>
+        <button type="button" className="onto-hier-op danger" onClick={(e) => e.stopPropagation()}>删</button>
+      </Popconfirm>
+    </span>
+  )
+  const classTreeLive = useMemo(
+    () => (spec ? buildClassTree(spec, onSaved ? classOps : undefined) : { data: [], index: new Map<string, NodeMeta>() }),
+    [spec, onSaved, elemModal, busy], // 操作钮回调闭包含状态——操作态变化即重建（树数据本身派生自 spec）
+  )
+  const instTreeLive = useMemo(
+    () => (spec ? buildInstanceTree(spec, onSaved ? instanceOps : undefined) : { data: [], index: new Map<string, NodeMeta>(), grouped: 0 }),
+    [spec, onSaved, elemModal, busy],
+  )
+  const curLive = mode === 'class' ? classTreeLive : mode === 'instance' ? instTreeLive : propTree
 
   // 默认展开前两层（大 spec 下不全量展开；虚拟滚动兜底 REQ-304/305）
   useEffect(() => {
@@ -644,7 +753,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
         }
       }
     }
-    walk(cur.data, 0)
+    walk(curLive.data, 0)
     setExpanded(depth1)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- spec/mode 变化即重置展开态
   }, [spec, mode])
@@ -653,11 +762,11 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
   const selKeys = useMemo(() => {
     if (!selection) return []
     const keys: string[] = []
-    for (const [k, m] of cur.index) {
+    for (const [k, m] of curLive.index) {
       if (m.sel.kind === selection.kind && m.sel.name === selection.name) keys.push(k)
     }
     return keys
-  }, [selection, cur])
+  }, [selection, curLive])
   useEffect(() => {
     if (!selection) return
     const want: TreeMode = selection.kind === 'concept' ? 'class' : selection.kind === 'instance' ? 'instance' : 'prop'
@@ -669,7 +778,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
     let k: string | null = selKeys[0]
     while (k) {
       chain.push(k)
-      k = cur.index.get(k)?.parentKey ?? null
+      k = curLive.index.get(k)?.parentKey ?? null
     }
     setExpanded((prev) => {
       const s = new Set(prev)
@@ -765,17 +874,33 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
             按 Domain 分组呈现——spec_json 无 subPropertyOf，此为分组形态非语义属性层级（真属性层级 P2）
           </Typography.Text>
         )}
+        {/* REQ-448：树上编辑入口——根新增（类树）；「重排 parents」以挂父/摘父达成，拖拽留观察 */}
+        {mode === 'class' && onSaved && (
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            data-testid="hierarchy-add-root"
+            onClick={() => { setElemModal({ mode: 'create' }); form.resetFields() }}
+          >
+            根概念
+          </Button>
+        )}
+        {mode === 'class' && onSaved && (
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            树上「＋子 / 挂父 / 删」直接编辑（走元素端点，校验门禁同源）；层级重排=挂父/摘父
+          </Typography.Text>
+        )}
       </div>
       <Splitter className="onto-hier-split" orientation="horizontal" style={{ height: 560 }}>
         <Splitter.Panel defaultSize="44%" min="26%" max="72%">
           <div className="onto-hier-tree-wrap">
-            {cur.data.length === 0 ? (
+            {curLive.data.length === 0 ? (
               <div className="work-empty" style={{ minHeight: 160 }}>
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                   description={
                     mode === 'class'
-                      ? '本 Spec 无概念——在 Spec 编辑或图形编辑中添加后呈现类层级'
+                      ? (onSaved ? '本 Spec 无概念——点上方「根概念」直接创建第一个概念（树上编辑）' : '本 Spec 无概念——在 Spec 编辑或图形编辑中添加后呈现类层级')
                       : mode === 'instance'
                         ? '本 Spec 无实例——CSV 灌装或构建生成实例后按类型分组呈现'
                         : '本 Spec 无关系与数据属性'
@@ -787,12 +912,12 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
                 blockNode
                 multiple // DAG 多继承复现节点需同时高亮（controlled selectedKeys 多键，REQ-363 A/E）
                 height={540}
-                treeData={cur.data}
+                treeData={curLive.data}
                 selectedKeys={selKeys}
                 expandedKeys={expanded}
                 onExpand={(k) => setExpanded(k)}
                 onSelect={(_, info) => {
-                  const meta = cur.index.get(String((info.node as any).key))
+                  const meta = curLive.index.get(String((info.node as any).key))
                   if (meta) onSelect(meta.sel)
                 }}
                 data-testid="hierarchy-tree"
@@ -803,7 +928,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
         </Splitter.Panel>
         <Splitter.Panel min="28%">
           {selection ? (
-            <DescPanel ontology={ontology} spec={spec} sel={selection} onSelect={onSelect} />
+            <DescPanel ontology={ontology} spec={spec} sel={selection} onSelect={onSelect} onDetachParent={onSaved ? detachParent : undefined} />
           ) : (
             <div className="work-empty" style={{ minHeight: 160 }}>
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击左侧树节点 / 搜索结果查看实体详情（描述面板 + usage 反向引用）" />
@@ -811,6 +936,60 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect }: H
           )}
         </Splitter.Panel>
       </Splitter>
+      {/* REQ-448：新建（挂选定父/根）与挂父 Modal——走元素端点 kind=concept（presence 语义只传 parents 即改父集） */}
+      <Modal
+        open={!!elemModal}
+        title={
+          elemModal?.mode === 'create'
+            ? elemModal?.parent
+              ? `在「${elemModal.parent}」下新建子概念`
+              : '新建根概念'
+            : `为「${elemModal?.concept}」挂父概念`
+        }
+        okText={elemModal?.mode === 'create' ? '创建' : '挂父'}
+        okButtonProps={{ loading: busy }}
+        onCancel={() => setElemModal(null)}
+        cancelText="取消"
+        onOk={submitElemModal}
+      >
+        <Form form={form} layout="vertical">
+          {elemModal?.mode === 'create' ? (
+            <>
+              <Form.Item name="name" label="概念名（唯一标识）" rules={[{ required: true, message: '请输入概念名' }]}>
+                <Input placeholder="如 交换机" data-testid="hierarchy-new-name" />
+              </Form.Item>
+              <Form.Item name="label" label="显示名（可选）">
+                <Input />
+              </Form.Item>
+              <Form.Item name="definition" label="定义（可选）">
+                <Input.TextArea rows={2} />
+              </Form.Item>
+              {elemModal.parent && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  将挂父概念「{elemModal.parent}」（创建后可在描述面板 ✕ 摘父 / 树上「挂父」增父）
+                </Typography.Text>
+              )}
+            </>
+          ) : (
+            <>
+              <Form.Item name="parent" label="父概念（可多选=多继承）" rules={[{ required: true, message: '请选择父概念' }]}>
+                <Select
+                  mode="multiple"
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择已有概念"
+                  options={(spec?.concepts ?? [])
+                    .filter((c) => c.name !== elemModal?.concept)
+                    .map((c) => ({ value: c.name, label: c.label || c.name }))}
+                />
+              </Form.Item>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                将并入该概念既有父集合（去重）；若造成层级环，服务端校验会拒绝并如实回喂。
+              </Typography.Text>
+            </>
+          )}
+        </Form>
+      </Modal>
     </div>
   )
 }

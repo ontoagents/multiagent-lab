@@ -831,7 +831,7 @@ export default function AssetsPage() {
                   : <VizTabs spec={spec} ontologyId={active.id} busFocus={ontoSel} onBusSelect={setOntoSel} />)}
                 {/* REQ-363/M163：层级浏览（Protégé 式树形导航；选择总线经 ontoSel 单源联动可视化 2D） */}
                 {secKey === 'hierarchy' && !isCompActive && (
-                  <HierarchyPane ontology={active} spec={spec} selection={ontoSel} onSelect={setOntoSel} />
+                  <HierarchyPane ontology={active} spec={spec} selection={ontoSel} onSelect={setOntoSel} onSaved={refreshAfterSave} />
                 )}
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}

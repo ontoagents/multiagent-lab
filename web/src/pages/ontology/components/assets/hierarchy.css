@@ -117,3 +117,41 @@
 .onto-hier-usage-group {
   margin-bottom: 2px;
 }
+
+/* REQ-448/M244：树上编辑快捷操作钮——hover 显隐（触屏/键盘经 tab 聚焦兜底） */
+.onto-hier-ops {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  opacity: 0;
+  visibility: hidden; /* opacity:0 仍命中点击——visibility:hidden 保隐形区域不可误点 */
+  transition: opacity 0.15s ease;
+  vertical-align: middle;
+}
+
+.onto-hier-title:hover .onto-hier-ops,
+.onto-hier-ops:focus-within {
+  opacity: 1;
+  visibility: visible;
+}
+
+.onto-hier-op {
+  border: 1px solid var(--c-border, #d9d9d9);
+  border-radius: 4px;
+  background: var(--c-bg, #fff);
+  color: var(--c-ink-2, #555);
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.onto-hier-op:hover {
+  color: #1677ff;
+  border-color: #1677ff;
+}
+
+.onto-hier-op.danger:hover {
+  color: #cf1322;
+  border-color: #cf1322;
+}
