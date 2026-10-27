@@ -79,12 +79,12 @@ const POINTS: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     i18n: {
       zh: {
-        title: 'MCP 双向 + 诚实降级',
-        desc: '消费侧：本体 facade 五工具挂给 Agent；供给侧：任意智能体一键 MCP 服务化（/mcp）被外部客户端直连。方案未运行、向量库不可用等场景明确提示并降级，主链路不受影响。',
+        title: '协议枢纽双向 + 诚实降级',
+        desc: '消费侧：本体 facade 五工具挂给 Agent、外部 MCP / stdio server 亦可接入；供给侧：任意智能体一键 MCP 服务化（/mcp）或暴露为 A2A 端点（agent card 发现 + message/send·stream，任务落库）；CLI 编码智能体（Claude Code / OpenCode / Aider / DSH）与 A2A 远程智能体经连接器接入协作委派。方案未运行、向量库不可用等场景明确提示并降级，主链路不受影响。',
       },
       en: {
-        title: 'Bidirectional MCP + honest degradation',
-        desc: 'Consumer side: the five ontology facade tools attach to any agent. Provider side: any agent can be exposed via MCP (/mcp) for direct external-client connections. When a plan isn’t running or the vector store is unavailable, the platform says so clearly and degrades — the main path is unaffected.',
+        title: 'Protocol hub, both ways + honest degradation',
+        desc: 'Consumer side: the five ontology facade tools attach to any agent, and external MCP / stdio servers plug in too. Provider side: any agent can be exposed via MCP (/mcp) or as an A2A endpoint (agent-card discovery + message/send · stream, tasks persisted); CLI coding agents (Claude Code / OpenCode / Aider / DSH) and remote A2A agents join collaboration as delegated members via connectors. When a plan isn’t running or the vector store is unavailable, the platform says so clearly and degrades — the main path is unaffected.',
       },
     },
   },
@@ -191,6 +191,7 @@ const LAYERS: { key: string; i18n: L10n<{ title: string; scope: string; points: 
         points: [
           'agent_as_tool 为推荐协作路径：成员智能体包装为工具，协调者按"能力描述"路由',
           'subagent.enter / exit 事件记录嵌套轨迹；子智能体上下文隔离，起到"防火墙"语义',
+          '本地 / CLI / A2A 三色成员同队：外部成员画像注入协调者智能路由，审批 / 审计 / 沙箱治理拉齐，跨协议过程统一泳道可视化',
           'transfer 控制权移交仅保留兼容位；协作与工作流编排配置全部在项目侧收敛',
         ],
       },
@@ -200,6 +201,7 @@ const LAYERS: { key: string; i18n: L10n<{ title: string; scope: string; points: 
         points: [
           'agent_as_tool is the recommended collaboration path: member agents wrapped as tools, the coordinator routes by capability descriptions',
           'subagent.enter / exit events record nesting traces; sub-agents run with isolated contexts acting as a "firewall"',
+          'Local / CLI / A2A members in one team: external-member profiles feed smart routing, approvals / audit / sandbox governance applies uniformly, cross-protocol processes render in unified swimlanes',
           'transfer control handoff remains only as a compatibility slot; collaboration and workflow orchestration config converges on the project side',
         ],
       },
@@ -378,6 +380,7 @@ const PRINCIPLES: { i18n: L10n<{ title: string; desc: string }> }[] = [
 /** 标准与协议（第二册 T3 类） */
 const STANDARDS: { name: string; by: string; url: string; use: L10n<string> }[] = [
   { name: 'Model Context Protocol (MCP)', by: 'Anthropic · 2024', url: 'https://modelcontextprotocol.io', use: { zh: '智能体 ↔ 工具 / 本体 facade 的统一协议底座', en: 'The unified protocol base for agents ↔ tools and the ontology facade' } },
+  { name: 'Agent2Agent Protocol (A2A)', by: 'Google 发起 · Linux Foundation · 2025', url: 'https://a2a-protocol.dev', use: { zh: 'Agent ↔ Agent 互操作协议：平台 A2A 端点与委派客户端的协议底座（与 MCP 互补——MCP=工具层、A2A=Agent 层）', en: 'The agent-to-agent interop protocol: the base for the platform’s A2A endpoints and delegation client (complementary to MCP — MCP for tools, A2A for agents)' } },
   { name: 'RDF 1.1', by: 'W3C', url: 'https://www.w3.org/TR/rdf11-concepts/', use: { zh: '本体数据模型与序列化基础（Turtle）', en: 'Data model and serialization base for ontologies (Turtle)' } },
   { name: 'OWL 2', by: 'W3C', url: 'https://www.w3.org/TR/owl2-overview/', use: { zh: '本体表达力来源（类 / 属性 / 公理），Fuseki 推理目标方言', en: 'Source of ontology expressivity (classes / properties / axioms); the reasoning target dialect for Fuseki' } },
   { name: 'SHACL', by: 'W3C', url: 'https://www.w3.org/TR/shacl/', use: { zh: '约束校验与 qualitygate 结构类规则的依据', en: 'Basis for constraint validation and the structural rules in qualitygate' } },

@@ -1,4 +1,4 @@
-import { ArchDiagram } from '../components/diagrams'
+import { ArchDiagram, ProtocolHubDiagram } from '../components/diagrams'
 import { REPO_URL } from '../content'
 import { Tag } from 'antd'
 import { useCopy, useLocale } from '../i18n'
@@ -97,8 +97,8 @@ const STACK: { i18n: L10n<{ layer: string; pick: string }> }[] = [
   },
   {
     i18n: {
-      zh: { layer: '协议', pick: 'REST + SSE（POST fetch 流式）· MCP（双向）' },
-      en: { layer: 'Protocols', pick: 'REST + SSE (POST fetch streaming) · MCP (bidirectional)' },
+      zh: { layer: '协议', pick: 'REST + SSE（POST fetch 流式）· MCP（双向）· A2A（双向：Agent Card 发现 + JSON-RPC 子集）' },
+      en: { layer: 'Protocols', pick: 'REST + SSE (POST fetch streaming) · MCP (bidirectional) · A2A (bidirectional: agent-card discovery + JSON-RPC subset)' },
     },
   },
   {
@@ -160,6 +160,11 @@ const COPY = {
     proto2Desc: 'runtime-manager 统一暴露 onto_* 五工具 + sparql_query，挂给任意 Agent——智能体无需理解图引擎差异即可消费本体。',
     proto3Title: 'MCP 服务化（供给侧）',
     proto3Desc: '任意智能体可一键暴露为 MCP Server（/mcp · Streamable HTTP），Claude Desktop / Cursor 直连对话（REQ-131，实测见 docs/27）。',
+    proto4Title: 'A2A 双向（Agent ↔ Agent）',
+    proto4Desc: '供给侧：平台智能体暴露为 A2A 端点——agent card 发现 + message/send · message/stream，任务落库可查（REQ-369/442）；消费侧：kind=a2a 连接器把任意 A2A 远程智能体接入协作委派，CLI 编码智能体（kind=cli，Claude Code / OpenCode / Aider / DSH）与本地 stdio MCP server（kind=stdio）同队（REQ-416/426/433）。',
+    hubTitle: '协议枢纽：双向开放全景',
+    hubNote:
+      '左侧外部客户端调用平台智能体（MCP /mcp、A2A agent card 发现）；右侧外部智能体经三类连接器（CLI / A2A / stdio）接入为委派成员；治理（审批 / 审计 / 沙箱 / 凭据 / 上下文供给）内外一体。',
     hintPre: '部署细节与环境变量速查见 ',
     hintLink: '《部署与运行》',
     hintPost: '（单实例假设，刻意不做企业级多租户能力）。',
@@ -191,6 +196,11 @@ const COPY = {
     proto2Desc: 'runtime-manager uniformly exposes five onto_* tools + sparql_query; attach them to any agent so it can consume ontologies without knowing graph-engine differences.',
     proto3Title: 'MCP serving (provider side)',
     proto3Desc: 'Any agent can be exposed as an MCP Server (/mcp · Streamable HTTP) in one click; Claude Desktop / Cursor connect directly (REQ-131, tested in docs/27).',
+    proto4Title: 'A2A both ways (agent ↔ agent)',
+    proto4Desc: 'Provider: platform agents exposed as A2A endpoints — agent-card discovery + message/send · message/stream with persisted tasks (REQ-369/442). Consumer: kind=a2a connectors pull any remote A2A agent into delegation, alongside CLI coding agents (kind=cli: Claude Code / OpenCode / Aider / DSH) and local stdio MCP servers (kind=stdio) in one team (REQ-416/426/433).',
+    hubTitle: 'Protocol hub: open both ways',
+    hubNote:
+      'Left: external clients call platform agents (MCP /mcp; A2A agent-card discovery). Right: external agents join as delegable members via three connector kinds (CLI / A2A / stdio). Governance (approvals / audit / sandbox / credentials / context supply) applies uniformly both ways.',
     hintPre: 'Deployment details and the env-var quick reference: ',
     hintLink: 'Deploy & Run',
     hintPost: ' (single-instance assumption; enterprise multi-tenancy intentionally not provided).',
@@ -300,7 +310,19 @@ export default function ArchitecturePage() {
                 <div className="feat-desc">{c.proto3Desc}</div>
               </div>
             </div>
+            <div className="feat-card">
+              <span className="feat-icon">🤝</span>
+              <div>
+                <div className="feat-title">{c.proto4Title}</div>
+                <div className="feat-desc">{c.proto4Desc}</div>
+              </div>
+            </div>
           </div>
+          <h3 className="ref-sub">{c.hubTitle}</h3>
+          <div className="diag-card">
+            <ProtocolHubDiagram />
+          </div>
+          <p className="diag-note">{c.hubNote}</p>
         </section>
 
         {/* 部署形态 */}

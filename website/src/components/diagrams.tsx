@@ -99,7 +99,7 @@ const ARCH: {
   engines: { zh: '引擎与存储', en: 'Engines & storage' },
   browser: { zh: { t: '浏览器 Web UI', d: 'React 18 · AntD 6 · hash 路由' }, en: { t: 'Browser Web UI', d: 'React 18 · AntD 6 · hash routing' } },
   desktop: { zh: { t: '桌面客户端（Tauri 2 壳）', d: 'Windows 安装包 / macOS DMG · 系统托盘' }, en: { t: 'Desktop client (Tauri 2 shell)', d: 'Windows installer / macOS DMG · system tray' } },
-  mcpClient: { zh: { t: '外部 MCP 客户端', d: 'Claude Desktop / Cursor 直连' }, en: { t: 'External MCP clients', d: 'Claude Desktop / Cursor direct' } },
+  mcpClient: { zh: { t: '外部客户端（MCP / A2A）', d: 'MCP：Claude Desktop / Cursor · A2A：其他 Agent 平台' }, en: { t: 'External clients (MCP / A2A)', d: 'MCP: Claude Desktop / Cursor · A2A: other agent platforms' } },
   mainTitle: { zh: '主平台 backend（Go · Hertz · :8080）', en: 'Main platform backend (Go · Hertz · :8080)' },
   mainSub: { zh: '智能体装配与运行 · 知识库 · 设置 · 平台助手', en: 'Agent assembly & running · knowledge base · settings · assistant' },
   m1: { zh: { t: 'Eino ADK 装配与运行', d: '对话 / 对比模式 / 多智能体编排' }, en: { t: 'Eino ADK assembly & run', d: 'Chat / compare mode / multi-agent orchestration' } },
@@ -141,7 +141,7 @@ export function ArchDiagram() {
       {/* 客户端 → 主平台 */}
       <VLine x={250} y1={80} y2={128} label="HTTP · REST + SSE" />
       <VLine x={605} y1={80} y2={128} label="127.0.0.1:8080（壳托管服务）" labelSide="left" />
-      <VLine x={965} y1={80} y2={128} label="/mcp · Streamable HTTP" />
+      <VLine x={965} y1={80} y2={128} label="MCP /mcp · A2A /api/a2a/agents" />
 
       {/* ===== 主平台 ===== */}
       <Box x={60} y={130} w={1060} h={172} fill="#eef4ff" stroke="#a8bdf0" />
@@ -433,6 +433,114 @@ export function CompanionPipeline() {
 
       {/* 低侵入三原则 */}
       <Text x={590} y={228} size={11.5} fill={INK2}>{t.principle}</Text>
+    </svg>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 5. 协议枢纽：MCP / A2A 双向开放 + 外部智能体接入（源：REQ-131/369/416/426~434/441~446
+//    —— platform-knowledge/02_智能体/00 能力总表「对外服务化 / 外部智能体接入」行）
+// ---------------------------------------------------------------------------
+
+const HUB_COPY = {
+  zh: {
+    serveHead: '对外供给 —— 平台智能体被外部调用',
+    serveMcp: { t: '外部 MCP 客户端', d: 'Claude Desktop / Cursor 直连' },
+    serveMcpLine: '/mcp · Streamable HTTP',
+    serveA2a: { t: '其他 Agent 平台 / 应用', d: 'A2A 客户端经 agent card 发现调用' },
+    serveA2aLine: 'A2A · agent card 发现',
+    hubTitle: '平台智能体运行时',
+    hub1: '本地 / CLI / A2A 三色成员同队',
+    hub2: '协调者 agent_as_tool 画像路由',
+    hub3: 'workflow 顺序·并行·循环 · transfer 移交',
+    hub4: 'SSE 事件流 · 全程可观测可回放',
+    inHead: '对内接入 —— 外部智能体进协作',
+    inCli: { t: 'CLI 编码智能体', d: 'Claude Code / OpenCode / Aider / DSH' },
+    inCliLine: '委派 · kind=cli',
+    inA2a: { t: 'A2A 远程智能体', d: '任意 A2A server 均可接入' },
+    inA2aLine: '委派 · kind=a2a 流式',
+    inStdio: { t: '本地 stdio MCP server', d: 'npx/node 白名单托管' },
+    inStdioLine: '装配 · kind=stdio',
+    govTitle: '统一治理（内外一体）',
+    gov1: '审批三档（危险操作过闸） · 过程审计与跨协议泳道 · docker 沙箱 · 凭据加密托管',
+    gov2: '委派携带上下文：项目文件 / 知识库 / 本体 guide 摘要（连接器开关显式确认）',
+    note: '目录互发现：外部智能体可经 GET /api/a2a/agents 反向发现平台暴露的智能体与外部成员元数据（凭据与配置细节不透出）',
+  },
+  en: {
+    serveHead: 'Serve outward — platform agents get called',
+    serveMcp: { t: 'External MCP clients', d: 'Claude Desktop / Cursor direct' },
+    serveMcpLine: '/mcp · Streamable HTTP',
+    serveA2a: { t: 'Other agent platforms / apps', d: 'A2A clients discover via agent card' },
+    serveA2aLine: 'A2A · agent-card discovery',
+    hubTitle: 'Platform agent runtime',
+    hub1: 'Local / CLI / A2A members in one team',
+    hub2: 'Coordinator routes via agent_as_tool profiles',
+    hub3: 'Sequential · parallel · loop workflows · transfer',
+    hub4: 'SSE event stream — observable & replayable',
+    inHead: 'Bring in — external agents join collaboration',
+    inCli: { t: 'CLI coding agents', d: 'Claude Code / OpenCode / Aider / DSH' },
+    inCliLine: 'delegate · kind=cli',
+    inA2a: { t: 'A2A remote agents', d: 'any A2A server plugs in' },
+    inA2aLine: 'kind=a2a · streaming',
+    inStdio: { t: 'Local stdio MCP servers', d: 'npx/node allowlist, hosted' },
+    inStdioLine: 'assemble · kind=stdio',
+    govTitle: 'Unified governance (both ways)',
+    gov1: 'Three-tier approvals (gates on danger) · process audit & cross-protocol swimlanes · docker sandbox · encrypted credentials',
+    gov2: 'Delegations carry context: project files / knowledge base / ontology guide (explicit connector opt-in)',
+    note: 'Mutual discovery: external agents can reverse-discover platform-exposed agents and external-member metadata via GET /api/a2a/agents (credentials and config details never leak)',
+  },
+}
+
+/** 水平连线（带标签；标签长度受连线区宽度约束，超长文案落在两侧卡与页面卡片里） */
+function HLine({ x1, x2, y, label }: { x1: number; x2: number; y: number; label: string }) {
+  return (
+    <g>
+      <line x1={x1} y1={y} x2={x2} y2={y} stroke={LINE} strokeWidth="1.4" markerEnd="url(#arrow-hub)" />
+      <Text x={(x1 + x2) / 2} y={y - 9} size={10} fill={INK2}>{label}</Text>
+    </g>
+  )
+}
+
+export function ProtocolHubDiagram() {
+  const { locale } = useLocale()
+  const t = HUB_COPY[locale]
+  return (
+    <svg viewBox="0 0 1180 424" style={{ width: '100%', minWidth: 860, display: 'block' }} role="img" aria-label={locale === 'zh' ? '协议枢纽：MCP 与 A2A 双向开放' : 'Protocol hub: MCP and A2A, open both ways'}>
+      <ArrowDefs id="arrow-hub" />
+
+      {/* ===== 左列：对外供给（280~420 为连线区，标签受其宽度约束） ===== */}
+      <Text x={30} y={36} size={11.5} weight={700} fill={INK2} anchor="start">{t.serveHead}</Text>
+      <InnerCard x={30} y={52} w={250} h={72} title={t.serveMcp.t} desc={t.serveMcp.d} tint={BRAND} />
+      <InnerCard x={30} y={168} w={250} h={72} title={t.serveA2a.t} desc={t.serveA2a.d} tint={BRAND} />
+      <HLine x1={280} x2={416} y={88} label={t.serveMcpLine} />
+      <HLine x1={280} x2={416} y={204} label={t.serveA2aLine} />
+
+      {/* ===== 中心：平台智能体运行时 ===== */}
+      <Box x={420} y={52} w={340} h={228} fill="#eef4ff" stroke="#a8bdf0" rx={12} />
+      <Text x={590} y={80} size={14} weight={800}>{t.hubTitle}</Text>
+      <Text x={590} y={116} size={11.5} fill={INK}>{t.hub1}</Text>
+      <Text x={590} y={148} size={11.5} fill={INK}>{t.hub2}</Text>
+      <Text x={590} y={180} size={11.5} fill={INK}>{t.hub3}</Text>
+      <Text x={590} y={212} size={11.5} fill={INK}>{t.hub4}</Text>
+      <Text x={590} y={252} size={10.5} fill={INK2}>MCP · A2A · CLI</Text>
+
+      {/* ===== 右列：对内接入（760~900 为连线区） ===== */}
+      <Text x={900} y={36} size={11.5} weight={700} fill={INK2} anchor="start">{t.inHead}</Text>
+      <InnerCard x={900} y={52} w={250} h={64} title={t.inCli.t} desc={t.inCli.d} tint="#58a27c" />
+      <InnerCard x={900} y={134} w={250} h={64} title={t.inA2a.t} desc={t.inA2a.d} tint="#58a27c" />
+      <InnerCard x={900} y={216} w={250} h={64} title={t.inStdio.t} desc={t.inStdio.d} tint="#58a27c" />
+      <HLine x1={760} x2={896} y={84} label={t.inCliLine} />
+      <HLine x1={760} x2={896} y={166} label={t.inA2aLine} />
+      <HLine x1={760} x2={896} y={248} label={t.inStdioLine} />
+
+      {/* ===== 底部：统一治理 ===== */}
+      <Box x={30} y={300} w={1120} h={84} fill="#fff7ed" stroke="#f0b269" rx={12} />
+      <Text x={590} y={324} size={12.5} weight={800}>{t.govTitle}</Text>
+      <Text x={590} y={348} size={10.5} fill={INK2}>{t.gov1}</Text>
+      <Text x={590} y={368} size={10.5} fill={INK2}>{t.gov2}</Text>
+
+      {/* 底注 */}
+      <Text x={590} y={410} size={11} fill={INK2}>{t.note}</Text>
     </svg>
   )
 }

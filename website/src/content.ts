@@ -87,8 +87,8 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'TeamOutlined',
         i18n: {
-          zh: { title: '多智能体协作', desc: 'agent_as_tool 按成员的能力描述路由委派，子智能体上下文隔离、嵌套轨迹可见；成员失败或超时自动降级回喂协调者改道自愈，委派过程有结构化委派单；把成员组队、配工作流的编排能力在「项目」模块' },
-          en: { title: 'Multi-agent collaboration', desc: 'agent_as_tool routes delegation by member capability descriptions; sub-agent contexts stay isolated with visible nested traces; failed or timed-out members degrade gracefully back to the coordinator with structured delegation slips; team assembly and workflow orchestration live in the Projects module' },
+          zh: { title: '多智能体协作', desc: 'agent_as_tool 按成员的能力描述路由委派，本地 / CLI 外部 / A2A 远程三色成员同队，workflow 顺序·并行·循环与 transfer 移交全轨可用；子智能体上下文隔离、嵌套轨迹可见，成员失败或超时自动降级回喂协调者改道自愈，委派过程有结构化委派单；组队与工作流编排在「项目」模块' },
+          en: { title: 'Multi-agent collaboration', desc: 'agent_as_tool routes delegation by member capability descriptions — local, CLI-external and A2A-remote members team up in three colors, with sequential / parallel / loop workflows and transfer handoff all in play; sub-agent contexts stay isolated with visible nested traces, failed or timed-out members degrade gracefully back to the coordinator with structured delegation slips; team assembly and workflow orchestration live in the Projects module' },
         },
       },
       {
@@ -122,15 +122,22 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'RocketOutlined',
         i18n: {
-          zh: { title: '双向协议开放', desc: '对外：智能体一键暴露为 MCP Server（/mcp）与 A2A 端点（agent card 发现 + 任务落库）；对内：A2A 委派客户端把外部智能体接入对话委派（轮询回传 + 失败降级）。端点注册与凭据在「设置」页连接器，外部成员参与团队协作见「项目」模块' },
-          en: { title: 'Open protocols, both ways', desc: 'Outward: expose any agent as an MCP Server (/mcp) or an A2A endpoint (agent-card discovery + persisted tasks); inward: the A2A delegation client brings external agents into chat delegation (polling + graceful degradation). Endpoint registration and credentials live in Settings connectors; external members in team collaboration see Projects' },
+          zh: { title: '对外服务化（MCP + A2A）', desc: '智能体一键暴露为 MCP Server（/mcp）供 Claude Desktop / Cursor 直连；也可暴露为 A2A 端点——其他 Agent 平台经 agent card 发现（/.well-known/agent-card.json），message/send · message/stream 调用，任务落库可查；危险操作过审批闸门，外部追问以 input-required 终态回传；A2A 任务列表与接入指引在「设置」页协议面' },
+          en: { title: 'Serving outward (MCP + A2A)', desc: 'Expose any agent as an MCP Server (/mcp) for Claude Desktop / Cursor, or as an A2A endpoint — other agent platforms discover it via the agent card (/.well-known/agent-card.json) and call message/send · message/stream, with tasks persisted and queryable; dangerous operations pass an approval gate, external follow-up questions return as input-required terminal states; the A2A task list and how-to guides live in the Settings protocol section' },
+        },
+      },
+      {
+        icon: 'ApiOutlined',
+        i18n: {
+          zh: { title: '外部智能体接入', desc: '六类连接器把外部智能体接入协作：CLI 编码智能体（Claude Code / OpenCode / Aider / DeepSeek Harness，PATH 探测真握手）、A2A 远程智能体（agent card 握手 + 流式订阅/轮询回退）、本地 stdio MCP server（npx 白名单）皆可入队为委派成员；成员能力画像注入协调者智能路由，审批/审计/沙箱/凭据治理拉齐，跨协议过程统一泳道可视化，委派可携带项目文件/知识库/本体上下文；三色混合团队模板一键成团；外部智能体亦可反向发现平台暴露的资产（目录互发现）' },
+          en: { title: 'External agents in', desc: 'Six connector kinds bring external agents into collaboration: CLI coding agents (Claude Code / OpenCode / Aider / DeepSeek Harness, real PATH probing), A2A remote agents (agent-card handshake + streaming subscribe with polling fallback) and local stdio MCP servers (npx allowlist) all join as delegable members; capability profiles feed the coordinator for smart routing, approvals / audit / sandbox / credentials governance applies uniformly, cross-protocol processes render in unified swimlanes, and delegations can carry project-file / knowledge-base / ontology context; a one-click hybrid-team template assembles all three colors; external agents can also discover platform-exposed assets in reverse (mutual directory)' },
         },
       },
       {
         icon: 'RobotOutlined',
         i18n: {
-          zh: { title: '平台助手', desc: '内置系统级智能体：平台知识答疑、配置辅助，复杂输入框旁「AI 优化」一键改写（diff 预览确认回填）；配置与普通智能体归一单源' },
-          en: { title: 'Platform assistant', desc: 'A built-in system agent answering platform questions and helping with config; an "AI optimize" button rewrites complex inputs with diff-preview confirmation; configuration unified with regular agents' },
+          zh: { title: '平台助手', desc: '内置系统级智能体：平台知识答疑（发现→定位→语义→精读四级阅读链，平台文档全覆盖）、配置辅助，复杂输入框旁「AI 优化」一键改写（diff 预览确认回填）；配置与普通智能体归一单源' },
+          en: { title: 'Platform assistant', desc: 'A built-in system agent answering platform questions via a four-stage reading chain (discover → locate → semantic search → deep read, covering all platform docs) and helping with config; an "AI optimize" button rewrites complex inputs with diff-preview confirmation; configuration unified with regular agents' },
         },
       },
       {
@@ -308,8 +315,8 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'TeamOutlined',
         i18n: {
-          zh: { title: '协作工作空间', desc: '项目内编排成员智能体——成员与协调者来自「智能体」库，外部 A2A 智能体经「设置」连接器注册后亦可入队；谁参与、怎么委派、如何交接，配置收敛于项目侧（委派韧性与过程留痕见「智能体」模块）' },
-          en: { title: 'Collaboration workspace', desc: 'Orchestrate member agents per project — members and the coordinator come from the Agents library, and external A2A agents registered via Settings connectors can join too; who joins, how work is delegated and handed over is configured here (delegation resilience and tracing live in the Agents module)' },
+          zh: { title: '协作工作空间', desc: '项目内编排成员智能体——成员与协调者来自「智能体」库，外部智能体（A2A 远程 / CLI 编码智能体）经「设置」连接器注册后亦可入队；谁参与、怎么委派、如何交接，配置收敛于项目侧（委派韧性与过程留痕见「智能体」模块）' },
+          en: { title: 'Collaboration workspace', desc: 'Orchestrate member agents per project — members and the coordinator come from the Agents library, and external agents (A2A remote / CLI coding agents) registered via Settings connectors can join too; who joins, how work is delegated and handed over is configured here (delegation resilience and tracing live in the Agents module)' },
         },
       },
       {
@@ -343,8 +350,8 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'DeploymentUnitOutlined',
         i18n: {
-          zh: { title: '协作拓扑与泳道', desc: '成员智能体组网与委派关系一图看清（含 A2A 外部成员节点）；执行过程按智能体分泳道回放，委派链路可追溯' },
-          en: { title: 'Topology & swimlanes', desc: 'Member-agent networking and delegation in one diagram (A2A external members included); replay runs as per-agent swimlanes with traceable delegation chains' },
+          zh: { title: '协作拓扑与泳道', desc: '成员智能体组网与委派关系一图看清（含 CLI / A2A 外部成员节点）；执行过程按智能体分泳道回放，跨协议（本地/CLI/A2A）统一过程可视化，委派链路可追溯' },
+          en: { title: 'Topology & swimlanes', desc: 'Member-agent networking and delegation in one diagram (CLI / A2A external members included); replay runs as per-agent swimlanes with unified cross-protocol (local / CLI / A2A) process visualization and traceable delegation chains' },
         },
       },
     ],
@@ -405,13 +412,13 @@ export const MODULES: ModuleInfo[] = [
       zh: {
         title: '设置',
         tagline: '底座：模型连接 · 连接器 · 协议面 · 运维自助',
-        brief: ['双协议多厂商模型连接，云端预设 + 本地 Ollama', '四类连接器（MCP/K8s/SSH/A2A）统一注册与凭据托管', '协议面总览与运维自助：诊断包 / 备份恢复 / 用量统计'],
+        brief: ['双协议多厂商模型连接，云端预设 + 本地 Ollama', '六类连接器（MCP/K8s/SSH/A2A/CLI/stdio）统一注册与凭据托管', '协议面总览与运维自助：诊断包 / 备份恢复 / 用量统计'],
         flow: ['配置供应商与模型连接（云端/本地预设）', '连接器凭据与 agent 级授权', '协议面总览（MCP 接入指引/A2A 任务）', '使用统计与诊断/备份'],
       },
       en: {
         title: 'Settings',
         tagline: 'The foundation: model connections · connectors · protocols · ops self-service',
-        brief: ['Dual-protocol multi-vendor connections; cloud presets + local Ollama', 'Four connector kinds (MCP/K8s/SSH/A2A), unified registry and credential hosting', 'Protocol overview and ops: diagnostics / backup-restore / usage stats'],
+        brief: ['Dual-protocol multi-vendor connections; cloud presets + local Ollama', 'Six connector kinds (MCP/K8s/SSH/A2A/CLI/stdio), unified registry and credential hosting', 'Protocol overview and ops: diagnostics / backup-restore / usage stats'],
         flow: ['Configure vendors & model connections (cloud / local presets)', 'Connector credentials and per-agent authorization', 'Protocol overview (MCP how-to / A2A tasks)', 'Usage stats, diagnostics & backup'],
       },
     },
@@ -429,8 +436,8 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'ClusterOutlined',
         i18n: {
-          zh: { title: '连接器管理', desc: '连接器分区：MCP / K8s / SSH / A2A 四类实例 CRUD、凭据 AES-256-GCM 加密托管、连接测试（A2A 注册即握手校验 agent card）；授权在「智能体」侧板按 agent 白名单勾选' },
-          en: { title: 'Connector management', desc: 'A connectors section: CRUD for MCP / K8s / SSH / A2A instances, AES-256-GCM encrypted credentials and connection tests (A2A registration handshakes the agent card up front); grants are checked per agent in the Agents side panel' },
+          zh: { title: '连接器管理', desc: '连接器分区：MCP / K8s / SSH / A2A / CLI / stdio 六类实例 CRUD、凭据 AES-256-GCM 加密托管、连接测试（A2A 注册即握手校验 agent card；CLI PATH 探测 --version；stdio command 白名单 npx/node）；授权在「智能体」侧板按 agent 白名单勾选' },
+          en: { title: 'Connector management', desc: 'A connectors section: CRUD for MCP / K8s / SSH / A2A / CLI / stdio instances, AES-256-GCM encrypted credentials and connection tests (A2A registration handshakes the agent card up front; CLI probes PATH with --version; stdio commands allowlisted to npx/node); grants are checked per agent in the Agents side panel' },
         },
       },
       {

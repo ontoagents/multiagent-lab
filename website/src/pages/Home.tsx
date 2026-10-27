@@ -143,6 +143,7 @@ const CORES: { i18n: L10n<{ title: string; desc: string; points: string[] }> }[]
         points: [
           '流式对话与调用轨迹面板（工具 / 子智能体 / 检索 / 审批事件全留痕）',
           '多智能体协作：项目工作空间、成员编排、委派与切换事件可见',
+          '协议枢纽双向开放：智能体暴露为 MCP / A2A 服务，CLI 与 A2A 外部智能体接入协作',
           '上下文工程 / Harness 沙箱与审批 / Loop 持久化与续跑（五层视角）',
           '评估驱动质量：agenteval 种子任务集 + LLM Judge 门控',
         ],
@@ -153,6 +154,7 @@ const CORES: { i18n: L10n<{ title: string; desc: string; points: string[] }> }[]
         points: [
           'Streaming chat with a call-trace panel (tool / sub-agent / retrieval / approval events fully traced)',
           'Multi-agent collaboration: project workspace, member orchestration, visible delegation and transfer events',
+          'Protocol hub open both ways: agents serve MCP / A2A outward; CLI and A2A external agents join collaboration inward',
           'Context engineering / harness sandbox & approvals / loop persistence & resume (five-layer view)',
           'Evaluation-driven quality: agenteval seed task sets + LLM judge gating',
         ],
@@ -196,8 +198,8 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <CloudServerOutlined />,
     i18n: {
-      zh: { title: '外部连接器', desc: 'Kubernetes / SSH / 自定义 MCP / A2A 四类连接器，凭据加密托管，agent 级授权白名单' },
-      en: { title: 'External connectors', desc: 'Kubernetes / SSH / custom MCP / A2A connectors with encrypted credential hosting and agent-level authorization whitelists' },
+      zh: { title: '外部连接器', desc: 'Kubernetes / SSH / 自定义 MCP / A2A / CLI / stdio 六类连接器，凭据加密托管，agent 级授权白名单' },
+      en: { title: 'External connectors', desc: 'Kubernetes / SSH / custom MCP / A2A / CLI / stdio — six connector kinds with encrypted credential hosting and agent-level authorization whitelists' },
     },
   },
   {
@@ -217,8 +219,8 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <ApiOutlined />,
     i18n: {
-      zh: { title: '协议开放（MCP + A2A）', desc: '智能体一键暴露为 MCP Server（/mcp）与 A2A 端点；A2A 委派客户端把外部智能体接入协作' },
-      en: { title: 'Open protocols (MCP + A2A)', desc: 'Expose any agent as an MCP Server (/mcp) or A2A endpoint; the A2A delegation client pulls external agents into collaboration' },
+      zh: { title: '协议开放（MCP + A2A）', desc: '智能体一键暴露为 MCP Server（/mcp）与 A2A 端点，被其他 Agent 调用；外部智能体（CLI 编码智能体 / A2A 远程智能体 / stdio MCP server）经连接器接入协作' },
+      en: { title: 'Open protocols (MCP + A2A)', desc: 'Expose any agent as an MCP Server (/mcp) or A2A endpoint for other agents to call; external agents (CLI coding agents / A2A remote agents / stdio MCP servers) plug in via connectors' },
     },
   },
   {
