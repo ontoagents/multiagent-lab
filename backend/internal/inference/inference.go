@@ -111,6 +111,10 @@ type Status struct {
 	Reason       string       `json:"reason,omitempty"`
 	Default      bool         `json:"default"` // eino-adk
 	Capabilities Capabilities `json:"capabilities"`
+	// REQ-450：安装引导（引导安装非代为安装——平台不下载不托管）
+	InstallCmd  string `json:"install_cmd,omitempty"`
+	InstallDocs string `json:"install_docs,omitempty"`
+	InstallNote string `json:"install_note,omitempty"`
 }
 
 // Registry 推理后端注册表：内置 eino-adk + 外部 CLI 适配器，探测结果 10min TTL 缓存。
@@ -188,6 +192,9 @@ func (r *Registry) List(ctx context.Context, force bool) []Status {
 	for _, n := range names {
 		b := r.backends[n] // order 只增不减，无需再持锁
 		st := Status{Name: n, Default: n == DefaultBackend, Capabilities: b.Capabilities()}
+		if h, ok := installHints[n]; ok {
+			st.InstallCmd, st.InstallDocs, st.InstallNote = h.Cmd, h.Docs, h.Note
+		}
 		pr := r.probe(ctx, b, force)
 		st.Available, st.Version, st.Path, st.Reason = pr.Available, pr.Version, pr.Path, pr.Reason
 		out = append(out, st)

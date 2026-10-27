@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Col, Collapse, Divider, Form, Input, InputNumber, Modal, Row, Select, Space, Switch } from 'antd'
+import { Button, Col, Collapse, Divider, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Typography } from 'antd'
 import { api, connDisplayName } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
+import InferenceInstallHint from './InferenceInstallHint'
 import type { InferenceBackendStatus, ModelConnection, Skill, ToolInfo } from '../api/types'
 import { useUI } from '../store/ui'
 import { inferenceBackendOptions } from './inferenceOptions'
@@ -40,7 +41,7 @@ export default function AgentModal({
   onClose: () => void
   onCreated: (id: string) => void
 }) {
-  const { showToast, bumpData } = useUI()
+  const { showToast, bumpData, setPage } = useUI()
   const [form] = Form.useForm()
   const instructionValue = Form.useWatch('instruction', form) ?? ''
   const [allConns, setAllConns] = useState<ModelConnection[]>([])
@@ -50,6 +51,13 @@ export default function AgentModal({
   const [backends, setBackends] = useState<InferenceBackendStatus[]>([]) // M13：推理后端探测清单
   const companionOn = Form.useWatch('companion_ontology', form) as boolean | undefined
   const [saving, setSaving] = useState(false)
+
+  // REQ-450：外部智能体可发现性——外部 A2A/CLI 智能体非创建形态（连接器注册→入项目授权为委派成员），
+  // 创建表单只负责「让人知道这条路存在」，注册单入口留连接器（真握手闸门）
+  const goConnectors = () => {
+    localStorage.setItem('eino.settings.section', 'connectors')
+    setPage('settings')
+  }
 
   useEffect(() => {
     api.listConnections().then(setAllConns).catch(() => {})
@@ -162,12 +170,25 @@ export default function AgentModal({
               name="inference_backend"
               label="推理后端"
               initialValue="eino-adk"
-              extra="「谁来推理」：eino-adk 自研默认；外部 CLI 后端模型由其自身配置决定，技能/MCP 降级为提示注入"
+              extra={
+                <span>
+                  「谁来推理」：eino-adk 自研默认；外部 CLI 后端模型由其自身配置决定，技能/MCP 降级为提示注入
+                  <InferenceInstallHint backends={backends} onReprobed={setBackends} />
+                </span>
+              }
             >
               <Select options={inferenceBackendOptions(backends)} showSearch optionFilterProp="label" />
             </Form.Item>
           </Col>
         </Row>
+        {/* REQ-450：外部智能体（A2A/CLI 连接器）可发现性——创建与接入是两条路，此前零提示 */}
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', margin: '-8px 0 14px' }}>
+          想接入已有的外部智能体（A2A / CLI）？它们不是在此创建：到
+          <Button type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 12 }} onClick={goConnectors}>
+            设置 → 连接器
+          </Button>
+          注册（A2A 真握手拉卡片 / CLI PATH 探测），并在项目的「智能体协作」面授权为外部成员，由协调者智能体委派协作。
+        </Typography.Text>
 
         <Section>模型</Section>
         <Form.Item

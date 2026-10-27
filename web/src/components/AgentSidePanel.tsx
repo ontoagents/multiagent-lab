@@ -27,6 +27,7 @@ import type { Agent, AgentConfigVersion, Connector, InferenceBackendStatus, McpS
 import { companionApi } from '../api/companion'
 import { useUI } from '../store/ui'
 import { inferenceBackendOptions } from './inferenceOptions'
+import InferenceInstallHint from './InferenceInstallHint'
 
 /** 连接名已按 `{提供商}·{模型}` 约定时直接展示，否则补上模型名（兼容老数据） */
 /** REQ-148：连接展示名（组别名优先替换提供商前缀，别名仅展示层） */
@@ -1199,6 +1200,8 @@ function AgentConfigForm({
                       placeholder="eino-adk（自研默认）"
                     />
                   </Form.Item>
+                  {/* REQ-450：未装推理后端安装指引（内置助手固定 eino-adk 无外部后端可引导） */}
+                  {!isBuiltin && <InferenceInstallHint backends={backends} onReprobed={setBackends} />}
                   <Form.Item
                     name="logo_url"
                     label="自定义后端 Logo URL"

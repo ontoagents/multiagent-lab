@@ -127,6 +127,10 @@ export interface InferenceBackendStatus {
   path?: string
   reason?: string
   default: boolean
+  /** REQ-450：安装引导（引导安装非代为安装——平台不下载不托管） */
+  install_cmd?: string
+  install_docs?: string
+  install_note?: string
   capabilities: {
     chat: boolean
     stream: boolean
