@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "桌面壳默认能力：核心默认权限 + 目录选择对话框（REQ-133 桌面端原生选目录）。remote 声明必要：壳窗口最终加载的是 backend 托管的 http://127.0.0.1:<port> 页面（外部 http 源），Tauri 2 默认仅对本地协议源（tauri://localhost / http://tauri.localhost）注入 IPC 与 window.__TAURI__；不声明 remote 则 backend 页面拿不到 __TAURI__.dialog，前端原生选目录补丁会静默回落失效。端口通配覆盖 REQ-332 顺延端口（8180 被占顺延 +100 档）。",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*",
+      "http://localhost:*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "dialog:default"
+  ]
+}

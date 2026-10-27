@@ -4,13 +4,17 @@
 //   - 窗口系统 WebView（Win=WebView2 / macOS=WKWebView）直载本实例 backend 实际地址
 //     （默认 http://127.0.0.1:8180，REQ-332；backend 托管 SPA，免 CORS）；
 //   - 三服务编排：ontologyd → runtimed → backend（env 与 run-dev.sh 同构；launcher.json 端口可配；
-//     数据根机制与 Go launcher 双向兼容：Windows=data.location→%LOCALAPPDATA%\eino-lab；
-//     macOS=data.location→MLAB_DATA_ROOT→~/Library/Application Support/eino-lab）；
+//     数据根机制与 Go launcher 双向兼容：Windows=data.location→%LOCALAPPDATA%\multiagent-lab
+//     〔曾用名 eino-lab 一次性整体改名迁移，见 migrate_legacy_dir〕；
+//     macOS=data.location→MLAB_DATA_ROOT→~/Library/Application Support/multiagent-lab）；
 //   - 托盘：打开主界面/服务状态/打开数据目录/退出；关窗收托盘；tooltip 实时服务状态；
 //   - 单实例（tauri-plugin-single-instance）；退出整树回收（R-X11）：
 //     Windows=Job Object（KILL_ON_JOB_CLOSE，随进程退出生效）；macOS=Setpgid 进程组 + SIGTERM→SIGKILL
 //     阶梯（退出钩子）+ sh 兽护子进程（壳被 kill -9 后 ≤2s 轮询感知整树回收——Job Object 等价）；
 //   - backend 就绪前窗口隐藏，就绪后展示（60s 兜底展示错误页）；
+//   - 桌面端原生目录选择（REQ-133 bugfix）：backend 以 CREATE_NO_WINDOW 无头进程运行，其
+//     powershell FolderBrowserDialog 弹窗不可靠；壳内 SPA 经 withGlobalTauri 全局
+//     __TAURI__.dialog 走壳进程原生对话框（tauri-plugin-dialog，capabilities/default.json 授权）；
 //   - **端口分工与兜底顺延（REQ-332，共享路径，双平台）**：默认端口段 8180/8191/8190 与
 //     run-dev.sh 开发栈（8080/8090/8091）开箱即确定性分工——两栈可并行互不干扰（数据根本就隔离）；
 //     默认段（或 launcher.json 显式值）仍被占时自动顺延（+100 起逐个探测）拉起本壳自己的完整
@@ -144,7 +148,7 @@ fn resolve_resource(app: &tauri::AppHandle, exe_dir: &std::path::Path, rel: &str
     None
 }
 
-// ---- 平台差异小面：二进制名 / 无窗口派生（Windows）/ 日志重定向（macOS） ----
+// ---- 平台差异小面：二进制名 / 无窗口派生（Windows）/ 日志重定向 ----
 
 fn svc_path(exe_dir: &std::path::Path, name: &str) -> PathBuf {
     #[cfg(windows)]
@@ -159,20 +163,25 @@ fn svc_path(exe_dir: &std::path::Path, name: &str) -> PathBuf {
     }
 }
 
+// 无窗口派生 + 日志重定向（双平台统一，bugfix）：
+//   - Windows 保留 CREATE_NO_WINDOW（服务进程不闪控制台窗）；
+//   - stdout/stderr 落数据根 logs/<svc>.log——原 Windows 分支 Stdio::null() 是黑洞，服务异常、
+//     选目录 powershell 失败等均排障无门（macOS 分支原本就有日志）；日志文件打不开时退回
+//     Stdio::null() 不影响服务启动。两支独立 open（不用 try_clone），零 panic 路径。
 fn set_hidden(cmd: &mut Command, log: &std::path::Path) {
+    let open_log = || {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+            .ok()
+    };
+    let out = open_log();
+    let err = open_log();
+    cmd.stdout(out.map_or(Stdio::null(), Stdio::from));
+    cmd.stderr(err.map_or(Stdio::null(), Stdio::from));
     #[cfg(windows)]
-    {
-        let _ = log;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::null());
-    }
-    #[cfg(not(windows))]
-    {
-        let f = std::fs::OpenOptions::new().create(true).append(true).open(log).ok();
-        cmd.stdout(f.as_ref().map_or(Stdio::null(), |f| Stdio::from(f.try_clone().expect("log fd"))));
-        cmd.stderr(f.map_or(Stdio::null(), Stdio::from));
-    }
+    cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
 // ---- 服务编排 ----
@@ -514,6 +523,10 @@ pub fn run() {
                 let _ = win.set_focus();
             }
         }))
+        // REQ-133 桌面端原生目录选择：壳内 SPA（backend 托管 web-dist）经 withGlobalTauri 全局
+        // __TAURI__.dialog 唤起本机目录对话框——backend 是无头服务进程，其 powershell 弹窗不可靠；
+        // 权限见 capabilities/default.json（dialog:default），前端接线见 web/src/api/native.ts
+        .plugin(tauri_plugin_dialog::init())
         // 关窗收托盘（CloseRequested 拦截；退出经托盘菜单触发，退出钩子整树回收）
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -661,17 +674,19 @@ pub fn run() {
                             ports_for_spawn.backend_url()
                         ));
                     } else {
-                        // 超时未就绪：过渡页原位换成诊断文案（不导航到死地址——杜绝「无法加载」错误页）
-                        let msg = format!(
-                            "<div style='font-family:sans-serif;display:flex;flex-direction:column;\
+                        // 超时未就绪：过渡页原位换成诊断文案（不导航到死地址——杜绝「无法加载」错误页）。
+                        // 文案 head + 实际端口 + tail 三段 String 拼接（不经 format! 占位符）
+                        let head: &str = "<div style='font-family:sans-serif;display:flex;flex-direction:column;\
                              align-items:center;justify-content:center;height:100vh;margin:0;\
                              background:#f7f8fa;color:#374151;text-align:center'>\
                              <h2 style='color:#b45309'>服务启动超时</h2>\
-                             <p style='line-height:1.8'>本地服务未在预期时间内就绪（backend :{}）。<br>\
+                             <p style='line-height:1.8'>本地服务未在预期时间内就绪（backend :";
+                        let tail: &str = "）。<br>\
                              请查看数据目录 logs\\ 下各服务日志定位原因；<br>\
-                             端口冲突可在安装目录用 launcher.json 换端口后重启本客户端。</p></div>",
-                            ports_for_spawn.backend
-                        );
+                             端口冲突可在安装目录用 launcher.json 换端口后重启本客户端。</p></div>";
+                        let mut msg = String::from(head);
+                        msg.push_str(&ports_for_spawn.backend.to_string());
+                        msg.push_str(tail);
                         let _ = win.eval(&format!(
                             "setTimeout(function(){{document.body.innerHTML={:?};}},50);",
                             msg
@@ -769,7 +784,9 @@ pub fn run() {
                     };
                     let _ = status_for_poll.set_text(&text);
                     if let Some(t) = app_for_poll.tray_by_id("main-tray") {
-                        let _ = t.set_tooltip(Some(&format!("{} · {}", APP_TITLE, text)));
+                        // tooltip = 应用名 · 状态（tray_tooltip 用 String 拼接组装，见文件末尾）
+                        let tip = tray_tooltip(&text);
+                        let _ = t.set_tooltip(Some(&tip));
                     }
                     if !busy && !healthy && !restarted && !SHUTTING_DOWN.load(Ordering::SeqCst) {
                         restarted = true;
@@ -852,6 +869,16 @@ fn job_handle() -> Option<isize> {
         let _ = AssignProcessToJobObject(job, me);
         Some(job.0 as isize)
     }
+}
+
+// 托盘 tooltip 组装：应用名 · 状态文本。用 String::push_str 逐段拼接（不经 format!，
+// 避免「占位符数量与参数数量不一致」这类笔误可能；分隔符与历史版本保持一致）。
+fn tray_tooltip(status_text: &str) -> String {
+    let mut tip = String::with_capacity(APP_TITLE.len() + status_text.len() + 4);
+    tip.push_str(APP_TITLE);
+    tip.push_str(" · ");
+    tip.push_str(status_text);
+    tip
 }
 
 fn exe_dir_of() -> PathBuf {

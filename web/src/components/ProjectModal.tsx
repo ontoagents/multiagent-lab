@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Alert, Button, Checkbox, Col, Divider, Form, Input, Modal, Row, Select, Space, Spin } from 'antd'
 import { api } from '../api/client'
 import type { Agent, DirValidation } from '../api/types'
+import type { PickDirResult } from '../api/native'
 import DirCheckResult from './DirCheckResult'
 import { useUI } from '../store/ui'
 
@@ -57,14 +58,17 @@ export default function ProjectModal({
     }
   }
 
-  // REQ-133：同机部署唤起系统目录选择对话框回填；远程部署后端 400，提示手输
+  // REQ-133：唤起系统目录选择对话框回填。桌面客户端走壳进程原生对话框（api/native.ts 补丁）；
+  // 浏览器同机部署走后端端点；远程部署后端 400，提示手输。用户取消（cancelled/空 dir）静默
+  // 返回——不清空已填路径、不弹提示（bugfix：此前取消也弹「已取消或不可用（远程部署…）」误导文案）。
   const [picking, setPicking] = useState(false)
   const pickDir = async () => {
     setPicking(true)
     try {
-      const { dir } = await api.pickProjectDir()
-      form.setFieldValue('local_dir', dir)
-      setDirCheck(await api.validateProjectDir(dir))
+      const res = (await api.pickProjectDir()) as PickDirResult
+      if (res.cancelled || !res.dir) return
+      form.setFieldValue('local_dir', res.dir)
+      setDirCheck(await api.validateProjectDir(res.dir))
     } catch (e: any) {
       showToast(e?.message ?? '目录选择不可用（远程部署请手填路径）', 'err')
     } finally {
@@ -149,7 +153,7 @@ export default function ProjectModal({
             <Button
               onClick={pickDir}
               loading={picking}
-              title="唤起部署主机系统目录选择对话框（仅与浏览器同机部署可用；远程部署请手填路径）"
+              title="唤起系统目录选择对话框：桌面客户端走本机原生对话框；浏览器需与部署主机同机（远程部署请手填路径）"
             >
               选目录
             </Button>

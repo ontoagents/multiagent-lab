@@ -6,8 +6,13 @@ import App from './App'
 import { AntdBridge } from './lib/antd'
 import { initTheme, readTheme, THEME_EVENT, type ThemeName } from './lib/theme'
 import ErrorBoundary from './components/ErrorBoundary'
+import { installNativePickDir } from './api/native'
 import './styles.css'
 import './pages.css'
+
+// REQ-133 桌面端原生目录选择：Tauri 壳内改写 api.pickProjectDir 走壳进程原生对话框
+// （浏览器/web 部署无 __TAURI__ 全局，补丁自识别、行为不变）。须在任意页面渲染前安装。
+installNativePickDir()
 
 // REQ-240 前端优化⑥：明暗主题——AntD 侧 algorithm 切换，自研 token 侧 html[data-theme] 覆盖
 function ThemedApp() {
