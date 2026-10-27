@@ -4,6 +4,7 @@ package knowledge
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
@@ -72,9 +73,112 @@ func TestLearningPathClosure(t *testing.T) {
 
 func contains(ss []string, sub string) bool {
 	for _, s := range ss {
-		if len(s) >= len(sub) && (func() bool { for i := 0; i+len(sub) <= len(s); i++ { if s[i:i+len(sub)] == sub { return true } }; return false })() {
+		if len(s) >= len(sub) && (func() bool {
+			for i := 0; i+len(sub) <= len(s); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		})() {
 			return true
 		}
 	}
 	return false
+}
+
+// TestParseCardTextInlineArray 内联数组形态（现网真实卡形态）——prereq/sources 单行数组可解析。
+func TestParseCardTextInlineArray(t *testing.T) {
+	text := "---\nkind: decision\ndomain: ontology\ntopic: 决策卡\nprereq: [\"a.md\", \"b.md\"]\nsources:\n  - REQ-372\ncheck:\n  - 问题？\n---\n正文"
+	m, err := ParseCardText(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Prereq) != 2 || m.Prereq[0] != "a.md" || m.Prereq[1] != "b.md" {
+		t.Fatalf("内联 prereq 应解析为 [a.md b.md]: %+v", m.Prereq)
+	}
+	if m.Kind != "decision" || m.Topic != "决策卡" {
+		t.Fatalf("标量字段不受内联数组解析影响: %+v", m)
+	}
+	// 空数组与标量 prereq 兜底
+	m2, _ := ParseCardText("---\nkind: concept\nprereq: []\n---\n正文")
+	if len(m2.Prereq) != 0 {
+		t.Fatalf("空内联数组应为零条目: %+v", m2.Prereq)
+	}
+}
+
+// TestIngestSkipsNonCardDocs 导读/主档（有 frontmatter 无 kind）不入图。
+func TestIngestSkipsNonCardDocs(t *testing.T) {
+	st, root := graphFixture(t)
+	extra := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		_ = os.WriteFile(p, []byte(content), 0o644)
+	}
+	extra("00_导读.md", "---\nmodule: 知识体系\nrole: home\ntopic: 导读\n---\n导读正文")
+	extra("01_本体线/00_本体线学习路径.md", "---\nmodule: 知识体系\ntopic: 学习路径\n---\n主档正文")
+	extra("README.md", "无 frontmatter 文档")
+	if _, err := IngestKnowledgeGraph(root, "platform-knowledge/09_知识体系", st); err != nil {
+		t.Fatal(err)
+	}
+	nodes, _, err := st.ListKnowledgeGraph()
+	if err != nil || len(nodes) != 3 {
+		t.Fatalf("非卡文档应跳过（节点仍 3）: %v %d", err, len(nodes))
+	}
+	for _, n := range nodes {
+		if n.Kind == "" {
+			t.Fatalf("空 kind 节点不应入图: %+v", n)
+		}
+	}
+}
+
+// TestIngestNoDoublePrefix root 含 platform-knowledge 段（生产形态）时 id 不得双前缀。
+func TestIngestNoDoublePrefix(t *testing.T) {
+	st, _ := graphFixture(t)
+	root := filepath.Join(t.TempDir(), "platform-knowledge", "09_知识体系")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 在带前缀 root 下重建 fixture（生产形态：root 路径含 platform-knowledge 段）
+	card := func(rel, fm string) {
+		p := filepath.Join(root, rel)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		_ = os.WriteFile(p, []byte(fm), 0o644)
+	}
+	card("01_本体线/cards/a.md", "---\nkind: concept\ntopic: 概念A\nprereq: []\n---\n正文")
+	card("01_本体线/cards/b.md", "---\nkind: decision\ntopic: 决策B\nprereq: [\"a.md\"]\n---\n正文")
+	if _, err := IngestKnowledgeGraph(root, "platform-knowledge", st); err != nil {
+		t.Fatal(err)
+	}
+	nodes, edges, err := st.ListKnowledgeGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 || len(edges) != 1 {
+		t.Fatalf("生产形态 root 应摄取 2 节点 1 边: %d %d", len(nodes), len(edges))
+	}
+	for _, n := range nodes {
+		if strings.Contains(n.ID, "platform-knowledge/platform-knowledge") {
+			t.Fatalf("节点 id 双前缀（修复回归）: %s", n.ID)
+		}
+		want := "platform-knowledge/09_知识体系/01_本体线/cards/" + filepath.Base(n.ID)
+		if filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(n.ID)))) != "09_知识体系" {
+			t.Fatalf("id 应为 platform-knowledge 前缀单层形态: %s（期望形如 %s）", n.ID, want)
+		}
+	}
+	// 边解析在单前缀 id 空间内成立
+	if edges[0].Src == edges[0].Dst || (filepath.Base(edges[0].Src) != "b.md" || filepath.Base(edges[0].Dst) != "a.md") {
+		t.Fatalf("prereq 边应为 b→a: %+v", edges[0])
+	}
+}
+
+// TestScanBroken 断链只读扫描（不写库）与摄取断链同口径。
+func TestScanBroken(t *testing.T) {
+	_, root := graphFixture(t)
+	broken, err := ScanBroken(root, "platform-knowledge/09_知识体系")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(broken) != 1 || !contains(broken, "缺失卡.md") {
+		t.Fatalf("ScanBroken 应检出缺失卡断链: %+v", broken)
+	}
 }

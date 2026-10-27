@@ -56,7 +56,20 @@ func parseFrontmatter(t *testing.T, path string) cardFrontmatter {
 			continue
 		}
 		curKey = strings.TrimSpace(kv[0])
-		fm.fields[curKey] = strings.Trim(strings.TrimSpace(kv[1]), `[]"`)
+		raw := strings.TrimSpace(kv[1])
+		fm.fields[curKey] = strings.Trim(raw, `[]"`)
+		// 单行内联数组（key: ["a", "b"]）→ lists（与 graph.go ParseCardText 同口径修复：
+		// 现网卡 prereq 实为内联数组形态，此前仅进 fields 致 ⑤ 断链检测对全部真实卡空转）
+		if strings.HasPrefix(raw, "[") {
+			if i := strings.LastIndex(raw, "]"); i > 0 {
+				for _, it := range strings.Split(raw[1:i], ",") {
+					it = strings.Trim(strings.TrimSpace(it), `"'`)
+					if it != "" {
+						fm.lists[curKey] = append(fm.lists[curKey], it)
+					}
+				}
+			}
+		}
 	}
 	return fm
 }

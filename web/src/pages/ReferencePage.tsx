@@ -1,17 +1,19 @@
 import { api } from '../api/client'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
-import { Alert, Button, Card, Input, Menu, Space, Splitter, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Menu, Select, Space, Spin, Splitter, Tag, Tooltip, Typography, message } from 'antd'
 import {
   ApartmentOutlined,
   FileTextOutlined,
   CompassOutlined,
   DatabaseOutlined,
+  DownOutlined,
   LinkOutlined,
   ProjectOutlined,
   RobotOutlined,
   SettingOutlined,
   ThunderboltOutlined,
+  UpOutlined,
 } from '@ant-design/icons'
 import XMarkdown from '@ant-design/x-markdown'
 import DocViewerModal from '../components/DocViewerModal'
@@ -309,6 +311,12 @@ export default function ReferencePage() {
     localStorage.setItem(REF_DOC_KEY, key)
     setActive(key)
   }
+  // REQ-372 P2 修复轮：图谱面板卡点击直达——节点 id（platform-knowledge/ 前缀、.md 后缀）
+  // → 主题 key（TOPICS file 已去 .md 后缀，同去后匹配）
+  const openCardByID = (id: string) => {
+    const key = id.replace(/^platform-knowledge\//, '').replace(/\.md$/, '')
+    if (TOPICS.some((t) => t.key === key)) activate(key)
+  }
   const topic = group.topics.find((t) => t.key === active) ?? group.topics.find((t) => t.isHome) ?? group.topics[0]
   const { meta, body } = useMemo(() => parseFrontmatter(topic.md), [topic])
   /** 正文相对引用点击（REQ-169）：拦截指向仓库内 .md 的相对路径 → 右侧 Drawer 阅读；http/锚点走默认 */
@@ -344,8 +352,6 @@ export default function ReferencePage() {
 
   return (
     <>
-    {/* REQ-372 P2：知识体系 L2 图谱层——前置图投影面板（仅知识体系组挂载；卡为事实源 KG 为投影） */}
-    {group.label === '知识体系' && <KnowledgeGraphPanel />}
     <div className="module-shell">
       {/* REQ-341：一级目录 → 内容区顶部水平页签（学习中心等分区收尾）；溢出横向滚动兜底 */}
       <div className="module-tabs ref-tabs" role="tablist" aria-label="平台知识分区导航" data-testid="ref-tabs" style={{ overflowX: 'auto' }}>
@@ -401,6 +407,9 @@ export default function ReferencePage() {
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
         <div className="ref-main">
+          {/* REQ-372 P2 修复轮：面板移入内容列（原顶层渲染成 .app-body 并列 flex 子项，
+              挤压页签与阅读区至 210px 宽——布局崩坏根因）；仅知识体系组挂载 */}
+          {group.label === '知识体系' && <KnowledgeGraphPanel onOpenCard={openCardByID} />}
           <div className="settings-head">
             <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
               <Space>{topic.icon}{topic.groupLabel}<Typography.Text type="secondary">/ {topic.title}</Typography.Text></Space>
@@ -434,71 +443,164 @@ export default function ReferencePage() {
 
 // ---------------------------------------------------------------------------
 // REQ-372 P2：知识体系 L2 图谱层面板——前置图投影（节点=卡三型、边=prereq）+学习路径
-// （prereq 闭包拓扑序，依赖先行）+断链警示（refresh 摄取时检测）。卡为事实源单源，
-// KG 为投影（每次刷新全量重建）——语义检索/GraphRAG 归 L3（P3 待验证拍板）。
+// （prereq 闭包拓扑序，依赖先行）+断链警示。卡为事实源单源，KG 为投影（每次刷新全量重建）
+// ——语义检索/GraphRAG 归 L3（P3 待验证拍板）。修复轮（2026-10-27）：面板移入内容列、
+// 加载/错误/空态三态（REQ-115）、断链随 GET 同源返回（消除 refresh→load 竞态清空）、
+// 卡选择器替代手输 id（原 placeholder 示例 id 与后端契约错位必失败）、路径结果与卡列表
+// 可点击直达（onOpenCard）、刷新 message 反馈、面板可收起（记忆 eino.kg.panel.collapsed）。
 // ---------------------------------------------------------------------------
-function KnowledgeGraphPanel() {
-  const [data, setData] = useState<{ nodes: { id: string; kind: string; domain: string; topic: string }[]; edges: { src: string; dst: string }[] } | null>(null)
-  const [broken, setBroken] = useState<string[]>([])
-  const [target, setTarget] = useState('')
-  const [path, setPath] = useState<string[] | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+type KGNode = { id: string; kind: string; domain: string; topic: string; desc?: string }
+type KGData = { nodes: KGNode[]; edges: { src: string; dst: string; kind: string }[]; broken?: string[]; ingestError?: string }
+
+const KG_KIND_META: Record<string, { label: string; color: string }> = {
+  concept: { label: '概念', color: 'blue' },
+  decision: { label: '决策', color: 'purple' },
+  practice: { label: '实践', color: 'green' },
+}
+
+function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void }) {
+  const [data, setData] = useState<KGData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [target, setTarget] = useState<string | undefined>()
+  const [path, setPath] = useState<{ target: string; ids: string[] } | null>(null)
+  const [pathErr, setPathErr] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eino.kg.panel.collapsed') === '1')
 
   const load = () => {
-    api.knowledgeGraph().then((r) => { setData(r); setBroken([]) }).catch(() => setData(null))
+    setLoading(true)
+    setLoadErr(null)
+    api.knowledgeGraph()
+      .then((r) => setData(r))
+      .catch((e) => { setLoadErr(e?.message ?? '网络异常'); setData(null) })
+      .finally(() => setLoading(false))
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [])
 
+  // 断链随 GET 同源返回（后端 ScanBroken 随读随检）——load 不再清空 broken，竞态消除
   const refresh = async () => {
+    setRefreshing(true)
     try {
       const r = await api.knowledgeGraphRefresh()
-      setBroken(r.broken ?? [])
-      load()
+      await load()
+      if ((r.broken?.length ?? 0) > 0) message.warning(`已重新摄取，发现 ${r.broken!.length} 条 prereq 断链（见警示）`)
+      else message.success(r.nodes > 0 ? `已重新摄取：${r.nodes} 节点 / ${r.edges} 边` : '已重新摄取')
     } catch (e: any) {
-      setErr(e?.message ?? '刷新失败')
+      message.error(e?.message ?? '重新摄取失败')
+    } finally {
+      setRefreshing(false)
     }
   }
 
-  const queryPath = async () => {
-    if (!target.trim()) return
-    setErr(null)
+  const queryPath = async (id?: string) => {
+    const t = (id ?? target ?? '').trim()
+    if (!t) return
+    setPathErr(null)
     try {
-      const r = await api.knowledgeGraphPath(target.trim())
-      setPath(r.path)
+      const r = await api.knowledgeGraphPath(t)
+      setPath({ target: t, ids: r.path })
     } catch (e: any) {
       setPath(null)
-      setErr(e?.message ?? '查询失败')
+      setPathErr(e?.message ?? '查询失败')
     }
   }
 
+  const toggleCollapsed = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem('eino.kg.panel.collapsed', next ? '1' : '0')
+  }
+
+  const nodes = data?.nodes ?? []
+  const edges = data?.edges ?? []
+  const broken = data?.broken ?? []
+  const kindCount = (k: string) => nodes.filter((n) => n.kind === k).length
+  const cardName = (id: string) => id.split('/').pop()?.replace(/\.md$/, '') ?? id
+  const selectOptions = nodes.map((n) => ({
+    value: n.id,
+    label: `${KG_KIND_META[n.kind]?.label ?? '卡'} · ${n.topic || cardName(n.id)}`,
+  }))
+
   return (
-    <Card size="small" style={{ margin: '8px 12px 0' }} data-testid="knowledge-graph-panel"
+    <Card size="small" style={{ flex: 'none', margin: '0 0 8px' }} data-testid="knowledge-graph-panel"
       title={<Space size={8}><span>知识图谱 · 前置图投影</span><Tag color="purple" style={{ margin: 0 }}>L2</Tag></Space>}
-      extra={<Button size="small" onClick={refresh}>重新摄取</Button>}>
-      {data && (
-        <Space size={16} wrap style={{ marginBottom: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>节点 {data.nodes.length}（概念/决策/实践卡）· 边 {data.edges.length}（prereq 前置）</Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>卡为事实源、图谱为投影（每次摄取全量重建）</Typography.Text>
-        </Space>
-      )}
-      {broken.length > 0 && (
-        <Alert type="warning" showIcon style={{ marginBottom: 8 }}
-          title={`prereq 断链 ${broken.length} 条（目标卡不存在——补卡或修链接）`}
-          description={broken.slice(0, 5).join('；')} />
-      )}
-      <Space.Compact style={{ width: '100%', maxWidth: 720 }}>
-        <Input size="small" placeholder="输入卡 id 查学习路径（如 platform-knowledge/09_知识体系/01_本体线/cards/06_决策_单引擎Oxigraph.md）"
-          value={target} onChange={(e) => setTarget(e.target.value)} onPressEnter={queryPath} />
-        <Button size="small" onClick={queryPath}>查前置路径</Button>
-      </Space.Compact>
-      {err && <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>{err}</Typography.Text>}
-      {path && (
-        <ol style={{ fontSize: 12, margin: '8px 0 0', paddingLeft: 20 }}>
-          {path.map((p, i) => (
-            <li key={i} style={{ fontSize: 12 }}>{p.split('/').pop()?.replace('.md', '')}</li>
-          ))}
-        </ol>
+      extra={<Space size={4}>
+        <Button size="small" onClick={refresh} loading={refreshing}>重新摄取</Button>
+        <Button size="small" type="text" icon={collapsed ? <DownOutlined /> : <UpOutlined />}
+          onClick={toggleCollapsed} aria-label={collapsed ? '展开图谱面板' : '收起图谱面板'} />
+      </Space>}>
+      {collapsed ? null : loading ? (
+        <div style={{ padding: '4px 0' }}><Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>图谱加载中…</Typography.Text></div>
+      ) : (
+        <>
+          {loadErr && (
+            <Alert type="error" showIcon style={{ marginBottom: 8 }}
+              title="图谱数据加载失败"
+              description={`${loadErr}——可能原因：后端服务不可达。可点击右上「重新摄取」重试。`} />
+          )}
+          {data && nodes.length === 0 && !loadErr && (
+            <Alert type={data.ingestError ? 'error' : 'info'} showIcon style={{ marginBottom: 8 }}
+              title={data.ingestError ? '知识图谱为空且自动摄取失败' : '知识图谱为空（尚无卡节点）'}
+              description={data.ingestError ?? '知识体系目录下暂无可摄取的卡。按卡规范落档后点击右上「重新摄取」。'} />
+          )}
+          {nodes.length > 0 && (
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+              节点 {nodes.length}（概念 {kindCount('concept')} · 决策 {kindCount('decision')} · 实践 {kindCount('practice')}）· 边 {edges.length}（prereq 前置）——卡为事实源、图谱为投影（每次摄取全量重建）
+            </Typography.Text>
+          )}
+          {broken.length > 0 && (
+            <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+              title={`prereq 断链 ${broken.length} 条（目标卡不存在——补卡或修链接）`}
+              description={broken.slice(0, 5).join('；')} />
+          )}
+          <Space.Compact style={{ width: '100%', maxWidth: 720 }}>
+            <Select
+              showSearch
+              allowClear
+              size="small"
+              style={{ minWidth: 320 }}
+              placeholder="选择卡查学习路径（可输入标题/文件名过滤）"
+              value={target}
+              onChange={(v) => { setTarget(v); if (v) queryPath(v) }}
+              onClear={() => { setTarget(undefined); setPath(null); setPathErr(null) }}
+              filterOption={(input, option) => `${(option?.label ?? '')} ${(option?.value ?? '')}`.toLowerCase().includes(input.toLowerCase())}
+              options={selectOptions}
+              notFoundContent={loading ? <Spin size="small" /> : '无卡节点'}
+            />
+            <Button size="small" onClick={() => queryPath()}>查前置路径</Button>
+          </Space.Compact>
+          {pathErr && <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>{pathErr}</Typography.Text>}
+          {path && path.ids.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>前置路径（{path.ids.length} 步，依赖先行）——点击任一步打开卡片：</Typography.Text>
+              <ol style={{ margin: '4px 0 0', paddingLeft: 20 }}>
+                {path.ids.map((id) => (
+                  <li key={id} style={{ fontSize: 12, lineHeight: '20px' }}>
+                    <a onClick={() => onOpenCard(id)} style={{ fontSize: 12 }}>{cardName(id)}</a>
+                    {id === path.target && <Tag color="purple" style={{ marginLeft: 6, fontSize: 11, lineHeight: '16px' }}>目标</Tag>}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {(['concept', 'decision', 'practice'] as const).map((k) => {
+            const kn = nodes.filter((n) => n.kind === k)
+            if (kn.length === 0) return null
+            const meta = KG_KIND_META[k]
+            return (
+              <div key={k} style={{ marginTop: 6 }}>
+                <Tag color={meta.color} style={{ fontSize: 11 }}>{meta.label}卡 {kn.length}</Tag>
+                {kn.map((n) => (
+                  <Tooltip key={n.id} title={n.desc || n.id}>
+                    <a onClick={() => onOpenCard(n.id)} style={{ fontSize: 12, marginRight: 10 }}>{n.topic || cardName(n.id)}</a>
+                  </Tooltip>
+                ))}
+              </div>
+            )
+          })}
+        </>
       )}
     </Card>
   )

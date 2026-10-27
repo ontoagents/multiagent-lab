@@ -25,11 +25,13 @@ type CardMeta struct {
 	Domain  string   `json:"domain"`
 	Topic   string   `json:"topic"`
 	Desc    string   `json:"desc"`
-	Prereq  []string `json:"prereq"`  // 原文（相对卡目录路径或 ../ 形态）
+	Prereq  []string `json:"prereq"` // 原文（相对卡目录路径或 ../ 形态）
 	Sources []string `json:"sources"`
 }
 
 // ParseCardText 卡文本 → frontmatter 投影（生产形态；校验器测试版同规则）。
+// prereq/sources 同时支持行式列表（"- item"）与单行内联数组（key: ["a", "b"]）——
+// 现网卡片实际使用内联数组形态（2026-10-27 修复轮：此前仅行式被解析，真实卡 0 边）。
 func ParseCardText(text string) (*CardMeta, error) {
 	if !strings.HasPrefix(text, "---\n") {
 		return nil, fmt.Errorf("缺 frontmatter（须以 --- 开头）")
@@ -62,19 +64,44 @@ func ParseCardText(text string) (*CardMeta, error) {
 			continue
 		}
 		curKey = strings.TrimSpace(kv[0])
-		v := strings.Trim(strings.TrimSpace(kv[1]), `[]"`)
+		raw := strings.TrimSpace(kv[1])
 		switch curKey {
 		case "kind":
-			m.Kind = v
+			m.Kind = strings.Trim(raw, `[]"`)
 		case "domain":
-			m.Domain = v
+			m.Domain = strings.Trim(raw, `[]"`)
 		case "topic":
-			m.Topic = v
+			m.Topic = strings.Trim(raw, `[]"`)
 		case "desc":
-			m.Desc = v
+			m.Desc = strings.Trim(raw, `[]"`)
+		case "prereq":
+			if strings.HasPrefix(raw, "[") {
+				m.Prereq = append(m.Prereq, inlineListItems(raw)...)
+			}
+		case "sources":
+			if strings.HasPrefix(raw, "[") {
+				m.Sources = append(m.Sources, inlineListItems(raw)...)
+			}
 		}
 	}
 	return m, nil
+}
+
+// inlineListItems 单行内联数组（["a.md", "b.md"]）→ 条目（引号与空白剥离）。
+func inlineListItems(v string) []string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "[")
+	if i := strings.LastIndex(v, "]"); i >= 0 {
+		v = v[:i]
+	}
+	var out []string
+	for _, it := range strings.Split(v, ",") {
+		it = strings.Trim(strings.TrimSpace(it), `"'`)
+		if it != "" {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // IngestResult 摄取结果。
@@ -100,20 +127,18 @@ func IngestKnowledgeGraph(root, repoRel string, st *store.Store) (*IngestResult,
 		}
 		meta, perr := ParseCardText(string(b))
 		if perr != nil {
-			return nil // 非 frontmatter 文档（导读/主档）跳过——主档的 prereq 语义由校验器承载
+			return nil // 非 frontmatter 文档（README 等）跳过
 		}
-		rel, rerr := filepath.Rel(repoRootOf(root), path)
-		if rerr != nil {
-			rel = path
+		if meta.Kind == "" {
+			return nil // 导读/主档等非卡文档不入图（图只承载知识卡；导读/主档有 frontmatter 但无 kind）
 		}
-		id := filepath.ToSlash(filepath.Join(repoRel, rel))
-		meta.ID = id
+		meta.ID = cardRelID(root, repoRel, path)
 		if meta.Topic == "" {
 			meta.Topic = strings.TrimSuffix(filepath.Base(path), ".md")
 		}
-		nodes = append(nodes, store.KnowledgeNode{ID: id, Kind: meta.Kind, Domain: meta.Domain, Topic: meta.Topic, Desc: meta.Desc, Sources: meta.Sources})
+		nodes = append(nodes, store.KnowledgeNode{ID: meta.ID, Kind: meta.Kind, Domain: meta.Domain, Topic: meta.Topic, Desc: meta.Desc, Sources: meta.Sources})
 		for _, pr := range meta.Prereq {
-			edgeSrc = append(edgeSrc, struct{ src, raw string }{id, pr})
+			edgeSrc = append(edgeSrc, struct{ src, raw string }{meta.ID, pr})
 		}
 		return nil
 	})
@@ -140,6 +165,22 @@ func IngestKnowledgeGraph(root, repoRel string, st *store.Store) (*IngestResult,
 	}
 	res.Nodes, res.Edges = len(nodes), len(edges)
 	return res, nil
+}
+
+// cardRelID 卡节点 id（仓库相对路径）。rel 已含 repoRel 前缀时不再重复拼接——
+// 修复 2026-10-27 双前缀缺陷（root 含 platform-knowledge 段时 Rel 结果已带前缀，
+// 原 Join 再拼一次产生 platform-knowledge/platform-knowledge/...，前端按单前缀查询必失败）。
+func cardRelID(root, repoRel, path string) string {
+	rel, err := filepath.Rel(repoRootOf(root), path)
+	if err != nil {
+		rel = path
+	}
+	relS := filepath.ToSlash(rel)
+	prefix := filepath.ToSlash(repoRel)
+	if prefix != "" && strings.HasPrefix(relS, prefix+"/") {
+		return relS
+	}
+	return filepath.ToSlash(filepath.Join(prefix, relS))
 }
 
 // repoRootOf root 的仓库根上溯（root 形如 <repo>/platform-knowledge/09_知识体系——
@@ -219,4 +260,50 @@ func LearningPath(nodes []store.KnowledgeNode, edges []store.KnowledgeEdge, targ
 		return nil, err
 	}
 	return order, nil
+}
+
+// ScanBroken 断链只读扫描（dry-run 不写库）——prereq 指向的卡不存在即断链。
+// 与摄取同一 id/解析口径（cardRelID+resolveCardPath）；GET /graph 随读随检，
+// 断链警示不再依赖先 refresh（修复 2026-10-27：原断链仅 ingest 响应携带且前端竞态清空）。
+func ScanBroken(root, repoRel string) ([]string, error) {
+	type cardRef struct {
+		id     string
+		prereq []string
+	}
+	var cards []cardRef
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		meta, perr := ParseCardText(string(b))
+		if perr != nil || meta.Kind == "" {
+			return nil
+		}
+		cards = append(cards, cardRef{id: cardRelID(root, repoRel, path), prereq: meta.Prereq})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]bool{}
+	for _, c := range cards {
+		byID[c.id] = true
+	}
+	var broken []string
+	for _, c := range cards {
+		for _, pr := range c.prereq {
+			if resolveCardPath(c.id, pr, byID) == "" {
+				broken = append(broken, c.id+" → "+pr)
+			}
+		}
+	}
+	sort.Strings(broken)
+	if broken == nil {
+		broken = []string{} // nil 序列化为 null，前端契约统一空数组
+	}
+	return broken, nil
 }

@@ -607,8 +607,8 @@ export const api = {
 
   // ---- M8 运行平面 :8090 /api/runtime-profiles* ----
   listRuntimeProfiles: () => req<RuntimeProfile[]>('/api/runtime-profiles'),
-  /** REQ-372 P2：知识图谱投影（节点=卡三型、边=prereq） */
-  knowledgeGraph: () => req<{ nodes: { id: string; kind: string; domain: string; topic: string; desc?: string; sources?: string[] }[]; edges: { src: string; dst: string; kind: string }[] }>('/api/knowledge/graph'),
+  /** REQ-372 P2：知识图谱投影（节点=卡三型、边=prereq）；修复轮增 broken（随读随检）与 ingestError（空图摄取失败透出） */
+  knowledgeGraph: () => req<{ nodes: { id: string; kind: string; domain: string; topic: string; desc?: string; sources?: string[] }[]; edges: { src: string; dst: string; kind: string }[]; broken?: string[]; ingestError?: string }>('/api/knowledge/graph'),
   /** REQ-372 P2：学习路径（prereq 闭包拓扑序） */
   knowledgeGraphPath: (target: string) => req<{ target: string; path: string[]; count: number }>(`/api/knowledge/graph/path?target=${encodeURIComponent(target)}`),
   /** REQ-372 P2：重新摄取（全量重建投影+断链检测） */
