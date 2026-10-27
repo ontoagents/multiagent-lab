@@ -2055,7 +2055,10 @@ export default function ChatWindow({
                     setSlashOpen(false)
                   }}
                 >
-                  <span className="chip-picker-name">📚 {k.name}</span>
+                  <span className="chip-picker-name">
+                    📚 {k.name}
+                    {k.official ? <span className="kb-official-badge">官方·平台知识</span> : null}
+                  </span>
                   {typeof k.doc_count === 'number' ? <span className="chip-picker-meta">{k.doc_count} 文档</span> : null}
                 </button>
               ))}

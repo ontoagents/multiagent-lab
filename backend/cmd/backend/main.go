@@ -130,6 +130,10 @@ func main() {
 	svc := chat.NewService(st, asm, kbSrc)
 	// REQ-192/M32：平台助手配置单源归一引导——builtin 行 instruction 空时写入当前默认基座
 	//（一次性移植 assistant_config 存量微调），此后 agent 内置行即配置单源、assistant_config 退役。
+	// REQ-451：基座升级同步前置——行内 instruction 精确等于历史基座时覆写为当前基座（真实微调不动）。
+	if err := st.SyncBuiltinAssistantPrompt(api.AssistantDefaultPrompt, api.AssistantPromptHistory); err != nil {
+		log.Printf("[backend] sync builtin assistant prompt: %v", err)
+	}
 	if err := st.EnsureBuiltinAssistantInstruction(api.AssistantDefaultPrompt); err != nil {
 		log.Printf("[backend] ensure builtin assistant instruction: %v", err)
 	}
@@ -138,15 +142,19 @@ func main() {
 		log.Printf("[backend] ensure assistant tools: %v", err)
 	}
 	svc.Inference = infReg // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI；REQ-426 起与 Assembler 共用）
-	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), getenv("KNOWLEDGE_ROOT", "../platform-knowledge"))
-	// REQ-186 阶段二：平台助手 L0 只读工具面（doc_read/列表×3/查配置；写类工具不开放）
-	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge"), DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {
+	knowledgeRoot := getenv("KNOWLEDGE_ROOT", "../platform-knowledge")
+	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), knowledgeRoot)
+	// REQ-186 阶段二：平台助手 L0 只读工具面（doc_read/doc_list/doc_grep/列表×3/查配置；写类工具不开放）
+	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), KnowledgeRoot: knowledgeRoot, DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {
 		log.Printf("[backend] assistant tools register: %v", err)
 	}
 	// REQ-186 阶段一/三（M-O14 流水线）：平台知识 KB 化工具（sync/search_platform_kb）与 L1 提案工具（propose_assistant_config 两段式）
-	if err := chat.RegisterAssistantL1Tools(reg, chat.AssistantDeps{Store: st, KnowledgeRoot: getenv("KNOWLEDGE_ROOT", "../platform-knowledge")}, kbAdmin); err != nil {
+	if err := chat.RegisterAssistantL1Tools(reg, chat.AssistantDeps{Store: st, KnowledgeRoot: knowledgeRoot}, kbAdmin); err != nil {
 		log.Printf("[backend] assistant L1 tools register: %v", err)
 	}
+	// REQ-451：平台知识库启动自动同步（后台 goroutine）——原「对话内懒触发 sync_platform_kb」
+	// 存在重启/新会话陈旧窗口；mtime 幂等对账，失败仅记日志（懒触发路径仍兜底）。
+	go chat.SyncPlatformKBStartup(context.Background(), st, kbAdmin, knowledgeRoot)
 	// M10 §6.3 + REQ-191/M31：沙箱执行后端动态装配——运行方式（进程内嵌/docker/k8s/auto）与
 	// K8s 访问认证集中为「运行环境」配置（DB runtime_settings 覆盖启动期 env，env 为初始值
 	// 兜底）；设置页修改后新 Run 生效（resolver 按配置重建后端，auto 探测缓存随之重置），

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontobuild"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
@@ -30,6 +31,10 @@ func (s *Server) listKB(w http.ResponseWriter, r *http.Request) {
 	}
 	if kbs == nil {
 		kbs = []*store.KnowledgeBase{}
+	}
+	// REQ-451：平台官方库标注（chat.PlatformKBName 单源判定——前端「官方·平台知识」徽标）。
+	for _, k := range kbs {
+		k.Official = k.Name == chat.PlatformKBName
 	}
 	writeJSON(w, http.StatusOK, kbs)
 }

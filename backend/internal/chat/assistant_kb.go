@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,18 +32,20 @@ import (
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
 )
 
-const platformKBName = "platform-knowledge 平台知识库"
+// PlatformKBName 平台知识专用 rag 库的固定名称（幂等键：按名称取/建；前端「官方库」徽标
+// 亦按此判定——api 层 official 字段单源。REQ-451 导出，原小写内部常量）。
+const PlatformKBName = "platform-knowledge 平台知识库"
 
 // EnsurePlatformKB 按名称取/建专用 rag 库（幂等）。
 func EnsurePlatformKB(ctx context.Context, st *store.Store) (*store.KnowledgeBase, error) {
 	if kbs, err := st.ListKnowledgeBases(); err == nil {
 		for _, k := range kbs {
-			if k.Name == platformKBName {
+			if k.Name == PlatformKBName {
 				return k, nil
 			}
 		}
 	}
-	k := &store.KnowledgeBase{Name: platformKBName, Description: "平台知识目录（platform-knowledge/）向量化镜像——search_platform_kb 检索源；由 sync_platform_kb 增量对账维护", Mode: "rag"}
+	k := &store.KnowledgeBase{Name: PlatformKBName, Description: "平台知识目录（platform-knowledge/）向量化镜像——search_platform_kb 检索源；由 sync_platform_kb 增量对账维护", Mode: "rag"}
 	if _, err := st.CreateKnowledgeBase(k); err != nil {
 		return nil, err
 	}
@@ -150,6 +153,19 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// SyncPlatformKBStartup REQ-451 启动自动同步（main.go 后台 goroutine 调用）：平台知识库
+// 同步原为对话内懒触发（sync_platform_kb），服务重启/新会话存在陈旧窗口——启动即对账消除之。
+// 失败只记日志不阻断启动（懒触发路径仍是兜底）；mtime 幂等对账，重复调用零副作用。
+func SyncPlatformKBStartup(ctx context.Context, st *store.Store, kbSvc KBAdminSource, knowledgeRoot string) {
+	res, err := SyncPlatformKB(ctx, st, kbSvc, knowledgeRoot)
+	if err != nil {
+		log.Printf("[platform-kb] 启动同步失败（对话内 sync_platform_kb 仍可手动触发）: %v", err)
+		return
+	}
+	log.Printf("[platform-kb] 启动同步完成：新增 %d / 更新 %d / 删除 %d / 未变 %d / 失败 %d（共 %d 个 md）",
+		res.Imported, res.Updated, res.Deleted, res.Skipped, res.Failed, res.Total)
+}
+
 // assistantSyncPlatformKB L0：平台知识库增量对账（repo 派生、幂等——非用户数据写入）。
 func assistantSyncPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entry {
 	return &tool.Entry{
@@ -157,6 +173,7 @@ func assistantSyncPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entr
 		Name:        "sync_platform_kb",
 		Description: "对 platform-knowledge/ 平台知识库做增量对账（扫描 md 文件与向量库差异并同步，幂等只镜像仓库内容）——回答平台知识类问题前建议先同步一次",
 		Source:      tool.SourceBuiltin,
+		Group:       ToolGroupPlatformKnowledge,
 		New: func(ctx context.Context) (einotool.BaseTool, error) {
 			fn := func(ctx context.Context, _ struct{}) (string, error) {
 				res, err := SyncPlatformKB(ctx, deps.Store, kbSvc, deps.KnowledgeRoot)
@@ -211,6 +228,7 @@ func assistantSearchPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.En
 		Name:        "search_platform_kb",
 		Description: "检索 platform-knowledge/ 平台知识库（向量 topK=5）——平台使用/功能/设计问题的首选知识源",
 		Source:      tool.SourceBuiltin,
+		Group:       ToolGroupPlatformKnowledge,
 		New:         newFn,
 	}
 }

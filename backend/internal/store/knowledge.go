@@ -32,6 +32,9 @@ type KnowledgeBase struct {
 	KGMaxChunks  int    `json:"kg_max_chunks,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// Official 平台官方库标注（REQ-451：api 层按 chat.PlatformKBName 判定注入，非持久化列——
+	// 前端「官方·平台知识」徽标单源；EnsurePlatformKB 按名称幂等，名称即稳定标识）。
+	Official bool `json:"official,omitempty"`
 }
 
 // KnowledgeDoc 知识文档（索引状态机：pending→indexing→success|failed）。

@@ -103,10 +103,11 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a)
 }
 
-// builtinToolsUnion REQ-213② 内置工具面基座并集：用户勾选 ∪ 内置必装八工具（L0 五只读
-// + L1 平台知识/提案三件）——L0/L1 为「授权更多」的基座不可摘除；幂等保序（内置在前）。
+// builtinToolsUnion REQ-213② 内置工具面基座并集：用户勾选 ∪ 内置必装十工具（L0 七只读
+// + L1 平台知识/提案三件；REQ-451 doc_list/doc_grep 入基座）——L0/L1 为「授权更多」的
+// 基座不可摘除；幂等保序（内置在前）。
 func builtinToolsUnion(submitted []string) []string {
-	required := []string{"doc_read", "list_model_connections", "list_agents", "list_kbs",
+	required := []string{"doc_read", "doc_list", "doc_grep", "list_model_connections", "list_agents", "list_kbs",
 		"get_assistant_config", "sync_platform_kb", "search_platform_kb", "propose_assistant_config"}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(submitted)+len(required))

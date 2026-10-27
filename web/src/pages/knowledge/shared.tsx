@@ -90,6 +90,11 @@ export function KbDetailHead({
             <Tag color={MODE_TAG[modeOf(kb)].color} style={{ marginInlineStart: 8, verticalAlign: 'middle' }}>
               {MODE_TAG[modeOf(kb)].text}
             </Tag>
+            {kb.official && (
+              <Tag color="blue" style={{ marginInlineStart: 4, verticalAlign: 'middle' }}>
+                官方·平台知识
+              </Tag>
+            )}
             {kb.kb_vector && kb.kb_graph && (
               <Tag color="geekblue" style={{ marginInlineStart: 4, verticalAlign: 'middle' }}>
                 双路
@@ -158,6 +163,7 @@ export function KbListColumn({
             <div className="side-item-top">
               <span className="side-item-name" title={k.name}>
                 {k.name}
+                {k.official ? <span className="kb-official-badge">官方</span> : null}
               </span>
             </div>
             <div className="side-item-meta">

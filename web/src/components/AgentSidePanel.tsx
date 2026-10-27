@@ -119,8 +119,9 @@ const kindMeta = (k: string) => CONNECTOR_KINDS.find((x) => x.value === k) ?? CO
  */
 const PANEL_VIEW_KEY = 'eino.agentpanel.view'
 
-// REQ-213：内置助手基座工具（L0 五只读 + L1 平台知识/提案三件）——内置行不可摘除（禁用勾选态）。
-const ASSISTANT_BASE_TOOLS = ['doc_read', 'list_model_connections', 'list_agents', 'list_kbs',
+// REQ-213：内置助手基座工具（L0 七只读 + L1 平台知识/提案三件）——内置行不可摘除（禁用勾选态）。
+// REQ-451：doc_list/doc_grep 入基座（平台知识阅读补全——目录发现/词法定位）。
+const ASSISTANT_BASE_TOOLS = ['doc_read', 'doc_list', 'doc_grep', 'list_model_connections', 'list_agents', 'list_kbs',
   'get_assistant_config', 'sync_platform_kb', 'search_platform_kb', 'propose_assistant_config']
 
 export default function AgentSidePanel({
@@ -1497,7 +1498,8 @@ function AgentConfigForm({
                         label: t.name,
                         title: t.description,
                         source: t.source,
-                        // REQ-213：内置行基座八工具禁选（不可摘除）；普通行提案工具禁选（内置专属）
+                        group: t.group,
+                        // REQ-213：内置行基座十工具禁选（不可摘除）；普通行提案工具禁选（内置专属）
                         disabled: isBuiltin ? ASSISTANT_BASE_TOOLS.includes(t.id) : t.id === 'propose_assistant_config',
                       }))}
                       notFoundContent={toolsErr ? '工具注册表暂不可用' : '暂无工具'}
@@ -1506,6 +1508,7 @@ function AgentConfigForm({
                         <div className="tool-option">
                           <div className="tool-option-name">
                             <span>{opt.data?.label}</span>
+                            {opt.data?.group ? <span className="tool-option-group">{opt.data.group}</span> : null}
                             {opt.data?.source ? <span className="tool-option-src">{opt.data.source}</span> : null}
                           </div>
                           {opt.data?.title ? <div className="tool-option-desc">{opt.data.title}</div> : null}

@@ -28,7 +28,9 @@ type Entry struct {
 	Name        string     // 模型可见 function name（默认同 ID）
 	Description string     // 管理列表展示 + 模型可见
 	Source      SourceKind // 默认来源标注（skill/mcp 动态来源在装配期覆盖）
-	New         func(ctx context.Context) (einotool.BaseTool, error)
+	// Group 能力分组标签（REQ-451：管理 UI 按能力域标注——如「平台知识」；空 = 不分组）
+	Group string
+	New   func(ctx context.Context) (einotool.BaseTool, error)
 }
 
 // Registry 内存注册表。内置工具启动时注册；动态来源按会话装配临时并入。

@@ -342,6 +342,8 @@ export interface KnowledgeBase {
   id: string
   name: string
   description?: string
+  /** REQ-451：平台官方库标注（platform-knowledge 平台知识库，后端按名称单源判定） */
+  official?: boolean
   /** M14 D-KB4 双子模块 + REQ-246 第三类型：rag | graphrag | wiki（KB-11 起为展示页签默认；老数据缺省 = rag） */
   mode?: 'rag' | 'graphrag' | 'wiki'
   /** KB-11（M35/D2）：检索能力开关（解除 mode 互斥；两者皆空由后端按 mode 派生） */
@@ -545,6 +547,8 @@ export interface ToolInfo {
   name: string
   description: string
   source?: string
+  /** REQ-451：能力分组标签（如「平台知识」，工具选择下拉徽标） */
+  group?: string
 }
 
 // ---- M8 本体对接（构建平面 :8091 / 运行平面 :8090，同源反代；契约以本体平面源码为准） ----

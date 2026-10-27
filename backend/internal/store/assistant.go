@@ -83,10 +83,29 @@ func (s *Store) EnsureBuiltinAssistantInstruction(defaultPrompt string) error {
 	return err
 }
 
-// assistantRequiredTools REQ-213 内置工具面基座：L0 五只读 + L1 平台知识/提案三件
+// assistantRequiredTools REQ-213 内置工具面基座：L0 七只读 + L1 平台知识/提案三件
 // ——「授权更多」的不可摘除部分（迁移 023 只 seed 了 L0，L1 三件 REQ-186 阶段一/三补注册时漏并入行）。
-var assistantRequiredTools = []string{"doc_read", "list_model_connections", "list_agents", "list_kbs",
+// REQ-451：doc_list/doc_grep 入基座（平台知识阅读补全——目录发现/词法定位）。
+var assistantRequiredTools = []string{"doc_read", "doc_list", "doc_grep", "list_model_connections", "list_agents", "list_kbs",
 	"get_assistant_config", "sync_platform_kb", "search_platform_kb", "propose_assistant_config"}
+
+// SyncBuiltinAssistantPrompt REQ-451 基座升级同步：内置行 instruction 精确等于某历史基座
+// （api.AssistantPromptHistory）时覆写为当前基座——治基座演进后存量库「prompt_tuned 误报 +
+// 旧工具指引滞留」；用户真实微调（不等于任何历史基座）永不动。幂等（不命中零写入）。
+func (s *Store) SyncBuiltinAssistantPrompt(defaultPrompt string, history []string) error {
+	a, err := s.GetAgent("builtin-assistant")
+	if err != nil || a == nil {
+		return err
+	}
+	for _, h := range history {
+		if h != "" && a.Instruction == h {
+			a.Instruction = defaultPrompt
+			_, err = s.UpdateAgent(a)
+			return err
+		}
+	}
+	return nil
+}
 
 // EnsureAssistantTools REQ-213 启动引导（幂等）：内置行 tools 并入基座八工具——迁移 030 修正
 // 存量 seed 形态；对 tools 被后续操作改动的库（缺基座成员）这里并集自愈；已齐则零写入。

@@ -273,13 +273,14 @@ export default function AgentModal({
             showSearch
             optionFilterProp="label"
             placeholder={toolsErr ? '工具注册表暂不可用' : '选择可用工具'}
-            options={tools.map((t) => ({ value: t.id, label: t.name, title: t.description, source: t.source }))}
+            options={tools.map((t) => ({ value: t.id, label: t.name, title: t.description, source: t.source, group: t.group }))}
             notFoundContent={toolsErr ? '工具注册表暂不可用' : '暂无工具'}
             classNames={{ popup: { root: 'tool-select-popup' } }}
             optionRender={(opt) => (
               <div className="tool-option">
                 <div className="tool-option-name">
                   <span>{opt.data?.label}</span>
+                  {opt.data?.group ? <span className="tool-option-group">{opt.data.group}</span> : null}
                   {opt.data?.source ? <span className="tool-option-src">{opt.data.source}</span> : null}
                 </div>
                 {opt.data?.title ? <div className="tool-option-desc">{opt.data.title}</div> : null}

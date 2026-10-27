@@ -31,11 +31,11 @@ func newUnifyToolsFixture(t *testing.T) *Server {
 
 func TestBuiltinToolsUnion(t *testing.T) {
 	got := builtinToolsUnion([]string{"current_time", "doc_read", "save_file"})
-	// 必装八工具在前（保序），用户追加去重
-	if len(got) != 10 {
-		t.Fatalf("并集应 8 必装 + 2 新增 = 10，得到 %d：%v", len(got), got)
+	// 必装十工具在前（保序；REQ-451 doc_list/doc_grep 入基座），用户追加去重
+	if len(got) != 12 {
+		t.Fatalf("并集应 10 必装 + 2 新增 = 12，得到 %d：%v", len(got), got)
 	}
-	if got[0] != "doc_read" || got[5] != "sync_platform_kb" {
+	if got[0] != "doc_read" || got[7] != "sync_platform_kb" {
 		t.Fatalf("必装应在前且保序：%v", got)
 	}
 	for _, want := range []string{"current_time", "save_file"} {
@@ -50,8 +50,8 @@ func TestBuiltinToolsUnion(t *testing.T) {
 		}
 	}
 	// 空提交=纯基座
-	if got := builtinToolsUnion(nil); len(got) != 8 {
-		t.Fatalf("空提交应得基座 8 工具：%v", got)
+	if got := builtinToolsUnion(nil); len(got) != 10 {
+		t.Fatalf("空提交应得基座 10 工具：%v", got)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestUpdateAgentBuiltinWhitelistExtended(t *testing.T) {
 
 func TestEnsureAssistantTools(t *testing.T) {
 	s := newUnifyToolsFixture(t)
-	// 模拟迁移 030 前的存量形态（仅 L0 五工具）
+	// 模拟迁移 030 前的存量形态（仅 L0 五工具；REQ-451 起基座 10，Ensure 并入 L1+新基座成员）
 	a, _ := s.Store.GetAgent("builtin-assistant")
 	a.Tools = []string{"doc_read", "list_model_connections", "list_agents", "list_kbs", "get_assistant_config"}
 	if _, err := s.Store.UpdateAgent(a); err != nil {
@@ -108,15 +108,15 @@ func TestEnsureAssistantTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ = s.Store.GetAgent("builtin-assistant")
-	if len(a.Tools) != 8 {
-		t.Fatalf("缺 L1 应并入为 8 工具：%v", a.Tools)
+	if len(a.Tools) != 10 {
+		t.Fatalf("缺 L1/新基座应并入为 10 工具：%v", a.Tools)
 	}
 	// 幂等：齐全时零写入
 	if err := s.Store.EnsureAssistantTools(); err != nil {
 		t.Fatal(err)
 	}
 	a2, _ := s.Store.GetAgent("builtin-assistant")
-	if len(a2.Tools) != 8 {
+	if len(a2.Tools) != 10 {
 		t.Fatalf("幂等调用不应重复追加：%v", a2.Tools)
 	}
 }
