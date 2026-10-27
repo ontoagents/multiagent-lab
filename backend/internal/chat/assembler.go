@@ -361,7 +361,7 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 		if coordNode != nil {
 			wfMembers = append([]*store.Agent{coordNode}, rest...)
 		}
-		return a.assembleWorkflow(ctx, p.WorkflowMode, wfMembers, warns, sc)
+		return a.assembleWorkflow(ctx, p.WorkflowMode, coord, wfMembers, warns, sc)
 	}
 
 	mode := p.CollabMode
@@ -431,12 +431,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	// 卡片合成，执行走 message/send+tasks/get 轮询，失败沿 REQ-319 语义降级回喂
 	a2aTools, a2aEntries, a2aWarns := a.assembleA2AMembers(ctx, coord, src, sc)
 	// REQ-427/M223：外部成员治理拉齐——审批档解析（对话级覆盖 > Agent 级，与 stepApprovalWrap 同序）
-	memberApproval := coord.ToolApproval
-	if sc.ToolApprovalOverride == "on" {
-		memberApproval = "all"
-	} else if sc.ToolApprovalOverride == "off" {
-		memberApproval = ""
-	}
+	memberApproval := externalMemberApproval(coord, sc)
 	cliTools, cliEntries, cliWarns := a.assembleCLIMembers(ctx, coord, src, memberApproval, sc)
 	tools = append(tools, a2aTools...)
 	entries = append(entries, a2aEntries...)
@@ -483,17 +478,27 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	}, nil
 }
 
-// assembleA2AMembers 外部 A2A 成员装配（REQ-416/M212）：协调者 kind=a2a 连接器逐个转为
-// 协作面委派工具（工具名=连接器实例名，冲突加 -a2a 后缀并告警；工具描述自注册握手卡片
-// 合成；凭据头沿 credentials.headers 先例；轮询间隔 config.poll_interval_seconds 缺省 2s）。
-// 装配期不拨号（注册/测试期已真握手）——卡片缺失按通用描述降级并告警。
-func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, src map[string]string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
-	var tools []einotool.BaseTool
-	var entries []map[string]any
+// a2aMemberSpec 外部 A2A 成员装配规格（REQ-446/M242：agent_as_tool 委派工具轨与 workflow 节点/
+// transfer 转移目标轨共用同一装配判定与执行 deps——两轨不漂移；src 注册与快照条目由消费方
+// 在构建成功后落）。
+type a2aMemberSpec struct {
+	Deps      a2aMemberDeps
+	Label     string
+	Source    string            // src 注册值（a2a:{connector_id}）
+	SourceMap map[string]string // 快照条目来源（成员名 → a2a:{endpoint}）
+}
+
+// assembleA2AMemberSpecs 外部 A2A 成员装配判定（REQ-416/M212 主体，REQ-446/M242 抽规格）：
+// 协调者 kind=a2a 连接器逐个合成 deps（工具名=连接器实例名，冲突加 -a2a 后缀并告警；工具描述
+// 自注册握手卡片合成；凭据头沿 credentials.headers 先例；轮询间隔 config.poll_interval_seconds
+// 缺省 2s）。装配期不拨号（注册/测试期已真握手）——卡片缺失按通用描述降级并告警。
+func (a *Assembler) assembleA2AMemberSpecs(ctx context.Context, coord *store.Agent, src map[string]string, sc assembleScope) ([]*a2aMemberSpec, []string) {
+	var specs []*a2aMemberSpec
 	var warns []string
 	if a.Store == nil {
-		return nil, nil, warns
+		return nil, warns
 	}
+	claimed := map[string]bool{} // 本批已占用名（src 注册在消费方构建成功后落，规格层自管去重）
 	for _, id := range coord.Connectors {
 		c, cerr := a.Store.GetConnector(id)
 		if cerr != nil || c == nil || c.Kind != store.ConnectorKindA2A {
@@ -505,10 +510,11 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 			continue
 		}
 		name := c.Name
-		if _, dup := src[name]; dup {
+		if _, dup := src[name]; dup || claimed[name] {
 			name = name + "-a2a"
 			warns = append(warns, fmt.Sprintf("A2A 外部成员与内部成员重名，工具名改为 %s", name))
 		}
+		claimed[name] = true
 		pollSec := 2.0
 		if v, ok := c.Config["poll_interval_seconds"].(float64); ok && v > 0 {
 			pollSec = v
@@ -520,39 +526,64 @@ func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, 
 				streaming = v // REQ-432①：对端流式能力随行（card capabilities.streaming）
 			}
 		}
-		bt, terr := newA2AMemberTool(a2aMemberDeps{
-			Name: name, Endpoint: endpoint, Headers: a.mcpHeaders(c),
-			CardJSON: c.CardJSON, PollSec: pollSec, Streaming: streaming,
-			DecorateTask: extContextDecorator(sc, injectAuto), // REQ-430/M226：上下文注入装饰
+		specs = append(specs, &a2aMemberSpec{
+			Deps: a2aMemberDeps{
+				Name: name, Endpoint: endpoint, Headers: a.mcpHeaders(c),
+				CardJSON: c.CardJSON, PollSec: pollSec, Streaming: streaming,
+				DecorateTask: extContextDecorator(sc, injectAuto), // REQ-430/M226：上下文注入装饰
+			},
+			Label:     "A2A 外部智能体",
+			Source:    "a2a:" + c.ID,
+			SourceMap: map[string]string{name: "a2a:" + endpoint},
 		})
+	}
+	return specs, warns
+}
+
+// assembleA2AMembers 外部 A2A 成员装配（工具轨，agent_as_tool 消费）：规格 → 委派工具。
+func (a *Assembler) assembleA2AMembers(ctx context.Context, coord *store.Agent, src map[string]string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
+	var tools []einotool.BaseTool
+	var entries []map[string]any
+	specs, warns := a.assembleA2AMemberSpecs(ctx, coord, src, sc)
+	for _, sp := range specs {
+		bt, terr := newA2AMemberTool(sp.Deps)
 		if terr != nil {
-			warns = append(warns, fmt.Sprintf("A2A 外部成员 %s 工具构建失败: %v", name, terr))
+			warns = append(warns, fmt.Sprintf("A2A 外部成员 %s 工具构建失败: %v", sp.Deps.Name, terr))
 			continue
 		}
 		tools = append(tools, normalizeEmptyArgsTool(bt))
-		src[name] = "a2a:" + c.ID
-		entries = append(entries, agentSnapshotEntry("member", name, "A2A 外部智能体", map[string]string{name: "a2a:" + endpoint}, nil, nil, ""))
+		src[sp.Deps.Name] = sp.Source
+		entries = append(entries, agentSnapshotEntry("member", sp.Deps.Name, sp.Label, sp.SourceMap, nil, nil, ""))
 	}
 	return tools, entries, warns
 }
 
-// assembleCLIMembers 外部 CLI 成员装配（REQ-426/M222）：协调者 kind=cli 连接器逐个转为
-// 协作面委派工具（工具名=连接器实例名，冲突加 -cli 后缀并告警）。backend 须为注册表内
-// 外部 CLI 型；装配期仅 PATH 文件级轻量探测（无 --version 子进程——注册/测试期已真握手），
-// 二进制缺失按未装配告警如实跳过（沙箱模式容器世界自备，不检宿主 PATH）；
-// task_prefix 角色前缀与 cwd 子进程工作目录随 config；版本自注册探测 JSON（card 字段
+// cliMemberSpec 外部 CLI 成员装配规格（REQ-446/M242：与 a2aMemberSpec 同口径——工具轨与
+// workflow/transfer 节点轨共用装配判定与执行 deps）。
+type cliMemberSpec struct {
+	Deps      cliMemberDeps
+	Label     string
+	Source    string            // src 注册值（cli:{connector_id}）
+	SourceMap map[string]string // 快照条目来源（成员名 → cli:{backend}）
+}
+
+// assembleCLIMemberSpecs 外部 CLI 成员装配判定（REQ-426/M222 主体，REQ-446/M242 抽规格）：
+// 协调者 kind=cli 连接器逐个合成 deps（工具名=连接器实例名，冲突加 -cli 后缀并告警）。
+// backend 须为注册表内外部 CLI 型；装配期仅 PATH 文件级轻量探测（无 --version 子进程——
+// 注册/测试期已真握手），二进制缺失按未装配告警如实跳过（沙箱模式容器世界自备，不检宿主
+// PATH）；task_prefix 角色前缀与 cwd 子进程工作目录随 config；版本自注册探测 JSON（card 字段
 // cli-probe 载荷）读出进工具描述。
 // REQ-427/M223②③：sandbox_mode=docker 时 CLI 子进程从宿主世界迁入 docker 沙箱——
 // 三前置沿 run_command 形态（①docker 可达 ②绑定目录 config.cwd ③审批档 danger/all），
 // 任一不满足不装配（沙箱请求=沙箱必要，不静默降级宿主世界）；sandbox_image 必填（镜像
 // 须自备目标 CLI 与登录态）；credentials.env 凭据态注入容器/子进程环境（服务端绑定）。
-func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
-	var tools []einotool.BaseTool
-	var entries []map[string]any
+func (a *Assembler) assembleCLIMemberSpecs(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string, sc assembleScope) ([]*cliMemberSpec, []string) {
+	var specs []*cliMemberSpec
 	var warns []string
 	if a.Store == nil {
-		return nil, nil, warns
+		return nil, warns
 	}
+	claimed := map[string]bool{}
 	for _, id := range coord.Connectors {
 		c, cerr := a.Store.GetConnector(id)
 		if cerr != nil || c == nil || c.Kind != store.ConnectorKindCLI {
@@ -571,7 +602,7 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 		taskPrefix, _ := c.Config["task_prefix"].(string)
 		cwd, _ := c.Config["cwd"].(string)
 		injectAuto, _ := c.Config["context_injection"].(string) // REQ-430：auto=委派时注入项目上下文
-		env := a.connectorEnv(c) // REQ-427③：凭据态 env（明文仅装配栈内存）
+		env := a.connectorEnv(c)                                // REQ-427③：凭据态 env（明文仅装配栈内存）
 		var dockerSpec *inference.DockerRunSpec
 		if sandboxMode, _ := c.Config["sandbox_mode"].(string); sandboxMode == "docker" {
 			// REQ-427②：三前置闸门（任一不满足不装配，沿 run_command 先例如实告警）
@@ -598,10 +629,11 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 			}
 		}
 		name := c.Name
-		if _, dup := src[name]; dup {
+		if _, dup := src[name]; dup || claimed[name] {
 			name = name + "-cli"
 			warns = append(warns, fmt.Sprintf("CLI 外部成员与既有工具重名，工具名改为 %s", name))
 		}
+		claimed[name] = true
 		sandboxLabel := ""
 		if dockerSpec != nil {
 			sandboxLabel = "docker 沙箱世界（镜像 " + dockerSpec.Image + "）"
@@ -610,42 +642,93 @@ func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, 
 		if caps := b.Capabilities(); caps.Chat || caps.Stream {
 			matrix = profileMatrixSummary(caps)
 		}
-		bt, terr := newCLIMemberTool(cliMemberDeps{
-			Name: name, Backend: backend, Version: cliProbeVersion(c.CardJSON), TaskPrefix: taskPrefix,
-			SandboxLabel: sandboxLabel, Matrix: matrix,
-			Run: func(ctx context.Context, task string) (string, int, error) {
-				if injectAuto == "auto" && sc.ExtContext != nil {
-					if pre := sc.ExtContext(ctx, task); pre != "" {
-						task = pre + "\n\n# 任务\n" + task
+		specs = append(specs, &cliMemberSpec{
+			Deps: cliMemberDeps{
+				Name: name, Backend: backend, Version: cliProbeVersion(c.CardJSON), TaskPrefix: taskPrefix,
+				SandboxLabel: sandboxLabel, Matrix: matrix,
+				Run: func(ctx context.Context, task string) (string, int, error) {
+					if injectAuto == "auto" && sc.ExtContext != nil {
+						if pre := sc.ExtContext(ctx, task); pre != "" {
+							task = pre + "\n\n# 任务\n" + task
+						}
 					}
-				}
-				if p := strings.TrimSpace(taskPrefix); p != "" {
-					task = p + "\n\n" + task
-				}
-				// REQ-428/M224：CLI stream-json 过程转译 external.audit run_event（沿 REQ-206 S3 先例）
-				hook := func(protoEvent, summary string) {
-					tool.EmitEvent(ctx, "external.audit", map[string]any{
-						"source": "cli_member", "member": name, "channel": "cli", "backend": backend,
-						"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
-					})
-				}
-				if dockerSpec != nil {
-					spec := *dockerSpec
-					spec.Hook = hook
-					return inference.CLIMemberRunInDocker(ctx, b, &inference.RunRequest{Prompt: task}, spec)
-				}
-				return inference.CLIMemberRunWithAudit(ctx, b, &inference.RunRequest{Prompt: task, Cwd: cwd, Env: env}, hook)
+					if p := strings.TrimSpace(taskPrefix); p != "" {
+						task = p + "\n\n" + task
+					}
+					// REQ-428/M224：CLI stream-json 过程转译 external.audit run_event（沿 REQ-206 S3 先例）
+					hook := func(protoEvent, summary string) {
+						tool.EmitEvent(ctx, "external.audit", map[string]any{
+							"source": "cli_member", "member": name, "channel": "cli", "backend": backend,
+							"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
+						})
+					}
+					if dockerSpec != nil {
+						spec := *dockerSpec
+						spec.Hook = hook
+						return inference.CLIMemberRunInDocker(ctx, b, &inference.RunRequest{Prompt: task}, spec)
+					}
+					return inference.CLIMemberRunWithAudit(ctx, b, &inference.RunRequest{Prompt: task, Cwd: cwd, Env: env}, hook)
+				},
 			},
+			Label:     "CLI 外部智能体（" + backend + "）",
+			Source:    "cli:" + c.ID,
+			SourceMap: map[string]string{name: "cli:" + backend},
 		})
+	}
+	return specs, warns
+}
+
+// assembleCLIMembers 外部 CLI 成员装配（工具轨，agent_as_tool 消费）：规格 → 委派工具。
+func (a *Assembler) assembleCLIMembers(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string, sc assembleScope) ([]einotool.BaseTool, []map[string]any, []string) {
+	var tools []einotool.BaseTool
+	var entries []map[string]any
+	specs, warns := a.assembleCLIMemberSpecs(ctx, coord, src, execApproval, sc)
+	for _, sp := range specs {
+		bt, terr := newCLIMemberTool(sp.Deps)
 		if terr != nil {
-			warns = append(warns, fmt.Sprintf("CLI 外部成员 %s 工具构建失败: %v", name, terr))
+			warns = append(warns, fmt.Sprintf("CLI 外部成员 %s 工具构建失败: %v", sp.Deps.Name, terr))
 			continue
 		}
 		tools = append(tools, normalizeEmptyArgsTool(bt))
-		src[name] = "cli:" + c.ID
-		entries = append(entries, agentSnapshotEntry("member", name, "CLI 外部智能体（"+backend+"）", map[string]string{name: "cli:" + backend}, nil, nil, ""))
+		src[sp.Deps.Name] = sp.Source
+		entries = append(entries, agentSnapshotEntry("member", sp.Deps.Name, sp.Label, sp.SourceMap, nil, nil, ""))
 	}
 	return tools, entries, warns
+}
+
+// assembleExternalMemberAgents 外部成员 adk.Agent 装配（REQ-446/M242：workflow 节点与 transfer
+// 转移目标轨消费）——与工具轨共用 specs（装配判定/执行 deps 单源），adk.Agent 适配见
+// external_member_agent.go。entryRole 由调用方给（workflow=node / transfer=member）。
+func (a *Assembler) assembleExternalMemberAgents(ctx context.Context, coord *store.Agent, src map[string]string, execApproval string, sc assembleScope, entryRole string) ([]adk.Agent, []map[string]any, []string) {
+	var agents []adk.Agent
+	var entries []map[string]any
+	var warns []string
+	a2aSpecs, a2aWarns := a.assembleA2AMemberSpecs(ctx, coord, src, sc)
+	warns = append(warns, a2aWarns...)
+	for _, sp := range a2aSpecs {
+		agents = append(agents, newA2AMemberAgent(sp.Deps))
+		src[sp.Deps.Name] = sp.Source
+		entries = append(entries, agentSnapshotEntry(entryRole, sp.Deps.Name, sp.Label, sp.SourceMap, nil, nil, ""))
+	}
+	cliSpecs, cliWarns := a.assembleCLIMemberSpecs(ctx, coord, src, execApproval, sc)
+	warns = append(warns, cliWarns...)
+	for _, sp := range cliSpecs {
+		agents = append(agents, newCLIMemberAgent(sp.Deps))
+		src[sp.Deps.Name] = sp.Source
+		entries = append(entries, agentSnapshotEntry(entryRole, sp.Deps.Name, sp.Label, sp.SourceMap, nil, nil, ""))
+	}
+	return agents, entries, warns
+}
+
+// externalMemberApproval 外部成员治理档解析（REQ-427①同款：对话级覆盖 > Agent 级）——
+// CLI docker 沙箱三前置闸与审批包装共用一解析（REQ-446：workflow/transfer 轨同款取值）。
+func externalMemberApproval(coord *store.Agent, sc assembleScope) string {
+	if sc.ToolApprovalOverride == "on" {
+		return "all"
+	} else if sc.ToolApprovalOverride == "off" {
+		return ""
+	}
+	return coord.ToolApproval
 }
 
 // approveExternalMembers REQ-427/M223①：外部成员委派工具（CLI/A2A）审批包装——委派=外发
@@ -712,7 +795,9 @@ func (a *Assembler) connectorEnv(c *store.Connector) map[string]string {
 // 官方注记（快照 Warning+前端提示），agent_as_tool 仍为推荐默认（Q-4 不变）；
 // 工作流价值定位=确定性顺序/并行/循环拓扑（LG-7 理解确定性编排）。
 // 成员即节点（项目成员序）；loop 迭代上限固定 3（防无限循环，快照告警注明）。
-func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, members []*store.Agent, warns []string, sc assembleScope) (*BuildResult, error) {
+// REQ-446/M242：外部成员（协调者连接器 cli/a2a）按连接器序确定性追加为工作流节点
+// （混合编排全轨；外部节点=externalMemberAgent 适配，执行与工具轨同一 invoke 外壳）。
+func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, coord *store.Agent, members []*store.Agent, warns []string, sc assembleScope) (*BuildResult, error) {
 	insts := make([]adk.Agent, 0, len(members))
 	nodeNames := make([]string, 0, len(members))
 	entries := make([]map[string]any, 0, len(members)+1)
@@ -734,6 +819,7 @@ func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, members [
 		insts = append(insts, mb.Inst)
 		nodeNames = append(nodeNames, m.Name)
 		entries = append(entries, agentSnapshotEntry("node", m.Name, mb.Meta.ModelLabel, mb.Meta.SourceOf, mb.Meta.LoadedSkills, a.mcpSnapshotOf(m), mb.Meta.Instruction))
+		src[m.Name] = "agent:" + m.ID // 节点名入来源表（外部成员重名判定基准，与 agent_as_tool 同口径）
 		for k, v := range mb.Meta.SourceOf {
 			if _, dup := src[k]; !dup {
 				src[k] = v
@@ -741,6 +827,20 @@ func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, members [
 		}
 		allWarns = append(allWarns, mb.Meta.Warnings...)
 		loaded = appendLoadedSkills(loaded, mb.Meta.LoadedSkills)
+	}
+	// REQ-446/M242：外部成员节点——协调者连接器 cli/a2a 按连接器序确定性追加在本地成员后
+	//（工作流无 LLM 路由，节点序即执行序；外部节点无审批面——审批档仅覆盖 agent_as_tool 轨，
+	// 告警如实注；CLI docker 沙箱三前置闸照常生效）
+	extAgents, extEntries, extWarns := a.assembleExternalMemberAgents(ctx, coord, src, externalMemberApproval(coord, sc), sc, "node")
+	allWarns = append(allWarns, extWarns...)
+	for _, ag := range extAgents {
+		name := ag.Name(ctx)
+		insts = append(insts, ag)
+		nodeNames = append(nodeNames, name)
+	}
+	entries = append(entries, extEntries...)
+	if len(extAgents) > 0 {
+		allWarns = append(allWarns, fmt.Sprintf("工作流接入外部成员节点 %d 个（cli/a2a，连接器序，排在本地成员后；外部节点无审批面）", len(extAgents)))
 	}
 	var wf adk.ResumableAgent
 	var err error
@@ -797,6 +897,7 @@ func (a *Assembler) assembleTransfer(ctx context.Context, coord *store.Agent, su
 		}
 		subAgents = append(subAgents, sb.Inst)
 		entries = append(entries, agentSnapshotEntry("member", s.Name, sb.Meta.ModelLabel, sb.Meta.SourceOf, sb.Meta.LoadedSkills, a.mcpSnapshotOf(s), sb.Meta.Instruction))
+		src[s.Name] = "agent:" + s.ID // 成员名入来源表（外部成员重名判定基准，与 agent_as_tool 同口径）
 		for k, v := range sb.Meta.SourceOf {
 			if _, dup := src[k]; !dup {
 				src[k] = v
@@ -804,6 +905,16 @@ func (a *Assembler) assembleTransfer(ctx context.Context, coord *store.Agent, su
 		}
 		allWarns = append(allWarns, sb.Meta.Warnings...)
 		loaded = appendLoadedSkills(loaded, sb.Meta.LoadedSkills)
+	}
+	// REQ-446/M242：外部成员转移目标——协调者连接器 cli/a2a 进 SetSubAgents 转移面（混合编排
+	// 全轨；外部成员无审批面——审批档仅覆盖 agent_as_tool 轨，告警如实注；CLI docker 沙箱
+	// 三前置闸照常生效）
+	extAgents, extEntries, extWarns := a.assembleExternalMemberAgents(ctx, coord, src, externalMemberApproval(coord, sc), sc, "member")
+	subAgents = append(subAgents, extAgents...)
+	entries = append(entries, extEntries...)
+	allWarns = append(allWarns, extWarns...)
+	if len(extAgents) > 0 {
+		allWarns = append(allWarns, fmt.Sprintf("transfer 轨接入外部成员 %d 个（cli/a2a；外部成员无审批面）", len(extAgents)))
 	}
 	root, err := adk.SetSubAgents(ctx, inst, subAgents)
 	if err != nil {

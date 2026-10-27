@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
@@ -76,49 +77,71 @@ func newA2AMemberTool(d a2aMemberDeps) (einotool.BaseTool, error) {
 		func(ctx context.Context, in struct {
 			Request string `json:"request" jsonschema:"委派任务描述（自包含——外部成员看不到当前对话上下文）"`
 		}) (string, error) {
-			// A3 同款委派单事件：channel=a2a 区分内部/外部（拓扑/泳道/委派面板消费）
-			tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
-				"member":   d.Name,
-				"channel":  "a2a",
-				"endpoint": d.Endpoint,
-				"task":     truncateRunes(in.Request, 200),
-			})
-			ctx, cancel := context.WithTimeout(ctx, DelegateRunTimeout)
-			defer cancel()
-
-			// REQ-428/M224：过程转译——远端任务 history（agent 消息）逐条转 external.audit
-			// run_event（沿 REQ-206 S3 先例；上限 20 条防刷屏，超出以尾注如实标注）
-			hook := func(protoEvent, summary string) {
-				tool.EmitEvent(ctx, "external.audit", map[string]any{
-					"source": "a2a_member", "member": d.Name, "channel": "a2a",
-					"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
-				})
-			}
-			task := in.Request
-			if d.DecorateTask != nil {
-				task = d.DecorateTask(ctx, task)
-			}
-			out, err := a2aDelegateRun(ctx, d, task, hook)
-			if err == nil {
-				return out, nil
-			}
-			// REQ-319 同语义降级回喂：外部成员失败/超时不终止协调者 run——改道/重试/自答/
-			// 如实说明由协调者裁量（A2A 无平台内部中断语义，无穿透分支）
-			detail := truncateRunes(err.Error(), 300)
-			tool.EmitEvent(ctx, "run.warning", map[string]any{
-				"message":       fmt.Sprintf("外部 A2A 成员 %q 执行失败，错误已回喂协调者（可换成员重试/自行完成/向用户说明）: %s", d.Name, detail),
-				"member_failed": map[string]any{"member": d.Name, "channel": "a2a", "error": detail},
-			})
-			payload, _ := json.Marshal(map[string]any{
-				"error":    "member_failed",
-				"member":   d.Name,
-				"channel":  "a2a",
-				"endpoint": d.Endpoint,
-				"detail":   detail,
-				"hint":     "该外部成员本次执行失败。你可以：换其他成员重试、分解任务后再次委派、自行完成任务，或向用户如实说明。",
-			})
-			return string(payload), nil
+			return a2aMemberInvoke(ctx, d, in.Request)
 		})
+}
+
+// a2aMemberInvoke 外部 A2A 成员执行外壳（REQ-446/M242：agent_as_tool 委派工具与 workflow 节点/
+// transfer 转移目标两轨共用——装配判定与执行语义单源防漂移）：A3 委派单事件 channel=a2a →
+// DelegateRunTimeout 上限 → REQ-428 过程转译 hook → REQ-430 任务装饰 → 执行 → REQ-319 同语义
+// 降级回喂（member_failed JSON 作结果文本不炸 run；工作流节点无协调者裁量面，降级载荷作节点
+// 输出继续流转+run.warning 事件——下游节点/最终回答可见失败信息）。
+func a2aMemberInvoke(ctx context.Context, d a2aMemberDeps, request string) (string, error) {
+	// A3 同款委派单事件：channel=a2a 区分内部/外部（拓扑/泳道/委派面板消费）
+	tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
+		"member":   d.Name,
+		"channel":  "a2a",
+		"endpoint": d.Endpoint,
+		"task":     truncateRunes(request, 200),
+	})
+	ctx, cancel := context.WithTimeout(ctx, DelegateRunTimeout)
+	defer cancel()
+
+	// REQ-428/M224：过程转译——远端任务 history（agent 消息）逐条转 external.audit
+	// run_event（沿 REQ-206 S3 先例；上限 20 条防刷屏，超出以尾注如实标注）
+	hook := func(protoEvent, summary string) {
+		tool.EmitEvent(ctx, "external.audit", map[string]any{
+			"source": "a2a_member", "member": d.Name, "channel": "a2a",
+			"proto_event": protoEvent, "summary": truncateRunes(summary, 200),
+		})
+	}
+	task := request
+	if d.DecorateTask != nil {
+		task = d.DecorateTask(ctx, task)
+	}
+	out, err := a2aDelegateRun(ctx, d, task, hook)
+	if err == nil {
+		return out, nil
+	}
+	// REQ-319 同语义降级回喂：外部成员失败/超时不终止协调者 run——改道/重试/自答/
+	// 如实说明由协调者裁量（A2A 无平台内部中断语义，无穿透分支）
+	detail := truncateRunes(err.Error(), 300)
+	tool.EmitEvent(ctx, "run.warning", map[string]any{
+		"message":       fmt.Sprintf("外部 A2A 成员 %q 执行失败，错误已回喂协调者（可换成员重试/自行完成/向用户说明）: %s", d.Name, detail),
+		"member_failed": map[string]any{"member": d.Name, "channel": "a2a", "error": detail},
+	})
+	payload, _ := json.Marshal(map[string]any{
+		"error":    "member_failed",
+		"member":   d.Name,
+		"channel":  "a2a",
+		"endpoint": d.Endpoint,
+		"detail":   detail,
+		"hint":     "该外部成员本次执行失败。你可以：换其他成员重试、分解任务后再次委派、自行完成任务，或向用户如实说明。",
+	})
+	return string(payload), nil
+}
+
+// newA2AMemberAgent 外部 A2A 成员的 adk.Agent 适配（REQ-446/M242）：workflow 节点与 transfer
+// 转移目标消费外部成员——执行走同一 a2aMemberInvoke 外壳，描述复用工具轨卡片合成（transfer
+// 协调者的转移决策按子代理描述路由，与工具描述同一信息面）。
+func newA2AMemberAgent(d a2aMemberDeps) adk.Agent {
+	return &externalMemberAgent{
+		name:        d.Name,
+		description: a2aMemberDescription(d),
+		invoke: func(ctx context.Context, task string) (string, error) {
+			return a2aMemberInvoke(ctx, d, task)
+		},
+	}
 }
 
 // a2aSendDone message/send 即回终态（同步型远端）判定。

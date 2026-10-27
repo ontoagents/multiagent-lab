@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudwego/eino/adk"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
@@ -60,40 +61,61 @@ func newCLIMemberTool(d cliMemberDeps) (einotool.BaseTool, error) {
 		func(ctx context.Context, in struct {
 			Request string `json:"request" jsonschema:"委派任务描述（自包含——外部成员看不到当前对话上下文）"`
 		}) (string, error) {
-			// A3 同款委派单事件：channel=cli 区分内部/A2A/CLI（拓扑/泳道/委派面板消费）
-			tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
-				"member":  d.Name,
-				"channel": "cli",
-				"backend": d.Backend,
-				"task":    truncateRunes(in.Request, 200),
-			})
-			ctx, cancel := context.WithTimeout(ctx, DelegateRunTimeout)
-			defer cancel()
-
-			out, _, err := d.Run(ctx, in.Request)
-			if err == nil {
-				if strings.TrimSpace(out) == "" {
-					out = fmt.Sprintf("（外部 CLI 成员 %s 执行完成，但未产生文本输出）", d.Name)
-				}
-				return out, nil
-			}
-			// REQ-319 同语义降级回喂：外部成员失败/超时不终止协调者 run——改道/重试/自答/
-			// 如实说明由协调者裁量（CLI 子进程无平台内部中断语义，无穿透分支）
-			detail := truncateRunes(err.Error(), 300)
-			tool.EmitEvent(ctx, "run.warning", map[string]any{
-				"message":       fmt.Sprintf("外部 CLI 成员 %q 执行失败，错误已回喂协调者（可换成员重试/自行完成/向用户说明）: %s", d.Name, detail),
-				"member_failed": map[string]any{"member": d.Name, "channel": "cli", "backend": d.Backend, "error": detail},
-			})
-			payload, _ := json.Marshal(map[string]any{
-				"error":    "member_failed",
-				"member":   d.Name,
-				"channel":  "cli",
-				"backend":  d.Backend,
-				"detail":   detail,
-				"hint":     "该外部成员本次执行失败。你可以：换其他成员重试、分解任务后再次委派、自行完成任务，或向用户如实说明。",
-			})
-			return string(payload), nil
+			return cliMemberInvoke(ctx, d, in.Request)
 		})
+}
+
+// cliMemberInvoke 外部 CLI 成员执行外壳（REQ-446/M242：agent_as_tool 委派工具与 workflow 节点/
+// transfer 转移目标两轨共用）：A3 委派单事件 channel=cli → DelegateRunTimeout 上限 → 执行
+// （deps.Run 含 REQ-430 上下文注入/task_prefix/docker 沙箱/REQ-428 审计分支）→ REQ-319 同语义
+// 降级回喂（member_failed JSON 作结果文本不炸 run；工作流节点降级载荷作节点输出继续流转）。
+func cliMemberInvoke(ctx context.Context, d cliMemberDeps, request string) (string, error) {
+	// A3 同款委派单事件：channel=cli 区分内部/A2A/CLI（拓扑/泳道/委派面板消费）
+	tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
+		"member":  d.Name,
+		"channel": "cli",
+		"backend": d.Backend,
+		"task":    truncateRunes(request, 200),
+	})
+	ctx, cancel := context.WithTimeout(ctx, DelegateRunTimeout)
+	defer cancel()
+
+	out, _, err := d.Run(ctx, request)
+	if err == nil {
+		if strings.TrimSpace(out) == "" {
+			out = fmt.Sprintf("（外部 CLI 成员 %s 执行完成，但未产生文本输出）", d.Name)
+		}
+		return out, nil
+	}
+	// REQ-319 同语义降级回喂：外部成员失败/超时不终止协调者 run——改道/重试/自答/
+	// 如实说明由协调者裁量（CLI 子进程无平台内部中断语义，无穿透分支）
+	detail := truncateRunes(err.Error(), 300)
+	tool.EmitEvent(ctx, "run.warning", map[string]any{
+		"message":       fmt.Sprintf("外部 CLI 成员 %q 执行失败，错误已回喂协调者（可换成员重试/自行完成/向用户说明）: %s", d.Name, detail),
+		"member_failed": map[string]any{"member": d.Name, "channel": "cli", "backend": d.Backend, "error": detail},
+	})
+	payload, _ := json.Marshal(map[string]any{
+		"error":    "member_failed",
+		"member":   d.Name,
+		"channel":  "cli",
+		"backend":  d.Backend,
+		"detail":   detail,
+		"hint":     "该外部成员本次执行失败。你可以：换其他成员重试、分解任务后再次委派、自行完成任务，或向用户如实说明。",
+	})
+	return string(payload), nil
+}
+
+// newCLIMemberAgent 外部 CLI 成员的 adk.Agent 适配（REQ-446/M242）：workflow 节点与 transfer
+// 转移目标消费外部成员——执行走同一 cliMemberInvoke 外壳，描述复用工具轨合成（backend/版本/
+// 角色前缀/执行世界同一信息面）。
+func newCLIMemberAgent(d cliMemberDeps) adk.Agent {
+	return &externalMemberAgent{
+		name:        d.Name,
+		description: cliMemberDescription(d),
+		invoke: func(ctx context.Context, task string) (string, error) {
+			return cliMemberInvoke(ctx, d, task)
+		},
+	}
 }
 
 // cliProbeVersion 注册探测 JSON 中的版本号（card 字段 cli-probe 载荷；非该形态返回空）。
