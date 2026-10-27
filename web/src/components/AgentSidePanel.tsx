@@ -18,6 +18,7 @@ import {
   InfoCircleOutlined,
 DeleteOutlined, PlusOutlined, EyeOutlined} from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
+import { agentFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
 import type { HarnessAuditEvent } from '../api/client'
 import AIOptimizeButton from './AIOptimizeButton'
 import AgentCompanionManage from './AgentCompanionManage'
@@ -526,28 +527,9 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           if (r.plan_error) showToast(`绑定成功，但宿主方案暂未就绪（读路径会自动拉起）: ${r.plan_error}`, 'err')
         }
       }
-      await api.updateAgent(agent.id, {
-        name: agent.name,
-        description: agent.description,
-        instruction: agent.instruction,
-        model_conn_id: agent.model_conn_id || null,
-        temperature: agent.temperature ?? null,
-        max_tokens: agent.max_tokens ?? null,
-        max_iteration: agent.max_iteration ?? 25,
-        delegate_timeout_seconds: agent.delegate_timeout_seconds ?? 0, // REQ-319 A2
-        runtime_backend: agent.runtime_backend ?? 'inprocess',
-        sandbox_memory: agent.sandbox_memory ?? '',
-        sandbox_cpus: agent.sandbox_cpus ?? 0,
-        inference_backend: agent.inference_backend ?? 'eino-adk',
-        logo_url: (agent.logo_url ?? '').trim(),
-        context_mode: agent.context_mode ?? '', // REQ-201：full-replace 透传防清零（伴生表单不含此字段）
-        compact_policy: agent.compact_policy ?? '', // REQ-396：压缩策略透传防清零
-        work_dir: agent.work_dir ?? '', // REQ-202：透传防清零
-        verify_command: agent.verify_command ?? '', // REQ-202：透传防清零
-        tools: agent.tools ?? [],
-        skills: agent.skills ?? [],
-        mcp_servers: agent.mcp_servers ?? [],
-        mcp_serve: { enabled: !!agent.mcp_serve?.enabled, tool_name: agent.mcp_serve?.tool_name ?? '', token: agent.mcp_serve?.token ?? '' },
+      // REQ-400①③：单源载荷（实体基座自动透传 connectors/tool_approval/hooks 等全部字段——
+      // 原手写清单漏七字段致伴生保存清零审批档/连接器授权/能力开关，实证顺修）+ If-Match 补挂
+      await api.updateAgent(agent.id, agentFullPayload(agent, {
         companion_ontology_id: targetOnt,
         companion_extract_hint: v.companion_extract_hint ?? '',
         companion_extract_conn_id: v.companion_extract_conn_id ?? '',
@@ -561,7 +543,7 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           if (v.cfg_temperature != null) raw.temperature = v.cfg_temperature
           return Object.keys(raw).length ? JSON.stringify(raw) : ''
         })(),
-      })
+      }), agent.updated_at)
       showToast('伴生配置已保存，下次运行生效')
       bumpData()
       onChanged?.()
@@ -780,59 +762,6 @@ const fmtAgentSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFi
  * 工具白名单）——全字段改为 agent 现值兜底；model_conn_id/temperature/max_tokens 等以
  * null 为合法值的字段用 `!== undefined` 判定（保住「用户清空选择」语义，只在未挂载时取现值）。
  */
-function agentFullPayload(agent: Agent, v: Record<string, any>) {
-  return {
-    name: v.name ?? agent.name,
-    description: v.description ?? agent.description ?? '',
-    instruction: v.instruction ?? agent.instruction ?? '',
-    model_conn_id: v.model_conn_id !== undefined ? v.model_conn_id : (agent.model_conn_id || null),
-    temperature: v.temperature !== undefined ? v.temperature : (agent.temperature ?? null),
-    max_tokens: v.max_tokens !== undefined ? v.max_tokens : (agent.max_tokens ?? null),
-    max_iteration: v.max_iteration ?? agent.max_iteration ?? 25,
-    delegate_timeout_seconds: typeof v.delegate_timeout_seconds === 'number' ? v.delegate_timeout_seconds : (agent.delegate_timeout_seconds ?? 0), // REQ-319 A2：成员委派超时（Graph 层）
-    runtime_backend: v.runtime_backend ?? agent.runtime_backend ?? 'inprocess',
-    sandbox_memory: v.sandbox_memory ?? agent.sandbox_memory ?? '',
-    sandbox_cpus: v.sandbox_cpus ?? agent.sandbox_cpus ?? 0,
-    inference_backend: v.inference_backend ?? agent.inference_backend ?? 'eino-adk',
-    context_mode: v.context_mode ?? agent.context_mode ?? '', // REQ-201/M37：上下文预算档位（Context 层）
-    compact_policy: v.compact_policy ?? agent.compact_policy ?? '', // REQ-396：压缩策略
-    work_dir: (v.work_dir ?? agent.work_dir ?? '').trim(), // REQ-202/M38：文件原语安全根（Harness 层）
-    verify_command: (v.verify_command ?? agent.verify_command ?? '').trim(), // REQ-202/M38：verify_on_stop 背压（Harness 层）
-    tool_approval: v.tool_approval ?? agent.tool_approval ?? '', // REQ-219 顺修：审批开关（'' = 关闭为合法值）
-    approval_exempt: v.approval_exempt ?? agent.approval_exempt ?? [], // REQ-231②：审批豁免清单
-    approval_timeout_hours: v.approval_timeout_hours ?? agent.approval_timeout_hours ?? 0, // REQ-231③：挂起超时
-    logo_url: (v.logo_url ?? agent.logo_url ?? '').trim(), // REQ-137
-    tools: v.tools ?? agent.tools ?? [],
-    skills: v.skills ?? agent.skills ?? [],
-    connectors: (v.connectors ?? agent.connectors ?? []) as string[], // REQ-214/M46：连接器授权白名单
-    // REQ-360/M161：对话建本体能力开关（''=关 | guided | quick）——full-replace 透传防清零
-    onchat_mode: v.onchat_mode ?? agent.onchat_mode ?? '',
-    // REQ-366/M164：本体操作工具能力开关——full-replace 透传防清零
-    onto_ops: v.onto_ops !== undefined ? !!v.onto_ops : !!agent.onto_ops,
-    mcp_servers: agent.mcp_servers ?? [], // REQ-214：兼容残留透传（迁移后恒空）
-    // REQ-131/M18：对外服务（token 原样保留——重置走专用端点）
-    mcp_serve: {
-      enabled: v.mcp_serve_enabled !== undefined ? !!v.mcp_serve_enabled : !!agent.mcp_serve?.enabled,
-      tool_name: (v.mcp_serve_tool_name !== undefined ? v.mcp_serve_tool_name : agent.mcp_serve?.tool_name ?? '').trim(),
-      token: agent.mcp_serve?.token ?? '',
-    },
-    // REQ-170/187 + REQ-193：伴生字段自「伴生本体」视图维护——按 agent 现值透传
-    companion_ontology_id: agent.companion_ontology_id ?? '',
-    companion_extract_hint: agent.companion_extract_hint ?? '',
-    companion_extract_conn_id: agent.companion_extract_conn_id ?? '',
-    companion_auto_threshold: agent.companion_auto_threshold ?? 0,
-    // REQ-232/M59：agent 级 hooks 配置（fetchGuard 启停 + 自定义 deny 规则）
-    hooks: {
-      fetch_guard_disabled: v.hooks_fetch_guard_disabled ?? agent.hooks?.fetch_guard_disabled ?? false,
-      deny_rules: (v.hooks_deny_rules ?? agent.hooks?.deny_rules ?? []).map((r: any) => ({
-        name: (r.name ?? '').trim() || '规则',
-        tool_pattern: (r.tool_pattern ?? '').trim(),
-        args_pattern: (r.args_pattern ?? '').trim(),
-        reason: (r.reason ?? '').trim(),
-      })).filter((r: any) => r.tool_pattern),
-    },
-  }
-}
 
 // ---------------------------------------------------------------------------
 // 配置视图（REQ-132：四分类页签；字段/校验/提交逻辑不变）

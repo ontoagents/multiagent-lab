@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Alert, Button, Checkbox, Input, Modal, Select, Space, Tag, Typography, message } from 'antd'
 import { ThunderboltOutlined, CopyOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
+import { agentFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
 import type { Agent } from '../api/types'
 
 // REQ-431/M227：混合编排模板（REQ-417 模板机制延伸，参赛叙事落点「平台协调业界智能体干活」）——
@@ -89,14 +90,13 @@ export default function HybridTeamTemplate({ agents, onCreated }: { agents: Agen
         description: 'REQ-431 混合编排模板——外部审查者（独立对端智能体）',
         config: { url: a2aUrl.trim() },
       })
-      // 4) 连接器授权给规划者（委派工具进协作面）——PUT 全量替换语义，须带身份字段
-      await api.updateAgent(planner.id, {
+      // 4) 连接器授权给规划者（委派工具进协作面）——PUT 全量替换语义，单源载荷实体基座防清零（REQ-400①③）
+      await api.updateAgent(planner.id, agentFullPayload(planner, {
         name: plannerName,
-        description: planner.description,
         instruction: PLANNER_INSTRUCTION,
         max_iteration: 25,
         connectors: [cli.id, a2a.id],
-      })
+      }))
       // 5) 项目（规划者为协调者）
       const proj = await api.createProject({
         name: `混合编排示例-${stamp}`,

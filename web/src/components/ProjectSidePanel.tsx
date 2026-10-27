@@ -15,6 +15,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
+import { projectFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
 import CollabTopology from './CollabTopology'
 import AIOptimizeButton from './AIOptimizeButton'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry } from '../api/types'
@@ -741,14 +742,13 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
     }
     setSaving(true)
     try {
-      await api.updateProject(project.id, {
+      // REQ-400①③：单源载荷（实体基座——后端新增项目字段自动透传）+ If-Match 补挂
+      await api.updateProject(project.id, projectFullPayload(project, {
         name: v.name,
         description: v.description,
         constraints: v.constraints,
         local_dir: v.local_dir ?? '',
-        collab_mode: project.collab_mode ?? 'agent_as_tool',
-        workflow_mode: project.workflow_mode ?? 'free',
-      })
+      }), project.updated_at)
       showToast('已保存')
       bumpData()
       onChanged?.()
@@ -865,14 +865,12 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
     const members = Object.entries(selected).map(([agent_id, role]) => ({ agent_id, role }))
     setSaving(true)
     try {
-      await api.updateProject(project.id, {
-        name: project.name,
-        description: project.description,
+      // REQ-400①③：单源载荷——实体基座自带 name/description/constraints/local_dir，
+      // 表单只覆盖其管理的协作字段
+      await api.updateProject(project.id, projectFullPayload(project, {
         collab_mode: collabMode,
         workflow_mode: workflowMode,
-        constraints: project.constraints,
-        local_dir: project.local_dir ?? '',
-      }, project.updated_at) // REQ-400：If-Match 乐观锁（三字段清零事故路径）
+      }), project.updated_at) // REQ-400：If-Match 乐观锁（三字段清零事故路径）
       await api.setProjectAgents(project.id, members)
       showToast('已保存')
       bumpData()
