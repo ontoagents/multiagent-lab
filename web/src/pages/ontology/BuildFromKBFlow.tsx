@@ -65,6 +65,8 @@ function KbBuildFlow() {
   const [ontoName, setOntoName] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
+  // REQ-459：入库成功后的展示名（表单态随新会话清空，展示不依赖残留表单）
+  const [savedName, setSavedName] = useState('')
 
   const selected = useMemo(() => kbs.find((k) => k.id === kbId) ?? null, [kbs, kbId])
 
@@ -155,6 +157,12 @@ function KbBuildFlow() {
       await api.saveSpec(created.id, { ...spec, name: nm })
       showToast('已入库到本体资产')
       setSavedId(created.id)
+      setSavedName(nm)
+      // REQ-459：入库即新会话——生成草稿与编辑态清空（kb-flow-result 草稿同清），跳步回看不再残留旧会话；
+      // KB/策略选择保留（与 S1 来源 tab 记忆同口径——同源重跑便捷）
+      setResult(null)
+      setSpecText('')
+      setOntoName('')
       setStep(3)
     } catch (e: any) {
       if (e instanceof ApiError && e.validationErrors?.length) showToast(`构建平面校验未通过：${e.validationErrors[0].message}`, 'err')
@@ -386,7 +394,7 @@ function KbBuildFlow() {
         <Alert
           type="success"
           showIcon
-          title={`已入库：${ontoName || savedId}`}
+          title={`已入库：${savedName || savedId}`}
           description="到「本体资产」栏查看产物与版本；到「本体运行」栏可部署为运行方案（如 SPARQL 型方案后可在工作台验证本体命中）。"
           action={
             <Button

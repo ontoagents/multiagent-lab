@@ -250,6 +250,12 @@ export default function OntoExtendFlow() {
       const res = await api.mergeApply(targetId, { filename, spec, strategy: 'merge', base_version: previewBaseVersionRef.current })
       setAppliedVersion(res.version ?? null)
       setPreview(null)
+      // REQ-459：入库即新会话——本轮材料态清空（extend-rag-data 草稿同清），回看旧会话不残留；
+      // 目标本体/模式选择保留（工作对象连续性，与 S1 来源 tab 记忆同口径）
+      setRagData(null)
+      setLovPicked({})
+      setOdpId(undefined)
+      setTargetCQs('')
     } catch (e: any) {
       setApplyErr(e?.message ?? '入库失败（strict 质量门禁可能拦截：见错误详情）')
     } finally {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Input, Popconfirm, Result, Space, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Input, Popconfirm, Result, Segmented, Space, Tag, Tooltip, Typography } from 'antd'
 import {
   ArrowLeftOutlined,
   BranchesOutlined,
@@ -55,8 +55,10 @@ import HierarchyPane, { type OntoSelection } from './components/assets/Hierarchy
 //   语义；详情内上一条/下一条轻切换（分组序）；Maximizeable「最大化编辑」页内最大化
 //   补丁随页级化退役（可视化 VizTabs 的保留——看图纯净全屏仍是有意语义）。
 //   Spec 编辑常驻保活（切分区不丢未保存编辑），其余分区激活挂载（沿原 destroyOnHidden 行为）。
-//   分区：Spec 编辑 | 校验 | 质量卡 | 版本与源码 | 进化 | 图形编辑 | CSV 灌装 |
-//         可视化 | 伴生候选 | 被引用 | 产物 | TTL 导出
+//   分区（REQ-458/M254 合并梳理：普通型 17 → 11——关系类型+数据属性 → 关系与属性〔分段〕/
+//   公理+透传公理 → 公理〔分段〕/校验+质量卡 → 校验与质量/进化+影响分析 → 演化与影响/
+//   被引用+产物+TTL 导出 → 引用与产物）：Spec 编辑 | 层级浏览 | 图形编辑 | 关系与属性 | 公理 |
+//   CSV 灌装 ‖ 校验与质量 | 版本与源码 | 演化与影响 ‖ 可视化 | 引用与产物
 //   正交红线：不出现任何引擎、端口、启停配置（运行看本体运行栏）
 // B1（REQ-145/M22）：Spec 编辑/校验/产物/导出/选择条/重命名/可视化拆至 components/assets/。
 // REQ-233/M60：资产列表搜索 + 空态 EmptyGuide 接入 + 详情「被引用」聚合区块 + 删除确认引用预检
@@ -93,8 +95,9 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
         // REQ-363/M163：层级浏览（Protégé 式树形导航）——兼作 52 号 P-5 详情页签分组演进首个落点
         { key: 'hierarchy', label: '层级浏览' },
         { key: 'graph-edit', label: '图形编辑' },
-        { key: 'reltypes', label: '关系类型' },
-        { key: 'dataprops', label: '数据属性' },
+        // REQ-458：关系类型 + 数据属性（两个相邻小分区）→「关系与属性」，内部分段切换
+        { key: 'decl', label: '关系与属性' },
+        // REQ-458：Spec 公理 + 透传公理 →「公理」，内部分段切换
         { key: 'axioms', label: '公理' },
         { key: 'ingest', label: 'CSV 灌装' },
       ],
@@ -102,21 +105,19 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
     {
       title: '质量与演进',
       items: [
-        { key: 'validate', label: '校验' },
-        { key: 'quality', label: '质量卡' },
+        // REQ-458：校验 + 质量卡 →「校验与质量」，纵向并置（先跑校验再看报告）
+        { key: 'quality', label: '校验与质量' },
         { key: 'versions', label: '版本与源码' },
-        { key: 'axioms-raw', label: '透传公理' },
-        { key: 'evolution', label: '进化' },
-        { key: 'impact', label: '影响分析' },
+        // REQ-458：进化 + 影响分析 →「演化与影响」，纵向并置
+        { key: 'evolution', label: '演化与影响' },
       ],
     },
     {
       title: '消费与引用',
       items: [
         { key: 'graph', label: '可视化' },
-        { key: 'references', label: '被引用' },
-        { key: 'artifacts', label: '产物' },
-        { key: 'export', label: 'TTL 导出' },
+        // REQ-458：被引用 + 产物 + TTL 导出（三个相邻小分区）→「引用与产物」，纵向并置
+        { key: 'outputs', label: '引用与产物' },
       ],
     },
   ]
@@ -125,6 +126,9 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
 export default function AssetsPage() {
   const { showToast } = useUI()
   const [tabKey, setTabKey] = useState<string | null>(null) // REQ-230②：显式切换优先；切本体回落默认规则
+  // REQ-458：合并分区内部分段视图（关系与属性 / 公理）——切本体回落默认段
+  const [declView, setDeclView] = useState<'rel' | 'prop'>('rel')
+  const [axView, setAxView] = useState<'spec' | 'raw'>('spec')
   const [ontos, setOntos] = useState<Ontology[]>([])
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [listErr, setListErr] = useState<string | null>(null)
@@ -181,11 +185,14 @@ export default function AssetsPage() {
       })
   }
 
-  // REQ-285⑤：切换本体重置分区——分型后两套模板键不相交，残留键（如 axioms）落空渲染
+  // REQ-285⑤：切换本体重置分区——分型后两套模板键不相交，残留键（如 outputs）落空渲染
   // REQ-363：切本体同步清空跨视图选择（旧实体身份不跨资产）
+  // REQ-458：合并分区内部分段视图同步回落（原两处 setTabKey(null) effect 并此一处）
   useEffect(() => {
     setTabKey(null)
     setOntoSel(null)
+    setDeclView('rel')
+    setAxView('spec')
   }, [activeId])
 
   // REQ-216⑦：伴生绑定本体清单（详情页「伴生候选」页签「对话生长」徽标判定）
@@ -363,10 +370,6 @@ export default function AssetsPage() {
       alive = false
     }
   }, [activeId, isCompActive])
-  // 切换选中本体时回落默认页签规则（REQ-230②）
-  useEffect(() => {
-    setTabKey(null)
-  }, [activeId])
   const validation = activeId ? validations[activeId] : undefined
   // 详情分区键（REQ-230② 规则保留：伴生型本体默认打开「伴生候选」分区，其余默认 Spec 编辑）
   // REQ-285⑤：伴生型默认分区=沉淀总览（REQ-230②「默认候选」口径变更——分型后总览为先）
@@ -799,23 +802,28 @@ export default function AssetsPage() {
                     onSpecSaved={refreshAfterSave}
                   />
                 </div>
-                {secKey === 'validate' && (
-                  <ValidatePane
-                    ontologyId={active.id}
-                    result={validation ?? null}
-                    onResult={(r) => setValidations((v) => ({ ...v, [active.id]: r }))}
-                  />
-                )}
+                {/* REQ-458：校验 + 质量卡 合并为「校验与质量」——先跑校验再看质量报告，纵向并置 */}
                 {secKey === 'quality' && (
-                  <QualityCardPane
-                    ontologyId={active.id}
-                    onReport={(r) => setQualityCache((m) => ({ ...m, [active.id]: r }))}
-                    onGoGraphEdit={() => setTabKey('graph-edit')} // REQ-331②：error finding 定位跳转（沿 REQ-235 onNeedEdit 先例）
-                  />
+                  <>
+                    <div className="onto-sec" style={{ marginTop: 0 }}>
+                      <span className="onto-sec-title">结构校验（JSON Schema + 引用完整性）</span>
+                    </div>
+                    <ValidatePane
+                      ontologyId={active.id}
+                      result={validation ?? null}
+                      onResult={(r) => setValidations((v) => ({ ...v, [active.id]: r }))}
+                    />
+                    <div className="onto-sec" style={{ marginTop: 18 }}>
+                      <span className="onto-sec-title">质量卡（评估报告与 strict 门禁）</span>
+                    </div>
+                    <QualityCardPane
+                      ontologyId={active.id}
+                      onReport={(r) => setQualityCache((m) => ({ ...m, [active.id]: r }))}
+                      onGoGraphEdit={() => setTabKey('graph-edit')} // REQ-331②：error finding 定位跳转（沿 REQ-235 onNeedEdit 先例）
+                    />
+                  </>
                 )}
                 {secKey === 'versions' && <SourceView ontologyId={active.id} currentVersion={active.version} spec={spec} onRestored={refreshAfterSave} />}
-                {secKey === 'axioms-raw' && !isCompActive && <AxiomsRawPane key={active.id} ontologyId={active.id} />}
-                {secKey === 'artifacts' && <ArtifactsPane ontologyId={active.id} />}
                 {secKey === 'graph' && (isCompActive
                   // REQ-285①：伴生型「沉淀总览」直挂伴生成长图（spec 2D/3D/WebVOWL 对空 spec 无意义）
                   // REQ-297 §十九：图级操作入口归位——「挖掘关系」按钮+内联进度在此（完成自动刷新）
@@ -836,20 +844,81 @@ export default function AssetsPage() {
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'community' && isCompActive && <CommunityPane key={active.id} ontologyId={active.id} />}
-                {secKey === 'evolution' && <EvolutionPane key={active.id} ontologyId={active.id} />}
-                {secKey === 'impact' && !isCompActive && (
-                  <ImpactPane ontology={active} />
+                {/* REQ-458：进化 + 影响分析 合并为「演化与影响」——候选裁决与变更波及同区，纵向并置 */}
+                {secKey === 'evolution' && (
+                  <>
+                    <div className="onto-sec" style={{ marginTop: 0 }}>
+                      <span className="onto-sec-title">进化候选（诊断 → 配对门控 → 采纳）</span>
+                    </div>
+                    <EvolutionPane key={active.id} ontologyId={active.id} />
+                    <div className="onto-sec" style={{ marginTop: 18 }}>
+                      <span className="onto-sec-title">变更影响分析（版本 diff × 引用波及）</span>
+                    </div>
+                    <ImpactPane ontology={active} />
+                  </>
                 )}
                 {secKey === 'companion' && <OntologyCompanionPane key={active.id} ontologyId={active.id} />}
+                {/* 伴生型模板的「被引用」独立分区（普通型已并入「引用与产物」，REQ-458） */}
                 {secKey === 'references' && <ReferencesPane key={active.id} ontologyId={active.id} />}
+                {/* REQ-458：被引用 + 产物 + TTL 导出 合并为「引用与产物」——三段纵向并置 */}
+                {secKey === 'outputs' && !isCompActive && (
+                  <>
+                    <div className="onto-sec" style={{ marginTop: 0 }}>
+                      <span className="onto-sec-title">被引用（运行方案 / KB 词表 / 伴生绑定）</span>
+                    </div>
+                    <ReferencesPane key={active.id} ontologyId={active.id} />
+                    <div style={{ marginTop: 18 }}>
+                      <ArtifactsPane ontologyId={active.id} />
+                    </div>
+                    <div style={{ marginTop: 18 }}>
+                      <ExportPane ontology={active} />
+                    </div>
+                  </>
+                )}
                 {secKey === 'graph-edit' && (
                   // REQ-326③：Maximizeable「最大化编辑」页内最大化补丁退役——详情已升页级工作区
                   <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
                 )}
-                {secKey === 'reltypes' && active && <RelationTypesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />}
-                {secKey === 'dataprops' && active && <DataPropertiesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />}
-                {secKey === 'axioms' && <AxiomsPane spec={spec} />}
-                {secKey === 'export' && <ExportPane ontology={active} />}
+                {/* REQ-458：关系类型 + 数据属性 合并为「关系与属性」——分段切换两个声明编辑器 */}
+                {secKey === 'decl' && (
+                  <>
+                    <Segmented
+                      value={declView}
+                      onChange={(v) => setDeclView(v as 'rel' | 'prop')}
+                      options={[
+                        { value: 'rel', label: '关系类型' },
+                        { value: 'prop', label: '数据属性' },
+                      ]}
+                      style={{ marginBottom: 12 }}
+                      data-testid="decl-segmented"
+                    />
+                    {declView === 'rel' ? (
+                      <RelationTypesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />
+                    ) : (
+                      <DataPropertiesPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />
+                    )}
+                  </>
+                )}
+                {/* REQ-458：Spec 公理 + 透传公理 合并为「公理」——分段切换（建模声明 / 导入存档） */}
+                {secKey === 'axioms' && (
+                  <>
+                    <Segmented
+                      value={axView}
+                      onChange={(v) => setAxView(v as 'spec' | 'raw')}
+                      options={[
+                        { value: 'spec', label: 'Spec 公理（建模声明）' },
+                        { value: 'raw', label: '透传公理（导入存档）' },
+                      ]}
+                      style={{ marginBottom: 12 }}
+                      data-testid="axioms-segmented"
+                    />
+                    {axView === 'spec' ? (
+                      <AxiomsPane spec={spec} />
+                    ) : (
+                      <AxiomsRawPane key={active.id} ontologyId={active.id} />
+                    )}
+                  </>
+                )}
                 {secKey === 'ingest' && (
                   <CsvIngestPane ontologyId={active.id} spec={spec} onIngested={() => refreshAfterSave()} />
                 )}

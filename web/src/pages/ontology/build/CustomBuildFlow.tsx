@@ -52,6 +52,8 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
   const [activeId, setActiveId] = useState<string | null>(readCustomOnto)
   const [spec, setSpec] = useState<Spec | null>(null)
   const [specTick, setSpecTick] = useState(0)
+  // REQ-459：S1Source 重挂载序号——创建成功 +1 触发来源面板全新会话
+  const [s1Seq, setS1Seq] = useState(0)
 
   const goto = (s: number) => {
     const n = Math.max(0, Math.min(3, s))
@@ -83,6 +85,12 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
     if (selectId) {
       setActiveId(selectId)
       localStorage.setItem(CUSTOM_ONTO_KEY, selectId)
+      // REQ-459：完成即新会话——创建/导入成功即清来源面板草稿并整体重挂载（S1Source key 递增），
+      // 返回①时表单/报告/草案全新（治「完成后回看旧内容残留」；沿 ImportMergeWizard reset-on-close 先例）。
+      // 来源 tab 记忆（eino.onto.s1tab）保留——用户偏好与表单内容分治。
+      clearDraft('custom-import-report')
+      clearDraft('custom-ai-draft')
+      setS1Seq((n) => n + 1)
     }
     setSpecTick((t) => t + 1)
     if (selectId) goto(1)
@@ -102,9 +110,10 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
         }))}
         style={{ marginBottom: 14 }}
       />
-      {/* 草稿暂存：四步面板常驻挂载（显隐切换），跨步不丢中间态 */}
+      {/* 草稿暂存：四步面板常驻挂载（显隐切换），跨步不丢中间态；
+          REQ-459 例外：S1 来源面板在创建成功时整体重挂载（完成即新会话，key=s1Seq） */}
       <div style={{ display: step === 0 ? 'block' : 'none' }}>
-        <S1Source onCreated={handleCreated} onGoKbPath={onGoKbPath} onGoOntoChat={onGoOntoChat} />
+        <S1Source key={s1Seq} onCreated={handleCreated} onGoKbPath={onGoKbPath} onGoOntoChat={onGoOntoChat} />
       </div>
       <div style={{ display: step === 1 ? 'block' : 'none' }}>
         {activeId ? (
