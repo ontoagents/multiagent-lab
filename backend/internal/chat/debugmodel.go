@@ -65,11 +65,19 @@ func (d *debugRecorder) step(agent string, dur time.Duration, input []*schema.Me
 		"input_count": len(input),
 	}
 	if usage != nil {
-		data["usage"] = map[string]any{
+		u := map[string]any{
 			"prompt_tokens":     usage.PromptTokens,
 			"completion_tokens": usage.CompletionTokens,
 			"total_tokens":      usage.TotalTokens,
 		}
+		// REQ-453/M249：cache 命中观测（eino v0.9.21+ PromptTokenDetails；非零才透出）
+		if usage.PromptTokenDetails.CachedTokens > 0 {
+			u["cached_tokens"] = usage.PromptTokenDetails.CachedTokens
+		}
+		if usage.PromptTokenDetails.CacheWriteTokens > 0 {
+			u["cache_write_tokens"] = usage.PromptTokenDetails.CacheWriteTokens
+		}
+		data["usage"] = u
 	}
 	if finish != "" {
 		data["finish_reason"] = finish

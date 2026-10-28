@@ -419,7 +419,9 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 
 	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
 	// WithCheckPointID（M11 收尾）：中断时 ADK 自动存 checkpoint，供 Resume 定向恢复
-	rc.consume(rt.Runner.Run(runCtx, histMsgs, adk.WithCheckPointID(checkPointIDOf(runID))))
+		// REQ-453/M249：callbacks 统一执行观测面（model/tool 计时/错误/token 落 obs.timing，
+	// level>0 才激活——与 model.step 同门控；debugModel 维持现状评估结论见 callbacks.go 注）
+	rc.consume(rt.Runner.Run(runCtx, histMsgs, adk.WithCheckPointID(checkPointIDOf(runID)), adk.WithCallbacks(&obsHandler{level: DebugLevel(debug)})))
 	rc.subagentLeave(rc.lastAgent)
 
 	// 4)+5) run 收尾单源（REQ-390①/M186：assistant 落库+finishData+终态事件+verify 背压+
@@ -1202,7 +1204,7 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 
 	iter, err := rt.Runner.ResumeWithParams(runCtx, st.CheckpointID, &adk.ResumeParams{
 		Targets: map[string]any{st.TargetID: answer},
-	})
+	}, adk.WithCallbacks(&obsHandler{level: DebugLevel(debug)})) // REQ-453/M249 观测面同门控
 	if err != nil {
 		s.emitAndRecord(runCtx, conv, runID, newEvent("run.error", runID, map[string]any{
 			"code": "resume_failed", "message": err.Error(), "elapsed_ms": time.Since(start).Milliseconds(),
