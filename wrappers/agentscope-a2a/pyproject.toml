@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentscope-a2a"
+version = "0.1.0"
+description = "AgentScope A2A wrapper for the agent platform (opt-in, out-of-tree) — REQ-463/M263"
+requires-python = ">=3.10"
+# 零强制依赖：stub 模式纯标准库；真模型模式自行 pip install agentscope
+dependencies = []
+
+[project.optional-dependencies]
+agentscope = ["agentscope>=0.1"]
+
+[tool.setuptools.packages.find]
+include = ["agentscope_a2a*"]
