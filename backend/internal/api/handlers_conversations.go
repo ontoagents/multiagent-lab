@@ -210,3 +210,52 @@ func (s *Server) conversationStateLog(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, logs)
 }
+
+// forkConversation POST /api/conversations/{id}/fork — REQ-478③ 派生会话：
+// 以源会话当前配置+全量已落库消息派生新会话（标题「（派生）」后缀，可 body.title 覆盖）；
+// 过程事件/挂起状态/todo 留原会话不拷贝（派生=继续对话，非完整快照——诚实边界）。
+func (s *Server) forkConversation(w http.ResponseWriter, r *http.Request) {
+	src, err := s.Store.GetConversation(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var body struct {
+		Title string `json:"title"`
+	}
+	if r.Body != nil {
+		_ = decodeJSON(r, &body) // body 可选；坏载荷按无 title 处理
+	}
+	nc := *src
+	nc.ID = ""
+	nc.CreatedAt = ""
+	nc.UpdatedAt = ""
+	nc.InterruptState = ""
+	nc.ContextState = ""
+	nc.TodoJSON = ""
+	nc.Title = strings.TrimSpace(body.Title)
+	if nc.Title == "" {
+		nc.Title = strings.TrimSpace(src.Title)
+		if nc.Title == "" {
+			nc.Title = "对话"
+		}
+		nc.Title += "（派生）"
+	}
+	created, err := s.Store.CreateConversation(&nc)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	msgs, err := s.Store.ListMessages(src.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	for _, m := range msgs {
+		if _, err := s.Store.InsertMessage(&store.Message{ConversationID: created.ID, Role: m.Role, Content: m.Content, Meta: m.Meta}); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, created)
+}

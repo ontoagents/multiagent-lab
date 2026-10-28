@@ -15,7 +15,7 @@ import TraceDrawer from './TraceDrawer'
 import HighlightSpans from './HighlightSpans'
 import { AgentLogo } from './AgentLogo'
 import { groupToolPhases, ToolPhaseBlock, type ToolPhaseGroup } from './ToolPhase'
-import { groupRunBlocks, RunBlockView, isRunBlock } from './RunBlock'
+import { groupRunBlocks, RunBlockView, RunMetaLine, isRunBlock } from './RunBlock'
 import type {
   Agent,
   Conversation,
@@ -61,6 +61,59 @@ const fmtWall = (ms: number): string => {
   return m > 0 ? `${m} 分 ${String(s % 60).padStart(2, '0')} 秒` : `${s} 秒`
 }
 
+/** REQ-478①：思考行（详略分档）——live 默认收起，思考内容行内**单行滚动**（超宽来回 marquee，
+ *  随流式增量周期重测；工具行/委派/正文分段等重点过程照常展开呈现），点击展开全文；
+ *  完成后收起+「持续 Xs · N 字」。开合记忆由 ChatWindow.reasoningOpen 承载（evKey 稳定键）。 */
+function ThinkRow({ it, open, onToggle, style }: { it: ChatItem; open: boolean; onToggle: () => void; style?: CSSProperties }) {
+  const len = it.reasoning?.length ?? 0
+  const streaming = !!it.streamKey
+  const boxRef = useRef<HTMLSpanElement | null>(null)
+  const txtRef = useRef<HTMLSpanElement | null>(null)
+  useEffect(() => {
+    if (!streaming || open) return
+    const box = boxRef.current
+    const txt = txtRef.current
+    if (!box || !txt) return
+    const measure = () => {
+      const over = txt.scrollWidth - box.clientWidth
+      if (over > 8) {
+        txt.style.setProperty('--roll-x', `${-over}px`)
+        txt.style.setProperty('--roll-dur', `${Math.max(4, Math.min(14, over / 30))}s`)
+        txt.classList.add('rolling')
+      } else {
+        txt.classList.remove('rolling')
+      }
+    }
+    measure()
+    const timer = window.setInterval(measure, 1000)
+    return () => {
+      window.clearInterval(timer)
+      txt.classList.remove('rolling')
+    }
+  }, [streaming, open, len])
+  const meta = [
+    typeof it.reasonMs === 'number' ? `持续 ${fmtDur(it.reasonMs)}` : '',
+    len ? `${len} 字` : '',
+  ].filter(Boolean).join(' · ')
+  return (
+    <div className="think-row" style={style} data-testid="think-row">
+      <div className="think-head" onClick={onToggle} title={open ? '收起思考过程' : '展开思考过程'}>
+        <span aria-hidden>🧠</span>
+        <span>思考</span>
+        {streaming && <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />}
+        {meta && <span className="think-meta">· {meta}</span>}
+        {!open && len > 0 && (
+          <span className="think-peek" ref={boxRef}>
+            <span className="think-peek-text" ref={txtRef}>{it.reasoning}</span>
+          </span>
+        )}
+        <span className={`think-caret${open ? ' open' : ''}`} aria-hidden />
+      </div>
+      {open && len > 0 && <pre className="thinking think-body">{it.reasoning}</pre>}
+    </div>
+  )
+}
+
 export default function ChatWindow({
   conversation,
   agents,
@@ -79,7 +132,7 @@ export default function ChatWindow({
    *  经 useEffect 写入输入框（会话切换复用实例时也能到达），非挂载期一次性。 */
   initialDraft?: string
 }) {
-  const { bumpData, showToast } = useUI()
+  const { bumpData, showToast, setCurrentConv } = useUI()
   const isProjectScope = conversation.scope === 'project'
 
   const project = isProjectScope
@@ -319,7 +372,7 @@ export default function ChatWindow({
           const desc = describeEvent(e.type, d)
           timeline.push({
             ts: e.created_at,
-            item: { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d },
+            item: { kind: 'event', evType: e.type, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: d, ts: e.created_at },
           })
         }
         timeline.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
@@ -657,34 +710,18 @@ export default function ChatWindow({
   }
 
   const renderEventCard = (it: ChatItem, i: number) => {
-    // REQ-477②：思考紧凑行（ZCode 式「思考 · 持续 Xs · N 字」单行可折叠）——替代 ThoughtChain 节点；
-    // 展开状态口径沿 REQ-135：流式中默认展开、结束默认收起，手动开合按 evKey 记忆（历史重载不丢）
+    // REQ-478①：思考行详略分档——live 亦默认收起（内容单行滚动），点击展开全文；记忆沿 evKey
     if (it.evType === 'reasoning') {
-      const len = it.reasoning?.length ?? 0
       const cardKey = it.evKey ?? `reasoning-${i}`
-      const streaming = !!it.streamKey
-      const open = reasoningOpen[cardKey] ?? streaming
-      const meta = [
-        typeof it.reasonMs === 'number' ? `持续 ${fmtDur(it.reasonMs)}` : '',
-        len ? `${len} 字` : '',
-      ].filter(Boolean).join(' · ')
+      const open = reasoningOpen[cardKey] ?? false
       return (
-        <div key={i} className="think-row" style={depthStyle(it.subDepth)} data-testid="think-row">
-          <div
-            className="think-head"
-            onClick={() => setReasoningOpen((prev) => ({ ...prev, [cardKey]: !open }))}
-            title={open ? '收起思考过程' : '展开思考过程'}
-          >
-            <span aria-hidden>🧠</span>
-            <span>思考</span>
-            {streaming && <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />}
-            {meta && <span className="think-meta">· {meta}</span>}
-            <span className={`think-caret${open ? ' open' : ''}`} aria-hidden />
-          </div>
-          {open && len > 0 && (
-            <pre className="thinking think-body">{it.reasoning}</pre>
-          )}
-        </div>
+        <ThinkRow
+          key={i}
+          it={it}
+          open={open}
+          onToggle={() => setReasoningOpen((prev) => ({ ...prev, [cardKey]: !open }))}
+          style={depthStyle(it.subDepth)}
+        />
       )
     }
     if (it.evType === 'model.step') {
@@ -1041,6 +1078,8 @@ export default function ChatWindow({
                 extraInfo: { streaming: false },
               })
             }
+            // REQ-478②：轮次元信息条（文件 N/耗时/tokens/收尾时刻）——回答之下、下一问之上
+            out.push({ key: `${prefix}rbm${bi}`, role: 'event', content: <RunMetaLine summary={it.summary} /> })
           } else {
             walk(it.body) // live/ended：按时间顺序平铺（时间交错呈现）
           }
@@ -1202,12 +1241,34 @@ export default function ChatWindow({
 
   // REQ-409/M205：消息级操作——复制 / 重新生成（最后一条 user 消息原样重发）/ 编辑重发
   //（沿 Q-6 不追溯语义：不删历史，自当前消息开新轮）
+  // REQ-478③：引用（blockquote 预填输入框）/ 派生会话（fork 端点拷贝配置与全量消息，创建后直跳）
   const copyMessage = async (content: string) => {
     try {
       await navigator.clipboard.writeText(content)
       showToast('已复制')
     } catch {
       showToast('复制失败（浏览器剪贴板不可用）', 'err')
+    }
+  }
+  const quoteMessage = (content: string) => {
+    const t = content.length > 220 ? `${content.slice(0, 220)}…` : content
+    const q = t.split('\n').map((l) => `> ${l}`).join('\n')
+    setInput((v) => (v ? `${v}\n${q}\n\n` : `${q}\n\n`))
+    showToast('已引用到输入框')
+  }
+  const [forking, setForking] = useState(false)
+  const forkSession = async () => {
+    if (forking || running) return
+    setForking(true)
+    try {
+      const c = await api.forkConversation(conversation.id)
+      bumpData()
+      setCurrentConv(c.id)
+      showToast(`已派生新会话「${c.title}」——历史已带上，过程事件留原会话`)
+    } catch (e: any) {
+      showToast(e?.message ?? '派生会话失败', 'err')
+    } finally {
+      setForking(false)
     }
   }
   const lastUserText = (): string | null => {
@@ -1275,6 +1336,14 @@ export default function ChatWindow({
               <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
                 复制
               </Button>
+              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => quoteMessage(text)}>
+                引用
+              </Button>
+              {!isProjectScope && (
+                <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} disabled={forking} onClick={forkSession} data-testid="fork-btn">
+                  派生会话
+                </Button>
+              )}
               <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} disabled={running} onClick={regenerate}>
                 重新生成
               </Button>
@@ -1285,7 +1354,7 @@ export default function ChatWindow({
     }
     return roles
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, running, cmp.on, cmp.panes.length])
+  }, [items, running, cmp.on, cmp.panes.length, forking, conversation.id])
   const startEditMsg = (content: string) => {
     setEditingMsg(content)
     setEditText(content)
@@ -1704,7 +1773,8 @@ export default function ChatWindow({
           <>
             {/* REQ-311 B4/M115：todo 产物卡——todo_write 机器侧清单（conversation.todo_json），run 收尾刷新可见 */}
             <TodoCard todoJson={conversation.todo_json} />
-            <Bubble.List items={listItems} role={BUBBLE_ROLES} />
+            {/* REQ-478③：主路径切 action-enabled roles（复制/引用/派生会话/重新生成+用户消息操作行）——原主路径无操作钮 */}
+            <Bubble.List items={listItems} role={bubbleRoles} />
           </>
         )}
         {running && runStart != null && (

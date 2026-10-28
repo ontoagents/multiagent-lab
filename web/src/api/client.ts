@@ -236,6 +236,9 @@ export const api = {
     }),
   deleteConversation: (id: string) => req<{ deleted: string }>(`/api/conversations/${id}`, { method: 'DELETE' }),
   listMessages: (id: string) => req<Message[]>(`/api/conversations/${id}/messages`),
+  /** REQ-478③：派生会话——拷贝当前配置与全量落库消息成新会话（过程事件留原会话） */
+  forkConversation: (id: string, title?: string) =>
+    req<Conversation>(`/api/conversations/${id}/fork`, { method: 'POST', body: JSON.stringify(title ? { title } : {}) }),
   // M27/REQ-166：平台助手配置与 AI 内容优化
   assistantConfigGet: () =>
     req<{ system_prompt?: string; model_conn_id?: string; temperature?: number | null }>('/api/assistant/config'),

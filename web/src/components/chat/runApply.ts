@@ -22,6 +22,7 @@ export interface ChatItem {
   seg?: boolean // REQ-477①：回放 message.segment 以段代显的助手正文段（块体内淡一档；末段可被提升为最终回答）
   reasonStart?: number // REQ-477②：本步思考起始时刻（live；sealReasoning 封口时折算 reasonMs）
   reasonMs?: number // REQ-477②：本步思考耗时（「思考 · 持续 Xs」行显示；回放卡无此数据只显字数）
+  ts?: string // REQ-478②：条目时刻（live=本地时钟，回放=事件 created_at）——轮次元信息条「当时的时间」数据源
 }
 
 /** 会话挂起中断卡数据（run.interrupted payload → 组件状态；实时与对比窗格共用） */
@@ -63,7 +64,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
           }
         }
       }
-      const ev: ChatItem = { kind: 'event', evType: event, eventText: desc.text, evData: payload }
+      const ev: ChatItem = { kind: 'event', evType: event, eventText: desc.text, evData: payload, ts: new Date().toISOString() }
       if (event === 'run.finished') {
         // REQ-330⑤：完成卡排在流式助手消息之后（回放按时间戳本就合并到答案下方——live 对齐回放位，
         // 治「完成卡插答案上方、自动滚动钉尾时在视口外，切会话才可见」）
@@ -77,7 +78,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
       const desc = describeEvent(event, payload)
       const next = sealReasoning([...prev])
       closeTailSegment(next)
-      next.push({ kind: 'event', evType: event, eventText: desc.text, evData: payload })
+      next.push({ kind: 'event', evType: event, eventText: desc.text, evData: payload, ts: new Date().toISOString() })
       return next
     }
     case 'reasoning.delta': {
@@ -114,7 +115,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
         if (!last.content) next.pop()
         else next[ti] = { ...last, streaming: false }
       }
-      const ev: ChatItem = { kind: 'event', evType: 'run.error', eventErr: true, eventText: `⚠ ${msg}`, evData: payload }
+      const ev: ChatItem = { kind: 'event', evType: 'run.error', eventErr: true, eventText: `⚠ ${msg}`, evData: payload, ts: new Date().toISOString() }
       return [...next, ev]
     }
     default:
@@ -134,7 +135,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
         const desc = describeEvent(event, payload)
         const next = sealReasoning([...prev])
         closeTailSegment(next)
-        next.push({ kind: 'event', evType: event, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: payload })
+        next.push({ kind: 'event', evType: event, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: payload, ts: new Date().toISOString() })
         return next
       }
       return prev

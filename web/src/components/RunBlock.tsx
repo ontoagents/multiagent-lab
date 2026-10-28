@@ -26,6 +26,8 @@ export interface RunBlockSummary {
   paused?: boolean // run.finished(reason=interrupted)
   err?: boolean // run.error
   warn?: boolean // verify_failed
+  files?: { name?: string; path?: string; size?: number }[] // REQ-478②：artifact.saved 聚合（save_file 平台内写盘产物，按 path 去重保末次）
+  endedAt?: string // REQ-478②：run 收尾时刻（终态事件 ts——live=本地时钟，回放=事件 created_at）
 }
 
 /** 归组后的整轮运行块（挂到条目流中；live/ended 平铺渲染，done 收起渲染） */
@@ -47,6 +49,7 @@ function buildSummary(body: any[], terminal: any): RunBlockSummary {
   let failedTools = 0
   let reasoningChars = 0
   const byName = new Map<string, { n: number; ms: number }>()
+  const files = new Map<string, { name?: string; path?: string; size?: number }>()
   const countCall = (name: string, source: string) => {
     tools++
     if (source.startsWith('agent:')) {
@@ -85,9 +88,15 @@ function buildSummary(body: any[], terminal: any): RunBlockSummary {
       }
     }
     if (b.evType === 'reasoning') reasoningChars += b.reasoning?.length ?? 0
+    // REQ-478②：本轮 save_file 产物聚合（artifact.saved 按 path 去重，同路径保末次 size）
+    if (b.evType === 'artifact.saved' && b.evData?.path) {
+      files.set(String(b.evData.path), { name: b.evData.name, path: b.evData.path, size: b.evData.size })
+    }
   }
   const delegates = [...byName.entries()].map(([name, v]) => `${name}×${v.n}${v.ms > 0 ? `·${fmtMs(v.ms)}` : ''}`).join('、')
   const s: RunBlockSummary = { tools, failedTools, delegates, reasoningChars }
+  if (files.size > 0) s.files = [...files.values()]
+  if (terminal?.ts) s.endedAt = String(terminal.ts)
   if (terminal?.evType === 'run.error') {
     s.err = true
     s.elapsedMs = typeof terminal.evData?.elapsed_ms === 'number' ? terminal.evData.elapsed_ms : undefined
@@ -229,6 +238,59 @@ export function RunBlockView({ block, renderItem }: { block: RunBlockItem; rende
         <div className="run-block-body" data-testid="run-block-body">
           {block.body.map((it, i) => renderItem(it, String(i)))}
         </div>
+      )}
+    </div>
+  )
+}
+
+const fmtSize = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+
+/** REQ-478②：轮次元信息条（done 轮最终回答下方一行）——文件 N（artifact.saved 聚合，可展开明细）/
+ *  耗时/tokens/收尾时刻；无任何信息时不渲染（纯问答轮不出现）。 */
+export function RunMetaLine({ summary }: { summary: RunBlockSummary }) {
+  const [filesOpen, setFilesOpen] = useState(false)
+  const s = summary
+  const parts: string[] = []
+  if (typeof s.elapsedMs === 'number' && s.elapsedMs > 0) parts.push(`耗时 ${fmtMs(s.elapsedMs)}`)
+  if (s.usage?.total) parts.push(`tokens ${s.usage.prompt ?? 0}+${s.usage.completion ?? 0}=${s.usage.total}`)
+  let timeTxt = ''
+  if (s.endedAt) {
+    const d = new Date(s.endedAt)
+    if (!Number.isNaN(d.getTime())) {
+      timeTxt = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    }
+  }
+  const files = s.files ?? []
+  if (files.length === 0 && parts.length === 0 && !timeTxt) return null
+  return (
+    <div className="msg-meta" data-testid="msg-meta">
+      <div className="msg-meta-line">
+        {files.length > 0 && (
+          <button
+            type="button"
+            className="msg-meta-files"
+            onClick={() => setFilesOpen((o) => !o)}
+            title="本轮 save_file 产物（点击展开明细）"
+          >
+            <span className={`msg-meta-caret${filesOpen ? ' open' : ''}`} aria-hidden />
+            🗂 {files.length} 个文件
+          </button>
+        )}
+        {parts.map((p) => (
+          <span key={p} className="msg-meta-part">{p}</span>
+        ))}
+        {timeTxt && <span className="msg-meta-time">{timeTxt}</span>}
+      </div>
+      {filesOpen && files.length > 0 && (
+        <ul className="msg-meta-filelist">
+          {files.map((f, i) => (
+            <li key={f.path ?? i}>
+              <span className="msg-meta-fname">{f.name || f.path}</span>
+              {f.path && f.name && f.path !== f.name ? <span className="msg-meta-fpath">{f.path}</span> : null}
+              {typeof f.size === 'number' && f.size > 0 ? <span className="msg-meta-fsize">{fmtSize(f.size)}</span> : null}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

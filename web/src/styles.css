@@ -410,6 +410,55 @@ body { font-size: 14px; background: var(--c-bg); }
 }
 .think-caret.open { transform: rotate(-90deg); }
 .think-body { margin: 0 0 0 2px; }
+/* REQ-478①：思考行单行滚动（live 收起态内容预览，超宽来回 marquee——沿 tool-args roll 机制） */
+.think-peek {
+  flex: 1 1 auto; min-width: 0; max-width: 420px;
+  overflow: hidden; white-space: nowrap;
+  color: var(--ant-color-text-tertiary, #9ca3af); font-size: 11.5px;
+  mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+.think-peek-text { display: inline-block; }
+.think-peek-text.rolling {
+  animation: think-peek-roll var(--roll-dur, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes think-peek-roll {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--roll-x, -40px)); }
+}
+
+/* REQ-478②：轮次元信息条（done 轮回答下方——文件 N 可展开/耗时/tokens/收尾时刻） */
+.msg-meta {
+  margin: 6px 0 4px calc(44px + var(--sub-depth, 0) * 14px);
+  max-width: min(760px, calc(100% - 44px - var(--sub-depth, 0) * 14px));
+  font-size: 11.5px; color: var(--c-ink-3);
+}
+.msg-meta-line { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.msg-meta-files {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; padding: 2px 6px; border-radius: 6px;
+  font: inherit; color: var(--c-ink-2); cursor: pointer;
+}
+.msg-meta-files:hover { background: var(--c-bg-soft); color: var(--c-ink); }
+.msg-meta-caret {
+  width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid currentColor; opacity: .55;
+  transition: transform .15s ease;
+}
+.msg-meta-caret.open { transform: rotate(-90deg); }
+.msg-meta-part, .msg-meta-time { white-space: nowrap; }
+.msg-meta-time { font-family: var(--mono, monospace); font-size: 10.5px; opacity: .85; }
+.msg-meta-filelist {
+  list-style: none; margin: 4px 0 0; padding: 4px 0 2px;
+  border-top: 1px dashed var(--c-line);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.msg-meta-filelist li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.msg-meta-fname { color: var(--c-ink-2); font-weight: 500; }
+.msg-meta-fpath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: .8; }
+.msg-meta-fsize { flex: none; font-family: var(--mono, monospace); font-size: 10.5px; opacity: .75; }
 
 /* 深度思考（思考行展开内 pre） */
 pre.thinking {
