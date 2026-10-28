@@ -4,6 +4,7 @@ import { CheckCircleOutlined, CloseCircleOutlined, LeftOutlined, RightOutlined }
 import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
+import PathIntro from '../build/PathIntro'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
 import { useOntologies } from '../shared/useOntoList'
 
@@ -287,12 +288,10 @@ export default function OntoExtendFlow() {
 
   return (
     <Card className="work-card" size="small">
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="演化路径——对已交付本体做增量扩展（REQ-339/REQ-343 双模式）"
-        description="不新建本体：ODP 模式扩展=人工精选设计模式与 LOV 词表补全；CQ 驱动扩展=以能力问题为需求输入，检索目标本体相关元素（RAG）后由模型生成扩展片段（两阶段校验，失败不静默入库），经导入审查与质量门禁后并入新版本。也可从「本体资产」详情页点「演化」携本体直达。"
+      {/* REQ-485/M284：开场 Alert 降格一句目的 */}
+      <PathIntro
+        purpose="对已交付本体做增量扩展，不新建本体；扩展片段经审查与质量门禁后并入新版本。"
+        detail="ODP 模式扩展=人工精选设计模式与 LOV 词表补全；CQ 驱动扩展=以能力问题为需求输入，检索目标本体相关元素（RAG）后由模型生成扩展片段（两阶段校验，失败不静默入库）。也可从「本体资产」详情页点「演化」携本体直达。"
       />
       <div style={{ marginBottom: 12 }} data-testid="extend-mode-seg">
         <Segmented

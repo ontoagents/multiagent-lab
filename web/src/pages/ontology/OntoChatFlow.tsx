@@ -15,6 +15,7 @@ import { SafetyOutlined, ApartmentOutlined, DeleteOutlined, DownOutlined, FileTe
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
+import PathIntro from './build/PathIntro'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
 import AgentChannelModal from './components/ontochat/AgentChannelModal'
@@ -521,12 +522,10 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
 
   return (
     <Card className="work-card" size="small">
-      <Alert
-        type="success"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="对话式本体构建（OntoChat 流程，REQ-103 模式 A；REQ-271 生成异步化）"
-        description="对话式 CQ 引导 → 逐轮补全领域信息 → 「生成草稿」异步产出 spec_json（生成-校验循环后端内聚；进度可看、可取消、失败留痕可重试）→ 预览确认入库。右上「提示词」可查看实际注入模型的提示词（只读）。"
+      {/* REQ-485/M284：开场 Alert 降格一句目的（机制描述收「详情」Tooltip，REQ 编号移出用户面） */}
+      <PathIntro
+        purpose="对话式 CQ 引导：访谈问答中长出本体，生成草稿异步校验后预览入库。"
+        detail="流程：对话式 CQ 引导 → 逐轮补全领域信息 → 「生成草稿」异步产出 spec_json（生成-校验循环后端内聚；进度可看、可取消、失败留痕可重试）→ 预览确认入库。右上「提示词」可查看实际注入模型的提示词（只读）。"
       />
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         {/* 会话列表 */}

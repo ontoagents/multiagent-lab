@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Typography } from 'antd'
 import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import OntoExtendFlow from './components/OntoExtendFlow'
@@ -83,7 +84,20 @@ export default function BuildPage() {
         />
       )}
       {buildPath === 'ontochat' && <OntoChatFlow onSaved={() => { /* 入库后产物进资产栏；此处留在会话页展示 done 态 */ }} />}
-      {buildPath === 'kb' && (<><KbBuildFlow /><StructuredFlow /></>)}
+      {buildPath === 'kb' && (
+        <>
+          <KbBuildFlow />
+          {/* REQ-485/M284：双向导视觉分界——结构化映射是「另一种方式」（次级段落，非同流程第二步） */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '20px 0 10px', flexWrap: 'wrap' }} data-testid="kb-structured-divider">
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>另一种方式：从结构化数据推导</span>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              有 CSV / JSON 表格数据（非知识库语料）时，直接映射本体骨架
+            </Typography.Text>
+            <span style={{ flex: 1, borderBottom: '1px dashed var(--c-border, #e6e8f0)', alignSelf: 'center' }} />
+          </div>
+          <StructuredFlow />
+        </>
+      )}
       {buildPath === 'kg' && <KgGuidePage />}
       {buildPath === 'ontoextend' && <OntoExtendFlow />}
       {buildPath === 'catalog' && (

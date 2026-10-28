@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Tag, Typography } from 'antd'
+import { Typography } from 'antd'
 import { AppstoreOutlined } from '@ant-design/icons'
 import { PATHS, STATE_TAG, type BuildPath } from './paths'
 
@@ -20,21 +20,12 @@ export default function BuildLayout({
 }) {
   return (
     <div className="work-main">
-      <div className="work-head">
-        <div className="work-head-text">
-          <div className="work-head-title">
-            <Typography.Title level={4} style={{ margin: 0 }}>
-              本体构建
-            </Typography.Title>
-            <Tag color="blue" style={{ margin: 0 }}>六条构建路径</Tag>
-          </div>
-          {/* REQ-484/M283：desc 精简——「产物进资产」全站只页脚提示一处（原与本页页脚/卡片重复三现） */}
-          <p className="work-head-desc">选择一条路径开始；路径间可随时切换。</p>
-        </div>
-      </div>
-
-      {/* 顶栏路径切换器（REQ-337：六路径页面化后各页共用的常驻导航） */}
-      <div className="build-path-tabs" role="tablist" aria-label="构建路径切换" data-testid="build-path-tabs">
+      {/* REQ-485/M284：work-head 与路径页签合并一行——压缩公共壳（原 ~170px chrome 才见正文） */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12, flexWrap: 'wrap' }} data-testid="build-shell-head">
+        <Typography.Title level={5} style={{ margin: 0, flex: 'none' }}>
+          本体构建
+        </Typography.Title>
+        <div className="build-path-tabs" role="tablist" aria-label="构建路径切换" data-testid="build-path-tabs" style={{ marginBottom: 0, padding: '0 0 4px', borderBottom: 'none' }}>
         <button
           type="button"
           role="tab"
@@ -62,9 +53,12 @@ export default function BuildLayout({
             <span className={`build-path-dot state-${p.state}`} title={STATE_TAG[p.key].text} />
           </button>
         ))}
+        </div>
       </div>
 
       <div className="build-path-body">{children}</div>
     </div>
   )
 }
+// 注：REQ-485 合并行后原 work-head 区块（大标题+六条构建路径 Tag+desc 段）退役——
+// 「六条构建路径」语义由页签行自身承载（Tag 冗余删除）；desc 由各路径页 PathIntro 一句话承接。
