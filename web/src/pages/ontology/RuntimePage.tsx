@@ -45,6 +45,7 @@ import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import SparqlWorkbench from './components/SparqlWorkbench'
 import LifecyclePane from './components/LifecyclePane'
 import TraceTable from './components/TraceTable'
+import { useOntologies } from './shared/useOntoList'
 
 // ---------------------------------------------------------------------------
 // 本体运行（RuntimePage，REQ-104 ④）：按运行方式（引擎）分二级模块
@@ -154,9 +155,29 @@ export default function RuntimePage() {
       .catch(() => setEngineStatuses([]))
   }
   useEffect(loadEngines, [])
+  // REQ-467/M267：引擎轮询挂可见性感知——后台标签页暂停（恢复可见即拉一次补齐）
   useEffect(() => {
-    const t = setInterval(loadEngines, 5000)
-    return () => clearInterval(t)
+    let t: ReturnType<typeof setInterval> | undefined
+    const start = () => {
+      if (t === undefined && document.visibilityState === 'visible') {
+        loadEngines()
+        t = setInterval(loadEngines, 5000)
+      }
+    }
+    const stop = () => {
+      if (t !== undefined) {
+        clearInterval(t)
+        t = undefined
+      }
+    }
+    const onVis = () => (document.visibilityState === 'visible' ? start() : stop())
+    document.addEventListener('visibilitychange', onVis)
+    start()
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      stop()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadEngines 稳定引用（组件内闭包 setState）
   }, [])
 
   const engineStatus = (key: EngineKey): EngineStatus | null => engineStatuses.find((e) => e.engine === key) ?? null
@@ -287,7 +308,7 @@ function EngineProfilesPage({
 }) {
   const { showToast } = useUI()
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
-  const [ontos, setOntos] = useState<Ontology[]>([])
+  const { ontos, reload: reloadOntoList } = useOntologies() // REQ-467：本体清单单源
   const [profilesErr, setProfilesErr] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -329,13 +350,36 @@ function EngineProfilesPage({
   useEffect(() => {
     reload()
     loadAmbigs()
-    api.listOntologies().then(setOntos).catch(() => setOntos([]))
+    reloadOntoList() // REQ-467：本体清单单源（缓存优先）
   }, [])
 
-  // 运行分组页 5s 轮询（14 v0.3 §6 刷新策略）
+  // 运行分组页 5s 轮询（14 v0.3 §6 刷新策略）；REQ-467：挂可见性感知（后台暂停，恢复即拉）
   useEffect(() => {
-    const t = setInterval(() => { reload(); loadAmbigs() }, 5000)
-    return () => clearInterval(t)
+    let t: ReturnType<typeof setInterval> | undefined
+    const tick = () => {
+      reload()
+      loadAmbigs()
+    }
+    const start = () => {
+      if (t === undefined && document.visibilityState === 'visible') {
+        tick()
+        t = setInterval(tick, 5000)
+      }
+    }
+    const stop = () => {
+      if (t !== undefined) {
+        clearInterval(t)
+        t = undefined
+      }
+    }
+    const onVis = () => (document.visibilityState === 'visible' ? start() : stop())
+    document.addEventListener('visibilitychange', onVis)
+    start()
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      stop()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload/loadAmbigs 稳定引用
   }, [])
 
   const mine = useMemo(() => profiles.filter((p) => (p.engine ?? 'oxigraph') === engine), [profiles, engine])

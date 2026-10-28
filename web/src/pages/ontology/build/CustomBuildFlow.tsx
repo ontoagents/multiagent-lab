@@ -17,6 +17,7 @@ import SpecGraph from '../components/SpecGraph'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
+import { invalidateOntos, useOntologies } from '../shared/useOntoList'
 
 // ---------------------------------------------------------------------------
 // REQ-337/M137：自定义构建独立页（自 BuildPage 迁出）——S1~S4 每步独立子页：
@@ -397,6 +398,7 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     try {
       const created = await api.createOntology({ name: nm, description: aiResult.spec?.description ?? aiDesc })
       await api.saveSpec(created.id, { ...aiResult.spec, name: nm })
+      invalidateOntos() // REQ-467：单源清单失效广播
       showToast('AI 草案已创建并保存')
       setAiResult(null)
       setAiDesc('')
@@ -441,23 +443,16 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
 
   // REQ-246/G1⑤：新建同名即时提示（保留同名，提示已有清单）
   const [dupName, setDupName] = useState<Ontology | null>(null)
+  const { ontos: allOntos } = useOntologies() // REQ-467：查重走单源清单
+  // REQ-467/M267：查重走单源清单（缓存命中零请求；他处创建经 invalidateOntos 即时同步）
   useEffect(() => {
     const n = blankName.trim()
     if (!n) {
       setDupName(null)
       return
     }
-    let alive = true
-    api
-      .listOntologies()
-      .then((ls) => {
-        if (alive) setDupName(ls.find((o) => o.name === n) ?? null)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [blankName])
+    setDupName(allOntos.find((o) => o.name === n) ?? null)
+  }, [blankName, allOntos])
 
   const doBlank = async () => {
     if (!blankName.trim()) {
@@ -467,6 +462,7 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     setBlankBusy(true)
     try {
       const o = await api.createOntology({ name: blankName.trim(), description: blankDesc })
+      invalidateOntos() // REQ-467：单源清单失效广播
       showToast('已创建空白本体')
       setBlankName('')
       setBlankDesc('')

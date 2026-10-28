@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button, Space, Steps, Tooltip, Typography } from 'antd'
-import { api } from '../../../api/client'
 import {
   AuditOutlined,
   CloudServerOutlined,
@@ -11,6 +10,7 @@ import {
   UpOutlined,
 } from '@ant-design/icons'
 import { ONTO_SIDEBAR_KEY } from '../OntologyModule'
+import { useOntologies } from '../shared/useOntoList'
 
 // ---------------------------------------------------------------------------
 // REQ-334/M134 双模式叙事生产动线（79 号建议项 B）：为生产用户提供
@@ -58,13 +58,9 @@ const STEP_ITEMS = [
 export default function ProductionGuide({ onGoBuild, focusAssetId }: { onGoBuild: () => void; focusAssetId?: string | null }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(GUIDE_KEY) === 'off')
   // REQ-407/M203：首页无选中态——惰性取最近创建本体作「去质量门禁/去发布」的深链目标
-  const [latestOntoId, setLatestOntoId] = useState<string | null>(null)
-  useEffect(() => {
-    api
-      .listOntologies()
-      .then((ls) => setLatestOntoId(ls[0]?.id ?? null))
-      .catch(() => setLatestOntoId(null))
-  }, [])
+  // REQ-467/M267：本体清单单源 hook（散拉收敛）
+  const { ontos: guideOntos } = useOntologies()
+  const latestOntoId = guideOntos[0]?.id ?? null
 
   const collapse = () => {
     localStorage.setItem(GUIDE_KEY, 'off')

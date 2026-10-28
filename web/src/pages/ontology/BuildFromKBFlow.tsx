@@ -8,6 +8,7 @@ import { useUI } from '../../store/ui'
 import { ERR_COLUMNS } from './shared'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import { loadDraft, saveDraft, clearDraft } from '../../lib/draftStore'
+import { invalidateOntos, useOntologies } from './shared/useOntoList'
 
 // ---------------------------------------------------------------------------
 // 由知识库构建本体——独立流程页（O13，D-O14/REQ-108，04 §3.7）：
@@ -175,6 +176,7 @@ function KbBuildFlow() {
     try {
       const created = await api.createOntology({ name: nm, description: spec?.description ?? `由知识库「${result?.kb_name}」构建（O13 策略 ${result?.strategy}）` })
       await api.saveSpec(created.id, { ...spec, name: nm })
+      invalidateOntos() // REQ-467：单源清单失效广播（资产栏/各构建流即时可见）
       showToast('已入库到本体资产')
       setSavedId(created.id)
       setSavedName(nm)
@@ -450,19 +452,14 @@ export function StructuredFlow() {
   const [hierarchyCols, setHierarchyCols] = useState<string[]>([])
   const [headerCols, setHeaderCols] = useState<string[]>([])
   const [targetId, setTargetId] = useState<string | undefined>(undefined)
-  const [ontos, setOntos] = useState<{ id: string; name: string }[]>([])
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.buildFromStructured>> | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [createdId, setCreatedId] = useState<string | null>(null)
 
-  useEffect(() => {
-    api
-      .listOntologies()
-      .then((ls: any) => setOntos(Array.isArray(ls) ? ls : []))
-      .catch(() => setOntos([]))
-  }, [])
+  // REQ-467/M267：本体清单单源 hook（散拉收敛）
+  const { ontos } = useOntologies()
 
   const infer = async () => {
     if (!file) return
@@ -492,6 +489,7 @@ export function StructuredFlow() {
       const draft = result.draft_spec as { name: string; description?: string; concepts: unknown[]; relations: unknown[]; instances: unknown[] }
       const created = await api.createOntology({ name: `${draft.name}-${new Date().toLocaleDateString()}`, description: draft.description ?? '由结构化数据映射推导（M-O14 P2⑤）' })
       await api.saveSpec(created.id, draft as any)
+      invalidateOntos() // REQ-467：单源清单失效广播
       showToast(`已创建新本体「${created.name ?? created.id}」（骨架含 ${draft.concepts.length} 概念 / ${draft.instances.length} 实例）`)
       setCreatedId(created.id) // REQ-250/G6：完成态 CTA（替代纯 toast 指路）
     } catch (e: any) {

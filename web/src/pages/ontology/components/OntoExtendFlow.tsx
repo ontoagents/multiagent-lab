@@ -5,6 +5,7 @@ import { api } from '../../../api/client'
 import DoneCTA from './DoneCTA'
 import LoadErrorAlert from '../../../components/LoadErrorAlert'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
+import { useOntologies } from '../shared/useOntoList'
 
 // ---------------------------------------------------------------------------
 // M-O14 P2②（REQ-171 P2/26 号方案 §9）+ REQ-343/OE-2 双模式演化动线：
@@ -21,7 +22,6 @@ interface OdpItem {
   source: string
   spec: { concepts: { name: string; label?: string; definition?: string }[]; relations: { name: string; from: string; to: string }[] }
 }
-interface OntoItem { id: string; name: string }
 interface MergePreviewData {
   strategy: string
   /** 实测形态：扁平标记数组（'concept:组织' / 'relation:隶属于'）；conflicts/renamed 为对象数组 */
@@ -64,8 +64,8 @@ type ExtendProgress = { step: number; targetId?: string; mode?: ExtendMode }
 
 export default function OntoExtendFlow() {
   const [mode, setMode] = useState<ExtendMode>('odp')
-  const [ontos, setOntos] = useState<OntoItem[]>([])
-  const [ontosErr, setOntosErr] = useState<string | null>(null)
+  // REQ-467/M267：本体清单单源 hook（原自有拉取+ontosErr 收敛；重试走 reload）
+  const { ontos, err: ontosErr, reload: reloadOntos } = useOntologies()
   const [targetId, setTargetId] = useState<string | undefined>(() => loadDraft<ExtendProgress>('extend-progress')?.targetId)
 
   // ---- ODP 模式状态（REQ-171 既有）----
@@ -120,12 +120,7 @@ export default function OntoExtendFlow() {
     else saveDraft('extend-progress', { step, targetId, mode } satisfies ExtendProgress)
   }, [step, targetId, mode])
 
-  useEffect(() => {
-    api
-      .listOntologies()
-      .then((ls: any) => setOntos(Array.isArray(ls) ? ls : ls?.ontologies ?? ls?.items ?? []))
-      .catch((e: any) => setOntosErr(e?.message ?? '本体列表加载失败'))
-  }, [])
+  // （清单加载收敛至 useOntologies）
 
   // REQ-339：资产详情「演化」动作携 id 直达——预选目标本体并进 ODP 步（消费后置空）
   useEffect(() => {
@@ -323,7 +318,7 @@ export default function OntoExtendFlow() {
             <span className="onto-sec-title">① 目标本体（扩展并入对象）</span>
           </div>
           {ontosErr ? (
-            <LoadErrorAlert title="本体列表加载失败" message={ontosErr} onRetry={() => api.listOntologies().then((ls: any) => setOntos(Array.isArray(ls) ? ls : []))} style={{ marginBottom: 8 }} />
+            <LoadErrorAlert title="本体列表加载失败" message={ontosErr} onRetry={reloadOntos} style={{ marginBottom: 8 }} />
           ) : (
             <Select
               showSearch

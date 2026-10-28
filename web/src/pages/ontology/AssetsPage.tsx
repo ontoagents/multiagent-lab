@@ -22,6 +22,7 @@ import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
 import { clearLeaveGuard, guardLeave, setLeaveGuard } from './shared/leaveGuard'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
+import { useOntologies } from './shared/useOntoList'
 import CsvIngestPane from './components/CsvIngestPane'
 import GraphEditor from './components/GraphEditor'
 import SourceView from './components/SourceView'
@@ -135,9 +136,9 @@ export default function AssetsPage() {
   // REQ-458：合并分区内部分段视图（关系与属性 / 公理）——切本体回落默认段
   const [declView, setDeclView] = useState<'rel' | 'prop'>('rel')
   const [axView, setAxView] = useState<'spec' | 'raw'>('spec')
-  const [ontos, setOntos] = useState<Ontology[]>([])
+  // REQ-467/M267：本体清单单源 hook（7+ 处散拉收敛——创建/删除/重命名经 invalidateOntos 广播即时同步）
+  const { ontos, err: listErr, reload: reloadOntoList } = useOntologies()
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
-  const [listErr, setListErr] = useState<string | null>(null)
   // REQ-326③：列表/详情双态（列表独占整页 ↔ 详情页级工作区）；深链 eino.onto.asset.focus 直接进详情
   // REQ-470：hash 直达（#/onto/assets/{id}/{section}）——一次性深链键优先级更高（跨模块 handoff 消费即清）
   const [view, setView] = useState<'list' | 'detail'>(() => {
@@ -169,6 +170,22 @@ export default function AssetsPage() {
   // REQ-240③/M66：资产卡能力雷达数据（缓存质量报告静默拉取；无报告不显示）
   // REQ-326③：列表态整页雷达——缓存扩为全量渐进拉取（详情态同口径 ensure）
   const [qualityCache, setQualityCache] = useState<Record<string, QualityReport | null>>({})
+  /** REQ-467/M267：质量报告 ensure 单源（详情态选中与列表态渐进预取共用——原两份同逻辑收敛；
+   *  缓存报告命中直存；无报告/读取失败 → save=false 静默快评兜底〔qualitygate 规则检查非 LLM、零副作用〕，
+   *  失败置 null）——经 ref 供 effect 内消费，避免依赖数组膨胀 */
+  const ensureQualityRef = useRef((id: string, alive: () => boolean): Promise<void> => {
+    const set = (v: QualityReport | null) => {
+      if (alive()) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: v } : m))
+    }
+    const quick = () =>
+      api.qualityRun(id, false, false, false)
+        .then((r2) => set(r2.report))
+        .catch(() => set(null))
+    return api
+      .qualityReport(id)
+      .then((r) => (r.report ? set(r.report) : quick()))
+      .catch(quick)
+  })
   const [forkBusy, setForkBusy] = useState(false)
   const [forkErr, setForkErr] = useState<string | null>(null)
 
@@ -230,22 +247,10 @@ export default function AssetsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- popstate 闭包取最新三态
   }, [view, activeId, tabKey])
 
+  // REQ-467：单源薄包装（保持既有调用点签名；需选中新 id 的场景等清单到位再选中——防详情回落列表竞态）
   const reloadOntos = (selectId?: string) => {
-    api
-      .listOntologies()
-      .then((ls) => {
-        setOntos(ls)
-        setListErr(null)
-        setActiveId((cur) => {
-          if (selectId && ls.some((o) => o.id === selectId)) return selectId
-          if (cur && ls.some((o) => o.id === cur)) return cur
-          return null // REQ-326③：列表态无隐式选中（点行进详情）
-        })
-      })
-      .catch((e: any) => {
-        setOntos([])
-        setListErr(e?.message ?? '加载失败')
-      })
+    if (selectId) reloadOntoList().then(() => setActiveId(selectId)).catch(() => {})
+    else reloadOntoList()
   }
 
   // REQ-285⑤：切换本体重置分区——分型后两套模板键不相交，残留键（如 outputs）落空渲染
@@ -331,18 +336,7 @@ export default function AssetsPage() {
       })
     // REQ-240③/M66 + REQ-264：能力雷达全量支持——先读缓存报告；未生成过则
     // save=false 静默跑分（qualitygate 规则检查非 LLM、零副作用不落产物），详情雷达人人有
-    if (qualityCache[activeId] === undefined) {
-      const ensure = (cached?: QualityReport | null) => {
-        if (cached) {
-          setQualityCache((m) => ({ ...m, [activeId]: cached }))
-          return
-        }
-        api.qualityRun(activeId, false, false, false)
-          .then((r2) => setQualityCache((m) => ({ ...m, [activeId]: r2.report })))
-          .catch(() => setQualityCache((m) => ({ ...m, [activeId]: null })))
-      }
-      api.qualityReport(activeId).then((r) => ensure(r.report)).catch(() => ensure(null))
-    }
+    if (qualityCache[activeId] === undefined) ensureQualityRef.current(activeId, () => alive)
     return () => {
       alive = false
     }
@@ -362,26 +356,11 @@ export default function AssetsPage() {
     let alive = true
     const pending = ontos.filter((o) => qualityCache[o.id] === undefined).map((o) => o.id)
     let cursor = 0
+    // REQ-467：ensure 单源复用（完成即 pump 维持恒定并发 3）
     const ensureOne = (id: string) => {
-      api
-        .qualityReport(id)
-        .then((r) => {
-          if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: r.report ?? null } : m))
-        })
-        .catch(() => {
-          // 缓存无报告 → 静默快评兜底（qualitygate 规则检查非 LLM、零副作用不落产物）
-          api
-            .qualityRun(id, false, false, false)
-            .then((r2) => {
-              if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: r2.report } : m))
-            })
-            .catch(() => {
-              if (alive) setQualityCache((m) => (m[id] === undefined ? { ...m, [id]: null } : m))
-            })
-        })
-        .finally(() => {
-          if (alive) pump()
-        })
+      ensureQualityRef.current(id, () => alive).finally(() => {
+        if (alive) pump()
+      })
     }
     const pump = () => {
       if (alive && cursor < pending.length) ensureOne(pending[cursor++]) // 每次完成补发一个：恒定并发 3
