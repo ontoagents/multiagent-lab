@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Alert, Button, Collapse, Dropdown, Input, Modal, Popover, Segmented, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { BookOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlignLeftOutlined, BookOutlined, BranchesOutlined, ClusterOutlined, CopyOutlined, EditOutlined, EllipsisOutlined, LoadingOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -165,9 +165,9 @@ export default function ChatWindow({
     if (initialDraft) setInput(initialDraft)
   }, [initialDraft])
   const [running, setRunning] = useState(false)
-  // REQ-477③：运行计时行——run 起始时刻 + 每秒心跳（重渲染时读 Date.now() 实时跳动；收尾随 running 消失）
+  // REQ-483③：运行计时行改为消息流末尾一行灰字（参考图形态）——流内承载，随 run 收尾消失
   const [runStart, setRunStart] = useState<number | null>(null)
-  const [, setNowTick] = useState(0)
+  const [nowTick, setNowTick] = useState(0)
   useEffect(() => {
     if (!running) return
     const t = window.setInterval(() => setNowTick((n) => n + 1), 1000)
@@ -710,6 +710,8 @@ export default function ChatWindow({
   }
 
   const renderEventCard = (it: ChatItem, i: number) => {
+    // REQ-483②：run.started「运行开始」卡不再渲染（计时行承接；带装配快照的调试态保留）
+    if (it.evType === 'run.started' && !it.evData?.assembly) return null
     // REQ-478①：思考行详略分档——live 亦默认收起（内容单行滚动），点击展开全文；记忆沿 evKey
     if (it.evType === 'reasoning') {
       const cardKey = it.evKey ?? `reasoning-${i}`
@@ -1085,6 +1087,8 @@ export default function ChatWindow({
           }
           continue
         }
+        // REQ-483②：run.started「运行开始」卡不再渲染（计时行承接；带装配快照的调试态保留）
+        if (it.kind === 'event' && it.evType === 'run.started' && !it.evData?.assembly) continue
         const ki = n++
         if (it.kind === 'msg') {
           out.push({
@@ -1108,12 +1112,24 @@ export default function ChatWindow({
       }
     }
     walk(grouped)
+    // REQ-483③：运行计时行入流（流尾一行灰字+分隔线，随流滚动——原左下悬浮胶囊退役）
+    if (running && runStart != null) {
+      out.push({
+        key: `${prefix}working`,
+        role: 'event',
+        content: (
+          <div className="chat-workingline" data-testid="chat-workingline">
+            <span>工作中 {fmtWall(Date.now() - runStart)}</span>
+          </div>
+        ),
+      })
+    }
     return out
   }
   const listItems = useMemo(
     () => toBubbleList(displayItems, ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel],
+    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, running, runStart, nowTick],
   )
 
   // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问），窗格头统一呈现
@@ -1303,16 +1319,13 @@ export default function ChatWindow({
       ...roles.user,
       contentRender: (content: any) => {
         const text = typeof content === 'string' ? content : String(content ?? '')
+        // REQ-483④：操作钮图标化——hover 显现灰色小图标（原常驻蓝色链接行）
         return (
-          <div data-testid="user-msg">
+          <div data-testid="user-msg" className="msg-actions-host">
             <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>
-            <Space size={4} style={{ marginTop: 4 }}>
-              <Button type="link" size="small" style={{ color: 'rgba(255,255,255,.85)', fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
-                复制
-              </Button>
-              <Button type="link" size="small" style={{ color: 'rgba(255,255,255,.85)', fontSize: 11, padding: 0 }} onClick={() => startEditMsg(text)}>
-                编辑重发
-              </Button>
+            <Space size={0} className="msg-actions user-actions">
+              <Button type="text" size="small" icon={<CopyOutlined />} title="复制" aria-label="复制" data-testid="user-copy" onClick={() => copyMessage(text)} />
+              <Button type="text" size="small" icon={<EditOutlined />} title="编辑重发" aria-label="编辑重发" data-testid="user-edit" onClick={() => startEditMsg(text)} />
             </Space>
           </div>
         )
@@ -1325,28 +1338,21 @@ export default function ChatWindow({
         // REQ-477④ 顺修：REQ-409 挂消息操作时覆盖丢了 XMarkdown——助手回答自近期版本起纯文本
         // 直出（markdown 裸符号可见）；恢复 Markdown 渲染（流式游标口径同 BUBBLE_ROLES.ai），操作行保留
         return (
-          <div data-testid="ai-msg">
+          <div data-testid="ai-msg" className="msg-actions-host">
             <XMarkdown
               className="chat-md"
               content={text}
               openLinksInNewTab
               streaming={{ hasNextChunk: !!info?.extraInfo?.streaming, tail: true }}
             />
-            <Space size={4} style={{ marginTop: 4 }}>
-              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
-                复制
-              </Button>
-              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => quoteMessage(text)}>
-                引用
-              </Button>
+            {/* REQ-483④：操作行图标化——灰色小图标+Tooltip（原常驻蓝色链接×4） */}
+            <Space size={0} className="msg-actions ai-actions">
+              <Button type="text" size="small" icon={<CopyOutlined />} title="复制" aria-label="复制" data-testid="ai-copy" onClick={() => copyMessage(text)} />
+              <Button type="text" size="small" icon={<AlignLeftOutlined />} title="引用到输入框" aria-label="引用" data-testid="quote-btn" onClick={() => quoteMessage(text)} />
               {!isProjectScope && (
-                <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} disabled={forking} onClick={forkSession} data-testid="fork-btn">
-                  派生会话
-                </Button>
+                <Button type="text" size="small" icon={<BranchesOutlined />} title="派生会话（拷贝当前历史继续对话）" aria-label="派生会话" data-testid="fork-btn" disabled={forking} onClick={forkSession} />
               )}
-              <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} disabled={running} onClick={regenerate}>
-                重新生成
-              </Button>
+              <Button type="text" size="small" icon={<RedoOutlined />} title="重新生成" aria-label="重新生成" data-testid="regen-btn" disabled={running} onClick={regenerate} />
             </Space>
           </div>
         )
@@ -1777,20 +1783,7 @@ export default function ChatWindow({
             <Bubble.List items={listItems} role={bubbleRoles} />
           </>
         )}
-        {running && runStart != null && (
-          <div className="chat-working" data-testid="chat-working" title="本次运行已耗时（每秒刷新）">
-            <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />
-            <span>工作中 {fmtWall(Date.now() - runStart)}</span>
-          </div>
-        )}
-        {running && (
-          <div className="chat-stop">
-            <button type="button" className="chat-stop-btn" onClick={stop} title={cmp.on ? `停止整组（${cmp.panes.length} 窗格一并终止，已生成内容保留）` : '停止本次生成'}>
-              <span className="chat-stop-glyph" aria-hidden="true" />
-              <span>停止生成</span>
-            </button>
-          </div>
-        )}
+        {/* REQ-483③：悬浮「停止生成」与「工作中」胶囊退役——计时行入流（listItems 尾）、停止由 Sender 加载态内建钮承接 */}
       </div>
 
       {/* REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批卡——

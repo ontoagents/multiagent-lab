@@ -1,8 +1,8 @@
-/* REQ-362 运行块（执行详情完成收起）——缩进基准与 tool-phase/event-card 同列（44 = 头像 32 + 间距 12） */
+/* REQ-362 运行块（执行详情完成收起）——缩进基准与 tool-phase/event-card 同列（REQ-483⑤ 去头像后 8px 单列） */
 
 .run-block {
   font-size: 12px;
-  margin: 4px 0 4px calc(44px + var(--sub-depth, 0) * 14px);
+  margin: 4px 0 4px calc(8px + var(--sub-depth, 0) * 14px);
   padding-left: 10px;
   border-left: 2px solid var(--c-line, #e5e7eb);
 }

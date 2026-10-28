@@ -1,8 +1,7 @@
 // REQ-401/M197：对话窗口共用小件（自 ChatWindow.tsx 拆出——对比窗格覆盖徽标/配置 chip/
 // Bubble 角色映射/提示词分段标签；行为零变更）。
 import type { ReactNode } from 'react'
-import { Avatar, Popover, Select, Typography } from 'antd'
-import { UserOutlined } from '@ant-design/icons'
+import { Popover, Select, Typography } from 'antd'
 import XMarkdown from '@ant-design/x-markdown'
 import type { BubbleListProps } from '@ant-design/x'
 
@@ -89,21 +88,14 @@ export function ChatChip({ on, disabled, icon, label, title, onClick }: {
 }
 
 // Bubble 角色映射（X 2.x：role 单数；条目 role 必须命中此处定义的 key）
-// Bubble 角色映射（X 2.x：role 单数；条目 role 必须命中此处定义的 key）
+// REQ-483⑤：对话流去头像单列——智能体标识由窗口头部承担（REQ-165 运行上下文口径收窄注），过程行与正文全程左对齐同列
 export const BUBBLE_ROLES: BubbleListProps['role'] = {
   user: {
     placement: 'end',
-    avatar: <Avatar icon={<UserOutlined />} style={{ background: 'var(--c-brand)', color: '#fff' }} />,
     styles: { content: { background: 'var(--c-brand)', color: '#fff', borderRadius: 12, borderBottomRightRadius: 4 } },
   },
   ai: {
     placement: 'start',
-    // 智能体标识：与顶栏品牌同源的三节点网络标记（侧栏节点 / 空态保持一致）
-    avatar: (
-      <Avatar shape="square" className="agent-avatar">
-        <span className="agent-glyph" />
-      </Avatar>
-    ),
     // REQ-477④：助手回复去气泡框——正文直接落在对话底色（ZCode 会话流形态；用户气泡维持品牌填充）
     styles: { content: { background: 'transparent', border: 'none', boxShadow: 'none', padding: '2px 0 0' } },
     // 助手正文走 Markdown（XMarkdown）：流式期间尾部游标，hasNextChunk=false 时收尾刷新
@@ -119,7 +111,7 @@ export const BUBBLE_ROLES: BubbleListProps['role'] = {
   event: {
     variant: 'borderless',
     styles: {
-      root: { paddingBlock: 4 },
+      root: { paddingBlock: 2 },
       content: { padding: 0, background: 'transparent', width: '100%', maxWidth: '100%' },
     },
   },
