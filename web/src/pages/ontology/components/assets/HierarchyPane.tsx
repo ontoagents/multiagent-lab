@@ -6,6 +6,7 @@ import type { Ontology, Spec, SpecConcept, SpecDataProperty, SpecInstance, SpecR
 import { api } from '../../../../api/client'
 import './hierarchy.css'
 import RestrictionsEditor from './RestrictionsEditor'
+import { RenameButton } from './RenameButton'
 
 // ---------------------------------------------------------------------------
 // REQ-363/M163 本体内容层级浏览（Protégé 式树形导航与实体详情）——资产详情「层级浏览」分区。
@@ -611,6 +612,12 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
       <div className="onto-hier-uri" title={uri} data-testid="hierarchy-uri">
         {uri}
       </div>
+      {/* REQ-475/M275：概念/实例重命名（refactor rename——服务端全引用面 rewire） */}
+      {onChanged && (sel.kind === 'concept' || sel.kind === 'instance') && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <RenameButton ontologyId={ontology.id} kind={sel.kind} name={sel.name} label={sel.kind === 'concept' ? '概念' : '实例'} onSaved={onChanged} />
+        </div>
+      )}
       {body}
       {secTitle('usage 反向引用')}
       <div data-testid="hierarchy-usage">

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	importer "github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
 )
 
 // elementKinds 合法元素类型（与工具面四类对齐）。
@@ -23,7 +24,124 @@ var elementKinds = map[string]bool{"concept": true, "relation": true, "attribute
 func (s *Server) registerElementRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/{id}/elements/{kind}", s.elementUpsert)
 	m.HandleFunc("DELETE /api/ontologies/{id}/elements/{kind}/{name}", s.elementDelete)
+	// REQ-475/M275：实体重命名（refactor rename）——改名+全引用面 rewire 一事务（persistSpec 单源）
+	m.HandleFunc("POST /api/ontologies/{id}/elements/{kind}/{name}/rename", s.elementRename)
 }
+
+// elementRename POST /api/ontologies/{id}/elements/{kind}/{name}/rename {"to": 新名}。
+func (s *Server) elementRename(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	kind := r.PathValue("kind")
+	name := r.PathValue("name")
+	if kind == "axiom" || !elementKinds[kind] {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance"})
+		return
+	}
+	var body struct{ To string `json:"to"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.To) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "to（新名）必填"})
+		return
+	}
+	sp, baseVersion, errRes := s.loadSpecForEdit(id)
+	if errRes != nil {
+		writeErr(w, errRes)
+		return
+	}
+	detail, perr := applyElementRename(kind, name, strings.TrimSpace(body.To), sp)
+	if perr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": kind + "_rename: " + perr.Error()})
+		return
+	}
+	s.finishElementSave(w, id, sp, baseVersion, kind+"_rename", detail)
+}
+
+// applyElementRename REQ-475/M275：四类实体改名+全引用面 rewire（重命名是引用键变更——
+// 不 rewire 即悬空被 Validate 拒，故与 rewire 同事务）。冲突（to 已存在）交 Validate duplicate_name 拒。
+func applyElementRename(kind, oldName, newName string, sp *pkgspec.Spec) (string, error) {
+	if oldName == newName {
+		return "", fmt.Errorf("新名与现名相同")
+	}
+	rewired := 0
+	switch kind {
+	case "concept":
+		hit := false
+		for i := range sp.Concepts {
+			if sp.Concepts[i].Name == oldName {
+				sp.Concepts[i].Name = newName
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return "", fmt.Errorf("概念「%s」不存在", oldName)
+		}
+		importer.RewireConceptRefs(sp, oldName, newName) // parents/relations from·to/instances concept/restrictions target/axioms 主宾（REQ-472 已扩面）
+		for i := range sp.DataProperties {      // 数据属性定义域（merge 走 renamedConcepts，此处直接改）
+			if sp.DataProperties[i].Domain == oldName {
+				sp.DataProperties[i].Domain = newName
+				rewired++
+			}
+		}
+		return fmt.Sprintf("概念「%s」已重命名为「%s」（含 parents/关系端点/实例类型/限制公理/公理主宾/数据属性域引用改写）", oldName, newName), nil
+	case "relation":
+		hit := false
+		for i := range sp.Relations {
+			if sp.Relations[i].Name == oldName {
+				sp.Relations[i].Name = newName
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return "", fmt.Errorf("关系「%s」不存在", oldName)
+		}
+		importer.RewireRelationRefs(sp, oldName, newName) // 实例断言 rel/restrictions property（REQ-472 已扩）
+		for i := range sp.Relations {            // 逆属性引用（REQ-473 新面）
+			if sp.Relations[i].InverseOf == oldName {
+				sp.Relations[i].InverseOf = newName
+				rewired++
+			}
+		}
+		return fmt.Sprintf("关系「%s」已重命名为「%s」（含实例断言/限制公理/逆属性引用）", oldName, newName), nil
+	case "attribute":
+		hit := false
+		for i := range sp.DataProperties {
+			if sp.DataProperties[i].Name == oldName {
+				sp.DataProperties[i].Name = newName
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return "", fmt.Errorf("数据属性「%s」不存在", oldName)
+		}
+		for i := range sp.Instances { // 实例 attributes 键重排（声明与使用同名关联）
+			if v, ok := sp.Instances[i].Attributes[oldName]; ok {
+				delete(sp.Instances[i].Attributes, oldName)
+				sp.Instances[i].Attributes[newName] = v
+				rewired++
+			}
+		}
+		return fmt.Sprintf("数据属性「%s」已重命名为「%s」（实例属性键重排 %d 处）", oldName, newName, rewired), nil
+	case "instance":
+		hit := false
+		for i := range sp.Instances {
+			if sp.Instances[i].Name == oldName {
+				sp.Instances[i].Name = newName
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return "", fmt.Errorf("实例「%s」不存在", oldName)
+		}
+		importer.RewireInstanceRefs(sp, oldName, newName) // 他实例断言 target
+		return fmt.Sprintf("实例「%s」已重命名为「%s」（含引用断言改写）", oldName, newName), nil
+	}
+	return "", fmt.Errorf("未知元素类型 %q", kind)
+}
+
+
 
 // elementBody 原始字段承载（presence 语义：字段缺席=保持原值，显式 null/空串=覆盖——与工具面
 // argString/argUpsertNames 同口径，故按 RawMessage 判存在）。

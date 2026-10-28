@@ -291,3 +291,122 @@ func TestElementAxiomAndRestrictions_Req472(t *testing.T) {
 		t.Fatalf("公理应已删除，实际 %v", sp.Axioms)
 	}
 }
+
+// REQ-475/M275：实体重命名 rewire——四类改名+全引用面（关系端点/实例类型/断言/限制公理/数据属性域+键/逆属性）。
+func TestElementRename_Req475(t *testing.T) {
+	srv, _ := newPublishTestServer(t)
+	// 备料（顺序 kind 显式——目标实例 i2 先建防断言悬空）
+	type seed struct {
+		kind string
+		body string
+	}
+	for _, sd := range []seed{
+		{"concept", `{"name":"概念B"}`},
+		{"relation", `{"name":"relOf","from":"概念A","to":"概念B"}`},
+		{"attribute", `{"name":"dp","domain":"概念A","range":"integer"}`},
+		{"instance", `{"name":"i2","concept":"概念B"}`},
+		{"instance", `{"name":"i1","concept":"概念A","attributes":{"dp":1},"relations":[{"rel":"relOf","target":"i2"}]}`},
+	} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/"+sd.kind, strings.NewReader(sd.body))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("备料失败 %s: %d", sd.body, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	// 概念重命名 A→AA：关系端点/实例类型/数据属性域全改写
+	post := func(url, body string) int {
+		req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := post(srv.URL+"/api/ontologies/ontest/elements/concept/概念A/rename", `{"to":"AA"}`); c != http.StatusOK {
+		t.Fatalf("概念重命名期望 200，实际 %d", c)
+	}
+	greq, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
+	gresp, _ := http.DefaultClient.Do(greq)
+	defer gresp.Body.Close()
+	var sp pkgspec.Spec
+	_ = json.NewDecoder(gresp.Body).Decode(&sp)
+	rel := (sp.Relations)[0]
+	if rel.From != "AA" || rel.To != "概念B" {
+		t.Fatalf("关系端点未随概念改名改写: %+v", rel)
+	}
+	var i1 *pkgspec.Instance
+	for i := range sp.Instances {
+		if sp.Instances[i].Name == "i1" {
+			i1 = &sp.Instances[i]
+		}
+	}
+	if i1 == nil || i1.Concept != "AA" {
+		t.Fatalf("实例类型未随概念改名改写: %+v", i1)
+	}
+	if (sp.DataProperties)[0].Domain != "AA" {
+		t.Fatalf("数据属性域未随概念改名改写: %+v", (sp.DataProperties)[0])
+	}
+	// 关系重命名 relOf→uses：实例断言改写
+	if c := post(srv.URL+"/api/ontologies/ontest/elements/relation/relOf/rename", `{"to":"uses"}`); c != http.StatusOK {
+		t.Fatalf("关系重命名期望 200，实际 %d", c)
+	}
+	greq2, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
+	gresp2, _ := http.DefaultClient.Do(greq2)
+	defer gresp2.Body.Close()
+	var sp2 pkgspec.Spec
+	_ = json.NewDecoder(gresp2.Body).Decode(&sp2)
+	var i1b *pkgspec.Instance
+	for i := range sp2.Instances {
+		if sp2.Instances[i].Name == "i1" {
+			i1b = &sp2.Instances[i]
+		}
+	}
+	if i1b == nil || len(i1b.Relations) != 1 || i1b.Relations[0].Rel != "uses" {
+		t.Fatalf("实例断言未随关系改名改写: %+v", i1b)
+	}
+	// 数据属性重命名 dp→port：实例属性键重排
+	if c := post(srv.URL+"/api/ontologies/ontest/elements/attribute/dp/rename", `{"to":"port"}`); c != http.StatusOK {
+		t.Fatalf("数据属性重命名期望 200，实际 %d", c)
+	}
+	greq3, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
+	gresp3, _ := http.DefaultClient.Do(greq3)
+	defer gresp3.Body.Close()
+	var sp3 pkgspec.Spec
+	_ = json.NewDecoder(gresp3.Body).Decode(&sp3)
+	var i1c *pkgspec.Instance
+	for i := range sp3.Instances {
+		if sp3.Instances[i].Name == "i1" {
+			i1c = &sp3.Instances[i]
+		}
+	}
+	if _, ok := i1c.Attributes["port"]; !ok {
+		t.Fatalf("实例属性键未随数据属性改名重排: %+v", i1c.Attributes)
+	}
+	// 实例重命名 i2→i2x：他实例断言 target 改写
+	if c := post(srv.URL+"/api/ontologies/ontest/elements/instance/i2/rename", `{"to":"i2x"}`); c != http.StatusOK {
+		t.Fatalf("实例重命名期望 200，实际 %d", c)
+	}
+	greq4, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
+	gresp4, _ := http.DefaultClient.Do(greq4)
+	defer gresp4.Body.Close()
+	var sp4 pkgspec.Spec
+	_ = json.NewDecoder(gresp4.Body).Decode(&sp4)
+	var i1d *pkgspec.Instance
+	for i := range sp4.Instances {
+		if sp4.Instances[i].Name == "i1" {
+			i1d = &sp4.Instances[i]
+		}
+	}
+	if i1d == nil || len(i1d.Relations) != 1 || i1d.Relations[0].Target != "i2x" {
+		t.Fatalf("他实例断言 target 未随实例改名改写: %+v", i1d)
+	}
+	// 冲突：改成已存在名 → Validate 拒
+	if c := post(srv.URL+"/api/ontologies/ontest/elements/concept/AA/rename", `{"to":"概念B"}`); c != http.StatusBadRequest {
+		t.Fatalf("冲突改名期望 400，实际 %d", c)
+	}
+}

@@ -3,6 +3,7 @@ import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Ta
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
+import { RenameButton } from './RenameButton'
 import type { Spec, SpecDataProperty } from '../../../../api/types'
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,7 @@ export default function DataPropertiesPane({ spec, ontologyId, onSaved }: { spec
           >
             编辑
           </Button>
+          <RenameButton ontologyId={ontologyId} kind="attribute" name={r.dp.name} label="数据属性" onSaved={onSaved} />
           <Popconfirm
             title={`删除属性声明「${r.dp.name}」？实例侧同名属性值不动（将成为未声明键）。`}
             onConfirm={async () => {

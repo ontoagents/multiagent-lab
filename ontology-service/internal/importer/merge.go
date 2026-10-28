@@ -675,3 +675,8 @@ func semanticConflicts(target, incoming *pkgspec.Spec) []SemanticConflict {
 func normalizeLabel(l string) string {
 	return strings.ToLower(strings.TrimSpace(l))
 }
+
+// REQ-475/M275：元素重命名 rewire 导出面（rest 层 rename 端点复用 merge 的引用改写单源）。
+func RewireConceptRefs(sp *pkgspec.Spec, oldName, newName string)  { rewireConceptRefs(sp, oldName, newName) }
+func RewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) { rewireRelationRefs(sp, oldName, newName) }
+func RewireInstanceRefs(sp *pkgspec.Spec, oldName, newName string) { rewireInstanceRefs(sp, oldName, newName) }

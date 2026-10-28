@@ -3,6 +3,7 @@ import { Button, Checkbox, Empty, Form, Input, Modal, Popconfirm, Select, Space,
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
+import { RenameButton } from './RenameButton'
 import type { Spec } from '../../../../api/types'
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,7 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
           >
             编辑
           </Button>
+          <RenameButton ontologyId={ontologyId} kind="relation" name={r.name} label="关系" onSaved={onSaved} />
           <Popconfirm
             title={`删除关系声明「${r.name}」？`}
             description={r.refs.length > 0 ? `被 ${r.refs.length} 处实例断言引用——服务端校验将拒绝并给悬空定位` : '未被实例引用，可直接删除'}
