@@ -104,8 +104,8 @@ export const BUBBLE_ROLES: BubbleListProps['role'] = {
         <span className="agent-glyph" />
       </Avatar>
     ),
-    // REQ-256 bugfix：气泡随主题（原硬编码 #fff——暗色时白底叠 darkAlgorithm 白字不可读）
-    styles: { content: { background: 'var(--c-panel)', border: '1px solid var(--c-line)', borderRadius: 12, borderBottomLeftRadius: 4 } },
+    // REQ-477④：助手回复去气泡框——正文直接落在对话底色（ZCode 会话流形态；用户气泡维持品牌填充）
+    styles: { content: { background: 'transparent', border: 'none', boxShadow: 'none', padding: '2px 0 0' } },
     // 助手正文走 Markdown（XMarkdown）：流式期间尾部游标，hasNextChunk=false 时收尾刷新
     contentRender: (content, info) => (
       <XMarkdown

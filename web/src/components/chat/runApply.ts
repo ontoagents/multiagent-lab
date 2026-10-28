@@ -19,6 +19,9 @@ export interface ChatItem {
   evKey?: string // 稳定卡片键（深度思考展开状态按它记录，历史/实时各自生成）
   streamKey?: string // 运行中的 reasoning 卡合并键；运行结束置空收起
   subDepth?: number // REQ-117：子智能体嵌套深度（缩进渲染）
+  seg?: boolean // REQ-477①：回放 message.segment 以段代显的助手正文段（块体内淡一档；末段可被提升为最终回答）
+  reasonStart?: number // REQ-477②：本步思考起始时刻（live；sealReasoning 封口时折算 reasonMs）
+  reasonMs?: number // REQ-477②：本步思考耗时（「思考 · 持续 Xs」行显示；回放卡无此数据只显字数）
 }
 
 /** 会话挂起中断卡数据（run.interrupted payload → 组件状态；实时与对比窗格共用） */
@@ -43,7 +46,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
     case 'run.started':
     case 'run.finished': {
       const desc = describeEvent(event, payload)
-      const next = [...prev]
+      const next = sealReasoning([...prev])
       if (event === 'run.finished') {
         const ti = next.length - 1
         const last = next[ti]
@@ -72,7 +75,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
     }
     case 'run.interrupted': {
       const desc = describeEvent(event, payload)
-      const next = [...prev]
+      const next = sealReasoning([...prev])
       closeTailSegment(next)
       next.push({ kind: 'event', evType: event, eventText: desc.text, evData: payload })
       return next
@@ -88,11 +91,11 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
         return next
       }
       const step = next.filter((x) => x.kind === 'event' && x.evType === 'reasoning' && x.streamKey === runKey).length
-      next.push({ kind: 'event', evType: 'reasoning', reasoning: payload.delta ?? '', streamKey: runKey, evKey: `${runKey}-${step}` })
+      next.push({ kind: 'event', evType: 'reasoning', reasoning: payload.delta ?? '', streamKey: runKey, evKey: `${runKey}-${step}`, reasonStart: Date.now() })
       return next
     }
     case 'message.delta': {
-      const next = [...prev]
+      const next = sealReasoning([...prev])
       const last = next[next.length - 1]
       if (last && last.kind === 'msg' && last.streaming) {
         next[next.length - 1] = { ...last, content: last.content + (payload.delta ?? '') }
@@ -104,7 +107,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
     }
     case 'run.error': {
       const msg = payload.message ?? '运行失败'
-      const next = [...prev]
+      const next = sealReasoning([...prev])
       const ti = next.length - 1
       const last = next[ti]
       if (last && last.kind === 'msg' && last.streaming) {
@@ -129,7 +132,7 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
         event === 'artifact.saved' || event === 'debug.cli' || event === 'context.stats'
       ) {
         const desc = describeEvent(event, payload)
-        const next = [...prev]
+        const next = sealReasoning([...prev])
         closeTailSegment(next)
         next.push({ kind: 'event', evType: event, eventText: desc.text, eventErr: desc.err, eventWarn: desc.warn, evData: payload })
         return next
@@ -145,4 +148,15 @@ export function closeTailSegment(list: ChatItem[]): void {
   if (!last || last.kind !== 'msg' || !last.streaming) return
   if (!last.content) list.pop()
   else list[ti] = { ...last, streaming: false }
+}
+
+/** REQ-477②：思考卡封口——尾部思考卡在后续非思考事件到达时折算耗时（reasonMs），
+ *  供「思考 · 持续 Xs」紧凑行显示；流式键保留（run 收尾统一置空收起，语义不变） */
+export function sealReasoning(list: ChatItem[]): ChatItem[] {
+  const ti = list.length - 1
+  const last = list[ti]
+  if (!last || last.kind !== 'event' || last.evType !== 'reasoning' || !last.streamKey) return list
+  if (last.reasonStart == null || last.reasonMs != null) return list
+  list[ti] = { ...last, reasonMs: Date.now() - last.reasonStart }
+  return list
 }

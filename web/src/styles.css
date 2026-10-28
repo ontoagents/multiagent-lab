@@ -292,6 +292,17 @@ body { font-size: 14px; background: var(--c-bg); }
 /* 运行中的停止入口：悬浮于消息流右下（与消息列右缘对齐），复用既有 stop()（abort + POST /stop） */
 .chat-stop { position: absolute; z-index: var(--z-float); right: max(24px, calc((100% - var(--chat-col)) / 2)); bottom: 16px; }
 
+/* REQ-477③：运行计时行（「工作中 m 分 ss 秒」悬浮于消息流左下，与右下停止钮对角；随 run 收尾消失） */
+.chat-working {
+  position: absolute; z-index: var(--z-float);
+  left: max(24px, calc((100% - var(--chat-col)) / 2)); bottom: 16px;
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 14px; border-radius: 999px;
+  background: var(--c-panel); border: 1px solid var(--c-line); color: var(--c-ink-2);
+  font-size: 12.5px;
+  box-shadow: 0 4px 14px rgba(28, 33, 48, 0.10), 0 1px 2px rgba(28, 33, 48, 0.06);
+}
+
 /* REQ-330②：伴生沉淀悬浮胶囊（消息流右上角，与右下 chat-stop 同列对角；旁路过程呈现，独立于显示档） */
 .companion-capsule { position: absolute; z-index: var(--z-float); top: 14px; right: max(24px, calc((100% - var(--chat-col)) / 2)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .companion-capsule-pill {
@@ -377,7 +388,30 @@ body { font-size: 14px; background: var(--c-bg); }
 }
 .retrieval-excerpt { margin-top: 3px; font-size: 11.5px; line-height: 1.65; color: var(--c-ink-2); }
 
-/* 深度思考（ThoughtChain panel 内 pre） */
+/* REQ-477②：思考紧凑行（ZCode 式「🧠 思考 · 持续 Xs · N 字」单行可折叠，替代 ThoughtChain 节点）——
+   缩进基准与 event-card/tool-phase 同列（44 = 头像 32 + 间距 12） */
+.think-row {
+  margin: 4px 0 4px calc(44px + var(--sub-depth, 0) * 14px);
+  max-width: min(760px, calc(100% - 44px - var(--sub-depth, 0) * 14px));
+  font-size: 12.5px;
+}
+.think-head {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: 6px; cursor: pointer; user-select: none;
+  color: var(--c-ink-2);
+}
+.think-head:hover { background: var(--c-bg-soft); color: var(--c-ink); }
+.think-meta { color: var(--c-ink-3); font-size: 11.5px; }
+.think-caret {
+  width: 0; height: 0; margin-left: 2px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid currentColor; opacity: .55;
+  transition: transform .15s ease;
+}
+.think-caret.open { transform: rotate(-90deg); }
+.think-body { margin: 0 0 0 2px; }
+
+/* 深度思考（思考行展开内 pre） */
 pre.thinking {
   margin: 0; font-family: var(--mono); font-size: 11.5px; color: var(--c-ink-2);
   white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto;

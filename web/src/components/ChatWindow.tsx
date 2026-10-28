@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Alert, Button, Collapse, Dropdown, Input, Modal, Popover, Segmented, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { BookOutlined, BulbOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, ThunderboltOutlined } from '@ant-design/icons'
-import { Bubble, ThoughtChain, Welcome } from '@ant-design/x'
+import { BookOutlined, ClusterOutlined, EllipsisOutlined, LoadingOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
 import { api, connDisplayName, extApproval, resumeConversation, runConversation } from '../api/client'
@@ -35,18 +35,32 @@ import { BLANK_PANE, BUBBLE_ROLES, ChatChip, SEG_COLORS, SEG_LABELS, type PaneSe
 import DelegatePanel from './chat/DelegatePanel'
 
 /**
- * 中间对话窗口（原型 06 §3.1 / §3.2，Ant Design X Bubble/Sender/ThoughtChain）：
+ * 中间对话窗口（原型 06 §3.1 / §3.2，Ant Design X Bubble/Sender）：
  * - 垂直三段：配置条（单行徽标）/ 消息流（Bubble.List 内建滚动 + autoScroll 置底）/ 输入区；
  * - 阅读尺度：气泡自身 max-width 880 居中（滚动条因此贴对话区最右缘），输入区同宽对齐；
  * - 助手正文：XMarkdown 渲染（流式期间尾部游标），用户消息保持纯文本；
  * - 运行中：消息流右下角悬浮「停止生成」入口，复用 stop()（abort + POST /stop）；
  * - agent 直聊：头部显示智能体名，「配置」打开智能体弹窗；
  * - project 会话：头部注明「项目：xxx · 会话使用的智能体：xxx」；
- * - 执行细节：历史事件回放、token 用量与耗时、深度思考 ThoughtChain、工具调用 JSON、原始事件调试开关
+ * - 执行细节：历史事件回放、token 用量与耗时、深度思考紧凑行、工具调用 JSON、原始事件调试开关
  * - M4-M8：子智能体 / 知识召回 / 本体事件卡（实时与回放共用 describeEvent）；
  *   会话级配置为输入卡内底部的三个开关 chip（知识库 / 本体 / 技能，X Sender footer），
  *   随改随存（merge-safe patchConv）；具体参数在「知识库」页与智能体属性中维护
  */
+
+// REQ-477②③：时长人话格式——思考行「持续 Xs」（fmtDur）与运行计时行「工作中 m 分 ss 秒」（fmtWall）分用
+const fmtDur = (ms: number): string => {
+  if (ms < 1000) return '<1s'
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const s = Math.floor(ms / 1000)
+  return `${Math.floor(s / 60)} 分 ${String(s % 60).padStart(2, '0')} 秒`
+}
+const fmtWall = (ms: number): string => {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(s / 60)
+  return m > 0 ? `${m} 分 ${String(s % 60).padStart(2, '0')} 秒` : `${s} 秒`
+}
+
 export default function ChatWindow({
   conversation,
   agents,
@@ -98,6 +112,14 @@ export default function ChatWindow({
     if (initialDraft) setInput(initialDraft)
   }, [initialDraft])
   const [running, setRunning] = useState(false)
+  // REQ-477③：运行计时行——run 起始时刻 + 每秒心跳（重渲染时读 Date.now() 实时跳动；收尾随 running 消失）
+  const [runStart, setRunStart] = useState<number | null>(null)
+  const [, setNowTick] = useState(0)
+  useEffect(() => {
+    if (!running) return
+    const t = window.setInterval(() => setNowTick((n) => n + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [running])
   // REQ-403/M199：原始事件 JSON 开关单源化——头部过程面板唯一配置点（localStorage 按会话记忆），
   // TraceDrawer 经 props 消费同一 state（其工具栏本地双份退役）
   const [showRaw, setShowRaw] = useState(() => localStorage.getItem(`eino.showraw.${conversation?.id ?? ''}`) === '1')
@@ -266,12 +288,17 @@ export default function ChatWindow({
           }
           if (e.type === 'message.delta') continue // 正文已由消息表还原，避免重复
           if (e.type === 'message.segment') {
-            // 已以段代显的 run：段入 timeline（淡一档正文段，与 live 交错形态对称）；
+            // REQ-477①：已以段代显的 run，段以 msg 形态入线——原 event 形态令 REQ-362 完成块
+            // answer 提升（只认 kind=msg）恒 miss，切换会话后正文全在折叠体内不可见（报障实锤）；
+            // 连续段合并单条（末段即最终回答可被提升外显），块体内按 run-seg 淡一档回看；
             // 未消费（如消息已删）也照常呈现，不丢内容
-            timeline.push({
-              ts: e.created_at,
-              item: { kind: 'event', evType: 'message.segment', evData: { run_id: e.run_id, text: d.text ?? '' } },
-            })
+            const text = d.text ?? ''
+            const lastIt = timeline[timeline.length - 1]?.item
+            if (text && lastIt && lastIt.kind === 'msg' && lastIt.role === 'assistant' && lastIt.seg) {
+              lastIt.content = (lastIt.content ?? '') + text
+            } else if (text) {
+              timeline.push({ ts: e.created_at, item: { kind: 'msg', role: 'assistant', content: text, seg: true } })
+            }
             continue
           }
           if (e.type === 'reasoning.delta') {
@@ -586,7 +613,7 @@ export default function ChatWindow({
   // REQ-336：模型 chip 退役——模型配置归智能体（侧板「模型」页签），发送框不再提供会话级切换；
   // 伴生 chip 退役——会话伴生本体归位头部 ⋮ 会话设置。「/」快速配置与文件附加见下方 Sender。
 
-  // 事件卡渲染（ThoughtChain 深度思考 / 工具详情 / 终态摘要）：
+  // 事件卡渲染（思考紧凑行 / 工具详情 / 终态摘要）：
   // 紧凑、左侧色条区分来源、与助手文本列对齐（缩进统一由样式 .event-card/.event-side/.tool-phase
   // 的 margin-left 计算，内联只透传子智能体嵌套深度变量——根级=助手正文列，不再错位到头像列）
   // REQ-117：按 enter/exit 序列计算子智能体嵌套深度（回放与实时共用，渲染时缩进）
@@ -630,38 +657,34 @@ export default function ChatWindow({
   }
 
   const renderEventCard = (it: ChatItem, i: number) => {
-    // REQ-406①/M202：回放正文段（message.segment 以段代显的交错正文——淡一档 run-seg 呈现，
-    // 与 live 模型步分段形态对称）
-    if (it.evType === 'message.segment') {
-      return (
-        <div key={i} className="run-seg" data-testid="replay-text-segment" style={{ whiteSpace: 'pre-wrap', fontSize: 13.5, lineHeight: 1.72, padding: '2px 4px' }}>
-          {it.evData?.text ?? ''}
-        </div>
-      )
-    }
+    // REQ-477②：思考紧凑行（ZCode 式「思考 · 持续 Xs · N 字」单行可折叠）——替代 ThoughtChain 节点；
+    // 展开状态口径沿 REQ-135：流式中默认展开、结束默认收起，手动开合按 evKey 记忆（历史重载不丢）
     if (it.evType === 'reasoning') {
       const len = it.reasoning?.length ?? 0
       const cardKey = it.evKey ?? `reasoning-${i}`
       const streaming = !!it.streamKey
-      const open = reasoningOpen[cardKey] ?? streaming // 流式中默认展开；结束后默认收起，用户可手动开合
+      const open = reasoningOpen[cardKey] ?? streaming
+      const meta = [
+        typeof it.reasonMs === 'number' ? `持续 ${fmtDur(it.reasonMs)}` : '',
+        len ? `${len} 字` : '',
+      ].filter(Boolean).join(' · ')
       return (
-        <ThoughtChain
-          key={i}
-          className="event-side"
-          style={depthStyle(it.subDepth)}
-          expandedKeys={open ? [cardKey] : []}
-          onExpand={(keys) => setReasoningOpen((prev) => ({ ...prev, [cardKey]: keys.includes(cardKey) }))}
-          items={[
-            {
-              key: cardKey,
-              title: `深度思考${len ? `（${len} 字）` : ''}`,
-              status: streaming ? 'loading' : 'success',
-              icon: <BulbOutlined />,
-              collapsible: true,
-              content: len ? <pre className="thinking">{it.reasoning}</pre> : undefined,
-            },
-          ]}
-        />
+        <div key={i} className="think-row" style={depthStyle(it.subDepth)} data-testid="think-row">
+          <div
+            className="think-head"
+            onClick={() => setReasoningOpen((prev) => ({ ...prev, [cardKey]: !open }))}
+            title={open ? '收起思考过程' : '展开思考过程'}
+          >
+            <span aria-hidden>🧠</span>
+            <span>思考</span>
+            {streaming && <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />}
+            {meta && <span className="think-meta">· {meta}</span>}
+            <span className={`think-caret${open ? ' open' : ''}`} aria-hidden />
+          </div>
+          {open && len > 0 && (
+            <pre className="thinking think-body">{it.reasoning}</pre>
+          )}
+        </div>
       )
     }
     if (it.evType === 'model.step') {
@@ -966,7 +989,6 @@ export default function ChatWindow({
                 if (it.evType && levelGated(it.evType, debugLevel)) return false
                 if (!showReasoning && it.evType === 'reasoning') return false
                 if (it.kind === 'msg' || !it.evType) return true
-                if (it.evType === 'message.segment') return true // REQ-406①：正文段以段代显，恒显示
                 if (granularity === 'off') return false
                 if (granularity === 'key') {
                   return isKeyGranularity(it.evType) // REQ-401：白名单收敛事件注册表单源
@@ -1150,6 +1172,7 @@ export default function ChatWindow({
     start: (handler: (ev: { event: string; data: any }) => void) => { abort: () => void; done: Promise<void> },
   ) => {
     stopFlagRef.current = false
+    setRunStart(Date.now()) // REQ-477③：运行计时行起点
     setItems((prev) => [...prev, { kind: 'msg', role: 'assistant', content: '', streaming: true }])
     setRunning(true)
     const aborter = start(handleRunEvent)
@@ -1167,6 +1190,7 @@ export default function ChatWindow({
       return it
     }))
     setRunning(false)
+    setRunStart(null)
     runRef.current = null
     bumpData()
     onConversationUpdated()
@@ -1235,11 +1259,18 @@ export default function ChatWindow({
     }
     roles.ai = {
       ...roles.ai,
-      contentRender: (content: any) => {
+      contentRender: (content: any, info: any) => {
         const text = typeof content === 'string' ? content : String(content ?? '')
+        // REQ-477④ 顺修：REQ-409 挂消息操作时覆盖丢了 XMarkdown——助手回答自近期版本起纯文本
+        // 直出（markdown 裸符号可见）；恢复 Markdown 渲染（流式游标口径同 BUBBLE_ROLES.ai），操作行保留
         return (
           <div data-testid="ai-msg">
-            <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>
+            <XMarkdown
+              className="chat-md"
+              content={text}
+              openLinksInNewTab
+              streaming={{ hasNextChunk: !!info?.extraInfo?.streaming, tail: true }}
+            />
             <Space size={4} style={{ marginTop: 4 }}>
               <Button type="link" size="small" style={{ fontSize: 11, padding: 0 }} onClick={() => copyMessage(text)}>
                 复制
@@ -1335,6 +1366,7 @@ export default function ChatWindow({
       ...(p.noHistory ? { no_history: true } : {}),
     }))
     paneRunMapRef.current = {}
+    setRunStart(Date.now()) // REQ-477③：对比轮同挂运行计时行
     setPaneItems((prev) =>
       prev.map(() => [
         { kind: 'msg' as const, role: 'user' as const, content: text },
@@ -1356,6 +1388,7 @@ export default function ChatWindow({
       return it
     })))
     setRunning(false)
+    setRunStart(null)
     runRef.current = null
     bumpData()
     onConversationUpdated()
@@ -1673,6 +1706,12 @@ export default function ChatWindow({
             <TodoCard todoJson={conversation.todo_json} />
             <Bubble.List items={listItems} role={BUBBLE_ROLES} />
           </>
+        )}
+        {running && runStart != null && (
+          <div className="chat-working" data-testid="chat-working" title="本次运行已耗时（每秒刷新）">
+            <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />
+            <span>工作中 {fmtWall(Date.now() - runStart)}</span>
+          </div>
         )}
         {running && (
           <div className="chat-stop">
