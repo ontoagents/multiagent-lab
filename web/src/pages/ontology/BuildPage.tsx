@@ -67,8 +67,9 @@ export default function BuildPage() {
     <BuildLayout buildPath={buildPath} onSelect={select}>
       {buildPath === 'home' && (
         <>
-          <ProductionGuide onGoBuild={() => select('custom')} />
+          {/* REQ-484/M283：一主一辅——首屏=新手条+六卡；生产动线（进阶语境）降级到卡片下方折叠条 */}
           <BuildPathGrid onSelect={select} />
+          <ProductionGuide onGoBuild={() => select('custom')} />
         </>
       )}
       {buildPath === 'custom' && (

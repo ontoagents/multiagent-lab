@@ -28,9 +28,8 @@ export default function BuildLayout({
             </Typography.Title>
             <Tag color="blue" style={{ margin: 0 }}>六条构建路径</Tag>
           </div>
-          <p className="work-head-desc">
-            同一个本体可以由不同路径建成（学习要点各不相同）；产物统一进入「本体资产」栏管理。
-          </p>
+          {/* REQ-484/M283：desc 精简——「产物进资产」全站只页脚提示一处（原与本页页脚/卡片重复三现） */}
+          <p className="work-head-desc">选择一条路径开始；路径间可随时切换。</p>
         </div>
       </div>
 

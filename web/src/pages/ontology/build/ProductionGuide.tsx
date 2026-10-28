@@ -18,7 +18,7 @@ import { useOntologies } from '../shared/useOntoList'
 // 档案 + REQ-239 发布态 + 消费观测台（REQ-290）三段已交付能力；学习叙事不动
 // （下方路径卡片即学习路径陈列，D-O11 五栏 IA 与默认页口径维持）。
 // 双定位共存=模式/动线区分而非功能分叉：生产交付看上方动线，学习构建看路径卡片。
-// 收起记忆 eino.onto.prodguide（'off' 收起，收起后首页留展开钮）。
+// 收起记忆 eino.onto.prodguide（REQ-484/M283：默认折叠——进阶语境让位新手首屏；'off' 收起，展开态不记忆即刷新回落折叠）。
 // ---------------------------------------------------------------------------
 
 const GUIDE_KEY = 'eino.onto.prodguide'
@@ -36,27 +36,28 @@ const STEP_ITEMS = [
   {
     key: 'build',
     title: '① 导入 / 构建',
-    desc: '六路径任一入口建成本体——自定义构建 S1 可直接上传 OWL/TTL 导入（导入对账零丢失，REQ-328）',
+    desc: '六条路径任一入口建成本体；自定义构建可直接上传 OWL/TTL 导入（导入对账零丢失）',
   },
   {
     key: 'quality',
     title: '② 质量门禁',
-    desc: '资产详情「质量卡」：三维评分 / 评估历史 / 修复指引（REQ-331），建议通过门禁再发布',
+    desc: '资产详情「校验与质量」：三维评分 / 评估历史 / 修复指引——建议通过门禁再发布',
   },
   {
     key: 'publish',
     title: '③ 发布',
-    desc: 'draft → published 命名快照（REQ-239）：发布后运行向导优先装载已发布版本，编辑自动回 draft',
+    desc: 'draft → published 命名快照：发布后运行向导优先装载已发布版本，编辑自动回 draft',
   },
   {
     key: 'consume',
     title: '④ 运行消费',
-    desc: '启动运行方案（多引擎）→ 消费观测台看装载版本 / 质量快照 / 决策审计（REQ-290）',
+    desc: '启动运行方案（多引擎）→ 消费观测台看装载版本 / 质量快照 / 决策审计',
   },
 ]
 
 export default function ProductionGuide({ onGoBuild, focusAssetId }: { onGoBuild: () => void; focusAssetId?: string | null }) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(GUIDE_KEY) === 'off')
+  // REQ-484：默认折叠（用户显式展开后本会话保持；不再记忆展开态——首屏 novice-first）
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(GUIDE_KEY) !== 'on')
   // REQ-407/M203：首页无选中态——惰性取最近创建本体作「去质量门禁/去发布」的深链目标
   // REQ-467/M267：本体清单单源 hook（散拉收敛）
   const { ontos: guideOntos } = useOntologies()
@@ -67,15 +68,15 @@ export default function ProductionGuide({ onGoBuild, focusAssetId }: { onGoBuild
     setCollapsed(true)
   }
   const expand = () => {
-    localStorage.removeItem(GUIDE_KEY)
+    localStorage.setItem(GUIDE_KEY, 'on')
     setCollapsed(false)
   }
 
   if (collapsed) {
     return (
-      <div style={{ marginBottom: 12 }}>
-        <Button size="small" icon={<CompassOutlined />} data-testid="prod-guide-expand" onClick={expand}>
-          生产动线
+      <div style={{ marginTop: 14, display: 'flex' }}>
+        <Button size="small" type="dashed" icon={<CompassOutlined />} data-testid="prod-guide-expand" onClick={expand}>
+          构建之后呢？查看从构建到消费的四步动线
         </Button>
       </div>
     )
@@ -99,7 +100,7 @@ export default function ProductionGuide({ onGoBuild, focusAssetId }: { onGoBuild
           生产动线
         </Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          从构建到消费的四步交付路径（质量门禁 → 发布 → 运行消费）；学习构建看下方路径卡片
+          从构建到消费的四步交付路径；选择路径构建看上方卡片
         </Typography.Text>
         <Tooltip title="收起（可从「生产动线」按钮再展开）">
           <Button

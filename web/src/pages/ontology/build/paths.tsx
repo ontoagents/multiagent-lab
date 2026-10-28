@@ -7,12 +7,14 @@ export type BuildPath = 'home' | 'custom' | 'ontochat' | 'kg' | 'ontoextend' | '
 // 要标准→权威库；示例/空白→自定义 / KG 消费降侧栏）——「选哪条路」一屏可判。
 export const PATHS: { key: Exclude<BuildPath, 'home'>; label: string; state: 'ok' | 'partial' | 'guide'; desc: string; when: string; novice?: boolean }[] = [
   // 生产最重场景（80 号 G3/U3）：已交付本体的增量演化比新建更高频
-  { key: 'ontoextend', label: 'OntoExtend 演化', state: 'ok', when: '改已有本体', desc: '对已交付本体做 ODP 模式扩展与词表补全（REQ-339/M139 升格）' },
+  // REQ-484/M283：3+3 新手主推序（第一行=新手三路径 OntoChat/自定义/知识库；第二行=进阶）；
+  // 用户面文案去 REQ/M 内部编号（台账语言归文档，UI 只说人话）。
+  { key: 'ontochat', label: 'OntoChat 对话式', state: 'ok', when: '从一段描述访谈成型', desc: '① 用户故事访谈 → ② 能力问题 → ③ 领域补全 → ④ 草稿确认 → ⑤ 入库', novice: true },
   { key: 'custom', label: '自定义构建 / 导入', state: 'ok', when: '有 OWL/TTL 文件或从零开始', desc: '① 来源（导入/AI/空白）→ ② 编辑 → ③ 校验 → ④ 可视化' },
-  { key: 'kb', label: '由知识库构建', state: 'partial', when: '知识库已有语料', desc: 'KB chunk→LLM / KG→直转 / 混合三策略（O13，D-O14/REQ-108）' },
-  { key: 'catalog', label: '权威本体库', state: 'ok', when: '要业界标准（W3C/ETSI/DCMI）', desc: '查询并引入权威本体，运行与拓展零门槛（REQ-316）' },
-  { key: 'ontochat', label: 'OntoChat 对话式', state: 'ok', when: '从一段描述访谈成型', desc: '① 用户故事访谈 → ② 能力问题 → ③ 领域补全 → ④ 草稿确认 → ⑤ 入库（REQ-103 模式 A）', novice: true },
-  { key: 'kg', label: 'KG 消费（引导）', state: 'guide', when: '要看 KG 抽取与消费', desc: '入口卡跳转「消费与审计」栏（D-O15 自研 KG）——消费动线非构建路径' },
+  { key: 'kb', label: '由知识库构建', state: 'partial', when: '知识库已有语料', desc: '从知识库语料生成本体：chunk→LLM 抽取 / KG 直转 / 混合三策略' },
+  { key: 'ontoextend', label: 'OntoExtend 演化', state: 'ok', when: '改已有本体', desc: '对已交付本体做增量扩展：ODP 模式或按能力问题生成扩展片段' },
+  { key: 'catalog', label: '权威本体库', state: 'ok', when: '要业界标准（W3C/ETSI/DCMI）', desc: '查询并引入业界权威本体，入库即可运行与拓展' },
+  { key: 'kg', label: 'KG 消费（引导）', state: 'guide', when: '要看 KG 抽取与消费', desc: '跳转「消费与审计」栏——KG 图谱与 GraphRAG 消费动线' },
 ]
 
 export const STATE_TAG: Record<Exclude<BuildPath, 'home'>, { color: string; text: string }> = {

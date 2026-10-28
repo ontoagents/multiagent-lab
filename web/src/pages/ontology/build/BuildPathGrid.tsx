@@ -35,7 +35,7 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
           style={{ border: '1px solid var(--c-brand, #4f7cff)', background: 'rgba(79,124,255,0.06)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
         >
           <Typography.Text strong style={{ fontSize: 13 }}>第一次构建本体？</Typography.Text>
-          <Typography.Text style={{ fontSize: 12.5 }}>推荐从「{novice.label}」开始——只需一段领域描述，访谈问答中成型（{novice.desc.split('（')[0]}）。</Typography.Text>
+          <Typography.Text style={{ fontSize: 12.5 }}>推荐从「{novice.label}」开始——只需一段领域描述，访谈问答中长出本体。</Typography.Text>
           <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => onSelect(novice.key)} data-testid="build-novice-go">
             从一段描述开始
           </Button>
@@ -45,9 +45,7 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
           </Button>
         </div>
       )}
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-        选择一条构建路径进入独立创建页；同一个本体可以由不同路径建成（学习要点各不相同），产物统一进入「本体资产」栏管理。各流程步数按流程需要（3~5 步），步名统一带序号（REQ-405②）。
-      </Typography.Paragraph>
+      {/* REQ-484/M283：删除卡片上方重复说明段（「产物进资产」页脚一处；路径差异卡片自明） */}
       <div className="build-path-grid">
         {PATHS.map((p) => (
           <Card
@@ -90,7 +88,7 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
         ))}
       </div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 12, marginBottom: 0 }}>
-        <BookOutlined /> 提示：路径间可随时经顶部切换器跳转；进行中的草稿（AI 草案/导入报告）已本地持久化（REQ-402），切路径/刷新不丢；对话会话服务端持久化。
+        <BookOutlined /> 提示：路径间可随时经顶部切换器跳转；进行中的草稿（AI 草案/导入报告）已本地持久化，切路径/刷新不丢；对话会话服务端持久化；产物统一进入「本体资产」栏管理。
       </Typography.Paragraph>
     </div>
   )
