@@ -647,11 +647,57 @@ def export(argv) -> int:
             return f"<{r}>"
         return "xsd:string"
 
+    # REQ-479/M279：external_refs 导出桥（与 Go 导出器 ttlexport.go planBridges 对拍口径一致）——
+    # spec 模型不动：refs 由导出方注入 stdin JSON 的 external_refs 键（旁挂表投影，非 spec 字段）。
+    # alignment→skos 匹配物化（异源轨）/ import·reuse→rdfs:seeAlso 被引方 IRI 原样出现（同源轨）
+    # + owl:imports 头语句（与装载侧探测登记对偶）。哨兵/脏 IRI/空 to_concept 防御性跳过。
+    xrefs = spec.get("external_refs") or []
+    _SENTINEL = "(ontology)"  # 与 Go repo.OntologyLevelRef / importer.ontologyLevelRef 同源
+    _SKOS_PREDS = {"exactMatch", "closeMatch", "broadMatch", "narrowMatch", "relatedMatch"}
+
+    def _loose_iri(s) -> bool:
+        i = s.find(":")
+        return i > 0 and not any(ch in s for ch in ' <>"{}|\\^`')
+
+    _bridge = {}
+    _imports = []
+    for r in xrefs:
+        tc = (r.get("to_concept") or "").strip()
+        rk = (r.get("ref_kind") or "").strip()
+        fc = (r.get("from_concept") or "").strip()
+        if not tc:
+            continue
+        if r.get("to_onto_id"):
+            obj_iri = f"urn:o:{sanitize(r['to_onto_id'])}:concept:{sanitize(tc)}"
+            dep_iri = f"urn:o:{sanitize(r['to_onto_id'])}:"
+        else:
+            if not _loose_iri(tc):
+                continue
+            obj_iri = tc
+            dep_iri = tc
+        if rk == "alignment":
+            if fc == _SENTINEL:
+                continue
+            pred = "skos:" + (r.get("predicate") if r.get("predicate") in _SKOS_PREDS else "exactMatch")
+            _bridge.setdefault(fc, []).append(f"{pred} <{obj_iri}>")
+        elif rk in ("import", "reuse"):
+            if dep_iri not in _imports:
+                _imports.append(dep_iri)
+            if fc == _SENTINEL:
+                continue
+            _bridge.setdefault(fc, []).append(f"rdfs:seeAlso <{obj_iri}>")
+    _imports.sort()
+
     L = []
     L.append(f'@prefix o: <{base}> .')
     L.append('@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .')
     L.append('@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .')
     L.append('@prefix owl: <http://www.w3.org/2002/07/owl#> .')
+    # REQ-479：skos 前缀条件性扩容（同义词或 alignment 桥存在时引入，与 Go 口径一致——
+    # 无同义词无桥的存量输出零变化）
+    if any((c.get("synonyms") or []) for c in (spec.get("concepts") or [])) or any(
+            r.get("ref_kind") == "alignment" for r in xrefs):
+        L.append('@prefix skos: <http://www.w3.org/2004/02/skos/core#> .')
     L.append('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .')
     L.append('')
     # REQ-474/M274：owl:Ontology 合成头（与 Go 导出器对拍口径一致——空名不出头，保空 spec 不变量）
@@ -659,6 +705,9 @@ def export(argv) -> int:
         _ont_head = f'<{base}__ontology> rdf:type owl:Ontology ; rdfs:label "{esc(spec["name"])}"'
         if spec.get("description"):
             _ont_head += f' ;\n    rdfs:comment "{esc(spec["description"])}"'
+        # REQ-479/M279：owl:imports 语句导出（去重升序；空头跳过保空 spec 不变量）
+        for iri in _imports:
+            _ont_head += f' ;\n    owl:imports <{iri}>'
         L.append(_ont_head + ' .')
     # REQ-216：空本体 spec（伴生绑定自动创建）concepts/relations/instances 可能为 null——
     # `or []` 容错（空 spec 导出为仅前缀的合法 TTL，宿主方案可正常 start/load）。
@@ -672,6 +721,9 @@ def export(argv) -> int:
             L[-1] += f' ;\n    rdfs:label "{esc(c["label"])}"'
         for p in c.get("parents", []):
             L[-1] += f' ;\n    rdfs:subClassOf <{cu(p)}>'
+        # REQ-479/M279：导出桥谓词段（alignment→skos 匹配 / import·reuse→rdfs:seeAlso；序=refs 遍历序）
+        for seg in _bridge.get(c["name"], []):
+            L[-1] += f' ;\n    {seg}'
         L[-1] += ' .'
     for r in (spec.get("relations") or []):
         u = ru(r["name"])

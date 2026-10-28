@@ -330,7 +330,19 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		ttl, triples, err := importer.ExportTTLCount(id, &sp)
+		// REQ-479/M279：external_refs 旁挂表 → 导出桥投影（读失败降级无桥导出，不阻断导出主链）。
+		var bridges []importer.ExtRefBridge
+		if refs, rerr := s.Store.ListExternalRefs(id); rerr != nil {
+			log.Printf("[req479] external_refs 读取失败 ontology=%s: %v（降级无桥导出）", id, rerr)
+		} else {
+			for _, ref := range refs {
+				bridges = append(bridges, importer.ExtRefBridge{
+					FromConcept: ref.FromConcept, ToOntoID: ref.ToOntoID, ToConcept: ref.ToConcept,
+					RefKind: ref.RefKind, Predicate: ref.Predicate,
+				})
+			}
+		}
+		ttl, triples, err := importer.ExportTTLCount(id, &sp, bridges...)
 		if err != nil {
 			writeErr(w, err)
 			return

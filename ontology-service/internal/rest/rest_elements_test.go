@@ -331,7 +331,10 @@ func TestElementRename_Req475(t *testing.T) {
 		t.Fatalf("概念重命名期望 200，实际 %d", c)
 	}
 	greq, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
-	gresp, _ := http.DefaultClient.Do(greq)
+	gresp, err := http.DefaultClient.Do(greq)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer gresp.Body.Close()
 	var sp pkgspec.Spec
 	_ = json.NewDecoder(gresp.Body).Decode(&sp)
@@ -356,7 +359,10 @@ func TestElementRename_Req475(t *testing.T) {
 		t.Fatalf("关系重命名期望 200，实际 %d", c)
 	}
 	greq2, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
-	gresp2, _ := http.DefaultClient.Do(greq2)
+	gresp2, err := http.DefaultClient.Do(greq2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer gresp2.Body.Close()
 	var sp2 pkgspec.Spec
 	_ = json.NewDecoder(gresp2.Body).Decode(&sp2)
@@ -374,7 +380,10 @@ func TestElementRename_Req475(t *testing.T) {
 		t.Fatalf("数据属性重命名期望 200，实际 %d", c)
 	}
 	greq3, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
-	gresp3, _ := http.DefaultClient.Do(greq3)
+	gresp3, err := http.DefaultClient.Do(greq3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer gresp3.Body.Close()
 	var sp3 pkgspec.Spec
 	_ = json.NewDecoder(gresp3.Body).Decode(&sp3)
@@ -392,7 +401,10 @@ func TestElementRename_Req475(t *testing.T) {
 		t.Fatalf("实例重命名期望 200，实际 %d", c)
 	}
 	greq4, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
-	gresp4, _ := http.DefaultClient.Do(greq4)
+	gresp4, err := http.DefaultClient.Do(greq4)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer gresp4.Body.Close()
 	var sp4 pkgspec.Spec
 	_ = json.NewDecoder(gresp4.Body).Decode(&sp4)

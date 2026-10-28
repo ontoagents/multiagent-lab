@@ -479,16 +479,17 @@ func CanonicalTTL(sc *Sidecar, format, content string) (string, int, error) {
 }
 
 // ExportTTL spec_json → Turtle（Go 原生直出，REQ-321 迭代：导出链路脱离 python）。
-func ExportTTL(ontologyID string, sp *pkgspec.Spec) (string, error) {
-	ttl, _, err := ExportTTLCount(ontologyID, sp)
+// REQ-479/M279：refs 为 external_refs 导出桥投影（variadic 可选——不传即存量无桥形态）。
+func ExportTTL(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (string, error) {
+	ttl, _, err := ExportTTLCount(ontologyID, sp, refs...)
 	return ttl, err
 }
 
 // ExportTTLCount 同 ExportTTL，另回三元组精确计数（REQ-293① 装载计数硬闸对账数据源）。
 // 导出走 TTLGoExport（sidecar.py export 的字节级一致 Go 移植，对拍测试锁定），python 不再是
 // 导出依赖——sidecar 消费面收窄为导入解析与 owlrl 推理检查两个。
-func ExportTTLCount(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
-	return TTLGoExport(ontologyID, sp)
+func ExportTTLCount(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (string, int, error) {
+	return TTLGoExport(ontologyID, sp, refs...)
 }
 
 func (r *Report) warn(s string) { r.Warnings = append(r.Warnings, s) }

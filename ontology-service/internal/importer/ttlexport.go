@@ -111,6 +111,92 @@ func ttlPyStr(v any) string {
 
 type ttlIRIs struct{ base string }
 
+// ExtRefBridge REQ-479/M279 导出桥：external_refs 旁挂表 → 导出层的最小字段投影。
+// repo.ExternalRef 由调用方（REST 导出端点）映射——importer 不依赖 repo；
+// 桥长在导出层+旁挂表，spec 模型不动（§2.67 拍板口径）。
+type ExtRefBridge struct {
+	FromConcept string `json:"from_concept"`         // 本体级哨兵见 ontologyLevelRef
+	ToOntoID    string `json:"to_onto_id,omitempty"` // 空=外部 IRI 登记态（ToConcept 承载 IRI 原文）
+	ToConcept   string `json:"to_concept"`           // 仓内=目标概念名；外部=目标 IRI
+	RefKind     string `json:"ref_kind"`             // import | alignment | reuse
+	Predicate   string `json:"predicate,omitempty"`  // alignment 细分（空/非法回落 exactMatch）
+}
+
+// ontologyLevelRef 与 repo.OntologyLevelRef 同源的本体级引用哨兵（owl:imports 装载侧自动登记用——
+// 不挂单概念；两侧字面量必须一致，改动需同步）。
+const ontologyLevelRef = "(ontology)"
+
+// skosMatchPredicates alignment 合法谓词（68 号 §3.1 SSSOM 词表；与 repo.validPredicates 同源）。
+var skosMatchPredicates = map[string]bool{
+	"exactMatch": true, "closeMatch": true, "broadMatch": true, "narrowMatch": true, "relatedMatch": true,
+}
+
+// bridgeSegments 概念名 → 导出桥谓词段（"skos:exactMatch <iri>"），序=refs 遍历序（登记按
+// created_at,ref_id 稳定序）。imports=owl:imports 目标 IRI（import/reuse 全体，去重升序）。
+type bridgeSegments struct {
+	segments map[string][]string
+	imports  []string
+	hasAlign bool
+}
+
+// basePrefixOf 对方本体 base 命名空间（与对方自身导出的 w.base 同构造——身份双轨同源轨的
+// join 键成立前提：两侧 sanitize 一致）。
+func basePrefixOf(ontoID string) string { return "urn:o:" + ttlSanitize(ontoID) + ":" }
+
+// looseIRI 外部 IRI 形态粗校验（scheme: 开头且不含 IRI 非法字符）——脏登记不进导出防非法 Turtle。
+func looseIRI(s string) bool {
+	i := strings.Index(s, ":")
+	return i > 0 && !strings.ContainsAny(s, " <>\"{}|\\^`")
+}
+
+func planBridges(refs []ExtRefBridge) bridgeSegments {
+	p := bridgeSegments{segments: map[string][]string{}}
+	seen := map[string]bool{}
+	for _, r := range refs {
+		toC := strings.TrimSpace(r.ToConcept)
+		rk := strings.TrimSpace(r.RefKind)
+		from := strings.TrimSpace(r.FromConcept)
+		if toC == "" {
+			continue
+		}
+		toO := strings.TrimSpace(r.ToOntoID)
+		if toO == "" && !looseIRI(toC) {
+			continue // 外部登记态非 IRI 形态：脏数据防御性跳过（不产出非法 Turtle）
+		}
+		objIRI := toC
+		depIRI := toC
+		if toO != "" {
+			objIRI = basePrefixOf(toO) + "concept:" + ttlSanitize(toC)
+			depIRI = basePrefixOf(toO)
+		}
+		switch rk {
+		case "alignment":
+			if from == ontologyLevelRef {
+				continue // 本体级对齐无概念锚——不物化（登记态保留旁挂表）
+			}
+			pred := "skos:exactMatch"
+			if skosMatchPredicates[strings.TrimSpace(r.Predicate)] {
+				pred = "skos:" + strings.TrimSpace(r.Predicate)
+			}
+			p.segments[from] = append(p.segments[from], fmt.Sprintf("%s <%s>", pred, objIRI))
+			p.hasAlign = true
+		case "import", "reuse":
+			if !seen[depIRI] {
+				seen[depIRI] = true
+				p.imports = append(p.imports, depIRI)
+			}
+			if from == ontologyLevelRef {
+				continue // 哨兵只承载 imports 语句，无概念段
+			}
+			p.segments[from] = append(p.segments[from], fmt.Sprintf("rdfs:seeAlso <%s>", objIRI))
+		}
+	}
+	sort.Strings(p.imports)
+	return p
+}
+
+
+
 func (w ttlIRIs) concept(n string) string  { return w.base + "concept:" + ttlSanitize(n) }
 func (w ttlIRIs) relation(n string) string { return w.base + "relation:" + ttlSanitize(n) }
 func (w ttlIRIs) instance(n string) string { return w.base + "instance:" + ttlSanitize(n) }
@@ -139,14 +225,18 @@ func ttlRangeIRI(rng string) string {
 
 // TTLGoExport spec_json → Turtle（字节级对齐 sidecar.py export），返回 TTL 与精确三元组数。
 // REQ-216：空 spec（伴生绑定自动创建）导出为仅前缀的合法 TTL，计数 0（0=0 硬闸恒过）。
-func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
+// REQ-479/M279：refs 为 external_refs 导出桥投影（variadic——无桥调用点与存量输出字节零变化）：
+// alignment 物化 skos 匹配三元组（身份双轨异源轨）+import/reuse 被引方 IRI 原样出现
+//（同源轨 join 键）+本体头 owl:imports 语句（与装载侧探测登记对偶）。
+func TTLGoExport(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (string, int, error) {
 	if sp == nil {
 		sp = &pkgspec.Spec{}
 	}
 	w := ttlIRIs{base: "urn:o:" + ttlSanitize(ontologyID) + ":"}
+	bridge := planBridges(refs)
 	var esc = ttlEsc
 	// REQ-419：skos 前缀条件性——仅存在同义词时引入（TTLGoExport 与 sidecar 字节级对拍锁，
-	// 无同义词的存量 spec 输出必须零变化）
+	// 无同义词的存量 spec 输出必须零变化）。REQ-479：alignment 桥存在时同条件引入。
 	hasSynonyms := false
 	for _, c := range sp.Concepts {
 		if len(c.Synonyms) > 0 {
@@ -161,7 +251,7 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		"@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
 		"@prefix owl: <http://www.w3.org/2002/07/owl#> .",
 	}
-	if hasSynonyms {
+	if hasSynonyms || bridge.hasAlign {
 		prefixes = append(prefixes, "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .")
 	}
 	prefixes = append(prefixes, "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .", "")
@@ -175,6 +265,12 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		n += 2
 		if sp.Description != "" {
 			head += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(sp.Description))
+			n++
+		}
+		// REQ-479/M279：owl:imports 语句导出（与装载侧探测登记对偶）——import/reuse 依赖目标
+		// 去重升序；空头（空名 spec）跳过，保「空 spec 仅前缀计数 0」装载对账不变量。
+		for _, iri := range bridge.imports {
+			head += fmt.Sprintf(" ;\n    owl:imports <%s>", iri)
 			n++
 		}
 		L = append(L, head+" .")
@@ -237,6 +333,12 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 				n++
 			}
 			line += " ]"
+		}
+		// REQ-479/M279：导出桥谓词段（alignment→skos 匹配 / import·reuse→rdfs:seeAlso 被引方
+		// IRI 原样出现——union 图公共 join 键）；序=登记稳定序，概念不在 spec 时段自然不出现。
+		for _, seg := range bridge.segments[c.Name] {
+			line += fmt.Sprintf(" ;\n    %s", seg)
+			n++
 		}
 		L = append(L, line+" .")
 	}
