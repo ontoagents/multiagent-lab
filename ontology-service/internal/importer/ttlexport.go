@@ -42,6 +42,51 @@ func ttlEsc(s string) string {
 // ttlPyStr 对齐 python str() 的 JSON 值字符串化主形态：bool → True/False、nil → None、
 // 整值浮点按整形输出（python json "42"→int→"42" 同形）。浮点 ".0" 尾数与科学计数为已知边缘差异
 // （属性值实际以字符串为主，见 16 号 v0.20 诚实边界）。
+// typedLiteral REQ-474/M274：按数据属性 range 短名输出类型化字面量——
+// integer→裸整数 / number→xsd:double / boolean→真小写 true/false（修 python str() 的 True/False
+// 非法字面量）/ date→"…"^^xsd:date；string/未声明/未知 range→引号字符串（含 python str() 形态的
+// 数值/布尔字符串原样引号保底——ttlPyStr 仍兜底非 JSON 形态）。
+func typedLiteral(v any, rng string) string {
+	switch rng {
+	case "integer":
+		switch t := v.(type) {
+		case float64:
+			return strconv.FormatFloat(t, 'f', -1, 64)
+		case string:
+			if _, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+				return strings.TrimSpace(t)
+			}
+		}
+	case "number":
+		switch t := v.(type) {
+		case float64:
+			s := strconv.FormatFloat(t, 'f', -1, 64)
+			if !strings.ContainsAny(s, ".eE") {
+				s += ".0" // xsd:double 需小数点或指数形态
+			}
+			return s
+		}
+	case "boolean":
+		switch t := v.(type) {
+		case bool:
+			if t {
+				return "true"
+			}
+			return "false"
+		case string:
+			switch strings.TrimSpace(t) {
+			case "true", "True", "1":
+				return "true"
+			case "false", "False", "0":
+				return "false"
+			}
+		}
+	case "date":
+		return fmt.Sprintf("\"%s\"^^xsd:date", ttlPyStr(v))
+	}
+	return fmt.Sprintf("\"%s\"", ttlPyStr(v))
+}
+
 func ttlPyStr(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -122,6 +167,18 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 	prefixes = append(prefixes, "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .", "")
 	L = append(L, prefixes...)
 	n := 0
+	// REQ-474/M274：owl:Ontology 合成头——Protégé 打开可识别本体实体（IRI 沿 base 命名空间合成：
+	// <base__ontology>；rdfs:label=名称恒有，rdfs:comment=描述有则出）。空名 spec（伴生空本体）
+	// 不出头——保空 spec 仅前缀、计数 0 的装载对账不变量。
+	if sp.Name != "" {
+		head := fmt.Sprintf("<%s> rdf:type owl:Ontology ; rdfs:label \"%s\"", w.base+"__ontology", esc(sp.Name))
+		n += 2
+		if sp.Description != "" {
+			head += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(sp.Description))
+			n++
+		}
+		L = append(L, head+" .")
+	}
 	for _, c := range sp.Concepts {
 		u := w.concept(c.Name)
 		line := fmt.Sprintf("<%s> rdf:type owl:Class ; rdfs:label \"%s\"", u, esc(c.Name))
@@ -132,6 +189,12 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		// 无锚名时首个 altLabel 会被误取为名（名称漂移）。
 		if len(c.Synonyms) > 0 {
 			line += fmt.Sprintf(" ;\n    skos:prefLabel \"%s\"", esc(c.Name))
+			n++
+		}
+		// REQ-474/M274：展示名 rdfs:label 导出（原只写 Name——Label 字段从不导出的保真断裂；
+		// 与 Name 同值不重复出，字节级对拍锁下无 Label 存量输出零变化）
+		if c.Label != "" && c.Label != c.Name {
+			line += fmt.Sprintf(" ;\n    rdfs:label \"%s\"", esc(c.Label))
 			n++
 		}
 		for _, syn := range c.Synonyms {
@@ -183,6 +246,11 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		n += 2 // 头部 = rdf:type + rdfs:label 两条
 		if r.Definition != "" {
 			line += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(r.Definition))
+			n++
+		}
+		// REQ-474/M274：关系展示名 rdfs:label 导出（同值不重复出）
+		if r.Label != "" && r.Label != r.Name {
+			line += fmt.Sprintf(" ;\n    rdfs:label \"%s\"", esc(r.Label))
 			n++
 		}
 		if r.From != "" {
@@ -248,6 +316,12 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		L = append(L, fmt.Sprintf("<%s> %s %s .", w.concept(ax.Subject), pred, strings.Join(tgts, ", ")))
 		n += len(ax.Targets)
 	}
+	// REQ-474/M274：实例数据断言按数据属性声明 range 类型化（原全字符串化+True/False/None
+	// 非法 Turtle 字面量——按 range 出 xsd 类型化字面量；未声明/未知 range 回落字符串）。
+	dpRange := map[string]string{}
+	for _, dp := range sp.DataProperties {
+		dpRange[dp.Name] = dp.Range
+	}
 	for _, it := range sp.Instances {
 		u := w.instance(it.Name)
 		line := fmt.Sprintf("<%s> rdf:type owl:NamedIndividual", u)
@@ -265,7 +339,7 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			line += fmt.Sprintf(" ;\n    <%s> \"%s\"", w.attr(k), esc(ttlPyStr(it.Attributes[k])))
+			line += fmt.Sprintf(" ;\n    <%s> %s", w.attr(k), typedLiteral(it.Attributes[k], dpRange[k]))
 			n++
 		}
 		for _, ir := range it.Relations {

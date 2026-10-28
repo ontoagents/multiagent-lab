@@ -65,6 +65,8 @@ func TestTTLGoExportShapeAndCount(t *testing.T) {
 	wantCount += 2 + 1
 	// alice: type+class+label+2attr+1rel = 6；bob: type+label+3attr = 5
 	wantCount += 6 + 5
+	// REQ-474：owl:Ontology 头 = type+label+comment = 3
+	wantCount += 3
 	if n != wantCount {
 		t.Fatalf("计数不符: got %d want %d", n, wantCount)
 	}
@@ -76,7 +78,7 @@ func TestTTLGoExportShapeAndCount(t *testing.T) {
 		"<urn:o:rt:attr:remark> rdf:type owl:DatatypeProperty ; rdfs:label \"remark\" ;\n    rdfs:range xsd:string .",
 		"<urn:o:rt:concept:Person> owl:disjointWith <urn:o:rt:concept:Agent>, <urn:o:rt:concept:Robot> .",
 		"<urn:o:rt:concept:Person> owl:equivalentClass <urn:o:rt:concept:Human> .",
-		"<urn:o:rt:instance:alice> rdf:type owl:NamedIndividual ;\n    rdf:type <urn:o:rt:concept:Person> ;\n    rdfs:label \"alice\" ;\n    <urn:o:rt:attr:age> \"30\" ;\n    <urn:o:rt:attr:name> \"Alice\" ;\n    <urn:o:rt:relation:knows> <urn:o:rt:instance:bob> .",
+		"<urn:o:rt:instance:alice> rdf:type owl:NamedIndividual ;\n    rdf:type <urn:o:rt:concept:Person> ;\n    rdfs:label \"alice\" ;\n    <urn:o:rt:attr:age> 30 ;\n    <urn:o:rt:attr:name> \"Alice\" ;\n    <urn:o:rt:relation:knows> <urn:o:rt:instance:bob> .",
 		"<urn:o:rt:instance:bob> rdf:type owl:NamedIndividual ;\n    rdfs:label \"bob\" ;\n    <urn:o:rt:attr:active> \"True\" ;\n    <urn:o:rt:attr:note> \"None\" ;\n    <urn:o:rt:attr:score> \"4.5\" .",
 		"<urn:o:rt:concept:带_空格_概念.1> rdf:type owl:Class ; rdfs:label \"带 空格/概念.1\" ;\n    rdfs:subClassOf <urn:o:rt:concept:Person> .",
 	} {
@@ -158,5 +160,44 @@ func TestTTLGoExportParityWithSidecar(t *testing.T) {
 		if goN != pyN {
 			t.Fatalf("[%s] 计数不一致: go=%d sidecar=%d", oid, goN, pyN)
 		}
+	}
+}
+
+// REQ-474/M274：TTL 导出保真三修——①rdfs:label 导出 Label 字段 ②实例断言按 range 类型化
+//（boolean 真小写/integer 裸数字/date ^^xsd:date——修 True/False/None 非法字面量）③owl:Ontology 头。
+func TestTTLExportFidelity_Req474(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name: "保真", Description: "描述",
+		Concepts: []pkgspec.Concept{{Name: "Device", Label: "设备"}},
+		Relations: []pkgspec.Relation{{Name: "connects", From: "Device", To: "Device", Label: "连接"}},
+		DataProperties: []pkgspec.DataProperty{
+			{Name: "online", Domain: "Device", Range: "boolean"},
+			{Name: "port", Domain: "Device", Range: "integer"},
+			{Name: "score", Domain: "Device", Range: "number"},
+			{Name: "since", Domain: "Device", Range: "date"},
+		},
+		Instances: []pkgspec.Instance{{Name: "dev1", Concept: "Device",
+			Attributes: map[string]any{"online": true, "port": "8080", "score": 4.5, "since": "2026-01-01"}}},
+	}
+	ttl, _, err := TTLGoExport("fid", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"rdf:type owl:Ontology",                    // ①本体头
+		"rdfs:comment \"描述\"",                     // 头部描述
+		"rdfs:label \"设备\"",                       // ②概念展示名
+		"rdfs:label \"连接\"",                       // ②关系展示名
+		"<urn:o:fid:attr:online> true",             // ③boolean 真小写（原 "True" 非法字面量）
+		"<urn:o:fid:attr:port> 8080",               // ③integer 裸数字（字符串 "8080" 也类型化）
+		"<urn:o:fid:attr:score> 4.5",               // ③number
+		"<urn:o:fid:attr:since> \"2026-01-01\"^^xsd:date", // ③date
+	} {
+		if !strings.Contains(ttl, want) {
+			t.Fatalf("导出缺少 %q:\n%s", want, ttl)
+		}
+	}
+	if strings.Contains(ttl, "True") || strings.Contains(ttl, "None") {
+		t.Fatalf("不应再出现 python str() 非法字面量形态:\n%s", ttl)
 	}
 }

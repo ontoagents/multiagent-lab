@@ -724,6 +724,16 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 				}
 			}
 		}
+		// REQ-474/M274：展示名捕获——labelOf 之外的首个 rdfs:label（≠名）入 Label 字段
+		//（导出端「rdfs:label=Label（≠Name 时）」的读侧对偶——round-trip 保真）。
+		for _, o := range objs(t, labelT) {
+			if o.Kind == "literal" {
+				if v := strings.TrimSpace(o.Value); v != "" && v != name {
+					c.Label = v
+					break
+				}
+			}
+		}
 		if d := defOf(t); d != "" {
 			c.Definition = d
 		}

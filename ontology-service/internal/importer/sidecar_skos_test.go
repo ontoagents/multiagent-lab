@@ -6,6 +6,7 @@ package importer
 //   依赖 python3+rdflib，缺失自动 skip（CI 安全；真机验证在开发机全量跑过）。
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -208,7 +209,8 @@ func TestSidecarDatatypeExportRoundTrip(t *testing.T) {
 	if sp2.DataProperties[0].Name != "副本数" || sp2.DataProperties[0].Range != "integer" {
 		t.Fatalf("回读声明字段不符: %+v", sp2.DataProperties[0])
 	}
-	if sp2.Instances[0].Attributes["副本数"] != "3" {
+	// REQ-474/M274：integer 断言类型化导出（裸数字），回读为数值 3（原全字符串化 "3"——类型化升级）
+	if fmt.Sprint(sp2.Instances[0].Attributes["副本数"]) != "3" {
 		t.Fatalf("回读实例断言不符: %+v", sp2.Instances[0])
 	}
 }

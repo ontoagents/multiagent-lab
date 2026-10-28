@@ -578,6 +578,40 @@ def esc(s) -> str:
     return str(s).replace("\\", "\\\\").replace('"', '\\"')
 
 
+def typed_literal(v, rng):
+    """REQ-474/M274：按 range 类型化字面量（与 Go typedLiteral 对拍一致）。"""
+    if rng == "integer":
+        if isinstance(v, bool):
+            pass
+        elif isinstance(v, (int, float)) and float(v).is_integer():
+            return str(int(v))
+        elif isinstance(v, str):
+            try:
+                int(v.strip())
+                return v.strip()
+            except ValueError:
+                pass
+    elif rng == "number":
+        if isinstance(v, bool):
+            pass
+        elif isinstance(v, (int, float)):
+            s = repr(float(v)) if isinstance(v, float) else str(v)
+            if "." not in s and "e" not in s and "E" not in s:
+                s += ".0"
+            return s
+    elif rng == "boolean":
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, str):
+            if v.strip() in ("true", "True", "1"):
+                return "true"
+            if v.strip() in ("false", "False", "0"):
+                return "false"
+    elif rng == "date":
+        return f'"{esc(v)}"^^xsd:date'
+    return f'"{esc(v)}"'
+
+
 def export(argv) -> int:
     oid = ""
     fmt = TTL
@@ -620,6 +654,12 @@ def export(argv) -> int:
     L.append('@prefix owl: <http://www.w3.org/2002/07/owl#> .')
     L.append('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .')
     L.append('')
+    # REQ-474/M274：owl:Ontology 合成头（与 Go 导出器对拍口径一致——空名不出头，保空 spec 不变量）
+    if spec.get("name"):
+        _ont_head = f'<{base}__ontology> rdf:type owl:Ontology ; rdfs:label "{esc(spec["name"])}"'
+        if spec.get("description"):
+            _ont_head += f' ;\n    rdfs:comment "{esc(spec["description"])}"'
+        L.append(_ont_head + ' .')
     # REQ-216：空本体 spec（伴生绑定自动创建）concepts/relations/instances 可能为 null——
     # `or []` 容错（空 spec 导出为仅前缀的合法 TTL，宿主方案可正常 start/load）。
     for c in (spec.get("concepts") or []):
@@ -627,6 +667,9 @@ def export(argv) -> int:
         L.append(f'<{u}> rdf:type owl:Class ; rdfs:label "{esc(c["name"])}"')
         if c.get("definition"):
             L[-1] += f' ;\n    rdfs:comment "{esc(c["definition"])}"'
+        # REQ-474/M274：展示名 rdfs:label 导出（同值不重复出——与 Go 导出器对拍口径一致）
+        if c.get("label") and c["label"] != c["name"]:
+            L[-1] += f' ;\n    rdfs:label "{esc(c["label"])}"'
         for p in c.get("parents", []):
             L[-1] += f' ;\n    rdfs:subClassOf <{cu(p)}>'
         L[-1] += ' .'
@@ -635,6 +678,8 @@ def export(argv) -> int:
         L.append(f'<{u}> rdf:type owl:ObjectProperty ; rdfs:label "{esc(r["name"])}"')
         if r.get("definition"):
             L[-1] += f' ;\n    rdfs:comment "{esc(r["definition"])}"'
+        if r.get("label") and r["label"] != r["name"]:
+            L[-1] += f' ;\n    rdfs:label "{esc(r["label"])}"'
         if r.get("from"):
             L[-1] += f' ;\n    rdfs:domain <{cu(r["from"])}>'
         if r.get("to"):
@@ -659,6 +704,8 @@ def export(argv) -> int:
         L.append(f'<{u}> rdf:type owl:DatatypeProperty ; rdfs:label "{esc(dp["name"])}"')
         if dp.get("definition"):
             L[-1] += f' ;\n    rdfs:comment "{esc(dp["definition"])}"'
+        if dp.get("label") and dp["label"] != dp["name"]:
+            L[-1] += f' ;\n    rdfs:label "{esc(dp["label"])}"'
         if dp.get("domain"):
             L[-1] += f' ;\n    rdfs:domain <{cu(dp["domain"])}>'
         L[-1] += f' ;\n    rdfs:range {range_iri(dp.get("range"))}'
@@ -676,8 +723,10 @@ def export(argv) -> int:
             L[-1] += f' ;\n    rdf:type <{cu(it["concept"])}>'
         L[-1] += f' ;\n    rdfs:label "{esc(it["name"])}"'
         # 键序统一 sorted（与 Go 导出器 ttlexport.go 对拍口径一致：消除 dict 插入序不确定）
+        # REQ-474/M274：按数据属性声明 range 类型化（与 Go typedLiteral 对拍一致）
+        dp_ranges = {d["name"]: d.get("range") or "" for d in (spec.get("data_properties") or [])}
         for k, v in sorted((it.get("attributes") or {}).items()):
-            L[-1] += f' ;\n    <{au(k)}> "{esc(v)}"'
+            L[-1] += f' ;\n    <{au(k)}> {typed_literal(v, dp_ranges.get(k, ""))}'
         for ir in it.get("relations", []):
             L[-1] += f' ;\n    <{ru(ir["rel"])}> <{iu(ir["target"])}>'
         L[-1] += ' .'
