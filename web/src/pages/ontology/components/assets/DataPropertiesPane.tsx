@@ -3,6 +3,7 @@ import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Space, Ta
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
+import { AutoComplete } from 'antd'
 import { RenameButton } from './RenameButton'
 import type { Spec, SpecDataProperty } from '../../../../api/types'
 
@@ -174,8 +175,13 @@ export default function DataPropertiesPane({ spec, ontologyId, onSaved }: { spec
               placeholder="不限定义域"
             />
           </Form.Item>
-          <Form.Item name="range" label="值域类型" initialValue="string">
-            <Select options={['string', 'number', 'integer', 'boolean', 'date'].map((v) => ({ value: v, label: v }))} />
+          <Form.Item name="range" label="值域类型（五短名或自定义 xsd IRI）" initialValue="string">
+            {/* REQ-476/M276：五短名枚举 + 自定义 IRI 自由输入（原仅枚举锁死——xsd:decimal 等无法录入） */}
+            <AutoComplete
+              options={['string', 'number', 'integer', 'boolean', 'date'].map((v) => ({ value: v, label: v }))}
+              placeholder="string / number / integer / boolean / date 或 xsd: IRI"
+              filterOption={(iv, opt) => String(opt?.value ?? '').startsWith(String(iv))}
+            />
           </Form.Item>
         </Form>
       </Modal>

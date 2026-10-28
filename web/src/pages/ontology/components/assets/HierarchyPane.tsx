@@ -7,6 +7,7 @@ import { api } from '../../../../api/client'
 import './hierarchy.css'
 import RestrictionsEditor from './RestrictionsEditor'
 import { RenameButton } from './RenameButton'
+import InstanceEditPanel from './InstanceEditPanel'
 
 // ---------------------------------------------------------------------------
 // REQ-363/M163 本体内容层级浏览（Protégé 式树形导航与实体详情）——资产详情「层级浏览」分区。
@@ -572,6 +573,8 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
             {it.concept || '—（未声明）'}
           </Tag>
         </div>
+        {/* REQ-476/M276：实例编辑表单化（属性值/断言/换类型——instance upsert 前端首次消费） */}
+        {onChanged && <InstanceEditPanel ontologyId={ontology.id} spec={spec} instance={it} onChanged={onChanged} />}
         {attrs.length > 0 && (
           <div className="onto-hier-row">
             <span className="onto-hier-label">属性</span>
