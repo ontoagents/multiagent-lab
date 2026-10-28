@@ -468,13 +468,13 @@ export const api = {
         : { 'Content-Type': 'application/json' },
     }),
   // REQ-436/M232：元素级端点（构建面一等 REST——Validate/版本门禁服务端单源；REQ-420 手动建模 CRUD 消费）
-  elementUpsert: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance', body: Record<string, unknown>) =>
+  elementUpsert: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance' | 'axiom', body: Record<string, unknown>) =>
     req<{ operation: string; saved: boolean; base_version: number; version: number; detail: string }>(
       `/api/ontologies/${encodeURIComponent(id)}/elements/${kind}`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
-  elementDelete: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance', name: string) =>
-    req<{ operation: string; saved: boolean }>(
+  elementDelete: (id: string, kind: 'concept' | 'relation' | 'attribute' | 'instance' | 'axiom', name: string) =>
+    req<{ operation: string; saved: boolean; detail: string }>(
       `/api/ontologies/${encodeURIComponent(id)}/elements/${kind}/${encodeURIComponent(name)}`,
       { method: 'DELETE' },
     ),

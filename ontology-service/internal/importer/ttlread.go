@@ -916,6 +916,47 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		}
 	}
 
+	// REQ-472/M272：类级公理投影（disjointWith/equivalentClass）——两端均为已注册概念才入层
+	// （未注册端沿用 sidecar 口径不投影）；与导出端 ttlexport 对偶，修复 Go 读入路径 round-trip 断裂
+	// （原 Go 端导入再导出 Axioms 层丢失，仅 sidecar 路径可捕获）。
+	dwT := ttlTerm{Kind: "iri", Value: nsOWL + "disjointWith"}
+	eqcT := ttlTerm{Kind: "iri", Value: nsOWL + "equivalentClass"}
+	axIdx := map[string]int{}
+	for _, t := range triples {
+		var axType string
+		switch {
+		case eq(t.P, dwT):
+			axType = "disjoint_with"
+		case eq(t.P, eqcT):
+			axType = "equivalent_class"
+		default:
+			continue
+		}
+		if t.S.Kind != "iri" || t.O.Kind != "iri" {
+			continue
+		}
+		sName, oName := nameByURI[t.S.Value], nameByURI[t.O.Value]
+		if sName == "" || oName == "" {
+			continue
+		}
+		k := axType + "\x00" + sName
+		if i, ok := axIdx[k]; ok {
+			dup := false
+			for _, tg := range res.Spec.Axioms[i].Targets {
+				if tg == oName {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				res.Spec.Axioms[i].Targets = append(res.Spec.Axioms[i].Targets, oName)
+			}
+		} else {
+			res.Spec.Axioms = append(res.Spec.Axioms, pkgspec.Axiom{Type: axType, Subject: sName, Targets: []string{oName}})
+			axIdx[k] = len(res.Spec.Axioms) - 1
+		}
+	}
+
 	// 实例：rdf:type 指向已注册概念的主体（非类自身）
 	instNameByURI := map[string]string{}
 	type instDraft struct {

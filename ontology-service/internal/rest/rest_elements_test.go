@@ -166,3 +166,128 @@ func TestElementConceptSynonyms(t *testing.T) {
 		}
 	}
 }
+
+// REQ-472/M272：axiom kind（公理组 upsert/删除）+ concept restrictions 整组接收。
+func TestElementAxiomAndRestrictions_Req472(t *testing.T) {
+	srv, _ := newPublishTestServer(t)
+	_ = struct{}{}
+
+	// 0) 备料：概念B/概念C 与关系 relOf（夹具仅含概念A）
+	for _, body := range []string{
+		`{"name":"概念B"}`, `{"name":"概念C"}`,
+		`{"name":"relOf","from":"概念A","to":"概念B"}`,
+	} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/concept", strings.NewReader(body))
+		if strings.Contains(body, "relOf") {
+			req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/relation", strings.NewReader(body))
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("备料失败 %s: %d", body, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	// 1) 公理新增（组键 type+subject）
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/axiom",
+		strings.NewReader(`{"type":"disjoint_with","subject":"概念A","targets":["概念B"]}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("axiom upsert 期望 200，实际 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 2) 非法类型拒绝
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/axiom",
+		strings.NewReader(`{"type":"gci","subject":"概念A","targets":["概念B"]}`))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("非法公理类型期望 400，实际 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 3) 公理组更新（targets 整组替换）
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/axiom",
+		strings.NewReader(`{"type":"disjoint_with","subject":"概念A","targets":["概念B","概念C"]}`))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("axiom 更新期望 200，实际 %d", resp.StatusCode)
+	}
+	var out struct {
+		Detail string `json:"detail"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if !strings.Contains(out.Detail, "已更新") || !strings.Contains(out.Detail, "2 个") {
+		t.Fatalf("更新 detail 不符: %+v", out)
+	}
+
+	// 4) 悬空目标被 Validate 拒
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/axiom",
+		strings.NewReader(`{"type":"disjoint_with","subject":"概念A","targets":["不存在"]}`))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("悬空公理目标期望 400，实际 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 5) concept restrictions 整组接收
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+"/api/ontologies/ontest/elements/concept",
+		strings.NewReader(`{"name":"概念B","restrictions":[{"type":"some_values_from","property":"relOf","target":"概念A"}]}`))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("restrictions upsert 期望 200，实际 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 6) 公理删除（type:subject 组键）
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/api/ontologies/ontest/elements/axiom/disjoint_with:概念A", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("axiom 删除期望 200，实际 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 7) spec 落库核验：restrictions 在、公理已删
+	greq, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ontologies/ontest/spec", nil)
+	gresp, err := http.DefaultClient.Do(greq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gresp.Body.Close()
+	var sp pkgspec.Spec
+	_ = json.NewDecoder(gresp.Body).Decode(&sp)
+	var b *pkgspec.Concept
+	for i := range sp.Concepts {
+		if sp.Concepts[i].Name == "概念B" {
+			b = &sp.Concepts[i]
+		}
+	}
+	if b == nil || len(b.Restrictions) != 1 || b.Restrictions[0].Type != "some_values_from" {
+		t.Fatalf("restrictions 未落库: %+v", b)
+	}
+	if len(sp.Axioms) != 0 {
+		t.Fatalf("公理应已删除，实际 %v", sp.Axioms)
+	}
+}

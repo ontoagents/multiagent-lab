@@ -1035,7 +1035,7 @@ export default function AssetsPage() {
                       data-testid="axioms-segmented"
                     />
                     {axView === 'spec' ? (
-                      <AxiomsPane spec={spec} />
+                      <AxiomsPane spec={spec} ontologyId={active.id} onSaved={refreshAfterSave} />
                     ) : (
                       <AxiomsRawPane key={active.id} ontologyId={active.id} />
                     )}

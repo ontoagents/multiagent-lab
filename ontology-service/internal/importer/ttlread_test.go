@@ -203,3 +203,46 @@ func TestTTLSynonymRoundTrip(t *testing.T) {
 		t.Fatalf("同义词值不符: %+v", c.Synonyms)
 	}
 }
+
+// REQ-472/M272：类级公理 round-trip（Go 读入端捕获 disjointWith/equivalentClass——原断裂点）。
+func TestTTLAxiomRoundTrip_Req472(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name: "axm", Concepts: []pkgspec.Concept{
+			{Name: "服务器"}, {Name: "存储节点"}, {Name: "网络设备"},
+		},
+		Relations: []pkgspec.Relation{{Name: "挂载", From: "服务器", To: "存储节点"}},
+		Axioms: []pkgspec.Axiom{
+			{Type: "disjoint_with", Subject: "服务器", Targets: []string{"存储节点", "网络设备"}},
+			{Type: "equivalent_class", Subject: "网络设备", Targets: []string{"服务器"}},
+		},
+	}
+	ttl, _, err := TTLGoExport("o1", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ttl, "owl:disjointWith") || !strings.Contains(ttl, "owl:equivalentClass") {
+		t.Fatalf("导出应含类级公理: %.400s", ttl)
+	}
+	res, err := ReadTurtleSpec(ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Spec.Axioms) != 2 {
+		t.Fatalf("公理应还原 2 组，实际 %d 组 %v", len(res.Spec.Axioms), res.Spec.Axioms)
+	}
+	var dw, eq *pkgspec.Axiom
+	for i := range res.Spec.Axioms {
+		switch res.Spec.Axioms[i].Type {
+		case "disjoint_with":
+			dw = &res.Spec.Axioms[i]
+		case "equivalent_class":
+			eq = &res.Spec.Axioms[i]
+		}
+	}
+	if dw == nil || dw.Subject != "服务器" || len(dw.Targets) != 2 {
+		t.Fatalf("disjoint_with 还原不符: %+v", dw)
+	}
+	if eq == nil || eq.Subject != "网络设备" || len(eq.Targets) != 1 || eq.Targets[0] != "服务器" {
+		t.Fatalf("equivalent_class 还原不符: %+v", eq)
+	}
+}

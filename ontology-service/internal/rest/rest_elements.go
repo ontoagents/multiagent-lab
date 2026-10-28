@@ -17,7 +17,7 @@ import (
 )
 
 // elementKinds 合法元素类型（与工具面四类对齐）。
-var elementKinds = map[string]bool{"concept": true, "relation": true, "attribute": true, "instance": true}
+var elementKinds = map[string]bool{"concept": true, "relation": true, "attribute": true, "instance": true, "axiom": true} // REQ-472 增 axiom
 
 // registerElementRoutes 元素级端点注册（Mount 内调用）。
 func (s *Server) registerElementRoutes(m *http.ServeMux) {
@@ -79,6 +79,21 @@ func (b elementBody) obj(key string) (map[string]any, bool, error) {
 	return out, true, nil
 }
 
+// restrictions 解析（REQ-472/M272：概念限制公理整组接收——缺席保持原值）。
+func (b elementBody) restrictions(key string) ([]pkgspec.Restriction, bool, error) {
+	raw, ok := b[key]
+	if !ok {
+		return nil, false, nil
+	}
+	out := []pkgspec.Restriction{}
+	if strings.TrimSpace(string(raw)) != "" {
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, true, fmt.Errorf("%s 须为限制公理 JSON 数组: %v", key, err)
+		}
+	}
+	return out, true, nil
+}
+
 func (b elementBody) rels(key string) ([]pkgspec.InstanceRel, bool, error) {
 	raw, ok := b[key]
 	if !ok {
@@ -98,7 +113,7 @@ func (s *Server) elementUpsert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	kind := r.PathValue("kind")
 	if !elementKinds[kind] {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance|axiom"})
 		return
 	}
 	var body elementBody
@@ -107,7 +122,8 @@ func (s *Server) elementUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, _ := body.str("name")
-	if strings.TrimSpace(name) == "" {
+	// REQ-472：axiom 以 (type,subject) 组键定位，不走 name
+	if kind != "axiom" && strings.TrimSpace(name) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name 必填"})
 		return
 	}
@@ -131,7 +147,7 @@ func (s *Server) elementDelete(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	name := r.PathValue("name")
 	if !elementKinds[kind] {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance|axiom"})
 		return
 	}
 	sp, baseVersion, errRes := s.loadSpecForEdit(id)
@@ -193,6 +209,10 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		if err != nil {
 			return "", err
 		}
+		restrictions, restrictionsPresent, err := body.restrictions("restrictions")
+		if err != nil {
+			return "", err
+		}
 		label, hasLabel := body.str("label")
 		definition, hasDefinition := body.str("definition")
 		var target *pkgspec.Concept
@@ -218,6 +238,9 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		}
 		if synonymsPresent {
 			target.Synonyms = synonyms // REQ-419：同义词（TBox 一等公民）
+		}
+		if restrictionsPresent {
+			target.Restrictions = restrictions // REQ-472/M272：限制公理整组替换（编辑面承载）
 		}
 		verb := "已更新"
 		if created {
@@ -304,6 +327,31 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 			dom = "（不限定义域）"
 		}
 		return fmt.Sprintf("数据属性「%s」%s（定义域 %s，类型 %s）", name, verb, dom, target.Range), nil
+	case "axiom":
+		// REQ-472/M272：公理组 upsert——组键 (type,subject)，targets 整组替换（Validate 拦悬空引用）。
+		axType, _ := body.str("type")
+		subject, _ := body.str("subject")
+		targets, targetsPresent, err := body.names("targets")
+		if err != nil {
+			return "", err
+		}
+		if axType != "disjoint_with" && axType != "equivalent_class" {
+			return "", fmt.Errorf("type 须为 disjoint_with | equivalent_class")
+		}
+		if strings.TrimSpace(subject) == "" {
+			return "", fmt.Errorf("subject 必填（主体概念名）")
+		}
+		if !targetsPresent || len(targets) == 0 {
+			return "", fmt.Errorf("targets 必填（目标概念名 ≥1）")
+		}
+		for i := range sp.Axioms {
+			if sp.Axioms[i].Type == axType && sp.Axioms[i].Subject == subject {
+				sp.Axioms[i].Targets = targets
+				return fmt.Sprintf("公理 %s(%s) 已更新（目标 %d 个）", axType, subject, len(targets)), nil
+			}
+		}
+		sp.Axioms = append(sp.Axioms, pkgspec.Axiom{Type: axType, Subject: subject, Targets: targets})
+		return fmt.Sprintf("公理 %s(%s) 已新增（目标 %d 个）", axType, subject, len(targets)), nil
 	case "instance":
 		concept, hasConcept := body.str("concept")
 		attributes, hasAttributes, err := body.obj("attributes")
@@ -381,6 +429,19 @@ func applyElementDelete(kind, name string, sp *pkgspec.Spec) (string, error) {
 			}
 		}
 		return "", fmt.Errorf("实例「%s」不存在", name)
+	case "axiom":
+		// REQ-472：name 形如 "type:subject"（组键定位删除）
+		parts := strings.SplitN(name, ":", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("axiom 删除 name 须为 type:subject 形态（如 disjoint_with:Device）")
+		}
+		for i := range sp.Axioms {
+			if sp.Axioms[i].Type == parts[0] && sp.Axioms[i].Subject == parts[1] {
+				sp.Axioms = append(sp.Axioms[:i], sp.Axioms[i+1:]...)
+				return fmt.Sprintf("公理 %s(%s) 已删除", parts[0], parts[1]), nil
+			}
+		}
+		return "", fmt.Errorf("公理 %s 不存在", name)
 	}
 	return "", fmt.Errorf("未知元素类型 %q", kind)
 }

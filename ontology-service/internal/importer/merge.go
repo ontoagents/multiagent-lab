@@ -104,6 +104,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 			Concepts:    append([]pkgspec.Concept{}, target.Concepts...),
 			Relations:   append([]pkgspec.Relation{}, target.Relations...),
 			Instances:   append([]pkgspec.Instance{}, target.Instances...),
+			Axioms:      append([]pkgspec.Axiom{}, target.Axioms...), // REQ-472/M272：公理保留层（原三策略全丢）
 		},
 	}
 
@@ -188,6 +189,49 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 		}
 		pv.MergedSpec.DataProperties = merged
 		pv.MergedSpec.CQ = target.CQ
+	}
+
+	// ---- 公理保留层（REQ-472/M272）：replace=随 incoming；merge-overwrite=incoming 组覆盖同组键+现行新组并入；
+	// merge=现行组保留+incoming 新组并入（组键 (type,subject) targets 随组；merge 策略 subject/targets 经重命名映射改写防悬空）。
+	axKeyOf := func(ax pkgspec.Axiom) string { return ax.Type + "\x00" + ax.Subject }
+	switch strategy {
+	case StrategyReplace:
+		pv.MergedSpec.Axioms = incoming.Axioms
+	case StrategyMergeOverwrite:
+		mergedAx := append([]pkgspec.Axiom{}, incoming.Axioms...)
+		seenAx := map[string]bool{}
+		for _, ax := range incoming.Axioms {
+			seenAx[axKeyOf(ax)] = true
+		}
+		for _, ax := range target.Axioms {
+			if !seenAx[axKeyOf(ax)] {
+				mergedAx = append(mergedAx, ax)
+			}
+		}
+		pv.MergedSpec.Axioms = mergedAx
+	default: // merge
+		mergedAx := append([]pkgspec.Axiom{}, target.Axioms...)
+		seenAx := map[string]bool{}
+		for _, ax := range target.Axioms {
+			seenAx[axKeyOf(ax)] = true
+		}
+		for _, in := range incoming.Axioms {
+			ax := in
+			if nn, ok := renamedConcepts[ax.Subject]; ok {
+				ax.Subject = nn
+			}
+			for i := range ax.Targets {
+				if nn, ok := renamedConcepts[ax.Targets[i]]; ok {
+					ax.Targets[i] = nn
+				}
+			}
+			if seenAx[axKeyOf(ax)] {
+				continue
+			}
+			mergedAx = append(mergedAx, ax)
+			seenAx[axKeyOf(ax)] = true
+		}
+		pv.MergedSpec.Axioms = mergedAx
 	}
 
 	// ---- 关系 ----
@@ -351,6 +395,35 @@ func conceptFieldMerge(cur, in pkgspec.Concept) pkgspec.Concept {
 	if len(in.Parents) > 0 {
 		out.Parents = in.Parents
 	}
+	// REQ-472/M272：incoming 的同义词/限制公理不再丢弃——同义词并集（现行序在前）、限制公理追加去重
+	//（原 conceptFieldMerge 只并 Definition/Label/Parents，merge-overwrite 下 incoming 两字段静默丢失）。
+	if len(in.Synonyms) > 0 {
+		seen := map[string]bool{}
+		for _, s := range out.Synonyms {
+			seen[s] = true
+		}
+		for _, s := range in.Synonyms {
+			if !seen[s] {
+				out.Synonyms = append(out.Synonyms, s)
+				seen[s] = true
+			}
+		}
+	}
+	if len(in.Restrictions) > 0 {
+		rKey := func(r pkgspec.Restriction) string {
+			return r.Type + "\x00" + r.Property + "\x00" + r.Target + "\x00" + fmt.Sprintf("%d", r.Value)
+		}
+		seenR := map[string]bool{}
+		for _, r := range out.Restrictions {
+			seenR[rKey(r)] = true
+		}
+		for _, r := range in.Restrictions {
+			if !seenR[rKey(r)] {
+				out.Restrictions = append(out.Restrictions, r)
+				seenR[rKey(r)] = true
+			}
+		}
+	}
 	return out
 }
 
@@ -461,6 +534,12 @@ func rewireConceptRefs(sp *pkgspec.Spec, oldName, newName string) {
 				sp.Concepts[i].Parents[j] = newName
 			}
 		}
+		// REQ-472：限制公理值域目标随概念改名改写（原遗漏——改名后 some/all 值域悬空）
+		for j := range sp.Concepts[i].Restrictions {
+			if sp.Concepts[i].Restrictions[j].Target == oldName {
+				sp.Concepts[i].Restrictions[j].Target = newName
+			}
+		}
 	}
 	for i := range sp.Relations {
 		if sp.Relations[i].From == oldName {
@@ -475,6 +554,16 @@ func rewireConceptRefs(sp *pkgspec.Spec, oldName, newName string) {
 			sp.Instances[i].Concept = newName
 		}
 	}
+	for i := range sp.Axioms {
+		if sp.Axioms[i].Subject == oldName {
+			sp.Axioms[i].Subject = newName
+		}
+		for j := range sp.Axioms[i].Targets {
+			if sp.Axioms[i].Targets[j] == oldName {
+				sp.Axioms[i].Targets[j] = newName
+			}
+		}
+	}
 }
 
 func rewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) {
@@ -482,6 +571,14 @@ func rewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) {
 		for j := range sp.Instances[i].Relations {
 			if sp.Instances[i].Relations[j].Rel == oldName {
 				sp.Instances[i].Relations[j].Rel = newName
+			}
+		}
+	}
+	// REQ-472：限制公理 onProperty 随关系改名改写（原遗漏）
+	for i := range sp.Concepts {
+		for j := range sp.Concepts[i].Restrictions {
+			if sp.Concepts[i].Restrictions[j].Property == oldName {
+				sp.Concepts[i].Restrictions[j].Property = newName
 			}
 		}
 	}

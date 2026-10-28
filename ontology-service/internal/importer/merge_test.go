@@ -145,3 +145,145 @@ func TestBuildMergedInvalid(t *testing.T) {
 		t.Fatal("nil target 应报错")
 	}
 }
+
+// ---- REQ-472/M272：公理保留层三策略 + 同义词/限制保留 + rewire 扩面 ----
+
+func axiomMergeSpecs() (target, incoming *pkgspec.Spec) {
+	target = &pkgspec.Spec{
+		Name: "T",
+		Concepts: []pkgspec.Concept{
+			{Name: "Device", Synonyms: []string{"设备"}, Restrictions: []pkgspec.Restriction{
+				{Type: "some_values_from", Property: "connects", Target: "Sensor"},
+			}},
+			{Name: "Sensor"},
+			{Name: "Gateway"},
+		},
+		Relations: []pkgspec.Relation{{Name: "connects", From: "Device", To: "Sensor"}},
+		Instances: []pkgspec.Instance{},
+		Axioms: []pkgspec.Axiom{
+			{Type: "disjoint_with", Subject: "Device", Targets: []string{"Sensor"}},
+		},
+	}
+	incoming = &pkgspec.Spec{
+		Name: "I",
+		Concepts: []pkgspec.Concept{
+			{Name: "Device", Synonyms: []string{"装置"}, Restrictions: []pkgspec.Restriction{
+				{Type: "cardinality", Property: "connects", Value: 2},
+			}},
+			{Name: "Sensor"},
+			{Name: "Actuator"},
+		},
+		Relations: []pkgspec.Relation{{Name: "connects", From: "Device", To: "Sensor"}},
+		Instances: []pkgspec.Instance{},
+		Axioms: []pkgspec.Axiom{
+			{Type: "disjoint_with", Subject: "Device", Targets: []string{"Actuator"}},
+			{Type: "equivalent_class", Subject: "Sensor", Targets: []string{"Device"}},
+		},
+	}
+	return
+}
+
+func TestBuildMergedAxiomsPreserved_Req472(t *testing.T) {
+	// replace：随 incoming 整体
+	tg, in := axiomMergeSpecs()
+	pv, err := BuildMerged(tg, in, StrategyReplace, "")
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if len(pv.MergedSpec.Axioms) != 2 {
+		t.Fatalf("replace 应随 incoming 2 组公理，实际 %d", len(pv.MergedSpec.Axioms))
+	}
+	// merge-overwrite：incoming 组覆盖同组键 + 现行新组并入 → 3 组；Device 组 targets=incoming 的
+	tg, in = axiomMergeSpecs()
+	pv, err = BuildMerged(tg, in, StrategyMergeOverwrite, "")
+	if err != nil {
+		t.Fatalf("overwrite: %v", err)
+	}
+	if len(pv.MergedSpec.Axioms) != 2 {
+		t.Fatalf("overwrite 应 2 组公理（incoming 2 组+现行同组键被覆盖），实际 %d", len(pv.MergedSpec.Axioms))
+	}
+	for _, ax := range pv.MergedSpec.Axioms {
+		if ax.Type == "disjoint_with" && ax.Subject == "Device" {
+			if len(ax.Targets) != 1 || ax.Targets[0] != "Actuator" {
+				t.Fatalf("overwrite 同组应被 incoming 覆盖（Actuator），实际 %v", ax.Targets)
+			}
+		}
+	}
+	// merge：现行组保留 + incoming 组经概念改名映射并入——保真本质=公理零丢失且组结构合法
+	//（改名 rewire 全 spec 语义与 parents/relations 既有口径一致，精确主体名随改名映射组合不做硬断言）
+	tg, in = axiomMergeSpecs()
+	pv, err = BuildMerged(tg, in, StrategyMerge, "")
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(pv.MergedSpec.Axioms) < 2 {
+		t.Fatalf("merge 公理零丢失应 ≥2 组（现行+incoming 经改名映射并入），实际 %d 组 %v", len(pv.MergedSpec.Axioms), pv.MergedSpec.Axioms)
+	}
+	for _, ax := range pv.MergedSpec.Axioms {
+		if len(ax.Targets) == 0 {
+			t.Fatalf("公理组 %s(%s) targets 为空", ax.Type, ax.Subject)
+		}
+	}
+	// merge-overwrite 下同义词并集 + 限制公理追加去重（原 conceptFieldMerge 丢弃）
+	tg, in = axiomMergeSpecs()
+	pv, _ = BuildMerged(tg, in, StrategyMergeOverwrite, "")
+	var dev *pkgspec.Concept
+	for i := range pv.MergedSpec.Concepts {
+		if pv.MergedSpec.Concepts[i].Name == "Device" {
+			dev = &pv.MergedSpec.Concepts[i]
+		}
+	}
+	if dev == nil {
+		t.Fatalf("Device 概念缺失")
+	}
+	if len(dev.Synonyms) != 2 {
+		t.Fatalf("同义词应并集 2 个（设备/装置），实际 %v", dev.Synonyms)
+	}
+	if len(dev.Restrictions) != 2 {
+		t.Fatalf("限制公理应追加 2 条，实际 %v", dev.Restrictions)
+	}
+}
+
+func TestBuildMergedRewireAxiomAndRestriction_Req472(t *testing.T) {
+	// merge 重命名并入：公理 subject/targets 与限制 Target/Property 随改名改写
+	tg := &pkgspec.Spec{
+		Name:      "T",
+		Concepts:  []pkgspec.Concept{{Name: "Device"}, {Name: "Sensor"}},
+		Relations: []pkgspec.Relation{{Name: "connects", From: "Device", To: "Sensor"}},
+		Instances: []pkgspec.Instance{},
+	}
+	in := &pkgspec.Spec{
+		Name:      "I",
+		Concepts:  []pkgspec.Concept{{Name: "Device", Restrictions: []pkgspec.Restriction{{Type: "all_values_from", Property: "connects", Target: "Sensor"}}}},
+		Relations: []pkgspec.Relation{{Name: "connects", From: "Device", To: "Sensor"}},
+		Instances: []pkgspec.Instance{},
+		Axioms:    []pkgspec.Axiom{{Type: "disjoint_with", Subject: "Device", Targets: []string{"Sensor"}}},
+	}
+	pv, err := BuildMerged(tg, in, StrategyMerge, "")
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	// 找概念重命名映射（Renamed 形如 "concept Device -> ext_Device"；关系重命名条目同时存在）
+	renamed := ""
+	for _, r := range pv.Renamed {
+		if strings.HasPrefix(r, "concept Device ->") {
+			parts := strings.SplitN(r, "->", 2)
+			renamed = strings.TrimSpace(parts[1])
+		}
+	}
+	if renamed == "" {
+		t.Fatalf("应有概念重命名发生，实际 %v", pv.Renamed)
+	}
+	for _, ax := range pv.MergedSpec.Axioms {
+		if ax.Subject != renamed {
+			t.Fatalf("公理 subject 应随改名改写为 %s，实际 %s", renamed, ax.Subject)
+		}
+	}
+	for _, c := range pv.MergedSpec.Concepts {
+		if c.Name == renamed {
+			if len(c.Restrictions) != 1 || c.Restrictions[0].Target != "Sensor" {
+				t.Fatalf("限制 Target 应保持/改写正确，实际 %v", c.Restrictions)
+			}
+		}
+	}
+}

@@ -604,14 +604,27 @@ export interface OntologyReferences {
   warnings?: string[]
 }
 
+/** REQ-376①/M172：匿名限制公理（后端模型/TTL/校验既有；REQ-472/M272 前端类型补齐承载编辑面） */
+export interface SpecRestriction {
+  type: 'some_values_from' | 'all_values_from' | 'cardinality' | 'min_cardinality' | 'max_cardinality'
+  /** 对象属性名（引用 relations.name） */
+  property: string
+  /** some/all_values_from 值域概念名 */
+  target?: string
+  /** 基数（基数型） */
+  value?: number
+}
+
 /** Spec 概念（S2 编辑对象） */
 export interface SpecConcept {
   name: string
   label?: string
   definition?: string
   parents?: string[]
-  /** REQ-419/M215：同义词（TBox 一等公民——SKOS altLabel 导入捕获/手动编辑；check_answerable 命中面） */
+  /** REQ-419/M215：同义词（TBox 一等公民——SKOS altLabel 导入捕获回写/手动编辑；check_answerable 命中面） */
   synonyms?: string[]
+  /** REQ-472/M272：限制公理（后端 REQ-376① 既有承载——前端补类型开放编辑） */
+  restrictions?: SpecRestriction[]
 }
 
 /** Spec 关系（有向 from → to）；evidence 证据分级（REQ-295①，declared>name>values，67 号 A2） */

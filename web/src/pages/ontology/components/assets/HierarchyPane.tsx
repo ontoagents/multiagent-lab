@@ -5,6 +5,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import type { Ontology, Spec, SpecConcept, SpecDataProperty, SpecInstance, SpecRelation } from '../../../../api/types'
 import { api } from '../../../../api/client'
 import './hierarchy.css'
+import RestrictionsEditor from './RestrictionsEditor'
 
 // ---------------------------------------------------------------------------
 // REQ-363/M163 本体内容层级浏览（Protégé 式树形导航与实体详情）——资产详情「层级浏览」分区。
@@ -378,8 +379,8 @@ function RefTag(props: { label: string; sel?: OntoSelection; onSelect: (s: OntoS
 }
 
 /** D 实体描述面板：选中实体聚合呈现（Protégé Description view 对应物）；REQ-448：父概念 Tag ✕=摘父 */
-function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; onSelect: (s: OntoSelection) => void; onDetachParent?: (concept: string, parent: string) => void }) {
-  const { ontology, spec, sel, onSelect, onDetachParent } = props
+function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; onSelect: (s: OntoSelection) => void; onDetachParent?: (concept: string, parent: string) => void; onChanged?: () => void }) {
+  const { ontology, spec, sel, onSelect, onDetachParent, onChanged } = props
   const uri = entityUri(ontology.id, sel)
   const concepts = spec.concepts ?? []
   const byName = new Map(concepts.map((c) => [c.name, c] as const))
@@ -483,6 +484,8 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
               )}
             </span>
           </div>
+          {/* REQ-472/M272：限制公理表单化编辑（后端 REQ-376① 五型承载开放编辑面） */}
+          {onChanged && <RestrictionsEditor ontologyId={ontology.id} conceptName={c.name} spec={spec} onChanged={onChanged} />}
           {axioms.length > 0 && (
             <div className="onto-hier-row">
               <span className="onto-hier-label">公理</span>
@@ -928,7 +931,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
         </Splitter.Panel>
         <Splitter.Panel min="28%">
           {selection ? (
-            <DescPanel ontology={ontology} spec={spec} sel={selection} onSelect={onSelect} onDetachParent={onSaved ? detachParent : undefined} />
+            <DescPanel ontology={ontology} spec={spec} sel={selection} onSelect={onSelect} onDetachParent={onSaved ? detachParent : undefined} onChanged={onSaved} />
           ) : (
             <div className="work-empty" style={{ minHeight: 160 }}>
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击左侧树节点 / 搜索结果查看实体详情（描述面板 + usage 反向引用）" />
