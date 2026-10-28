@@ -20,6 +20,16 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [convs, setConvs] = useState<Conversation[]>([])
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  // REQ-461/M261：被引用面板深链（eino.agents.focus）——agents 载入后自动选中
+  useEffect(() => {
+    if (agents.length === 0) return
+    const focus = localStorage.getItem('eino.agents.focus')
+    if (focus && agents.some((a) => a.id === focus)) {
+      localStorage.removeItem('eino.agents.focus')
+      setActiveAgentId(focus)
+      setSidePanelOpen(true)
+    }
+  }, [agents])
   const [createOpen, setCreateOpen] = useState(false)
   // REQ-103：右侧智能体侧边栏（配置视图）开合
   const [sidePanelOpen, setSidePanelOpen] = useState(false)

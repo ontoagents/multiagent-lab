@@ -267,6 +267,14 @@ function EngineProfilesPage({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
+  // REQ-461/M261：被引用面板深链（eino.onto.runtime.focus）——profiles 载入后自动打开方案详情
+  useEffect(() => {
+    const focus = localStorage.getItem('eino.onto.runtime.focus')
+    if (focus && profiles.some((p) => p.id === focus)) {
+      localStorage.removeItem('eino.onto.runtime.focus')
+      setDetailId(focus)
+    }
+  }, [profiles])
   const [editId, setEditId] = useState<string | null>(null)
   const [installing, setInstalling] = useState(false)
   const [uploading, setUploading] = useState(false)

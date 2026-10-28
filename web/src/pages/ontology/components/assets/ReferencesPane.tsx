@@ -1,7 +1,32 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Collapse, Empty, List, Spin, Tag, Typography } from 'antd'
-import { ApiOutlined } from '@ant-design/icons'
+import { ApiOutlined, RightOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
+import { useUI } from '../../../../store/ui'
+
+/** REQ-461/M261：三源引用条目深链跳转（被引用聚合可操作性补全）。 */
+function gotoOntoRuntime(planId: string) {
+  localStorage.setItem('eino.onto.sidebar', 'runtime')
+  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+  localStorage.setItem('eino.onto.runtime.focus', planId)
+}
+function gotoKB(kbId: string) {
+  localStorage.setItem('eino.kb.focus', kbId)
+  useUI.getState().setPage('knowledge')
+}
+function gotoAgent(agentId: string) {
+  localStorage.setItem('eino.agents.focus', agentId)
+  useUI.getState().setPage('agents')
+}
+const jumpBtn = (title: string, onClick: () => void, key: string) => (
+  <Button
+    key={key} size="small" type="link" icon={<RightOutlined />}
+    onClick={(e) => { e.stopPropagation(); onClick() }}
+    aria-label={title}
+  >
+    前往
+  </Button>
+)
 import type { OntologyReferences, OntologyPlanRef } from '../../../../api/types'
 
 // ---------------------------------------------------------------------------
@@ -101,6 +126,7 @@ export default function ReferencesPane({ ontologyId }: { ontologyId: string }) {
                   {p.engine && <Tag style={{ marginInlineStart: 8 }}>{p.engine}</Tag>}
                 </span>
                 {planStatusTag(p)}
+                {jumpBtn(`前往运行方案 ${p.name || p.id}`, () => gotoOntoRuntime(p.id), p.id)}
               </List.Item>
             )}
           />
@@ -121,6 +147,7 @@ export default function ReferencesPane({ ontologyId }: { ontologyId: string }) {
                   <Typography.Text type="secondary" style={{ marginInlineStart: 8, fontSize: 11 }}>{k.id}</Typography.Text>
                 </span>
                 {k.mode && <Tag color="blue" style={{ margin: 0 }}>{k.mode === 'graphrag' ? 'GraphRAG' : 'RAG'}</Tag>}
+                {jumpBtn(`前往知识库 ${k.name}`, () => gotoKB(k.id), k.id)}
               </List.Item>
             )}
           />
@@ -141,6 +168,7 @@ export default function ReferencesPane({ ontologyId }: { ontologyId: string }) {
                   <Typography.Text type="secondary" style={{ marginInlineStart: 8, fontSize: 11 }}>{a.id}</Typography.Text>
                 </span>
                 <Tag color="geekblue" style={{ margin: 0 }}>伴生归属</Tag>
+                {jumpBtn(`前往智能体 ${a.name}`, () => gotoAgent(a.id), a.id)}
               </List.Item>
             )}
           />
