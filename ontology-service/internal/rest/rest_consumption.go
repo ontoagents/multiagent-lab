@@ -23,7 +23,18 @@ func (s *Server) vocabSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "q 必填"})
 		return
 	}
-	cards, err := s.vocab.Search(r.Context(), q)
+	// REQ-261/M259：source 参数路由外部词表通道（缺省 lov 存量零变化；ols=EBI OLS 第二通道）
+	var cards []vocabsearch.Card
+	var err error
+	switch strings.ToLower(r.URL.Query().Get("source")) {
+	case "ols":
+		if s.vocab.OLSBase == "" {
+			s.vocab.OLSBase = vocabsearch.DefaultOLS
+		}
+		cards, err = s.vocab.SearchOntologies(r.Context(), q)
+	default:
+		cards, err = s.vocab.Search(r.Context(), q)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return

@@ -25,9 +25,11 @@ const (
 // Client LOV 搜索代理客户端（Base 可注入供测试桩）。
 type Client struct {
 	Base  string // 缺省 LOV 官方 v2 search
-	HTTP  *http.Client
-	mu    sync.Mutex
-	cache map[string]cacheEntry
+	// OLSBase REQ-261/M259：OLS（EBI）API v2 根——外部词表 registry 第二通道（缺省官方）。
+	OLSBase string
+	HTTP    *http.Client
+	mu      sync.Mutex
+	cache   map[string]cacheEntry
 }
 
 type cacheEntry struct {
@@ -40,7 +42,7 @@ func New(base string) *Client {
 	if strings.TrimSpace(base) == "" {
 		base = defaultBase
 	}
-	return &Client{Base: base, HTTP: &http.Client{Timeout: upstreamTO}, cache: map[string]cacheEntry{}}
+	return &Client{Base: base, OLSBase: DefaultOLS, HTTP: &http.Client{Timeout: upstreamTO}, cache: map[string]cacheEntry{}}
 }
 
 // Card 检索结果卡片（LOV v2 字段投影，前端展示用；P2 消费）。

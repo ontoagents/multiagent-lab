@@ -789,7 +789,8 @@ export const api = {
       body: JSON.stringify({ ontology_id: ontologyId, cqs: cqs ?? [], profile: profile ?? 'structure', top_k: topK ?? 20 }),
     }),
   /** LOV 词表搜索（REQ-171 P1；上游不可达 502 优雅降级） */
-  vocabSearch: (q: string) => req<{ results?: unknown[]; items?: unknown[] }>(`/api/ontology/vocabularies/search?q=${encodeURIComponent(q)}`),
+  vocabSearch: (q: string, source?: 'lov' | 'ols') =>
+    req<{ results?: unknown[]; items?: unknown[] }>(`/api/ontology/vocabularies/search?q=${encodeURIComponent(q)}${source ? `&source=${source}` : ''}`), // REQ-261/M259：source=ols 走 EBI OLS 第二通道
   forkOntology: (id: string, input: ForkOntologyInput = {}) =>
     req<Ontology>(`/api/ontologies/${id}/fork`, { method: 'POST', body: JSON.stringify(input) }),
 

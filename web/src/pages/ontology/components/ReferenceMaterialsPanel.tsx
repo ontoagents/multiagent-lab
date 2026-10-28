@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Card, Collapse, Empty, Input, Space, Spin, Tag, Typography } from 'antd'
+import { Button, Card, Collapse, Empty, Input, Space, Spin, Tag, Typography , Select } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 
@@ -33,11 +33,12 @@ type Odp = { id: string; name: string; description: string }
 type LovHit = { label?: string; uri?: string; [k: string]: unknown }
 
 export default function ReferenceMaterialsPanel({ onStartFromSeed }: { onStartFromSeed?: (seedKey: string) => void }) {
-  const [tab, setTab] = useState<'seeds' | 'odp' | 'lov'>('seeds')
+  const [tab, setTab] = useState<'seeds' | 'odp' | 'lov' | 'ols'>('seeds')
   const [odps, setOdps] = useState<Odp[] | null>(null)
   const [odpsErr, setOdpsErr] = useState<string | null>(null)
   const [lovQ, setLovQ] = useState('')
   const [lovHits, setLovHits] = useState<LovHit[]>([])
+  const [lovSource, setLovSource] = useState<'lov' | 'ols'>('lov') // REQ-261/M259：外部词表双通道
   const [lovLoading, setLovLoading] = useState(false)
   const [lovErr, setLovErr] = useState<string | null>(null)
 
@@ -54,7 +55,7 @@ export default function ReferenceMaterialsPanel({ onStartFromSeed }: { onStartFr
     setLovLoading(true)
     setLovErr(null)
     api
-      .vocabSearch(q)
+      .vocabSearch(q, lovSource)
       .then((d) => setLovHits(((d.results ?? d.items ?? []) as LovHit[]).slice(0, 10)))
       .catch((e: any) => setLovErr(e?.message ?? 'LOV 检索失败（上游不可达时为预期降级）'))
       .finally(() => setLovLoading(false))
@@ -74,6 +75,7 @@ export default function ReferenceMaterialsPanel({ onStartFromSeed }: { onStartFr
             ['seeds', '种子建模说明'],
             ['odp', 'ODP 模式库'],
             ['lov', 'LOV 词表'],
+            ['ols', 'OLS 本体'],
           ] as const
         ).map(([k, label]) => (
           <Button key={k} size="small" type={tab === k ? 'primary' : 'default'} onClick={() => { setTab(k); if (k === 'odp') loadOdps() }}>
@@ -126,13 +128,13 @@ export default function ReferenceMaterialsPanel({ onStartFromSeed }: { onStartFr
           </div>
         ))}
 
-      {tab === 'lov' && (
+      {(tab === 'lov' || tab === 'ols') && (
         <div>
           <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
             <Input
               size="small"
               prefix={<SearchOutlined />}
-              placeholder="检索 LOV 词表术语（如 foaf、schema.org 概念）"
+              placeholder={tab === 'ols' ? '检索 OLS 标准本体（如 disease、phenotype）' : '检索 LOV 词表术语（如 foaf、schema.org 概念）'}
               value={lovQ}
               onChange={(e) => setLovQ(e.target.value)}
               onPressEnter={searchLov}
@@ -140,6 +142,13 @@ export default function ReferenceMaterialsPanel({ onStartFromSeed }: { onStartFr
             <Button size="small" loading={lovLoading} onClick={searchLov}>
               搜索
             </Button>
+            <Select
+              size="small"
+              style={{ minWidth: 96 }}
+              value={lovSource}
+              onChange={(v) => setLovSource(v)}
+              options={[{ value: 'lov', label: 'LOV 词表' }, { value: 'ols', label: 'OLS 本体' }]}
+            />
           </Space.Compact>
           {lovErr && <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>{lovErr}</Typography.Text>}
           <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
