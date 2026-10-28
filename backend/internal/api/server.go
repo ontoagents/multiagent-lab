@@ -322,6 +322,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/knowledge/graph", s.knowledgeGraph)
 	m.HandleFunc("GET /api/knowledge/graph/path", s.knowledgeGraphPath)
 	m.HandleFunc("POST /api/knowledge/graph/refresh", s.knowledgeGraphRefresh)
+	// REQ-372 P3/M265：L3 服务层——llms.txt 聚合视图（请求时生成，与落库 llms.md 同源）
+	m.HandleFunc("GET /api/knowledge/llms.txt", s.knowledgeLlmsTxt)
 	// REQ-208/M42 余项：可继续子 Agent——人工侧委派查看/插话/打断/恢复（模型侧走 delegate_* 工具族）
 	m.HandleFunc("GET /api/conversations/{id}/delegates", s.listDelegates)
 	m.HandleFunc("GET /api/delegates/{id}", s.getDelegate)

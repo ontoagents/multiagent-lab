@@ -83,6 +83,25 @@ func (s *Server) knowledgeGraphRefresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// knowledgeLlmsTxt GET /api/knowledge/llms.txt：知识卡机器可读聚合（L3 服务层，REQ-372/M265）。
+// 请求时生成（卡为事实源恒新鲜零漂移）；与落库 llms.md 同一生成器（knowledge.BuildLlmsDoc），
+// 消费方=外部 LLM 与平台助手（llms.txt 惯例形态：H1+引语+分节清单）。
+func (s *Server) knowledgeLlmsTxt(w http.ResponseWriter, r *http.Request) {
+	if s.KnowledgeRoot == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "知识目录未配置（KNOWLEDGE_ROOT）。请设置环境变量后重启后端再试"})
+		return
+	}
+	doc, err := knowledge.BuildLlmsDoc(knowledgeRootOf(s), "platform-knowledge")
+	if err != nil {
+		abs, _ := filepath.Abs(knowledgeRootOf(s))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("聚合生成失败：知识目录 %s 不可达（可能原因：启动工作目录不含该相对路径，或 KNOWLEDGE_ROOT 配置错误）。请修正后重试", abs)})
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(doc))
+}
+
 // knowledgeRootOf 知识体系根目录（KnowledgeRoot 指向 platform-knowledge/；子目录 09_知识体系）。
 func knowledgeRootOf(s *Server) string {
 	base := strings.TrimRight(s.KnowledgeRoot, "/")

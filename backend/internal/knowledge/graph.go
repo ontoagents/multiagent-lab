@@ -25,7 +25,8 @@ type CardMeta struct {
 	Domain  string   `json:"domain"`
 	Topic   string   `json:"topic"`
 	Desc    string   `json:"desc"`
-	Prereq  []string `json:"prereq"` // 原文（相对卡目录路径或 ../ 形态）
+	Synced  string   `json:"synced,omitempty"` // YYYY-MM-DD（llms.txt 聚合视图用，图谱投影不消费）
+	Prereq  []string `json:"prereq"`           // 原文（相对卡目录路径或 ../ 形态）
 	Sources []string `json:"sources"`
 }
 
@@ -74,6 +75,8 @@ func ParseCardText(text string) (*CardMeta, error) {
 			m.Topic = strings.Trim(raw, `[]"`)
 		case "desc":
 			m.Desc = strings.Trim(raw, `[]"`)
+		case "synced":
+			m.Synced = strings.Trim(raw, `[]"`)
 		case "prereq":
 			if strings.HasPrefix(raw, "[") {
 				m.Prereq = append(m.Prereq, inlineListItems(raw)...)
@@ -185,10 +188,17 @@ func cardRelID(root, repoRel, path string) string {
 
 // repoRootOf root 的仓库根上溯（root 形如 <repo>/platform-knowledge/09_知识体系——
 // 取 platform-knowledge 前一段作仓库相对基准；兼容直接给仓库相对路径的调用方）。
+// i=0（root 以 platform-knowledge/ 开头，如 KNOWLEDGE_ROOT=./platform-knowledge 经 Join
+// 清 ./ 后的形态）返回 "."——修复 2026-10-27 幂等修复未覆盖的单段边界：原 i>0 条件把
+// 该形态放行到「返回 root 本身」，节点 id 丢失 platform-knowledge/09_知识体系 两段
+// （冒烟实锤：隔离实例 cwd=仓库根全 30 节点 id 错位、跨线 path 查询不命中）。
 func repoRootOf(root string) string {
 	parts := strings.Split(filepath.ToSlash(root), "/")
 	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i] == "platform-knowledge" && i > 0 {
+		if parts[i] == "platform-knowledge" {
+			if i == 0 {
+				return "."
+			}
 			return strings.Join(parts[:i], "/")
 		}
 	}

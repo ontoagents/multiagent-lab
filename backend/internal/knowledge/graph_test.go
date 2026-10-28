@@ -171,6 +171,25 @@ func TestIngestNoDoublePrefix(t *testing.T) {
 	}
 }
 
+// TestCardRelIDSegmentRoot root 以 platform-knowledge/ 开头（KNOWLEDGE_ROOT=./platform-knowledge
+// 经 Join 清 ./ 后的形态）时 id 不得丢段——repoRootOf i=0 边界（2026-10-28 冒烟实锤修复回归：
+// 全部节点 id 丢 platform-knowledge/09_知识体系 两段、跨线 path 查询不命中）。
+func TestCardRelIDSegmentRoot(t *testing.T) {
+	root := filepath.ToSlash(filepath.Join("platform-knowledge", "09_知识体系")) // 无父段形态
+	path := filepath.ToSlash(filepath.Join(root, "03_结合线", "cards", "x.md"))
+	got := cardRelID(root, "platform-knowledge", path)
+	want := "platform-knowledge/09_知识体系/03_结合线/cards/x.md"
+	if got != want {
+		t.Fatalf("单段 root 形态 id 应保留全路径: got %q want %q", got, want)
+	}
+	// 双段形态（生产常态）回归不变
+	root2 := filepath.ToSlash(filepath.Join("..", "platform-knowledge", "09_知识体系"))
+	path2 := filepath.ToSlash(filepath.Join(root2, "01_本体线", "cards", "y.md"))
+	if got2 := cardRelID(root2, "platform-knowledge", path2); got2 != "platform-knowledge/09_知识体系/01_本体线/cards/y.md" {
+		t.Fatalf("双段 root 形态 id 回归: got %q", got2)
+	}
+}
+
 // TestScanBroken 断链只读扫描（不写库）与摄取断链同口径。
 func TestScanBroken(t *testing.T) {
 	_, root := graphFixture(t)
