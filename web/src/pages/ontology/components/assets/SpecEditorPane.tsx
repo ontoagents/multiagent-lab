@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
 import type { Ontology, OverlayRow, Spec, ValidationError } from '../../../../api/types'
@@ -25,6 +25,7 @@ export default function SpecEditorPane({
   onReloadSpec,
   onMetaSaved,
   onSpecSaved,
+  onDirtyChange,
 }: {
   ontology: Ontology
   spec: Spec | null
@@ -33,6 +34,8 @@ export default function SpecEditorPane({
   onReloadSpec: () => void
   onMetaSaved: () => void
   onSpecSaved: (version: number) => void
+  /** REQ-466/M266：脏标记上报（AssetsPage 据此挂离开防护） */
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const { showToast } = useUI()
   const [metaForm] = Form.useForm()
@@ -56,6 +59,43 @@ export default function SpecEditorPane({
     setValidationErrors([])
     setForceEditor(false)
   }, [spec])
+
+  // REQ-466/M266 编辑安全感：脏标记=编辑文本偏离已加载基线（spec prop 序列化）。
+  // 常驻保活只护住「切分区」，刷新/关闭与切本体的丢失路径由此补齐。
+  const baseline = spec ? JSON.stringify(spec, null, 2) : ''
+  const dirty = specText !== '' && specText !== baseline
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onDirtyChange 为 setState 稳定引用
+  }, [dirty])
+
+  // 刷新/关闭前原生确认（仅脏态挂监听）
+  useEffect(() => {
+    if (!dirty) return
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [dirty])
+
+  /** 重新加载守卫：脏态下确认后才用服务端版本覆盖本地修改 */
+  const reloadGuarded = () => {
+    if (!dirty) {
+      onReloadSpec()
+      return
+    }
+    Modal.confirm({
+      title: '重新加载将覆盖未保存的修改',
+      content: '「Spec JSON」有未保存的本地修改，重新加载会以服务端版本覆盖。请确认已备份需要保留的内容。',
+      okText: '放弃修改并重载',
+      okButtonProps: { danger: true },
+      cancelText: '继续编辑',
+      onOk: onReloadSpec,
+    })
+  }
 
   const large = specText.length > LARGE_SPEC_CHARS
 
@@ -196,6 +236,13 @@ export default function SpecEditorPane({
 
       <div className="onto-sec">
         <span className="onto-sec-title">Spec JSON（concepts / relations / instances 三要素）</span>
+        {dirty && (
+          <Tooltip title="本地修改尚未保存——刷新/关闭/切换本体会丢失（REQ-466 离开防护已挂）">
+            <Tag color="orange" style={{ margin: 0 }} data-testid="spec-dirty-tag">
+              未保存
+            </Tag>
+          </Tooltip>
+        )}
         <span className="hit-spacer" />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {specLoading
@@ -204,7 +251,7 @@ export default function SpecEditorPane({
               ? `概念 ${spec.concepts?.length ?? 0} · 关系 ${spec.relations?.length ?? 0} · 实例 ${spec.instances?.length ?? 0}`
               : '尚未保存过 Spec'}
         </Typography.Text>
-        <Button size="small" icon={<ReloadOutlined />} onClick={onReloadSpec} disabled={specLoading}>
+        <Button size="small" icon={<ReloadOutlined />} onClick={reloadGuarded} disabled={specLoading}>
           重新加载
         </Button>
         <Button size="small" onClick={() => setOutlineOpen(true)} data-testid="outline-import-btn">

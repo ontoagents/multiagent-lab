@@ -12,6 +12,8 @@ import BuildPage from './BuildPage'
 import AssetsPage from './AssetsPage'
 import RuntimePage from './RuntimePage'
 import AuditPage from './AuditPage'
+import { useUI } from '../../store/ui'
+import { guardLeave } from './shared/leaveGuard'
 
 // ---------------------------------------------------------------------------
 // 本体模块壳（D-O11 / REQ-104）：五栏位
@@ -54,6 +56,7 @@ export function readSidebarKey(): SidebarKey {
 
 export default function OntologyModule() {
   const [sidebarKey, setSidebarKey] = useState<SidebarKey>(readSidebarKey)
+  const { showToast } = useUI()
 
   useEffect(() => {
     const sync = () => setSidebarKey(readSidebarKey())
@@ -61,9 +64,24 @@ export default function OntologyModule() {
     return () => window.removeEventListener('onto-sidebar-change', sync)
   }, [])
 
+  // REQ-466/M266：草稿超限/写入失败事件 → toast（draftStore 升级广播，console.warn 用户不可见）
+  useEffect(() => {
+    const onDiscard = (e: Event) => {
+      const msg = (e as CustomEvent<{ key: string; message: string }>).detail?.message
+      if (msg) showToast(msg, 'err')
+    }
+    window.addEventListener('onto-draft-discard', onDiscard)
+    return () => window.removeEventListener('onto-draft-discard', onDiscard)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showToast 稳定引用（zustand 桥接）
+  }, [])
+
   const select = (key: SidebarKey) => {
-    localStorage.setItem(ONTO_SIDEBAR_KEY, key)
-    setSidebarKey(key)
+    if (key === sidebarKey) return
+    // REQ-466：详情 Spec 未保存时拦截栏位切换（确认后放行）
+    guardLeave(() => {
+      localStorage.setItem(ONTO_SIDEBAR_KEY, key)
+      setSidebarKey(key)
+    })
   }
 
   const body =

@@ -44,10 +44,19 @@ const STRATEGY_NAME: Record<string, string> = {
 
 function KbBuildFlow() {
   const { showToast } = useUI()
-  const [step, setStep] = useState(0)
+  // REQ-466/M266：进度持久化（{step, kbId}，custom 口径拉齐）+ 恢复钳位防孤儿步骤——
+  // 生成预览步需 result 草稿在场（入库成功 REQ-459 已清草稿，刷新回落策略步），策略步需 kbId 在场
+  const initialProgress = loadDraft<{ step: number; kbId?: string | null }>('kb-progress')
+  const initialResult = loadDraft<OntoBuildResult>('kb-flow-result')
+  const [step, setStep] = useState<number>(() => {
+    const s = initialProgress?.step ?? 0
+    if (s >= 1 && !initialProgress?.kbId) return 0
+    if (s >= 2 && !initialResult) return 1
+    return Math.max(0, Math.min(3, s))
+  })
   const [kbs, setKbs] = useState<OntoBuildSelectableKB[]>([])
   const [kbLoading, setKbLoading] = useState(false)
-  const [kbId, setKbId] = useState<string | null>(null)
+  const [kbId, setKbId] = useState<string | null>(initialProgress?.kbId ?? null)
   const [buildingKG, setBuildingKG] = useState<string | null>(null)
 
   const [strategy, setStrategy] = useState<'chunk-llm' | 'kg-direct' | 'hybrid'>('chunk-llm')
@@ -55,7 +64,7 @@ function KbBuildFlow() {
   const [cqText, setCqText] = useState('')
 
   const [busy, setBusy] = useState(false)
-  const [result, setResultState] = useState<OntoBuildResult | null>(() => loadDraft<OntoBuildResult>('kb-flow-result')) // REQ-402：草稿持久化
+  const [result, setResultState] = useState<OntoBuildResult | null>(initialResult) // REQ-402：草稿持久化
   const setResult = (v: OntoBuildResult | null) => {
     setResultState(v)
     if (v === null) clearDraft('kb-flow-result')
@@ -67,6 +76,17 @@ function KbBuildFlow() {
   const [savedId, setSavedId] = useState<string | null>(null)
   // REQ-459：入库成功后的展示名（表单态随新会话清空，展示不依赖残留表单）
   const [savedName, setSavedName] = useState('')
+
+  // REQ-466：进度持久化；REQ-459 完成即新会话——入库成功（savedId 置位）后进度不再持久
+  // （KB 选择保留在会话内存，刷新即全新会话回第①步）
+  useEffect(() => {
+    if (savedId) {
+      clearDraft('kb-progress')
+      return
+    }
+    if (step === 0 && !kbId) clearDraft('kb-progress')
+    else saveDraft('kb-progress', { step, kbId })
+  }, [step, kbId, savedId])
 
   const selected = useMemo(() => kbs.find((k) => k.id === kbId) ?? null, [kbs, kbId])
 

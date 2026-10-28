@@ -59,11 +59,14 @@ export const ASSET_EXTEND_KEY = 'eino.onto.asset.extend'
 
 type ExtendMode = 'odp' | 'cqrag'
 
+/** REQ-466/M266：演化流进度持久化（拉齐 custom 口径——step/targetId/mode 随 draftStore，刷新回原步骤） */
+type ExtendProgress = { step: number; targetId?: string; mode?: ExtendMode }
+
 export default function OntoExtendFlow() {
   const [mode, setMode] = useState<ExtendMode>('odp')
   const [ontos, setOntos] = useState<OntoItem[]>([])
   const [ontosErr, setOntosErr] = useState<string | null>(null)
-  const [targetId, setTargetId] = useState<string | undefined>(undefined)
+  const [targetId, setTargetId] = useState<string | undefined>(() => loadDraft<ExtendProgress>('extend-progress')?.targetId)
 
   // ---- ODP 模式状态（REQ-171 既有）----
   const [odps, setOdps] = useState<OdpItem[]>([])
@@ -101,7 +104,21 @@ export default function OntoExtendFlow() {
   const [applyErr, setApplyErr] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [appliedVersion, setAppliedVersion] = useState<number | null>(null)
-  const [step, setStep] = useState(0)
+  // REQ-466：恢复钳位防孤儿步骤——审查步需预览/生成草稿在场（apply 成功后 REQ-459 已清材料，
+  // 刷新回落材料步），材料步需目标本体在场
+  const [step, setStep] = useState<number>(() => {
+    const p = loadDraft<ExtendProgress>('extend-progress')
+    const s = p?.step ?? 0
+    if (s >= 1 && !p?.targetId) return 0
+    if (s >= 2 && !loadDraft('extend-preview') && !loadDraft('extend-rag-data')) return 1
+    return Math.max(0, Math.min(2, s))
+  })
+
+  // REQ-466：进度持久化（targetId/mode 随存——刷新回原步骤；custom 口径拉齐）
+  useEffect(() => {
+    if (step === 0 && !targetId) clearDraft('extend-progress')
+    else saveDraft('extend-progress', { step, targetId, mode } satisfies ExtendProgress)
+  }, [step, targetId, mode])
 
   useEffect(() => {
     api

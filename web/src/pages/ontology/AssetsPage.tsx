@@ -20,6 +20,7 @@ import type { Agent, Ontology, OntologyReferences, RuntimeProfile, Spec } from '
 import { expressivityOf } from './shared/expressivity'
 import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
+import { clearLeaveGuard, guardLeave, setLeaveGuard } from './shared/leaveGuard'
 import CsvIngestPane from './components/CsvIngestPane'
 import GraphEditor from './components/GraphEditor'
 import SourceView from './components/SourceView'
@@ -143,6 +144,8 @@ export default function AssetsPage() {
   const [specErr, setSpecErr] = useState<string | null>(null)
   const [specLoading, setSpecLoading] = useState(false)
   const [specTick, setSpecTick] = useState(0)
+  // REQ-466/M266：Spec 编辑脏标记（SpecEditorPane 上报）——离开防护（栏位切换/返回列表/上下条）
+  const [specDirty, setSpecDirty] = useState(false)
   // REQ-363 E/REQ-253①：跨视图选择单源（详情域总线）——层级浏览树/描述面板与可视化 2D
   // 共同消费：一处选中处处联动（59 号 P1 设计的实现形态=选择状态提升至详情页级单源）
   const [ontoSel, setOntoSel] = useState<OntoSelection | null>(null)
@@ -195,6 +198,16 @@ export default function AssetsPage() {
     setDeclView('rel')
     setAxView('spec')
   }, [activeId])
+
+  // REQ-466/M266：详情态 Spec 未保存 → 挂离开防护（OntologyModule 栏位切换与页内返回/上下条共用）
+  useEffect(() => {
+    if (view === 'detail' && specDirty) {
+      setLeaveGuard('asset-spec-dirty', '「Spec 编辑」分区有未保存的本地修改，离开（切栏位/回列表/切本体）会丢失。可先保存，或复制备份后再离开。')
+    } else {
+      clearLeaveGuard('asset-spec-dirty')
+    }
+    return () => clearLeaveGuard('asset-spec-dirty')
+  }, [view, specDirty])
 
   // REQ-216⑦：伴生绑定本体清单（详情页「伴生候选」页签「对话生长」徽标判定）
   const [boundIds, setBoundIds] = useState<Set<string>>(new Set())
@@ -330,8 +343,11 @@ export default function AssetsPage() {
   const nextId = curIdx >= 0 && curIdx < flatIds.length - 1 ? flatIds[curIdx + 1] : null
   const jumpTo = (id: string | null) => {
     if (!id) return
-    setActiveId(id)
-    setTabKey(null)
+    guardLeave(() => {
+      // REQ-466：脏态切本体先确认（Spec 编辑常驻保活不护跨本体切换）
+      setActiveId(id)
+      setTabKey(null)
+    })
   }
 
   // REQ-285②：伴生型详情头数据加载（伴生图计数/绑定者/待确认候选）——分型模板统计行数据源；
@@ -428,11 +444,13 @@ export default function AssetsPage() {
 
   /** REQ-326③：点行进详情页级工作区 */
   const openAsset = (id: string) => {
-    setActiveId(id)
-    setTabKey(null)
-    setView('detail')
+    guardLeave(() => {
+      setActiveId(id)
+      setTabKey(null)
+      setView('detail')
+    })
   }
-  const backToList = () => setView('list')
+  const backToList = () => guardLeave(() => setView('list')) // REQ-466：Spec 编辑常驻保活不护回列表卸载——脏态先确认
 
   // REQ-326③：列表态——独占整页（搜索/来源分组/校验徽标/质量雷达全宽承载）
   const renderList = () => (
@@ -665,12 +683,15 @@ export default function AssetsPage() {
               size="small"
               icon={<RocketOutlined />}
               data-testid="asset-evolve-btn"
-              onClick={() => {
-                localStorage.setItem('eino.onto.buildPath', 'ontoextend')
-                localStorage.setItem('eino.onto.asset.extend', active.id)
-                localStorage.setItem(ONTO_SIDEBAR_KEY, 'build')
-                window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-              }}
+              onClick={() =>
+                guardLeave(() => {
+                  // REQ-466：演化跳构建栏会卸载详情（含未保存 Spec）——脏态先确认
+                  localStorage.setItem('eino.onto.buildPath', 'ontoextend')
+                  localStorage.setItem('eino.onto.asset.extend', active.id)
+                  localStorage.setItem(ONTO_SIDEBAR_KEY, 'build')
+                  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+                })
+              }
             >
               演化
             </Button>
@@ -801,6 +822,7 @@ export default function AssetsPage() {
                     onReloadSpec={() => setSpecTick((t) => t + 1)}
                     onMetaSaved={() => reloadOntos()}
                     onSpecSaved={refreshAfterSave}
+                    onDirtyChange={setSpecDirty}
                   />
                 </div>
                 {/* REQ-458：校验 + 质量卡 合并为「校验与质量」——先跑校验再看质量报告，纵向并置 */}
