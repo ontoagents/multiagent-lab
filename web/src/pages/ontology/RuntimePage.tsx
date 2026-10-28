@@ -40,6 +40,7 @@ import type { EngineStatus } from '../../api/client'
 import type { Conversation, Ontology, RuntimeProfile } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { StatusBadge } from './shared'
+import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import SparqlWorkbench from './components/SparqlWorkbench'
 import LifecyclePane from './components/LifecyclePane'
@@ -113,7 +114,12 @@ function relTime(iso?: string): string | null {
 }
 
 export default function RuntimePage() {
-  const [engineKey, setEngineKey] = useState<EngineKey>(readEngineKey)
+  // REQ-470：hash 优先恢复引擎（#/onto/runtime/{engine}），无 hash 回落 localStorage 记忆
+  const [engineKey, setEngineKey] = useState<EngineKey>(() => {
+    const r = parseOntoHash()
+    if (r?.col === 'runtime' && r.engine) return r.engine as EngineKey
+    return readEngineKey()
+  })
   const [lifecycleOpen, setLifecycleOpen] = useState(false) // REQ-155 阶段二：生命周期面板
   // REQ-146 引擎自检：oxigraph/fuseki 缺失时导航 Tag 显异常，分组页给一键安装入口
   const [engineStatuses, setEngineStatuses] = useState<EngineStatus[]>([])
@@ -122,6 +128,23 @@ export default function RuntimePage() {
     const sync = () => setEngineKey(readEngineKey())
     window.addEventListener('onto-sidebar-change', sync)
     return () => window.removeEventListener('onto-sidebar-change', sync)
+  }, [])
+
+  // REQ-470：后退/前进按 hash 恢复引擎
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseOntoHash()
+      if (r?.col === 'runtime' && r.engine) {
+        localStorage.setItem(ONTO_ENGINE_KEY, r.engine)
+        setEngineKey(r.engine as EngineKey)
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航同应用
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onPop)
+    }
   }, [])
 
   const loadEngines = () => {
@@ -141,6 +164,8 @@ export default function RuntimePage() {
   const select = (key: EngineKey) => {
     localStorage.setItem(ONTO_ENGINE_KEY, key)
     setEngineKey(key)
+    // REQ-470：引擎切换进历史栈
+    writeOntoHash({ col: 'runtime', engine: key })
   }
 
   return (

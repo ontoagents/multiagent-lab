@@ -7,6 +7,7 @@ import { companionApi } from '../api/companion'
 import type { CandidateGroup, CompanionCandidate, CompanionStatus } from '../api/companion'
 import LoadErrorAlert from './LoadErrorAlert'
 import { useUI } from '../store/ui'
+import { deepLinkOnto } from '../pages/ontology/shared/ontoRoute'
 
 // ---------------------------------------------------------------------------
 // REQ-193/M33：伴生管理铺平视图（智能体侧板「伴生本体」视图 · 伴生管理页）。
@@ -57,7 +58,7 @@ function NoteBadge({ note }: { note?: string }) {
 }
 
 export default function AgentCompanionManage({ agent, onUnbound }: { agent: Agent; onUnbound?: () => void }) {
-  const { showToast, setPage } = useUI()
+  const { showToast } = useUI()
   const [convs, setConvs] = useState<Conversation[]>([])
   const [convsErr, setConvsErr] = useState<string | null>(null)
 
@@ -315,10 +316,10 @@ export default function AgentCompanionManage({ agent, onUnbound }: { agent: Agen
                   icon={<ApartmentOutlined />}
                   data-testid="companion-open-asset"
                   onClick={() => {
-                    localStorage.setItem('eino.onto.sidebar', 'assets')
-                    localStorage.setItem('eino.onto.asset.focus', agent.companion_ontology_id!)
-                    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-                    setPage('ontology')
+                    // REQ-470：跨模块深链收敛 hash 通道（legacy 键照写不破既有语义）
+                    deepLinkOnto({ col: 'assets', assetId: agent.companion_ontology_id! }, [
+                      ['eino.onto.asset.focus', agent.companion_ontology_id!],
+                    ])
                   }}
                 >
                   打开本体资产

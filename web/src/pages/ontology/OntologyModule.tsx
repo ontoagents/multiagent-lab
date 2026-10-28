@@ -14,6 +14,7 @@ import RuntimePage from './RuntimePage'
 import AuditPage from './AuditPage'
 import { useUI } from '../../store/ui'
 import { guardLeave } from './shared/leaveGuard'
+import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 
 // ---------------------------------------------------------------------------
 // 本体模块壳（D-O11 / REQ-104）：五栏位
@@ -55,13 +56,38 @@ export function readSidebarKey(): SidebarKey {
 }
 
 export default function OntologyModule() {
-  const [sidebarKey, setSidebarKey] = useState<SidebarKey>(readSidebarKey)
+  // REQ-470：hash 优先恢复栏位（URL 可分享/后退可用）；无 hash 回落 localStorage 记忆
+  const [sidebarKey, setSidebarKey] = useState<SidebarKey>(() => {
+    const r = parseOntoHash()
+    if (r && r.col !== 'learn') {
+      localStorage.setItem(ONTO_SIDEBAR_KEY, r.col)
+      return r.col
+    }
+    if (r && r.col === 'learn') return 'learn'
+    return readSidebarKey()
+  })
   const { showToast } = useUI()
 
   useEffect(() => {
     const sync = () => setSidebarKey(readSidebarKey())
     window.addEventListener('onto-sidebar-change', sync)
     return () => window.removeEventListener('onto-sidebar-change', sync)
+  }, [])
+
+  // REQ-470：后退/前进在模块内可用（popstate 依 hash 恢复栏位；栏内细分由各页自听）
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseOntoHash()
+      if (!r) return
+      localStorage.setItem(ONTO_SIDEBAR_KEY, r.col)
+      setSidebarKey(r.col)
+    }
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航（仅变 hash 的链接/goto）同应用
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onPop)
+    }
   }, [])
 
   // REQ-466/M266：草稿超限/写入失败事件 → toast（draftStore 升级广播，console.warn 用户不可见）
@@ -81,6 +107,8 @@ export default function OntologyModule() {
     guardLeave(() => {
       localStorage.setItem(ONTO_SIDEBAR_KEY, key)
       setSidebarKey(key)
+      // REQ-470：栏位切换进历史栈（后退回到先前栏位）
+      writeOntoHash({ col: key })
     })
   }
 

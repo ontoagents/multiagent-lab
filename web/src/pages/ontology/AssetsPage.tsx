@@ -21,6 +21,7 @@ import { expressivityOf } from './shared/expressivity'
 import { useUI } from '../../store/ui'
 import { sourceTag, type ValidationState } from './shared'
 import { clearLeaveGuard, guardLeave, setLeaveGuard } from './shared/leaveGuard'
+import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 import CsvIngestPane from './components/CsvIngestPane'
 import GraphEditor from './components/GraphEditor'
 import SourceView from './components/SourceView'
@@ -127,7 +128,10 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
 
 export default function AssetsPage() {
   const { showToast } = useUI()
-  const [tabKey, setTabKey] = useState<string | null>(null) // REQ-230②：显式切换优先；切本体回落默认规则
+  const [tabKey, setTabKey] = useState<string | null>(
+    // REQ-470：hash 分区直达（#/onto/assets/{id}/{section}）——惰性初始化（重置效应跳过首跑故可存活）
+    () => (parseOntoHash()?.col === 'assets' ? parseOntoHash()!.section ?? null : null),
+  )
   // REQ-458：合并分区内部分段视图（关系与属性 / 公理）——切本体回落默认段
   const [declView, setDeclView] = useState<'rel' | 'prop'>('rel')
   const [axView, setAxView] = useState<'spec' | 'raw'>('spec')
@@ -135,8 +139,15 @@ export default function AssetsPage() {
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [listErr, setListErr] = useState<string | null>(null)
   // REQ-326③：列表/详情双态（列表独占整页 ↔ 详情页级工作区）；深链 eino.onto.asset.focus 直接进详情
-  const [view, setView] = useState<'list' | 'detail'>(() => (localStorage.getItem(ASSET_FOCUS_KEY) ? 'detail' : 'list'))
-  const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(ASSET_FOCUS_KEY))
+  // REQ-470：hash 直达（#/onto/assets/{id}/{section}）——一次性深链键优先级更高（跨模块 handoff 消费即清）
+  const [view, setView] = useState<'list' | 'detail'>(() => {
+    if (localStorage.getItem(ASSET_FOCUS_KEY)) return 'detail'
+    const r = parseOntoHash()
+    return r?.col === 'assets' && r.assetId ? 'detail' : 'list'
+  })
+  const [activeId, setActiveId] = useState<string | null>(
+    () => localStorage.getItem(ASSET_FOCUS_KEY) ?? (parseOntoHash()?.col === 'assets' ? parseOntoHash()!.assetId ?? null : null),
+  )
   // 列表态状态提升：返回列表不丢列表态（REQ-326③ 验收项）
   const [listQ, setListQ] = useState('')
 
@@ -161,15 +172,63 @@ export default function AssetsPage() {
   const [forkBusy, setForkBusy] = useState(false)
   const [forkErr, setForkErr] = useState<string | null>(null)
 
-  // 深链消费（挂载一次）：handoff 置空，选中即进详情
+  // 深链消费（挂载一次）：handoff 置空，选中即进详情；hash 直达带分区（REQ-470）
   useEffect(() => {
     const f = localStorage.getItem(ASSET_FOCUS_KEY)
     if (f) {
       localStorage.removeItem(ASSET_FOCUS_KEY)
       setActiveId(f)
       setView('detail')
+      return
     }
+    const r = parseOntoHash()
+    if (r?.col === 'assets' && r.assetId && r.section) setTabKey(r.section) // 惰性初始化兜底（深链键路径等异步置入场景）
   }, [])
+
+  // REQ-470：状态→hash（replace 细化不灌栈；页级跳转的 push 在 openAsset/backToList 处理器内）
+  useEffect(() => {
+    const cur = parseOntoHash()
+    if (cur && cur.col !== 'assets') return // 防御：他栏路由不抢写
+    writeOntoHash(
+      {
+        col: 'assets',
+        assetId: view === 'detail' && activeId ? activeId : undefined,
+        section: view === 'detail' && tabKey ? tabKey : undefined,
+      },
+      true,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅三态联动写 hash；secKey 派生默认段不单列依赖
+  }, [view, activeId, tabKey])
+
+  // REQ-470：后退/前进按 hash 恢复（脏态经 leaveGuard 确认——取消则回写当前状态 hash 保持 URL 一致）
+  useEffect(() => {
+    const stateRoute = () => ({
+      col: 'assets' as const,
+      assetId: view === 'detail' && activeId ? activeId : undefined,
+      section: view === 'detail' && tabKey ? tabKey : undefined,
+    })
+    const onPop = () => {
+      const r = parseOntoHash()
+      if (!r || r.col !== 'assets') return
+      const apply = () => {
+        if (r.assetId) {
+          if (r.assetId !== activeId) setActiveId(r.assetId)
+          setView('detail')
+          setTabKey(r.section ?? null)
+        } else {
+          setView('list')
+        }
+      }
+      guardLeave(apply, () => writeOntoHash(stateRoute(), true))
+    }
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航同应用（脏态同经 leaveGuard）
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onPop)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- popstate 闭包取最新三态
+  }, [view, activeId, tabKey])
 
   const reloadOntos = (selectId?: string) => {
     api
@@ -192,7 +251,11 @@ export default function AssetsPage() {
   // REQ-285⑤：切换本体重置分区——分型后两套模板键不相交，残留键（如 outputs）落空渲染
   // REQ-363：切本体同步清空跨视图选择（旧实体身份不跨资产）
   // REQ-458：合并分区内部分段视图同步回落（原两处 setTabKey(null) effect 并此一处）
+  // REQ-470：前值 ref 比对替代无脑重置——挂载首跑（含 StrictMode 双跑）不重置，hash 惰性初始化的分区直达可存活
+  const prevActiveRef = useRef<string | null>(activeId)
   useEffect(() => {
+    if (prevActiveRef.current === activeId) return
+    prevActiveRef.current = activeId
     setTabKey(null)
     setOntoSel(null)
     setDeclView('rel')
@@ -344,7 +407,8 @@ export default function AssetsPage() {
   const jumpTo = (id: string | null) => {
     if (!id) return
     guardLeave(() => {
-      // REQ-466：脏态切本体先确认（Spec 编辑常驻保活不护跨本体切换）
+      // REQ-466：脏态切本体先确认（Spec 编辑常驻保活不护跨本体切换）；REQ-470：相邻切换 replace 不灌栈
+      writeOntoHash({ col: 'assets', assetId: id }, true)
       setActiveId(id)
       setTabKey(null)
     })
@@ -445,12 +509,19 @@ export default function AssetsPage() {
   /** REQ-326③：点行进详情页级工作区 */
   const openAsset = (id: string) => {
     guardLeave(() => {
+      // REQ-470：列表→详情进历史栈（后退回列表）
+      writeOntoHash({ col: 'assets', assetId: id })
       setActiveId(id)
       setTabKey(null)
       setView('detail')
     })
   }
-  const backToList = () => guardLeave(() => setView('list')) // REQ-466：Spec 编辑常驻保活不护回列表卸载——脏态先确认
+  const backToList = () =>
+    guardLeave(() => {
+      // REQ-466：Spec 编辑常驻保活不护回列表卸载——脏态先确认；REQ-470：详情→列表进历史栈
+      writeOntoHash({ col: 'assets' })
+      setView('list')
+    })
 
   // REQ-326③：列表态——独占整页（搜索/来源分组/校验徽标/质量雷达全宽承载）
   const renderList = () => (

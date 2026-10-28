@@ -9,6 +9,7 @@ import {
 import { api } from '../../api/client'
 import { useUI } from '../../store/ui'
 import { STAGE_DEFS } from './shared'
+import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 import PipelinePane from './components/PipelinePane'
 
 // ---------------------------------------------------------------------------
@@ -312,6 +313,9 @@ export default function LearnPage() {
   // REQ-182：左导航子模块选中（学习路径默认首屏主轴；localStorage 记忆）
   // 开发者拍板合并（2026-09-29）：methods 页签删除——旧记忆 key=methods 兼容重定向到 path
   const [section, setSection] = useState<string>(() => {
+    // REQ-470：hash 优先（#/onto/learn/{section}），无 hash 回落 localStorage 记忆
+    const r = parseOntoHash()
+    if (r?.col === 'learn' && r.learn) return r.learn
     const saved = localStorage.getItem('eino.onto.learn.section') ?? 'path'
     const valid = ['path', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
     return valid.includes(saved) ? saved : 'path'
@@ -319,6 +323,19 @@ export default function LearnPage() {
   useEffect(() => {
     localStorage.setItem('eino.onto.learn.section', section)
   }, [section])
+  // REQ-470：后退/前进按 hash 恢复子模块
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseOntoHash()
+      if (r?.col === 'learn' && r.learn) setSection(r.learn)
+    }
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航同应用
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onPop)
+    }
+  }, [])
 
   useEffect(() => {
     api
@@ -513,7 +530,11 @@ export default function LearnPage() {
         <Menu
           mode="vertical"
           selectedKeys={[section]}
-          onClick={({ key }) => setSection(key as string)}
+          onClick={({ key }) => {
+            setSection(key as string)
+            // REQ-470：子模块切换 replace 写 hash（学习节页内细化不灌栈）
+            writeOntoHash({ col: 'learn', learn: key as string }, true)
+          }}
           style={{ width: 188, flexShrink: 0, position: 'sticky', top: 8, background: 'transparent', borderInlineEnd: 'none' }}
           items={menuItems}
         />

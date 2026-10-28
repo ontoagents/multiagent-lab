@@ -13,8 +13,8 @@ export function clearLeaveGuard(id: string) {
   if (guard?.id === id) guard = null
 }
 
-/** 无守卫直行；有守卫弹「放弃修改并离开」确认（确认后清守卫放行，取消留在原地）。 */
-export function guardLeave(next: () => void) {
+/** 无守卫直行；有守卫弹「放弃修改并离开」确认（确认后清守卫放行；取消可经 onCancel 回调恢复现场——REQ-470 popstate 用）。 */
+export function guardLeave(next: () => void, onCancel?: () => void) {
   if (!guard) {
     next()
     return
@@ -30,5 +30,6 @@ export function guardLeave(next: () => void) {
       if (guard?.id === g.id) guard = null
       next()
     },
+    onCancel: () => onCancel?.(),
   })
 }

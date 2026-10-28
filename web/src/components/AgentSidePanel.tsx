@@ -27,6 +27,7 @@ import type { SandboxStatus } from '../api/client'
 import type { Agent, AgentConfigVersion, Connector, InferenceBackendStatus, McpServeInfo, ModelConnection, OntoChatSession, Ontology, Skill, ToolInfo } from '../api/types'
 import { companionApi } from '../api/companion'
 import { useUI } from '../store/ui'
+import { deepLinkOnto } from '../pages/ontology/shared/ontoRoute'
 import { inferenceBackendOptions } from './inferenceOptions'
 import InferenceInstallHint from './InferenceInstallHint'
 
@@ -432,7 +433,7 @@ function SegmentedFormView({
 // ---------------------------------------------------------------------------
 
 function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: () => void }) {
-  const { showToast, bumpData, setPage: gotoPage } = useUI()
+  const { showToast, bumpData } = useUI()
   const [page, setPage] = useState<'config' | 'manage'>('config')
   const [form] = Form.useForm()
   const [allConns, setAllConns] = useState<ModelConnection[]>([])
@@ -676,10 +677,10 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
                 size="small"
                 icon={<ApartmentOutlined />}
                 onClick={() => {
-                  localStorage.setItem('eino.onto.sidebar', 'assets')
-                  localStorage.setItem('eino.onto.asset.focus', agent.companion_ontology_id!)
-                  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-                  gotoPage('ontology')
+                  // REQ-470：跨模块深链收敛 hash 通道（legacy 键照写不破既有语义）
+                  deepLinkOnto({ col: 'assets', assetId: agent.companion_ontology_id! }, [
+                    ['eino.onto.asset.focus', agent.companion_ontology_id!],
+                  ])
                 }}
               >
                 打开本体资产
@@ -811,7 +812,7 @@ function OntoOpsControl({ value, onChange }: { value?: boolean; onChange?: (v: b
 /** REQ-360/M161 D：产出清单——本智能体的 OntoChat 构建会话（进行中/已入库计数+「继续」深链）。
  *  数据源=构建平面会话列表 agent_id 过滤（REQ-354/P2·G4 审计两列的消费闭环）；
  *  生命周期口径：搁置为合法终态（半途会话在构建平面列表可删可续作，此处不暴露删除防误删）。 */
-function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInstance }) {  const { setPage } = useUI()
+function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInstance }) {
   const mode = Form.useWatch('onchat_mode', form) ?? agent.onchat_mode ?? ''
   const on = mode !== ''
   const [sessions, setSessions] = useState<OntoChatSession[] | null>(null)
@@ -827,12 +828,9 @@ function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInst
   // 继续深链：写跨栏记忆 + onto-sidebar-change + 切本体模块（REQ-354/P2 同款四行动线）。
   // 深链=显式路径选择，连带置 MIGRATED 标志——防 REQ-337 buildPath 一次性迁移把显式值吃回
   // home（全新浏览器首次跳转必中；沿显式选择仍记忆的迁移语义补齐写入侧）。
+  // REQ-470：收敛 hash 通道（legacy 键照写；MIGRATED 置位在 deepLinkOnto 内）。
   const continueInBuild = (sid: string) => {
-    localStorage.setItem('eino.onto.buildPath', 'ontochat')
-    localStorage.setItem('eino.onto.buildPath.homeMigrated', '1')
-    localStorage.setItem('eino.ontochat.session.focus', sid)
-    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-    setPage('ontology')
+    deepLinkOnto({ col: 'build', path: 'ontochat' }, [['eino.ontochat.session.focus', sid]])
   }
 
   const ongoing = (sessions ?? []).filter((s) => s.stage !== 'done').length

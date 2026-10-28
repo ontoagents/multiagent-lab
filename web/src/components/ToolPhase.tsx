@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useUI } from '../store/ui'
+import { deepLinkOnto } from '../pages/ontology/shared/ontoRoute'
 import './tool-phase.css'
 
 /** 一次工具调用（call/result 合并后） */
@@ -97,15 +97,11 @@ function ontochatDeepLink(call: ToolCallRow): { label: string; go: () => void } 
     return null
   }
   if (!out || out.error) return null
+  // REQ-470：跨模块深链收敛 hash 通道（legacy 键照写不破既有语义；MIGRATED 置位在 deepLinkOnto 内）
   const jump = (sidebar: string, pairs: Array<[string, string]>) => {
-    localStorage.setItem('eino.onto.sidebar', sidebar)
-    // 深链=显式路径选择：置 MIGRATED 标志防 REQ-337 buildPath 一次性迁移吃掉显式值（REQ-360 顺修）
-    if (pairs.some(([k]) => k === 'eino.onto.buildPath')) {
-      localStorage.setItem('eino.onto.buildPath.homeMigrated', '1')
-    }
-    for (const [k, v] of pairs) localStorage.setItem(k, v)
-    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-    useUI.getState().setPage('ontology')
+    const assetId = pairs.find(([k]) => k === 'eino.onto.asset.focus')?.[1]
+    const path = pairs.find(([k]) => k === 'eino.onto.buildPath')?.[1]
+    deepLinkOnto({ col: sidebar as 'assets' | 'build', assetId, path }, pairs)
   }
   if (typeof out.asset_id === 'string' && out.asset_id) {
     return {

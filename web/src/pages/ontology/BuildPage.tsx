@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import OntoExtendFlow from './components/OntoExtendFlow'
@@ -9,6 +9,7 @@ import CustomBuildFlow from './build/CustomBuildFlow'
 import KgGuidePage from './build/KgGuidePage'
 import ProductionGuide from './build/ProductionGuide'
 import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/paths'
+import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 
 // ---------------------------------------------------------------------------
 // 本体构建（BuildPage，REQ-104 ② → REQ-337/M137 页面化重构）：
@@ -24,11 +25,35 @@ import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/path
 // ---------------------------------------------------------------------------
 
 export default function BuildPage() {
-  const [buildPath, setBuildPath] = useState<BuildPath>(readBuildPath)
+  // REQ-470：hash 优先恢复路径（#/onto/build/{path}），无 hash 回落 localStorage 记忆
+  const [buildPath, setBuildPath] = useState<BuildPath>(() => {
+    const r = parseOntoHash()
+    if (r?.col === 'build' && r.path) return r.path as BuildPath
+    return readBuildPath()
+  })
+
+  // REQ-470：后退/前进按 hash 恢复路径
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseOntoHash()
+      if (r?.col === 'build' && r.path) {
+        localStorage.setItem(ONTO_BUILD_PATH_KEY, r.path)
+        setBuildPath(r.path as BuildPath)
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航同应用
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onPop)
+    }
+  }, [])
 
   const select = (key: BuildPath) => {
     localStorage.setItem(ONTO_BUILD_PATH_KEY, key)
     setBuildPath(key)
+    // REQ-470：路径切换进历史栈（后退回到先前路径）
+    writeOntoHash({ col: 'build', path: key })
   }
 
   return (
