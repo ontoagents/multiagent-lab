@@ -1053,6 +1053,8 @@ export interface EngineStatus {
   searched?: string[]
   hint?: string
   installable: boolean
+  /** REQ-471 一键安装下载进度 0~100（仅本引擎安装中且总量已知时透出） */
+  install_progress?: number
 }
 
 // ---- REQ-156/157/M-O15：质量报告与导入合并 ----

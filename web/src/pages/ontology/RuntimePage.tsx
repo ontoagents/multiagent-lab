@@ -12,6 +12,7 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Spin,
@@ -34,6 +35,7 @@ import {
   ReloadOutlined,
   RightOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { api } from '../../api/client'
 import type { EngineStatus } from '../../api/client'
@@ -69,6 +71,31 @@ const STATE_TAG: Record<EngineKey, { color: string; text: string }[]> = {
   oxigraph: [{ color: 'green', text: '可用' }],
   fuseki: [{ color: 'green', text: '可用' }, { color: 'blue', text: '推理' }],
   cayley: [{ color: 'default', text: 'P2' }],
+}
+
+// REQ-471：未安装引擎卡「下载」按钮的跳转页（官方 release / 镜像发行包目录）
+const ENGINE_DOWNLOAD_URL: Partial<Record<EngineKey, string>> = {
+  oxigraph: 'https://github.com/oxigraph/oxigraph/releases',
+  fuseki: 'https://mirrors.pku.edu.cn/apache/jena/binaries/',
+}
+
+/** REQ-471：未安装 Tag 悬停提示（上次安装失败 / 后端 hint / 环境依赖与手动安装指引） */
+function engineMissingTip(key: EngineKey, st: EngineStatus | null): { lines: string[] } {
+  const lines: string[] = []
+  if (st?.last_install_error) lines.push(`上次安装失败：${st.last_install_error}`)
+  if (st?.hint) lines.push(st.hint)
+  if (key === 'fuseki') {
+    lines.push(
+      '一键安装：官方发行包（pin 6.2.0，六源候选）自动下载解包到 data/bin，即时生效无需重启；运行需 JDK 17+。',
+      '网络受限可点「下载」到镜像页手动下载发行包（浏览器下载自带断点续传），再用「上传」安装（tar.gz / zip）。'
+    )
+  } else {
+    lines.push(
+      '一键安装：官方 release（pin v0.5.11）按当前平台自动选择，写入 data/bin 即时生效，无需重启服务。',
+      '也可点「下载」到 GitHub Releases 手动下载后放入 data/bin。'
+    )
+  }
+  return { lines }
 }
 
 function readEngineKey(): EngineKey {
@@ -115,6 +142,7 @@ function relTime(iso?: string): string | null {
 }
 
 export default function RuntimePage() {
+  const { showToast } = useUI()
   // REQ-470：hash 优先恢复引擎（#/onto/runtime/{engine}），无 hash 回落 localStorage 记忆
   const [engineKey, setEngineKey] = useState<EngineKey>(() => {
     const r = parseOntoHash()
@@ -122,8 +150,11 @@ export default function RuntimePage() {
     return readEngineKey()
   })
   const [lifecycleOpen, setLifecycleOpen] = useState(false) // REQ-155 阶段二：生命周期面板
-  // REQ-146 引擎自检：oxigraph/fuseki 缺失时导航 Tag 显异常，分组页给一键安装入口
+  // REQ-146 引擎自检：oxigraph/fuseki 缺失时导航 Tag 显异常，引擎卡片给一键安装入口
   const [engineStatuses, setEngineStatuses] = useState<EngineStatus[]>([])
+  // REQ-471：安装任务乐观态（点击卡片「安装」即置位，轮询翻 installed/失败留痕后解除）
+  const [installingEngine, setInstallingEngine] = useState<EngineKey | null>(null)
+  const [uploadingEngine, setUploadingEngine] = useState<EngineKey | null>(null)
 
   useEffect(() => {
     const sync = () => setEngineKey(readEngineKey())
@@ -182,6 +213,41 @@ export default function RuntimePage() {
 
   const engineStatus = (key: EngineKey): EngineStatus | null => engineStatuses.find((e) => e.engine === key) ?? null
 
+  // 安装任务终态复位：目标引擎已命中 / 上次安装报错时解除 loading（轮询由 5s loadEngines 驱动）
+  useEffect(() => {
+    if (!installingEngine) return
+    const st = engineStatuses.find((x) => x.engine === installingEngine)
+    if (st?.installed || st?.last_install_error) setInstallingEngine(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- engineStatuses 即依赖源
+  }, [installingEngine, engineStatuses])
+
+  // REQ-471：引擎卡片「安装」一键安装（原分组页 Alert 内入口上移；按卡片引擎而非当前选中引擎）
+  const startInstall = (key: EngineKey) => {
+    setInstallingEngine(key)
+    api
+      .installEngine(key)
+      .then(() =>
+        showToast(key === 'fuseki' ? '已开始后台下载安装（发行包约 220MB，支持断点续传），完成后状态自动刷新' : '已开始后台下载安装（约 20MB），完成后状态自动刷新')
+      )
+      .catch((e: any) => {
+        showToast(e.message, 'err')
+        setInstallingEngine(null)
+      })
+  }
+
+  // REQ-307 手动路径（REQ-471 收进引擎卡片）：使用方自行下载发行包 → 上传 → 服务端解包落位（同步秒级）
+  const uploadInstall = (key: EngineKey, f: File) => {
+    setUploadingEngine(key)
+    api
+      .installEngineFile(key, f)
+      .then((r) => showToast(`安装完成：${(r.files ?? []).map((x) => x.split('/').pop()).join('、')} 已写入 data/bin（即时生效）`))
+      .catch((e: any) => showToast(e.message, 'err'))
+      .finally(() => {
+        setUploadingEngine(null)
+        loadEngines()
+      })
+  }
+
   const select = (key: EngineKey) => {
     localStorage.setItem(ONTO_ENGINE_KEY, key)
     setEngineKey(key)
@@ -218,22 +284,41 @@ export default function RuntimePage() {
       <div className="onto-engine-nav">
         {ENGINES.map((e) => {
           // REQ-146：managed 引擎（oxigraph/fuseki）本地无启动程序时 Tag 显异常（安装中转橙）
+          // REQ-471：安装/下载/上传入口收进卡片右侧，未安装 Tag 提示 Tooltip 化，安装进度卡片下内联
           const st = engineStatus(e.key)
-          const missing = (e.key === 'oxigraph' || e.key === 'fuseki') && st && !st.installed
+          const isManaged = e.key === 'oxigraph' || e.key === 'fuseki'
+          const missing = isManaged && !!st && !st.installed
+          const installingNow = isManaged && (installingEngine === e.key || !!st?.installing)
+          const canAct = isManaged && missing && !installingNow && !!st?.installable
+          const pct = st?.install_progress
+          const tip = engineMissingTip(e.key, st)
           return (
-            <button
+            <div
               key={e.key}
-              type="button"
+              role="button"
+              tabIndex={e.state === 'disabled' ? -1 : 0}
+              aria-disabled={e.state === 'disabled'}
               className={`onto-engine-item${engineKey === e.key ? ' active' : ''}${e.state === 'disabled' ? ' disabled' : ''}`}
               onClick={() => e.state !== 'disabled' && select(e.key)}
-              disabled={e.state === 'disabled'}
+              onKeyDown={(ev) => {
+                if (e.state !== 'disabled' && ev.target === ev.currentTarget && (ev.key === 'Enter' || ev.key === ' ')) {
+                  ev.preventDefault()
+                  select(e.key)
+                }
+              }}
             >
               <span className="onto-engine-top">
                 <span className="onto-engine-label">{e.label}</span>
                 {missing ? (
-                  <Tag color={st?.installing ? 'orange' : 'red'} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                    {st?.installing ? '安装中' : '未安装'}
-                  </Tag>
+                  <Tooltip title={<div>{tip.lines.map((l, i) => <div key={i}>{l}</div>)}</div>}>
+                    <Tag
+                      color={installingNow ? 'orange' : 'red'}
+                      style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px', cursor: 'help' }}
+                      data-testid={`engine-state-${e.key}`}
+                    >
+                      {installingNow ? '安装中' : '未安装'}
+                    </Tag>
+                  </Tooltip>
                 ) : (
                   STATE_TAG[e.key].map((t) => (
                     <Tag key={t.text} color={t.color} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
@@ -242,8 +327,44 @@ export default function RuntimePage() {
                   ))
                 )}
               </span>
+              {canAct && (
+                <span className="onto-engine-actions" onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => ev.stopPropagation()}>
+                  <Button size="small" type="primary" data-testid={`engine-install-${e.key}`} onClick={() => startInstall(e.key)}>
+                    安装
+                  </Button>
+                  <Button size="small" data-testid={`engine-download-${e.key}`} onClick={() => window.open(ENGINE_DOWNLOAD_URL[e.key], '_blank', 'noopener')}>
+                    下载
+                  </Button>
+                  {e.key === 'fuseki' && (
+                    <Tooltip title="已自行下载发行包（tar.gz / zip）？点此上传安装（REQ-307 手动路径）">
+                      <Upload
+                        accept=".tar.gz,.tgz,.zip"
+                        showUploadList={false}
+                        disabled={uploadingEngine === e.key}
+                        beforeUpload={(f) => {
+                          uploadInstall(e.key, f)
+                          return false
+                        }}
+                      >
+                        <Button size="small" icon={<UploadOutlined />} loading={uploadingEngine === e.key} data-testid="fuseki-upload-install" aria-label="上传发行包安装" />
+                      </Upload>
+                    </Tooltip>
+                  )}
+                </span>
+              )}
+              {installingNow && (
+                <span className="onto-engine-progress" data-testid={`engine-progress-${e.key}`}>
+                  {typeof pct === 'number' ? (
+                    <Progress percent={Math.min(100, Math.round(pct))} size="small" status="active" />
+                  ) : (
+                    <span className="onto-engine-progress-text">
+                      <Spin size="small" /> 后台下载安装中…
+                    </span>
+                  )}
+                </span>
+              )}
               <span className="onto-engine-desc">{e.desc}</span>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -322,13 +443,6 @@ function EngineProfilesPage({
     }
   }, [profiles])
   const [editId, setEditId] = useState<string | null>(null)
-  const [installing, setInstalling] = useState(false)
-  const [uploading, setUploading] = useState(false)
-
-  // 安装任务终态复位：引擎已命中 / 上次安装报错时解除按钮 loading（轮询由父组件 5s 驱动）
-  useEffect(() => {
-    if (engineStatus?.installed || engineStatus?.last_install_error) setInstalling(false)
-  }, [engineStatus?.installed, engineStatus?.last_install_error])
 
   const reload = () => {
     api
@@ -386,33 +500,8 @@ function EngineProfilesPage({
   const detail = mine.find((p) => p.id === detailId) ?? null
   const editing = mine.find((p) => p.id === editId) ?? null
   const anyError = mine.some((p) => p.status === 'error' && p.last_error)
-  // REQ-146：本地无引擎启动程序 → 引擎不可用（导航已显异常，此处给预检 Alert + 安装入口）
+  // REQ-146：本地无引擎启动程序 → 引擎不可用（导航引擎卡已显异常与安装入口，此处仅在方案卡上标记）
   const engineMissing = !!engineStatus && !engineStatus.installed
-
-  const install = async () => {
-    setInstalling(true)
-    try {
-      await api.installEngine(engine)
-      showToast(engine === 'fuseki' ? '已开始后台下载安装（发行包约 220MB，支持断点续传），完成后状态自动刷新' : '已开始后台下载安装（约 20MB），完成后状态自动刷新')
-    } catch (e: any) {
-      showToast(e.message, 'err')
-      setInstalling(false)
-    }
-  }
-
-  // REQ-307 手动路径：使用方自行下载发行包（浏览器断点续传）→ 上传 → 服务端解包落位（同步秒级）
-  const installFromFile = async (f: File) => {
-    setUploading(true)
-    try {
-      const r = await api.installEngineFile(engine, f)
-      showToast(`安装完成：${(r.files ?? []).map((x) => x.split('/').pop()).join('、')} 已写入 data/bin（即时生效）`)
-    } catch (e: any) {
-      showToast(e.message, 'err')
-    } finally {
-      setUploading(false)
-      reload()
-    }
-  }
 
   const act = async (id: string, fn: () => Promise<unknown>, ok: string) => {
     setBusyId(id)
@@ -481,69 +570,6 @@ function EngineProfilesPage({
             .join('；')}。facade 归属缓存换绑最迟 60s 收敛。`}
         />
       )}
-      {engineMissing && (
-        <Alert
-          type="error"
-          showIcon
-          title={`${ENGINES.find((e) => e.key === engine)?.label} 引擎未安装，方案无法启动（REQ-146 预检）`}
-          description={
-            <div>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-                {engineStatus?.last_install_error
-                  ? `上次安装失败：${engineStatus.last_install_error}`
-                  : engineStatus?.hint ?? '未探测到引擎可执行文件。'}
-                {engineStatus?.binary ? `（当前命中：${engineStatus.binary}）` : ''}
-              </Typography.Paragraph>
-              {engineStatus?.installable ? (
-                <div>
-                  <Space wrap>
-                    <Button type="primary" size="small" loading={installing || !!engineStatus.installing} onClick={install}>
-                      {engineStatus.installing ? '安装中…' : '一键下载安装'}
-                    </Button>
-                    {engine === 'fuseki' && (
-                      <Upload
-                        accept=".tar.gz,.tgz"
-                        showUploadList={false}
-                        disabled={uploading}
-                        beforeUpload={(f) => {
-                          installFromFile(f)
-                          return false
-                        }}
-                      >
-                        <Button size="small" loading={uploading} data-testid="fuseki-upload-install">
-                          已自行下载？上传发行包安装
-                        </Button>
-                      </Upload>
-                    )}
-                  </Space>
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
-                    {engine === 'fuseki'
-                      ? '一键安装：官方发行包（pin 6.2.0，六源候选）自动下载解包 fuseki-server 与 fuseki-server.jar 到 data/bin，即时生效无需重启；运行需 JDK 17+（未装 JDK 时安装后仍会提示）。'
-                      : '官方 release（pin v0.5.11）按当前平台自动选择，写入 data/bin 后即时生效，无需重启服务。'}
-                  </Typography.Text>
-                  {engine === 'fuseki' && (
-                    <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-                      文件较大也可自行下载后上传安装（浏览器下载自带断点续传）：{' '}
-                      <Typography.Link href="https://mirrors.pku.edu.cn/apache/jena/binaries/" target="_blank" rel="noreferrer">
-                        北大镜像
-                      </Typography.Link>
-                      {' / '}
-                      <Typography.Link href="https://downloads.apache.org/jena/binaries/" target="_blank" rel="noreferrer">
-                        官方 downloads
-                      </Typography.Link>{' '}
-                      下载 apache-jena-fuseki-6.2.0.tar.gz（旧版本见 archive.apache.org/dist/jena/binaries/），解压后将其中的 fuseki-server 与 fuseki-server.jar 两个文件放到 data/bin/ 即可（或解压目录设置 FUSEKI_BIN 后重启 runtimed）。
-                    </Typography.Text>
-                  )}
-                </div>
-              ) : (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  该引擎暂不支持一键安装，请按上方指引手动配置后重启 runtimed。
-                </Typography.Text>
-              )}
-            </div>
-          }
-        />
-      )}
       {anyError && (() => {
         // REQ-310/M114：错误汇总语义（去「预检」）——受影响方案数+最近失败时间+首个方案友好文案
         const errs = mine.filter((p) => p.status === 'error' && p.last_error)
@@ -596,9 +622,11 @@ function EngineProfilesPage({
               <div className="onto-profile-meta">
                 <span>引擎 {p.engine ?? '—'}</span>
                 {engineMissing && (
-                  <Tag color="red" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                    引擎缺失
-                  </Tag>
+                  <Tooltip title="引擎未安装，启动将失败——请在上方引擎卡片点「安装」一键安装（REQ-471）">
+                    <Tag color="red" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px', cursor: 'help' }}>
+                      引擎缺失
+                    </Tag>
+                  </Tooltip>
                 )}
                 {qualityWarn(p) && (
                   <Tooltip title={qualityWarn(p)!.tip}>

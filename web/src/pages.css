@@ -666,6 +666,12 @@
 .onto-engine-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .onto-engine-label { font-size: 13px; font-weight: 600; color: var(--c-ink); flex: 1; min-width: 0; }
 .onto-engine-desc { font-size: 11px; color: var(--c-ink-3); line-height: 1.5; }
+/* REQ-471：未安装引擎卡右侧操作行（安装/下载/上传）与卡内下方安装进度行 */
+.onto-engine-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+.onto-engine-progress { display: flex; align-items: center; min-width: 0; }
+.onto-engine-progress .ant-progress { width: 100%; margin: 0; line-height: 1.2; }
+.onto-engine-progress .ant-progress-text { font-size: 10px; }
+.onto-engine-progress-text { font-size: 11px; color: var(--c-ink-3); display: inline-flex; align-items: center; gap: 6px; }
 
 /* 资产选择条（资产栏顶部统一列表） */
 /* REQ-179 可视化全屏：三视图共用 viz-wrap 容器，:fullscreen 态下按视口拉伸画布 */

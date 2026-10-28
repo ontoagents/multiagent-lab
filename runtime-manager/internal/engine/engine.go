@@ -91,6 +91,7 @@ type EngineStatus struct {
 	Searched         []string `json:"searched,omitempty"`           // 探测过的候选路径
 	Hint             string   `json:"hint,omitempty"`               // 缺失时的安装指引
 	Installable      bool     `json:"installable"`                  // 是否支持一键下载安装
+	InstallProgress  *float64 `json:"install_progress,omitempty"`   // 一键安装下载进度 0~100（REQ-471；仅本引擎安装中且总量已知时透出）
 }
 
 // StatusProbe 引擎自检能力（适配器可选实现；未实现按未注册呈现）。

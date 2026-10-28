@@ -194,7 +194,8 @@ func copyZipEntry(hf *zip.File, dst string) error {
 }
 
 // DownloadFunc 下载函数形态（manager.downloadTo 同签名，解耦下载机制便于单测）。
-type DownloadFunc func(ctx context.Context, url, target string, minBytes int64) error
+// onProgress 可空——下载推进回调（loaded/total 字节，REQ-471 安装进度透出；total 未知不回调）。
+type DownloadFunc func(ctx context.Context, url, target string, minBytes int64, onProgress func(loaded, total int64)) error
 
 // Install 一键安装：依次尝试 urls 下载发行包到临时文件 → 按包形态提取两件到 destDir → 清理
 // （REQ-325：windows 走 zip 形态不再拒绝；提取器按 URL 扩展名分派，unix tar.gz 路径不变）。
@@ -203,7 +204,10 @@ func Install(ctx context.Context, destDir string, urls []string, download Downlo
 	defer os.Remove(tmp)
 	var lastErr error
 	for _, url := range urls {
-		if err := download(ctx, url, tmp, 50<<20); err != nil {
+		// minBytes 防截断/错误页落盘的完好性下限（REQ-471 顺修：6.2.0 tar.gz 实测 49.01MiB，
+		// 原 50MiB 闸恒大于包体——完整下载也被判「内容异常」删除换源，一键安装服务端下载链
+		// 六源循环必败〔REQ-307 交付时诚实边界「镜像停滞」恰掩护此潜伏缺陷〕，降 40MiB）
+		if err := download(ctx, url, tmp, 40<<20, nil); err != nil {
 			lastErr = err
 			continue
 		}

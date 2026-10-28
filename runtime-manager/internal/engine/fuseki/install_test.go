@@ -146,7 +146,7 @@ func TestInstallDownloadChain(t *testing.T) {
 		http.ServeFile(w, r, fakeTgz)
 	}))
 	t.Cleanup(srv.Close)
-	dl := func(ctx context.Context, url, target string, minBytes int64) error {
+	dl := func(ctx context.Context, url, target string, minBytes int64, _ func(loaded, total int64)) error {
 		resp, err := http.Get(url)
 		if err != nil {
 			return err

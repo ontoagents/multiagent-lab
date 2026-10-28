@@ -40,8 +40,13 @@ type Manager struct {
 	procs map[string]*engine.Process // profileID → 运行句柄（进程内态，重启 Manager 后按 stopped 处理）
 
 	installMu  sync.Mutex
-	installing bool   // oxigraph 一键安装进行中（REQ-146）
+	installing bool   // 一键安装进行中（REQ-146；REQ-471 起经 installingName 归属到具体引擎）
 	installErr string // 最近一次安装失败原因
+	// REQ-471：安装任务与结果的引擎归属 + 下载进度（同 installMu 门控；单任务串行）
+	installingName       string  // 正在安装的引擎名（安装结束后清空）
+	installErrEngine     string  // installErr 归属引擎（与 installErr 同写）
+	installProgress      float64 // 当前安装下载进度 0~100（下载推进回调写入）
+	installProgressKnown bool    // 总量已知才置位（Content-Length 缺失时进度不透出）
 }
 
 func New(st *store.Store, buildURL, logDir, installBinDir string) *Manager {
@@ -87,6 +92,8 @@ var knownEngines = []string{"oxigraph", "fuseki"}
 func (m *Manager) EngineStatuses() []engine.EngineStatus {
 	m.installMu.Lock()
 	active, lastErr := m.installing, m.installErr
+	activeName, errEngine := m.installingName, m.installErrEngine
+	prog, progKnown := m.installProgress, m.installProgressKnown
 	m.installMu.Unlock()
 	out := make([]engine.EngineStatus, 0, len(knownEngines))
 	for _, name := range knownEngines {
@@ -102,8 +109,15 @@ func (m *Manager) EngineStatuses() []engine.EngineStatus {
 		}
 		if name == "oxigraph" || name == "fuseki" {
 			st.Installable = true
-			st.Installing = active
-			st.LastInstallError = lastErr
+			// REQ-471：安装中/失败原因按引擎归属（activeName 空为历史兜底形态，双引擎呈现）
+			st.Installing = active && (activeName == "" || activeName == name)
+			if active && name == activeName && progKnown {
+				p := prog
+				st.InstallProgress = &p
+			}
+			if lastErr != "" && (errEngine == "" || errEngine == name) {
+				st.LastInstallError = lastErr
+			}
 		}
 		out = append(out, st)
 	}
@@ -123,6 +137,8 @@ func (m *Manager) StartInstall(name string) error {
 	}
 	m.installing = true
 	m.installErr = ""
+	m.installingName = name
+	m.installProgress, m.installProgressKnown = 0, false
 	m.installMu.Unlock()
 	go func() {
 		// REQ-307：fuseki 发行包 ~220MB（oxigraph ~20MB），超时按引擎区分（30min/10min）
@@ -140,19 +156,48 @@ func (m *Manager) StartInstall(name string) error {
 		}
 		m.installMu.Lock()
 		m.installing = false
+		m.installingName = ""
+		m.installProgress, m.installProgressKnown = 0, false
 		if err != nil {
 			m.installErr = err.Error()
+			m.installErrEngine = name
 		}
 		m.installMu.Unlock()
 	}()
 	return nil
 }
 
+// setInstallProgress 更新当前安装的下载进度（REQ-471；0~100 截断，经 /api/engines 轮询透出）。
+func (m *Manager) setInstallProgress(pct float64) {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	m.installMu.Lock()
+	m.installProgress, m.installProgressKnown = pct, true
+	m.installMu.Unlock()
+}
+
 // installFuseki 一键安装（REQ-307）：官方发行包（pin fuseki.PinnedVersion，downloads→archive 双源）
 // 下载后提取 fuseki-server 脚本与 fuseki-server.jar 两件到 data/bin——fuseki 适配器候选序动态解析
 // 即时命中，无需重启 runtimed。java 为运行时依赖（启动时预检），安装不要求 JDK。
 func (m *Manager) installFuseki(ctx context.Context) error {
-	return fuseki.Install(ctx, m.InstallBinDir, fuseki.ReleaseURLs(), downloadTo)
+	return fuseki.Install(ctx, m.InstallBinDir, fuseki.ReleaseURLs(), m.downloadToWithProgress)
+}
+
+// downloadToWithProgress downloadTo 的 fuseki.DownloadFunc 形态（REQ-471）：下载推进回调
+// 直写 Manager 安装进度（fuseki.Install 内部对进度无感，恒传 nil）。
+func (m *Manager) downloadToWithProgress(ctx context.Context, url, target string, minBytes int64, _ func(loaded, total int64)) error {
+	return downloadTo(ctx, url, target, minBytes, m.onDownloadProgress)
+}
+
+// onDownloadProgress 下载推进 → 安装进度 0~100（REQ-471）。
+func (m *Manager) onDownloadProgress(loaded, total int64) {
+	if total > 0 {
+		m.setInstallProgress(float64(loaded) / float64(total) * 100)
+	}
 }
 
 // InstallFromFile 安装使用方自行下载的发行包（REQ-307 手动路径，开发者定案「文件太大不用预下载，
@@ -225,7 +270,7 @@ func (m *Manager) installOxigraph(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
 		target += ".exe"
 	}
-	if err := downloadTo(ctx, url, target, 1<<20); err != nil {
+	if err := downloadTo(ctx, url, target, 1<<20, m.onDownloadProgress); err != nil {
 		return err
 	}
 	log.Printf("[manager] oxigraph 一键安装完成: %s (%s)", target, asset)
@@ -234,11 +279,11 @@ func (m *Manager) installOxigraph(ctx context.Context) error {
 
 // downloadTo 流式下载 url → target（temp+rename 原子替换，非 windows 补执行位）。
 // minBytes 下限防截断/错误页落盘。独立成函数便于对下载机制做零网络依赖单测（httptest）。
-// downloadTo 流式下载 url → target（temp+rename 原子替换，非 windows 补执行位）。
-// minBytes 下限防截断/错误页落盘。REQ-307：支持 HTTP Range 断点续传——tmp 半包保留（中断不删），
-// 重试/换源时从已收字节续传（206 append；服务器不支持 Range 回 200 则全量重写）——
-// 本机实测外网长连接 ~1 分钟即断，无续传时大包（fuseki ~220MB）永远下不完。
-func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
+// REQ-307：支持 HTTP Range 断点续传——tmp 半包保留（中断不删），重试/换源时从已收字节续传
+// （206 append；服务器不支持 Range 回 200 则全量重写）——本机实测外网长连接 ~1 分钟即断，
+// 无续传时大包（fuseki ~220MB）永远下不完。
+// onProgress 可空——下载推进回调（loaded/total 字节；Content-Length 缺失不回调；REQ-471）。
+func downloadTo(ctx context.Context, url, target string, minBytes int64, onProgress func(loaded, total int64)) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("创建安装目录失败: %w", err)
 	}
@@ -271,6 +316,11 @@ func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
 	default:
 		return fmt.Errorf("下载失败: %s（%s）", resp.Status, url)
 	}
+	body := io.Reader(resp.Body)
+	if onProgress != nil && resp.ContentLength > 0 {
+		// REQ-471：总量已知才报进度；续传态把已收字节计入基数（206 的 Content-Length 是剩余量）
+		body = &progressReader{r: resp.Body, loaded: resumeFrom, total: resumeFrom + resp.ContentLength, onProgress: onProgress}
+	}
 	flag := os.O_CREATE | os.O_WRONLY
 	if resumeFrom > 0 {
 		flag |= os.O_APPEND
@@ -281,7 +331,7 @@ func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
 	if err != nil {
 		return err
 	}
-	n, err := io.Copy(f, resp.Body)
+	n, err := io.Copy(f, body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -308,6 +358,23 @@ func downloadTo(ctx context.Context, url, target string, minBytes int64) error {
 }
 
 var installHTTP = &http.Client{Timeout: 10 * time.Minute}
+
+// progressReader 下载进度计数（REQ-471）：每个读取块回调 loaded/total（total<=0 不回调）。
+type progressReader struct {
+	r          io.Reader
+	loaded     int64
+	total      int64
+	onProgress func(loaded, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 && p.total > 0 && p.onProgress != nil {
+		p.loaded += int64(n)
+		p.onProgress(p.loaded, p.total)
+	}
+	return n, err
+}
 
 // FetchTTL 从构建平面拉取本体 TTL 形态（original turtle 直接回原文；自建经 spec→sidecar 导出）。
 func (m *Manager) FetchTTL(ontologyID string) (string, error) {
