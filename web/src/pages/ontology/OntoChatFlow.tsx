@@ -9,13 +9,14 @@ import { StoryPanel, StoryTemplateChips } from './components/ontochat/StoryPanel
 import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow, type CqMergeGroup, type CqPurifyStats } from './components/ontochat/CQConfirmCards'
 import SessionTestCard from './components/ontochat/SessionTestCard'
 import DraftConfirmPanel from './components/ontochat/DraftConfirmPanel'
-import { Alert, Button, Card, Drawer, Dropdown, Empty, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Steps, Tag, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Drawer, Dropdown, Input, InputNumber, List, Modal, Popconfirm, Skeleton, Space, Spin, Tag, Typography, Upload } from 'antd'
 import type { StepsProps } from 'antd'
 import { SafetyOutlined, ApartmentOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, PaperClipOutlined, PlusOutlined, SendOutlined, SolutionOutlined, ThunderboltOutlined, RobotOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import PathIntro from './build/PathIntro'
+import EmptyGuide from '../../components/EmptyGuide'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
 import AgentChannelModal from './components/ontochat/AgentChannelModal'
@@ -527,11 +528,24 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
         purpose="对话式 CQ 引导：访谈问答中长出本体，生成草稿异步校验后预览入库。"
         detail="流程：对话式 CQ 引导 → 逐轮补全领域信息 → 「生成草稿」异步产出 spec_json（生成-校验循环后端内聚；进度可看、可取消、失败留痕可重试）→ 预览确认入库。右上「提示词」可查看实际注入模型的提示词（只读）。"
       />
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        {/* 会话列表 */}
-        <div style={{ width: 220, flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
+        {/* REQ-486/M285：会话列表面板化——固定宽+底色+边框（原浮卡无面板感，多会话即散架） */}
+        <div
+          style={{
+            width: 240,
+            flexShrink: 0,
+            alignSelf: 'flex-start',
+            background: 'var(--ant-color-bg-layout, #f5f5f5)',
+            border: '1px solid var(--c-border, #e6e8f0)',
+            borderRadius: 10,
+            padding: 10,
+            maxHeight: '72vh',
+            overflowY: 'auto',
+          }}
+          data-testid="ontochat-session-panel"
+        >
           <Space style={{ marginBottom: 8, width: '100%', justifyContent: 'space-between' }}>
-            <Typography.Text strong>会话</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 13 }}>会话</Typography.Text>
             <Dropdown
               menu={{
                 items: [
@@ -551,7 +565,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
               }}
               trigger={['click']}
             >
-              <Button size="small" icon={<PlusOutlined />}>
+              <Button size="small" type="primary" icon={<PlusOutlined />} data-testid="ontochat-new-session">
                 新建 <DownOutlined style={{ fontSize: 10 }} />
               </Button>
             </Dropdown>
@@ -601,7 +615,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
           {loading ? (
             <Skeleton active paragraph={{ rows: 6 }} style={{ padding: 24, marginTop: 16 }} />
           ) : !active ? (
-            <Empty description="新建或选择一个会话开始" style={{ padding: 40 }} />
+            // REQ-486/M285：空态三步引导（原裸 Empty——新用户不知从何开始）
+            <EmptyGuide
+              title="对话式建模：像聊天一样长出一个本体"
+              steps={['点左侧「新建」开一个会话（快速模式直接描述领域；访谈模式逐问共创）', '回答提问 / 确认能力问题（CQ）——系统检索补全领域元素', '草稿确认后一键入库，产物进入「本体资产」栏']}
+              actionLabel="新建会话开始"
+              onAction={() => newSession(undefined)}
+              data-testid="ontochat-empty-guide"
+            />
           ) : (
             <>
               <Space size={8} style={{ marginBottom: 8 }} wrap>
@@ -635,14 +656,32 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   <Tag color="blue" style={{ margin: 0 }}>中断恢复：已还原 {restored.round} 轮{restored.draft ? '与草稿' : ''}（服务端持久化）</Tag>
                 )}
               </Space>
-              {/* 五阶段 Steps 常驻（REQ-338②：阶段可视化，与 STAGE_TAG 同步） */}
-              <Steps
-                size="small"
-                current={stageIdx}
-                items={stepsItems}
-                style={{ marginBottom: 10 }}
-                data-testid="ontochat-steps"
-              />
+              {/* REQ-486/M285：五阶段细进度条（原全宽 Steps 压缩为单行段条——阶段可视化保留，
+                  任意跳转无后端语义故不做点击跳转，回退仍走输入区「上一步/跳过」） */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }} data-testid="ontochat-steps">
+                {stepsItems.map((st, i) => {
+                  const done = st.status === 'finish'
+                  const cur = st.status === 'process'
+                  return (
+                    <span key={st.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {i > 0 && <span style={{ color: 'var(--c-ink-3, #8b91a7)', fontSize: 11 }}>→</span>}
+                      <span
+                        style={{
+                          fontSize: 12,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontWeight: cur ? 600 : 400,
+                          background: cur ? 'var(--ant-color-primary-bg, #e6f4ff)' : done ? 'var(--ant-color-success-bg, #f6ffed)' : 'transparent',
+                          color: cur ? 'var(--ant-color-primary, #1677ff)' : done ? 'var(--ant-color-success, #52c41a)' : 'var(--c-ink-3, #8b91a7)',
+                          border: cur ? '1px solid var(--ant-color-primary-border, #91caff)' : '1px solid transparent',
+                        }}
+                      >
+                        {st.title}
+                      </span>
+                    </span>
+                  )
+                })}
+              </div>
               <div
                 className="onto-chat-msgs"
                 style={{ maxHeight: '46vh', overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -650,24 +689,61 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 {(active.messages ?? []).map((m, i) => {
                   const isErr = m.role === 'assistant' && (m.content.startsWith('生成失败：') || m.content.startsWith('本轮处理失败：') || m.content.startsWith('CQ 抽取失败：'))
                   const isCancel = m.role === 'assistant' && m.content.startsWith('已取消生成')
+                  // REQ-486/M285：助手消息=机器人头像气泡（最后一条挂当前阶段徽标——问题归属可视化）；
+                  // 用户回答=右侧主色气泡（原双方同款灰盒无说话人区分）
+                  const isAssistant = m.role !== 'user'
+                  let lastAssistantIdx = -1
+                  for (let j = (active.messages ?? []).length - 1; j >= 0; j--) {
+                    if ((active.messages ?? [])[j].role !== 'user') { lastAssistantIdx = j; break }
+                  }
+                  if (isAssistant) {
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', alignSelf: 'flex-start', maxWidth: '86%' }}>
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'var(--ant-color-primary-bg, #e6f4ff)', color: 'var(--ant-color-primary, #1677ff)',
+                            fontSize: 14,
+                          }}
+                        >
+                          <RobotOutlined />
+                        </span>
+                        <div
+                          style={{
+                            background: isErr ? 'var(--ant-color-error-bg, #fff2f0)' : 'var(--ant-color-bg-layout, #f5f5f5)',
+                            border: isErr ? '1px solid var(--ant-color-error-border, #ffccc7)' : '1px solid var(--c-border, #e6e8f0)',
+                            borderRadius: '2px 10px 10px 10px',
+                            padding: '6px 10px',
+                            whiteSpace: 'pre-wrap',
+                            fontSize: 13,
+                            lineHeight: 1.6,
+                            opacity: isCancel ? 0.75 : 1,
+                          }}
+                        >
+                          {i === lastAssistantIdx && !isErr && !isCancel && (
+                            <Tag {...(STAGE_TAG[stage] ?? {})} style={{ margin: '0 6px 4px 0', fontSize: 11 }} data-testid="ontochat-stage-badge">
+                              {stageTag.text}
+                            </Tag>
+                          )}
+                          {m.content}
+                        </div>
+                      </div>
+                    )
+                  }
                   return (
                     <div
                       key={i}
                       style={{
-                        alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                        alignSelf: 'flex-end',
                         maxWidth: '86%',
-                        background: m.role === 'user'
-                          ? 'var(--ant-color-primary-bg, #e6f4ff)'
-                          : isErr
-                            ? 'var(--ant-color-error-bg, #fff2f0)'
-                            : 'var(--ant-color-bg-layout, #f5f5f5)',
-                        border: isErr ? '1px solid var(--ant-color-error-border, #ffccc7)' : undefined,
-                        borderRadius: 8,
+                        background: 'var(--ant-color-primary-bg, #e6f4ff)',
+                        borderRadius: 10,
                         padding: '6px 10px',
                         whiteSpace: 'pre-wrap',
                         fontSize: 13,
                         lineHeight: 1.6,
-                        opacity: isCancel ? 0.75 : 1,
                       }}
                     >
                       {m.content}
