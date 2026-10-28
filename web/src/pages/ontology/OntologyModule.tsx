@@ -15,6 +15,7 @@ import AuditPage from './AuditPage'
 import { useUI } from '../../store/ui'
 import { guardLeave } from './shared/leaveGuard'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
+import CommandPalette from './shared/CommandPalette'
 
 // ---------------------------------------------------------------------------
 // 本体模块壳（D-O11 / REQ-104）：五栏位
@@ -90,6 +91,19 @@ export default function OntologyModule() {
     }
   }, [])
 
+  // REQ-469/M269：Mod+K 命令面板开关
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // REQ-466/M266：草稿超限/写入失败事件 → toast（draftStore 升级广播，console.warn 用户不可见）
   useEffect(() => {
     const onDiscard = (e: Event) => {
@@ -145,6 +159,7 @@ export default function OntologyModule() {
         ))}
       </div>
       <div className="module-body">{body}</div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   )
 }

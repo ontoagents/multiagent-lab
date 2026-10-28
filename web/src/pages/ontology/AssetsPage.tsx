@@ -393,6 +393,47 @@ export default function AssetsPage() {
     })
   }
 
+  // REQ-469/M269 键盘效率面：详情态数字键切分区（1~9、0=第 10 项；输入域不误触）；列表态「/」聚焦搜索
+  useEffect(() => {
+    const inField = (t: EventTarget | null) =>
+      t instanceof Element && !!t.closest('input, textarea, [contenteditable="true"], .cm-content, .ant-select')
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (view === 'list' && e.key === '/' && !inField(e.target)) {
+        e.preventDefault()
+        ;(document.querySelector('input[data-testid="asset-search"], [data-testid="asset-search"] input') as HTMLInputElement | null)?.focus()
+        return
+      }
+      if (view === 'detail' && /^[0-9]$/.test(e.key) && !inField(e.target) && active) {
+        const items = sectionGroups(boundIds.has(active.id)).flatMap((g) => g.items)
+        const i = e.key === '0' ? 9 : Number(e.key) - 1
+        const it = items[i]
+        if (it) {
+          e.preventDefault()
+          setTabKey(it.key)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view, active, boundIds])
+
+  // REQ-469：资产栏已激活时的跨入口深链（命令面板/伴生卡）——运行期消费 focus 键
+  // （未激活时挂载即消费的既有路径不变）
+  useEffect(() => {
+    const sync = () => {
+      const f = localStorage.getItem(ASSET_FOCUS_KEY)
+      if (f) {
+        localStorage.removeItem(ASSET_FOCUS_KEY)
+        setActiveId(f)
+        setTabKey(null)
+        setView('detail')
+      }
+    }
+    window.addEventListener('onto-sidebar-change', sync)
+    return () => window.removeEventListener('onto-sidebar-change', sync)
+  }, [])
+
   // REQ-285②：伴生型详情头数据加载（伴生图计数/绑定者/待确认候选）——分型模板统计行数据源；
   // 经首个绑定 agent 解析伴生子图（多 agent 共享同一子图，任一视角等价，与成长图同口径）
   const isCompActive = !!(active && boundIds.has(active.id))

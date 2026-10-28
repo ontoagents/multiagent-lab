@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Collapse, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../../../api/client'
@@ -217,6 +217,21 @@ export default function SpecEditorPane({
       setSavingSpec(false)
     }
   }
+
+  // REQ-469/M269：Mod+S 保存 Spec（模块内全局——分区保活的编辑即使切到其他分区也可保存；ref 防闭包过期）
+  const saveSpecRef = useRef(saveSpec)
+  saveSpecRef.current = saveSpec
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        if (!specText || large) return
+        e.preventDefault()
+        saveSpecRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [specText, large])
 
   return (
     <>

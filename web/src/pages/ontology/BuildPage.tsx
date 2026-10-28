@@ -32,6 +32,13 @@ export default function BuildPage() {
     return readBuildPath()
   })
 
+  // REQ-469：跨入口换路径（命令面板/深链）在构建栏内即时生效——沿 RuntimePage engineKey 同步先例
+  useEffect(() => {
+    const sync = () => setBuildPath(readBuildPath())
+    window.addEventListener('onto-sidebar-change', sync)
+    return () => window.removeEventListener('onto-sidebar-change', sync)
+  }, [])
+
   // REQ-470：后退/前进按 hash 恢复路径
   useEffect(() => {
     const onPop = () => {
