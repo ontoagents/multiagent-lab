@@ -174,8 +174,8 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 			chunkIDs = append(chunkIDs, h.ChunkID)
 			scoreByChunk[h.ChunkID] = h.Score
 		}
-		// ② 命中 chunk → 提及实体
-		subjects, err = s.Store.KGSubjectsByChunks(k.ID, chunkIDs)
+		// ② 命中 chunk → 提及实体（KB-16/M286：chunk-entity 倒排路径；claim 反查保留两路对照）
+		subjects, err = s.Store.KGChunkSubjectsByChunks(k.ID, chunkIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -345,8 +345,8 @@ func (s *Service) GraphragQuery(ctx context.Context, k *store.KnowledgeBase, que
 		chunkIDs = append(chunkIDs, h.ChunkID)
 		scoreByChunk[h.ChunkID] = h.Score
 	}
-	// ② 命中 chunk → 提及实体 → 一跳关系扩展
-	subjects, err := s.Store.KGSubjectsByChunks(k.ID, chunkIDs)
+	// ② 命中 chunk → 提及实体 → 一跳关系扩展（KB-16/M286 倒排路径）
+	subjects, err := s.Store.KGChunkSubjectsByChunks(k.ID, chunkIDs)
 	if err != nil {
 		return nil, err
 	}

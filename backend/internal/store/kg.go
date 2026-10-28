@@ -14,6 +14,8 @@ import (
 // 支撑 GraphRAG 一跳扩展拼上下文与 PROV-O 导出（REQ-101 审计学习视图）。
 
 // KGEntity KG 实体（name 库内业务键；同 KB 跨 doc 同名实体视为同一实体，重建按 doc 覆盖）。
+// UID 稳定实体 id（KB-16/M286：= KGEntityUID(kb,name) 确定性派生——重建不再换 id，
+// name 保留为展示名+业务键兼容层；关系/claim 经 source_uid/target_uid/subject_uid 引用）。
 type KGEntity struct {
 	ID          string `json:"id"`
 	KBID        string `json:"kb_id"`
@@ -22,11 +24,14 @@ type KGEntity struct {
 	Type        string `json:"type,omitempty"`
 	Description string `json:"description,omitempty"`
 	// Alias 别名（M36/KB-7②：检索与搜索命中别名；分号分隔多别名；重建同 名 保留）
-	Alias     string `json:"alias,omitempty"`
+	Alias string `json:"alias,omitempty"`
+	// UID 稳定实体 id（KB-16/M286：uid = kb_id::name；upsert 冲突键——重建/重索引不变）
+	UID       string `json:"uid,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // KGRelationship KG 关系（source/target 引用实体 name；type 教学口径用大写短语，如 IS_A/具有/引发）。
+// SourceUID/TargetUID 稳定实体 id 引用（KB-16/M286：写侧随实体 uid 回填，存量迁移归一）。
 type KGRelationship struct {
 	ID     string `json:"id"`
 	KBID   string `json:"kb_id"`
@@ -35,11 +40,14 @@ type KGRelationship struct {
 	Target string `json:"target"`
 	Type   string `json:"type,omitempty"`
 	// Status 审核状态（M16/REQ-129：approved|rejected；rejected 不参与检索）
-	Status    string `json:"status,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
+	Status     string `json:"status,omitempty"`
+	SourceUID  string `json:"source_uid,omitempty"`
+	TargetUID  string `json:"target_uid,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
 }
 
 // KGClaim claim：实体的一条可溯源陈述（原文句），chunk_id 指向出处片段。
+// SubjectUID 稳定实体 id 引用（KB-16/M286：写侧回填，chunk-entity 倒排同源）。
 type KGClaim struct {
 	ID      string `json:"id"`
 	KBID    string `json:"kb_id"`
@@ -48,8 +56,15 @@ type KGClaim struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
 	// Status 审核状态（M16/REQ-129：approved|rejected；rejected 不参与检索）
-	Status    string `json:"status,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
+	Status     string `json:"status,omitempty"`
+	SubjectUID string `json:"subject_uid,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+}
+
+// KGEntityUID 稳定实体 id 派生（KB-16/M286 单源）：kb_id::name——确定性、可读、迁移 SQL
+// 同式（kb_id 为主键生成的字母数字串，'::' 分隔无歧义；name 不再从 uid 反解）。
+func KGEntityUID(kbID, name string) string {
+	return kbID + "::" + name
 }
 
 // OntoDecision 审计决策留痕（derived_from 指向前置决策，构成溯源链）。
@@ -64,14 +79,14 @@ type OntoDecision struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-const kgEntityCols = `id,kb_id,doc_id,name,type,description,alias,created_at`
+const kgEntityCols = `id,kb_id,doc_id,name,type,description,alias,uid,created_at`
 const kgRelCols = `id,kb_id,doc_id,source,target,rel_type,status,created_at`
 const kgClaimCols = `id,kb_id,doc_id,chunk_id,subject,text,status,created_at`
 const decisionCols = `id,subject_kind,subject_id,title,rationale,derived_from,meta_json,created_at`
 
 func scanKGEntity(row interface{ Scan(...any) error }) (*KGEntity, error) {
 	var e KGEntity
-	if err := row.Scan(&e.ID, &e.KBID, &e.DocID, &e.Name, &e.Type, &e.Description, &e.Alias, &e.CreatedAt); err != nil {
+	if err := row.Scan(&e.ID, &e.KBID, &e.DocID, &e.Name, &e.Type, &e.Description, &e.Alias, &e.UID, &e.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &e, nil
@@ -101,17 +116,22 @@ func scanDecision(row interface{ Scan(...any) error }) (*OntoDecision, error) {
 	return &d, nil
 }
 
-// ReplaceKGForDoc 事务替换 KG 抽取结果（重索引/重建幂等）：
-//   - docID 非空：只替换该 doc 的行；同 KB 跨 doc 同名实体先清他 doc 同名再插入（实体归一）；
-//   - docID 为空（KB 级重建）：清空该 KB 全部 KG 行后插入；
-//   - 人工标注的实体别名（M36/KB-7②）随同 名 实体保留（删除前先取别名表）。
+// ReplaceKGForDoc 事务落库 KG 抽取结果（重索引/重建幂等）——KB-16/M286 稳定 id 改造：
+//   - 实体走稳定 uid upsert（KGEntityUID(kb,name) 确定性派生，重建不再换 id；同 KB 跨 doc
+//     同名 = 同 uid 天然归一，原「删他 doc 同名再插本 doc 版本」契约退役；人工别名 upsert 保留）；
+//   - 关系/claim 保持 doc 级替换（doc 事实随重索引重建），写侧回填 source_uid/target_uid/subject_uid
+//     （本批实体 uid 集内直取，批外名字回查实体表，仍缺如实留空——无外键约束现状不变）；
+//   - chunk↔实体倒排（kg_chunk_entity）抽取期落库（claims 的 (chunk_id, subject) 对），
+//     检索期替代「KGSubjectsByChunks claim 反查」唯一路径（两路保留互为对照）；
+//   - docID 非空：清本 doc 关系/claim/倒排 + 陈旧实体（uid 不在本次产出集且归属本 doc）；
+//     docID 为空（KB 级重建）：清全部关系/claim/倒排 + 陈旧实体（uid 不在本次产出集）。
 func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels []*KGRelationship, claims []*KGClaim) error {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	// M36/KB-7②：别名表在删除前读取（重建/重索引后同 名 实体别名不丢）
+	// M36/KB-7②：别名表在写前读取（upsert 新值空则保留旧值，人工标注不因重建丢失）
 	aliasAll := map[string]string{}
 	if arows, err := tx.Query(`SELECT name, alias FROM kg_entity WHERE kb_id = ? AND alias != ''`, kbID); err == nil {
 		for arows.Next() {
@@ -122,14 +142,24 @@ func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels [
 		}
 		arows.Close()
 	}
-	entityWhere, relWhere, claimWhere := `kb_id = ? AND doc_id = ?`, `kb_id = ? AND doc_id = ?`, `kb_id = ? AND doc_id = ?`
-	delArgs := []any{kbID, docID}
-	if docID == "" { // KB 级重建：清空该库全部 KG 行
-		entityWhere, relWhere, claimWhere = `kb_id = ?`, `kb_id = ?`, `kb_id = ?`
-		delArgs = []any{kbID}
+	// 稳定 uid 派生（单源 KGEntityUID）+ 别名回填
+	uidSet := map[string]bool{}
+	uidByName := map[string]string{}
+	for _, e := range entities {
+		e.UID = KGEntityUID(kbID, e.Name)
+		if e.Alias == "" {
+			e.Alias = aliasAll[e.Name]
+		}
+		uidSet[e.UID] = true
+		if _, ok := uidByName[e.Name]; !ok {
+			uidByName[e.Name] = e.UID
+		}
 	}
-	if _, err := tx.Exec(`DELETE FROM kg_entity WHERE `+entityWhere, delArgs...); err != nil {
-		return err
+	relWhere, claimWhere := `kb_id = ? AND doc_id = ?`, `kb_id = ? AND doc_id = ?`
+	delArgs := []any{kbID, docID}
+	if docID == "" { // KB 级重建：清该库全部关系/claim/倒排
+		relWhere, claimWhere = `kb_id = ?`, `kb_id = ?`
+		delArgs = []any{kbID}
 	}
 	if _, err := tx.Exec(`DELETE FROM kg_relationship WHERE `+relWhere, delArgs...); err != nil {
 		return err
@@ -137,55 +167,92 @@ func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels [
 	if _, err := tx.Exec(`DELETE FROM kg_claim WHERE `+claimWhere, delArgs...); err != nil {
 		return err
 	}
-	if docID != "" && len(entities) > 0 { // 同 KB 跨 doc 同名实体归一：先清他 doc 同名，再插本 doc 版本
-		if _, err := tx.Exec(`DELETE FROM kg_entity WHERE kb_id = ? AND doc_id != ? AND name IN (`+
-			strings.TrimRight(strings.Repeat("?,", len(entities)), ",")+`)`,
-			append([]any{kbID, docID}, kgNames(entities)...)...); err != nil {
+	if _, err := tx.Exec(`DELETE FROM kg_chunk_entity WHERE `+claimWhere, delArgs...); err != nil {
+		return err
+	}
+	// 陈旧实体清理（uid 稳定语义下的替换面：本次抽取不再产出的实体）
+	if len(entities) > 0 {
+		ph := strings.TrimRight(strings.Repeat("?,", len(entities)), ",")
+		args := []any{kbID}
+		staleWhere := `kb_id = ? AND uid != '' AND uid NOT IN (` + ph + `)`
+		if docID != "" {
+			staleWhere = `kb_id = ? AND doc_id = ? AND uid != '' AND uid NOT IN (` + ph + `)`
+			args = append(args, docID)
+		}
+		for _, e := range entities {
+			args = append(args, e.UID)
+		}
+		if _, err := tx.Exec(`DELETE FROM kg_entity WHERE `+staleWhere, args...); err != nil {
+			return err
+		}
+	} else { // 空抽取：沿用替换语义清实体（doc 级=本 doc；KB 级=全部）
+		if _, err := tx.Exec(`DELETE FROM kg_entity WHERE `+claimWhere, delArgs...); err != nil {
 			return err
 		}
 	}
-	ie, err := tx.Prepare(`INSERT INTO kg_entity(` + kgEntityCols + `) VALUES (?,?,?,?,?,?,?,?)`)
+	// 实体 upsert（冲突键=uid；row id 与 created_at 保留原值——实体身份跨重建稳定）
+	ie, err := tx.Prepare(`INSERT INTO kg_entity(id,kb_id,doc_id,name,type,description,alias,created_at,uid) VALUES (?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(uid) DO UPDATE SET doc_id=excluded.doc_id, type=excluded.type, description=excluded.description,
+		alias=CASE WHEN excluded.alias != '' THEN excluded.alias ELSE kg_entity.alias END`)
 	if err != nil {
 		return err
 	}
 	defer ie.Close()
 	for _, e := range entities {
-		if e.Alias == "" { // 调用方未带别名时回填持久化别名（人工标注不因重建丢失）
-			e.Alias = aliasAll[e.Name]
-		}
-		if _, err := ie.Exec(e.ID, e.KBID, e.DocID, e.Name, e.Type, e.Description, e.Alias, now()); err != nil {
+		if _, err := ie.Exec(e.ID, e.KBID, e.DocID, e.Name, e.Type, e.Description, e.Alias, now(), e.UID); err != nil {
 			return err
 		}
 	}
-	ir, err := tx.Prepare(`INSERT INTO kg_relationship(` + kgRelCols + `) VALUES (?,?,?,?,?,?,?,?)`)
+	// 批外名字的 uid 回查（关系/claim 引用不限于本批实体的防御性归一）
+	uidFor := func(name string) string {
+		if u, ok := uidByName[name]; ok {
+			return u
+		}
+		var u string
+		_ = tx.QueryRow(`SELECT uid FROM kg_entity WHERE kb_id = ? AND name = ?`, kbID, name).Scan(&u)
+		return u
+	}
+	ir, err := tx.Prepare(`INSERT INTO kg_relationship(id,kb_id,doc_id,source,target,rel_type,status,created_at,source_uid,target_uid) VALUES (?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer ir.Close()
 	for _, r := range rels {
-		if _, err := ir.Exec(r.ID, r.KBID, r.DocID, r.Source, r.Target, r.Type, "approved", now()); err != nil {
+		if r.SourceUID == "" {
+			r.SourceUID = uidFor(r.Source)
+		}
+		if r.TargetUID == "" {
+			r.TargetUID = uidFor(r.Target)
+		}
+		if _, err := ir.Exec(r.ID, r.KBID, r.DocID, r.Source, r.Target, r.Type, "approved", now(), r.SourceUID, r.TargetUID); err != nil {
 			return err
 		}
 	}
-	ic, err := tx.Prepare(`INSERT INTO kg_claim(` + kgClaimCols + `) VALUES (?,?,?,?,?,?,?,?)`)
+	ic, err := tx.Prepare(`INSERT INTO kg_claim(id,kb_id,doc_id,chunk_id,subject,text,status,created_at,subject_uid) VALUES (?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer ic.Close()
+	ice, err := tx.Prepare(`INSERT OR IGNORE INTO kg_chunk_entity(kb_id,doc_id,chunk_id,entity_uid,name,created_at) VALUES (?,?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer ice.Close()
 	for _, c := range claims {
-		if _, err := ic.Exec(c.ID, c.KBID, c.DocID, c.ChunkID, c.Subject, c.Text, "approved", now()); err != nil {
+		if c.SubjectUID == "" {
+			c.SubjectUID = uidFor(c.Subject)
+		}
+		if _, err := ic.Exec(c.ID, c.KBID, c.DocID, c.ChunkID, c.Subject, c.Text, "approved", now(), c.SubjectUID); err != nil {
 			return err
+		}
+		// chunk↔实体倒排（抽取期落库；与 claim 反查两路对照）
+		if c.ChunkID != "" && c.SubjectUID != "" {
+			if _, err := ice.Exec(c.KBID, c.DocID, c.ChunkID, c.SubjectUID, c.Subject, now()); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
-}
-
-func kgNames(entities []*KGEntity) []any {
-	out := make([]any, 0, len(entities))
-	for _, e := range entities {
-		out = append(out, e.Name)
-	}
-	return out
 }
 
 // KGByKB 某 KB 的全量 KG 子图（O13 策略 B/C 数据源 + 消费页图谱展示）。
@@ -885,4 +952,57 @@ func (s *Store) KGMergeSuggestions(kbID string) ([]MergeSuggestion, error) {
 		}
 	}
 	return out, nil
+}
+
+// KGEntitiesByChunks KB-16/M286 倒排路径：命中 chunk → 提及实体（uid+name，kg_chunk_entity 表）。
+// 检索期主路径（替代 claim 反查唯一载体）；KGSubjectsByChunks 保留为两路对照与降级。
+func (s *Store) KGEntitiesByChunks(kbID string, chunkIDs []string) ([]*KGChunkEntityRef, error) {
+	if len(chunkIDs) == 0 {
+		return nil, nil
+	}
+	q := `SELECT entity_uid, name FROM kg_chunk_entity WHERE kb_id = ? AND chunk_id IN (` +
+		strings.TrimRight(strings.Repeat("?,", len(chunkIDs)), ",") + `) ORDER BY entity_uid`
+	args := make([]any, 0, len(chunkIDs)+1)
+	args = append(args, kbID)
+	for _, id := range chunkIDs {
+		args = append(args, id)
+	}
+	rows, err := s.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*KGChunkEntityRef{}
+	for rows.Next() {
+		r := &KGChunkEntityRef{}
+		if err := rows.Scan(&r.UID, &r.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// KGChunkSubjectsByChunks 倒排路径的名称投影（graphrag 一跳扩展 drop-in——与
+// KGSubjectsByChunks claim 反查同名同集，验收「两路结果一致」的检索侧消费形态）。
+func (s *Store) KGChunkSubjectsByChunks(kbID string, chunkIDs []string) ([]string, error) {
+	refs, err := s.KGEntitiesByChunks(kbID, chunkIDs)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, r := range refs {
+		if r.Name != "" && !seen[r.Name] {
+			seen[r.Name] = true
+			out = append(out, r.Name)
+		}
+	}
+	return out, nil
+}
+
+// KGChunkEntityRef 倒排行投影（uid+展示名）。
+type KGChunkEntityRef struct {
+	UID  string `json:"uid"`
+	Name string `json:"name"`
 }
