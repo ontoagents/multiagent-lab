@@ -40,7 +40,7 @@ export default function SessionTestCard({ report }: { report: SessionTestReport 
         size="small"
         rowKey={(r) => r.cq}
         dataSource={report.verdicts}
-        pagination={{ pageSize: 5 }}
+        pagination={{ pageSize: 10, hideOnSinglePage: true }}
         columns={[
           { title: '能力问题', dataIndex: 'cq', ellipsis: true },
           {

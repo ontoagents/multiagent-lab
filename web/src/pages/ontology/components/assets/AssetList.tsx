@@ -1,5 +1,6 @@
-import { Empty, Input, Tag } from 'antd'
+import { Empty, Input, Pagination, Tag } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
+import { useEffect, useState } from 'react'
 import { ontoStatus, stageDoneFlags, type ValidationState } from '../../shared'
 import type { Ontology, RuntimeProfile } from '../../../../api/types'
 import type { QualityReport } from '../../../../api/client'
@@ -55,6 +56,11 @@ export function orderedGroups(
   return [...groups.entries()].sort((a, b) => GROUP_META[a[0]].order - GROUP_META[b[0]].order)
 }
 
+// REQ-468：列表分页口径——flat 序全局分页（组头随页内首次出现渲染），pageSize 20（全站列表长清单口径）
+const PAGE_SIZE = 20
+// REQ-468：S1~S4 语义标签（与 stageDoneFlags 前 4 位对应；标题供 dots 悬停提示）
+const STAGE_LABELS = ['① 来源', '② 编辑', '③ 校验', '④ 可视化']
+
 export default function AssetListPage({
   ontos,
   profiles,
@@ -74,6 +80,12 @@ export default function AssetListPage({
   /** 伴生绑定本体 id（分组判定；AssetsPage 已拉取，透传免重复请求） */
   bound: Set<string>
 }) {
+  const [page, setPage] = useState(1)
+  useEffect(() => {
+    // REQ-468：搜索词/清单变化回第 1 页（防空页滞留）
+    setPage(1)
+  }, [q, ontos.length])
+
   const goBuild = () => {
     localStorage.setItem('eino.onto.sidebar', 'build')
     window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
@@ -92,16 +104,27 @@ export default function AssetListPage({
 
   const ordered = orderedGroups(ontos, bound, q)
   const refCount = (o: Ontology) => profiles.filter((p) => (p.ontology_ids ?? []).includes(o.id)).length
+  // REQ-468：全局分页（pageSize 20）——组结构保留：先按 flat 序切页，再在页内重组分组
+  const flat = ordered.flatMap(([g, items]) => items.map((o) => [g, o] as const))
+  const total = flat.length
+  const pageItems = flat.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const pageGroups: [string, Ontology[]][] = []
+  for (const [g, o] of pageItems) {
+    const last = pageGroups[pageGroups.length - 1]
+    if (last && last[0] === g) last[1].push(o)
+    else pageGroups.push([g, [o]])
+  }
+  const groupTotal = (g: string) => ordered.find(([kg]) => kg === g)?.[1].length ?? 0
 
   return (
     <div className="asset-page-list" data-testid="asset-page-list">
       {ordered.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`无匹配「${q.trim()}」的本体`} style={{ marginTop: 40 }} />
       ) : (
-        ordered.map(([g, items]) => (
+        pageGroups.map(([g, items]) => (
           <div key={g} className="asset-group">
             <div className="asset-group-title">
-              {GROUP_META[g].label} <span className="side-count">{items.length}</span>
+              {GROUP_META[g].label} <span className="side-count">{groupTotal(g)}</span>
             </div>
             <div className="asset-page-rows">
               {items.map((o) => {
@@ -109,6 +132,7 @@ export default function AssetListPage({
                 const st = ontoStatus(o, profiles)
                 const qr = qualityCache[o.id]
                 const val = validations[o.id]
+                const dotsTitle = `构建段完成度 ${f.slice(0, 4).filter(Boolean).length}/4：${STAGE_LABELS.map((s, i) => `${s} ${f[i] ? '✓' : '—'}`).join(' · ')}`
                 return (
                   <button
                     key={o.id}
@@ -137,7 +161,7 @@ export default function AssetListPage({
                       <span className="asset-row-desc">{o.description || '未填写描述'}</span>
                     </span>
                     <span className="asset-row-meta">
-                      <span className="onto-dots" title={`S1~S4 构建段 ${f.slice(0, 4).filter(Boolean).length}/4`}>
+                      <span className="onto-dots" title={dotsTitle}>
                         {f.slice(0, 4).map((done, i) => (
                           <i key={i} className={`onto-dot${done ? ' on' : ''}`} />
                         ))}
@@ -167,6 +191,18 @@ export default function AssetListPage({
             </div>
           </div>
         ))
+      )}
+      {total > PAGE_SIZE && (
+        <Pagination
+          size="small"
+          current={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          showTotal={(n) => `共 ${n} 个本体`}
+          onChange={setPage}
+          style={{ marginTop: 16, justifyContent: 'flex-end' }}
+          data-testid="asset-list-pagination"
+        />
       )}
     </div>
   )

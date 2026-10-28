@@ -404,7 +404,7 @@ export default function OntoExtendFlow() {
           </Space.Compact>
           {lovErr && <LoadErrorAlert title="LOV 检索失败" message={lovErr} onRetry={searchLov} style={{ marginBottom: 6 }} />}
           {lovHits.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, maxHeight: 180, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, maxHeight: '30vh', overflowY: 'auto' }}>
               {lovHits.map((h) => (
                 <Checkbox
                   key={h.uri}
@@ -528,7 +528,7 @@ export default function OntoExtendFlow() {
                 size="small"
                 rowKey={(r) => r.cq}
                 dataSource={ragData.fragments}
-                pagination={{ pageSize: 5 }}
+                pagination={{ pageSize: 10, hideOnSinglePage: true }}
                 data-testid="cqrag-fragments-table"
                 columns={[
                   { title: '能力问题', dataIndex: 'cq', ellipsis: true },

@@ -646,7 +646,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
               />
               <div
                 className="onto-chat-msgs"
-                style={{ maxHeight: 380, overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
+                style={{ maxHeight: '46vh', overflowY: 'auto', padding: '4px 2px', display: 'flex', flexDirection: 'column', gap: 8 }}
               >
                 {(active.messages ?? []).map((m, i) => {
                   const isErr = m.role === 'assistant' && (m.content.startsWith('生成失败：') || m.content.startsWith('本轮处理失败：') || m.content.startsWith('CQ 抽取失败：'))
@@ -878,7 +878,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                 fontSize: 12,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
-                maxHeight: 360,
+                maxHeight: '50vh',
                 overflowY: 'auto',
               }}
             >

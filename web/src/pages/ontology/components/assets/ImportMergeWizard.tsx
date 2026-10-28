@@ -219,7 +219,7 @@ export default function ImportMergeWizard({
             columns={conflictColumns}
             dataSource={preview.conflicts}
             size="small"
-            pagination={preview.conflicts.length > 8 ? { pageSize: 8 } : false}
+            pagination={preview.conflicts.length > 8 ? { pageSize: 10, hideOnSinglePage: true } : false}
             locale={{ emptyText: '无冲突——全部为新增实体' }}
             style={{ marginBottom: 12 }}
           />
@@ -290,7 +290,7 @@ export default function ImportMergeWizard({
           <Typography.Paragraph strong style={{ fontSize: 12, marginBottom: 4 }}>
             现行 vs 合并结果（全文对照）
           </Typography.Paragraph>
-          <div style={{ border: '1px solid var(--c-line, #e3e6f0)', borderRadius: 8, overflow: 'hidden', maxHeight: 360 }}>
+          <div style={{ border: '1px solid var(--c-line, #e3e6f0)', borderRadius: 8, overflow: 'hidden', maxHeight: '50vh' }}>
             <ReactDiffViewer
               oldValue={targetSpecText}
               newValue={JSON.stringify(preview.merged_spec, null, 2)}

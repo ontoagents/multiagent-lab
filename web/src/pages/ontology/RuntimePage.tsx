@@ -376,8 +376,24 @@ function EngineProfilesPage({
         <Alert
           type="warning"
           showIcon
-          title="运行平面暂不可达"
-          description="RUNTIME_MGR_URL（:8090）未就绪，无法读取 / 管理运行方案。"
+          data-testid="runtime-plane-unreachable"
+          title="运行平面暂不可达，无法读取运行方案"
+          description={
+            // REQ-468：错误文案三要素（发生了什么/可能原因/下一步，17 号 §9 口径）——
+            // 技术变量名撤出主文案，收进「运维排查」悬停
+            <div style={{ fontSize: 12 }}>
+              <div>发生了什么：运行平面服务未响应，方案列表与状态读取失败（下方「暂无方案」类提示在此状态下不可信）。</div>
+              <div>可能原因：runtime-manager 未启动、正在启动中，或网络/端口未就绪。</div>
+              <div>
+                下一步：确认运行平面已启动后点击「重试」；恢复前请勿依据空列表做删除类操作。
+                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                  <Tooltip title="RUNTIME_MGR_URL（默认 :8090，runtime-manager 服务地址）——本机开发栈随 run-dev.sh 启动">
+                    运维排查 ⓘ
+                  </Tooltip>
+                </Typography.Text>
+              </div>
+            </div>
+          }
           action={
             <Button size="small" icon={<ReloadOutlined />} onClick={reload} aria-label="重试加载方案">
               重试
@@ -491,7 +507,12 @@ function EngineProfilesPage({
       </div>
 
       {mine.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该引擎暂无运行方案；点击「新建方案」创建（勾选本体集合 → 配置细节 → 启动）" />
+        // REQ-468：错误×空态互斥——平面不可达时不再呈现「暂无运行方案」（分不清真无/加载失败）
+        profilesErr ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="运行方案列表暂不可用（见上方告警）——恢复后点击「重试」读取" data-testid="runtime-empty-unreachable" />
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该引擎暂无运行方案；点击「新建方案」创建（勾选本体集合 → 配置细节 → 启动）" />
+        )
       ) : (
         <div className="onto-profile-grid">
           {mine.map((p) => (

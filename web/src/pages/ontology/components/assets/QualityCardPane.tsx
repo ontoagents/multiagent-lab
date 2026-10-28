@@ -746,7 +746,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                   size="small"
                   rowKey={(r) => r.cq}
                   dataSource={covResult.verdicts}
-                  pagination={{ pageSize: 6 }}
+                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
                   columns={[
                     { title: '能力问题', dataIndex: 'cq', ellipsis: true },
                     {
@@ -813,7 +813,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                   size="small"
                   rowKey={(r) => `${r.dataset}-${r.ts}`}
                   dataSource={[...benchRuns].reverse()}
-                  pagination={{ pageSize: 3 }}
+                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
                   data-testid="cq-bench-report"
                   columns={[
                     { title: '时间', dataIndex: 'ts', width: 150, render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v.slice(0, 19).replace('T', ' ')}</Typography.Text> },
@@ -920,7 +920,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                       size="small"
                       rowKey={(r) => r.id}
                       dataSource={[...history].reverse()}
-                      pagination={{ pageSize: 5 }}
+                      pagination={{ pageSize: 10, hideOnSinglePage: true }}
                       data-testid="quality-history-table"
                       columns={[
                         { title: '时间', dataIndex: 'created_at', width: 150, render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v.slice(0, 19).replace('T', ' ')}</Typography.Text> },
