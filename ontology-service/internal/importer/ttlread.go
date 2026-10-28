@@ -1010,8 +1010,8 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		}
 	}
 	res.Recon = Reconciliation{TriplesIn: len(triples), Vocabulary: vocabCount, Projected: projCount, Remainder: len(triples) - vocabCount - projCount}
-	res.Spec.Name = res.Spec.Name
-	if len(concepts) > 0 && res.Spec.Name == "" {
+	// 概念锚名兜底（spec.Name 空时取首概念——REQ-262 交付轮 vet 顺修：原 self-assignment 无操作删除）
+	if res.Spec.Name == "" && len(concepts) > 0 {
 		res.Spec.Name = concepts[0].Name
 	}
 	return res, nil

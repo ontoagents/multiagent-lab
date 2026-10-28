@@ -5,6 +5,7 @@ package rest
 import (
 	"context"
 	"encoding/csv"
+	"log"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,6 +221,18 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	v, _ := s.Store.BumpVersion(id)
 	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
 	s.recordIngestScore(id, v, pv.MergedSpec) // REQ-331/M131：入库评分随版本追加（失败不阻断）
+	// REQ-262/M256 D-O27：owl:imports 装载侧解析登记——探到的外部 IRI 落 external_refs
+	//（ref_kind=import，to_onto_id 空=外部 IRI 登记态；重复 IRI 不重复登记；失败不阻断合并）
+	for _, iri := range importsOf(imp) {
+		_, er := s.Store.CreateExternalRef(&repo.ExternalRef{
+			FromOntoID: id, FromConcept: "(ontology)", ToConcept: iri,
+			RefKind: "import", Justification: "import_statement",
+			Note: "导入内容 owl:imports 装载侧自动登记（D-O27；闭包不做）",
+		})
+		if er != nil {
+			log.Printf("[external-refs] imports 自动登记跳过 %s: %v", iri, er)
+		}
+	}
 	pv.ImportReport = imp                     // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv,
 		"overlays_applied": applied, "overlays_skipped": skipped, "notes": notes})
@@ -1183,4 +1196,13 @@ func (s *Server) buildflowTraces(w http.ResponseWriter, r *http.Request) {
 		buildflow.EmitAt(t)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+
+// importsOf 导入报告的外引 imports 清单（nil 安全——spec 直传形态无导入报告）。
+func importsOf(imp *importer.Report) []string {
+	if imp == nil {
+		return nil
+	}
+	return imp.ExternalImports
 }

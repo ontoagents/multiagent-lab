@@ -556,6 +556,23 @@ export interface ToolInfo {
 // ---- M8 本体对接（构建平面 :8091 / 运行平面 :8090，同源反代；契约以本体平面源码为准） ----
 
 /** 本体元数据（GET /api/ontologies 为裸数组；无 status/progress，前端按阶段派生） */
+/** REQ-262/M256：跨本体引用登记一条（external_refs 单源；to_onto_id 空=外部词表/IRI 登记态）。 */
+export interface ExternalRef {
+  ref_id: string
+  from_onto_id: string
+  from_concept: string
+  to_onto_id: string
+  to_concept: string
+  ref_kind: 'import' | 'alignment' | 'reuse'
+  predicate?: string
+  confidence?: number
+  justification?: string
+  created_by?: string
+  created_at?: string
+  note?: string
+  dangling?: string
+}
+
 export interface Ontology {
   id: string
   name: string

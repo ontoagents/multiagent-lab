@@ -10,6 +10,7 @@ import type {
   AiDraftResult,
   BuildQualitySummary,
   QualityScoreRow,
+  ExternalRef,
   CqBenchmarkRun,
   McpServeInfo,
   ArtifactMeta,
@@ -530,6 +531,13 @@ export const api = {
     req<{ ontology_id: string; history: QualityScoreRow[]; count: number }>(`/api/ontologies/${id}/quality-history`),
   /** REQ-331②：检查项修复指引全量（check_id→「怎么改」人话指引；只读静态可缓存） */
   getQualityRemediations: () => req<Record<string, string>>('/api/ontology/quality/remediations'),
+  /** REQ-262/M256：跨本体引用登记（external_refs 单源，D-O27 三形态收敛） */
+  listExternalRefs: (id: string) =>
+    req<{ refs: ExternalRef[]; dangling: string[] }>(`/api/ontologies/${id}/external-refs`),
+  createExternalRef: (id: string, body: { from_concept: string; to_onto_id?: string; to_concept: string; ref_kind: string; predicate?: string; note?: string }) =>
+    req<ExternalRef>(`/api/ontologies/${id}/external-refs`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteExternalRef: (id: string, refId: string) =>
+    req<{ deleted: string }>(`/api/ontologies/${id}/external-refs/${refId}`, { method: 'DELETE' }),
   /** CQ→SPARQL 翻译（REQ-255）；cqs 可选（REQ-342/OC-2 双轨并轨：只翻译存疑项，缺省=全量 spec.CQ） */
   cqSparql: (id: string, cqs?: string[]) =>
     req<{ ontology_id: string; items: { cq: string; sparql: string }[]; count: number }>(`/api/ontologies/${id}/cq-sparql`, {

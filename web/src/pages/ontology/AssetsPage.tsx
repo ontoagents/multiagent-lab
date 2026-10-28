@@ -44,6 +44,7 @@ import AssetListPage, { AssetSearchBox, orderedGroups } from './components/asset
 import QualityCardPane from './components/assets/QualityCardPane'
 import ImportMergeWizard from './components/assets/ImportMergeWizard'
 import ReferencesPane from './components/assets/ReferencesPane'
+import ExternalRefsPane from './components/assets/ExternalRefsPane'
 import HierarchyPane, { type OntoSelection } from './components/assets/HierarchyPane'
 
 // ---------------------------------------------------------------------------
@@ -867,6 +868,14 @@ export default function AssetsPage() {
                       <span className="onto-sec-title">被引用（运行方案 / KB 词表 / 伴生绑定）</span>
                     </div>
                     <ReferencesPane key={active.id} ontologyId={active.id} />
+                    {/* REQ-262/M256：关联本体（跨本体引用登记，external_refs 单源）——被引用之后纵向并置 */}
+                    <div style={{ marginTop: 18 }}>
+                      <ExternalRefsPane
+                        ontologyId={active.id}
+                        concepts={(spec?.concepts ?? []).map((c: any) => c.name)}
+                        ontos={ontos.map((o) => ({ id: o.id, name: o.name }))}
+                      />
+                    </div>
                     <div style={{ marginTop: 18 }}>
                       <ArtifactsPane ontologyId={active.id} />
                     </div>

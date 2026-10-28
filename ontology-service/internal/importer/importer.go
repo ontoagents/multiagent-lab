@@ -3,12 +3,12 @@
 package importer
 
 import (
+	"regexp"
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os/exec"
-	"regexp"
 
 	"strings"
 
@@ -36,6 +36,9 @@ type Report struct {
 	Lossy     bool     `json:"lossy"`
 	Warnings  []string `json:"warnings"`
 	LossyNote string   `json:"lossy_note,omitempty"`
+	// ExternalImports 导入内容中探测到的 owl:imports 目标 IRI（REQ-262/M256 D-O27 装载侧
+	// 解析登记源——文本级提取零 sidecar 改动；mergeApply 时自动登记 external_refs kind=import）。
+	ExternalImports []string `json:"external_imports,omitempty"`
 	// Unprojected 未投影内容全量余量账本（REQ-328/B，原 REQ-318 未投影公理透传升级）：
 	// 凡未投影且非纯系统词汇三元组全部 N-Triples 入账（无上限），导入侧存 artifact axioms-raw、
 	// 导出拼接还原（77 号 §6 设计；确定性规则零 LLM）。
@@ -135,7 +138,7 @@ func Import(sidecar *Sidecar, filename, content string) (*pkgspec.Spec, *Report,
 		if err := json.Unmarshal([]byte(content), &sp); err != nil {
 			return nil, nil, fmt.Errorf("spec_json 解析失败: %w", err)
 		}
-		rep := &Report{Format: format}
+		rep := &Report{Format: format, ExternalImports: detectExternalImports(content)} // REQ-262/M256 装载侧解析登记源
 		if errs := sp.Validate(); len(errs) > 0 {
 			for _, e := range errs {
 				rep.Warnings = append(rep.Warnings, "校验问题: "+e.Error())
@@ -152,7 +155,7 @@ func Import(sidecar *Sidecar, filename, content string) (*pkgspec.Spec, *Report,
 		// REQ-378①/M174：Turtle 先走 Go 读入端（零 Python，round-trip+教学主路径）；
 		// 解析失败回落 sidecar（可选组件——复杂形态承载），双路错误如实透出
 		if res, gerr := ReadTurtleSpec(content); gerr == nil {
-			rep := &Report{Format: format, Reconciliation: &res.Recon}
+			rep := &Report{Format: format, Reconciliation: &res.Recon, ExternalImports: detectExternalImports(content)}
 			rep.Warnings = append(rep.Warnings, res.Warning...)
 			rep.Warnings = append(rep.Warnings, "TTL 读入端=Go 原生（REQ-378，零 Python；余量为未投影计数非精确 N-Triples 账本）")
 			return &res.Spec, rep, nil
@@ -446,7 +449,7 @@ func parseViaSidecar(sc *Sidecar, format, content string) (*pkgspec.Spec, *Repor
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		return nil, nil, fmt.Errorf("sidecar 输出解析失败: %w; stdout: %.200s", err, out.String())
 	}
-	rep := &Report{Format: format, Lossy: res.Lossy, Warnings: res.Warnings, LossyNote: res.Note}
+	rep := &Report{Format: format, Lossy: res.Lossy, Warnings: res.Warnings, LossyNote: res.Note, ExternalImports: detectExternalImports(content)}
 	rep.Unprojected = res.Unprojected
 	rep.Reconciliation = res.Recon
 	return &res.Spec, rep, nil
@@ -489,3 +492,37 @@ func ExportTTLCount(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 }
 
 func (r *Report) warn(s string) { r.Warnings = append(r.Warnings, s) }
+
+
+// detectExternalImports 文本级提取 owl:imports 目标（REQ-262/M256 装载侧解析登记源）：
+// Turtle 形态 `owl:imports <IRI>`（含 `a owl:Ontology` 头部声明）与 RDF/XML 形态
+// `owl:imports` 元素 rdf:resource 属性；纯文本正则零 sidecar 改动（误报面=注释行，可接受——
+// 登记态可手动摘除）。去重保序。
+func detectExternalImports(content string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(iri string) {
+		iri = strings.TrimSpace(iri)
+		if iri == "" || seen[iri] {
+			return
+		}
+		seen[iri] = true
+		out = append(out, iri)
+	}
+	for _, m := range reTTLImports.FindAllStringSubmatch(content, -1) {
+		// Turtle 谓词宾语列表形态（`owl:imports <a>, <b>`）——整段捕获再逐 IRI 拆分
+		for _, iri := range reIRIToken.FindAllStringSubmatch(m[1], -1) {
+			add(iri[1])
+		}
+	}
+	for _, m := range reXMLImports.FindAllStringSubmatch(content, -1) {
+		add(m[1])
+	}
+	return out
+}
+
+var (
+	reTTLImports = regexp.MustCompile(`owl\s*:\s*imports\s*((?:<\s*[^>\s]+\s*>\s*,?\s*)+)`)
+	reIRIToken   = regexp.MustCompile(`<\s*([^>\s]+)\s*>`)
+	reXMLImports = regexp.MustCompile(`<owl:\s*imports[^>]*rdf:\s*resource\s*=\s*"([^"]+)"`)
+)
