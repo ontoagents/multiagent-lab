@@ -187,6 +187,35 @@ func (s *Server) reasonCheckEndpoint(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// materializeEndpoint POST /api/ontologies/materialize（REQ-481/M281）：运行平面组装载前
+// 并置物化的承载端——闭包全集 TTL 合并经 sidecar materialize（owlrl OWL 2 RL 数据级闭包），
+// 推断三元组 Turtle 直出正文 + X-Onto-Inferred-Triples 精确计数头（物化增量留痕）。
+func (s *Server) materializeEndpoint(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Content string `json:"content"`
+		Format  string `json:"format"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if strings.TrimSpace(in.Content) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content 必填（并置 TTL 全文）"})
+		return
+	}
+	if in.Format == "" {
+		in.Format = "turtle"
+	}
+	ttl, n, err := importer.Materialize(s.Sidecar, in.Format, in.Content)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+	w.Header().Set("X-Onto-Inferred-Triples", strconv.Itoa(n))
+	_, _ = w.Write([]byte(ttl))
+}
+
 func (s *Server) reasonCheck(content, format string) (*sidecarReasonOut, error) {
 	if s.Sidecar == nil || s.Sidecar.Python == "" || s.Sidecar.Script == "" {
 		return nil, fmt.Errorf("sidecar 未配置（SIDECAR_SCRIPT）")

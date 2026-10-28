@@ -53,6 +53,10 @@ type GraphIsolationOpts struct {
 	// Reasoning 推理开关（fuseki O6；GraphIsolation 路由时自 profile config 透传，
 	// 防止 per-graph 化丢失推理装配）。
 	Reasoning bool
+	// ExtraGraphs 附加命名图（REQ-481/M281：graphIRI→TTL——装载期并置物化的推断三元组
+	// 装独立 inferred 图，raw/inferred 双图隔离 provenance 可分）。oxigraph per-graph 路径
+	// 装载；fuseki 忽略（InfModel 查询期推理形态维持不动）；伴生模式忽略。
+	ExtraGraphs map[string]string
 }
 
 // GraphIsolationRuntime 支持 per-graph 装载与 union 默认图开关的引擎（REQ-320；可选实现）。

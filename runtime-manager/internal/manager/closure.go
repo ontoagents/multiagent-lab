@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -292,4 +293,55 @@ func (m *Manager) preloadReasonCheck(ttls map[string]string) string {
 		v = v[:3]
 	}
 	return fmt.Sprintf("[REQ-480③ 装载前一致性检查] 不一致（强告警不阻断）：%d 违例 %v——建议质量卡复核", len(res.Violations), v)
+}
+
+// materializeInferred REQ-481/M281：组装载全集 TTL 并置 → 构建平面 /materialize 端点
+// （owlrl OWL 2 RL 数据级闭包，axiomatic 词汇不入输出）。返回（推断图 IRI, 推断 TTL, 计数, 日志行）；
+// 任何失败降级为日志注记（不阻断装载）。图命名：单本体 urn:inferred:{oid}；多本体
+// urn:inferred:assembly——跨本体推断不可归因单本体，合并图=诚实粒度（§2.67「如
+// urn:inferred:{oid}」示例性命名落此变体）；raw 图引擎侧恒 urn:onto:{oid} 双图隔离成立。
+func (m *Manager) materializeInferred(ttls map[string]string) (string, string, int, string) {
+	if len(ttls) == 0 {
+		return "", "", 0, ""
+	}
+	keys := make([]string, 0, len(ttls))
+	for k := range ttls {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(ttls[k])
+		b.WriteString("\n\n")
+	}
+	payload, _ := json.Marshal(map[string]string{"content": b.String(), "format": "turtle"})
+	resp, err := m.HTTP.Post(m.BuildURL+"/api/ontologies/materialize", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return "", "", 0, fmt.Sprintf("[REQ-481 装载期物化] 跳过（构建平面不可达: %v）", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return "", "", 0, fmt.Sprintf("[REQ-481 装载期物化] 跳过（HTTP %d: %.160s）", resp.StatusCode, string(body))
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	cnt := -1
+	if h := resp.Header.Get("X-Onto-Inferred-Triples"); h != "" {
+		if n, perr := strconv.Atoi(h); perr == nil {
+			cnt = n
+		}
+	}
+	gr := "urn:inferred:assembly"
+	if len(keys) == 1 {
+		gr = "urn:inferred:" + keys[0]
+	}
+	return gr, string(body), cnt, fmt.Sprintf("[REQ-481 装载期物化] owlrl OWL 2 RL 并置 %d 本体 → 推断 %s 三元组 → %s（raw/inferred 双图隔离，N²~N³ 膨胀风险在案观察）",
+		len(keys), triplesText(cnt), gr)
+}
+
+func triplesText(n int) string {
+	if n < 0 {
+		return "未知计数"
+	}
+	return strconv.Itoa(n)
 }

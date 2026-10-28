@@ -160,6 +160,13 @@ func (r *Runtime) StartWithGraphIsolation(ctx context.Context, profileID string,
 				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", oid, perr)
 			}
 		}
+		// REQ-481/M281：附加图装载（inferred 推断图——raw/inferred 双图隔离）
+		for grIRI, ttl := range opts.ExtraGraphs {
+			if perr := putGraphRetry(ctx, port, grIRI, ttl); perr != nil {
+				_ = p.Stop()
+				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", grIRI, perr)
+			}
+		}
 		return p, nil
 	}
 	// 伴生模式：bulk load 各本体（与 REQ-309 前行为逐字节一致）

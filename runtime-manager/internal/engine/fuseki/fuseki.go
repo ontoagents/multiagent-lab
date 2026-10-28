@@ -358,6 +358,9 @@ func (r *Runtime) StartWithReasoning(ctx context.Context, profileID string, port
 // --graph=urn:onto:{oid} 落独立命名图 + tdb2:unionDefaultGraph（消费面无 GRAPH 子句查询可见
 // 全数据集）；CompanionMode=legacy 路径原样（伴生池/宿主边界不动）。
 func (r *Runtime) StartWithGraphIsolation(ctx context.Context, profileID string, port int, ttls map[string]string, opts engine.GraphIsolationOpts) (*engine.Process, error) {
+	// REQ-481/M281 口径注：fuseki 忽略 opts.ExtraGraphs（推断物化不装载）——推理走查询期
+	// InfModel 形态维持不动（§2.67 批③拍板「两引擎推理口径自此合流」=oxigraph 预计算 +
+	// fuseki 查询期，两侧各自完整覆盖 OWL 2 RL 数据推断）。
 	return r.startFuseki(ctx, profileID, port, ttls, opts.Reasoning, opts.CompanionMode)
 }
 

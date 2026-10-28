@@ -478,6 +478,33 @@ func CanonicalTTL(sc *Sidecar, format, content string) (string, int, error) {
 	return out.String(), n, nil
 }
 
+// Materialize REQ-481/M281 装载期跨本体推理物化：stdin TTL 全集并置 → sidecar materialize
+//（owlrl OWL 2 RL 数据级闭包，axiomatic 词汇不入输出）→ 仅推断三元组 Turtle + TRIPLES 精确计数
+//（owlrl 未安装 exit 3 → 显式错误，运行平面降级跳过不阻断装载）。
+func Materialize(sc *Sidecar, format, content string) (string, int, error) {
+	if sc == nil || sc.Python == "" || sc.Script == "" {
+		return "", -1, fmt.Errorf("sidecar 未配置（SIDECAR_PYTHON / SIDECAR_SCRIPT）")
+	}
+	cmd := exec.Command(sc.Python, sc.Script, "materialize", "--format", format)
+	cmd.Stdin = strings.NewReader(content)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		if strings.Contains(errb.String(), "owlrl 未安装") {
+			return "", -1, fmt.Errorf("owlrl 未安装（pip install owlrl）——物化档依赖缺失")
+		}
+		return "", -1, fmt.Errorf("sidecar materialize: %w; stderr: %s", err, strings.TrimSpace(errb.String()))
+	}
+	m := triplesRe.FindStringSubmatch(errb.String())
+	if m == nil {
+		return "", -1, fmt.Errorf("sidecar materialize 计数标记缺失")
+	}
+	n := 0
+	_, _ = fmt.Sscanf(m[1], "%d", &n)
+	return out.String(), n, nil
+}
+
 // ExportTTL spec_json → Turtle（Go 原生直出，REQ-321 迭代：导出链路脱离 python）。
 // REQ-479/M279：refs 为 external_refs 导出桥投影（variadic 可选——不传即存量无桥形态）。
 func ExportTTL(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (string, error) {

@@ -111,6 +111,13 @@ func (r *Runtime) DockerStartOpts(ctx context.Context, profileID string, port in
 				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", oid, perr)
 			}
 		}
+		// REQ-481/M281：附加图装载（inferred 推断图——raw/inferred 双图隔离）
+		for grIRI, ttl := range opts.ExtraGraphs {
+			if perr := putGraphRetry(ctx, port, grIRI, ttl); perr != nil {
+				_, _ = run("rm", "-f", containerName(profileID))
+				return nil, fmt.Errorf("GSP 落图 %s 失败: %w", grIRI, perr)
+			}
+		}
 		endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
 		return engine.NewProcess(endpoint, 0, func() error {
 			c := exec.Command(bin, "rm", "-f", containerName(profileID))

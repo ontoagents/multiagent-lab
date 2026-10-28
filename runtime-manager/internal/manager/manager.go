@@ -33,8 +33,8 @@ type Manager struct {
 	// SnapshotDir REQ-377/M173：伴生子图快照目录（默认 data/companion-graph-snapshots；
 	// Stop/Reload 前快照、Start 后回放——伴生数据与引擎数据目录解耦存活）
 	SnapshotDir string
-	HTTP          *http.Client
-	HealthTries   int // 启动健康检查重试次数
+	HTTP        *http.Client
+	HealthTries int // 启动健康检查重试次数
 
 	mu    sync.Mutex
 	procs map[string]*engine.Process // profileID → 运行句柄（进程内态，重启 Manager 后按 stopped 处理）
@@ -584,7 +584,20 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	companionMode := companionProfileName(p.Name)
 	reasoningGate := p.Engine == "fuseki" && profileReasoning(p.Config) // REQ-329：推理形态等值闸改下限闸（见 gate 处注释）
 	perGraphGate := !companionMode && !reasoningGate
-	proc, err := m.startEngine(ctx, eng, p, port, ttls)
+	// REQ-481/M281：装载期跨本体推理物化——oxigraph regular 方案对组装载全集并置物化
+	//（owlrl OWL 2 RL 数据级闭包），推断三元组装独立 inferred 图（raw/inferred 双图隔离
+	// provenance 可分；per-graph 计数硬闸只对 raw 图，等值口径不受影响）；fuseki InfModel
+	// 查询期形态维持；物化失败/依赖缺失降级跳过（留装载日志，不阻断）。
+	var extraGraphs map[string]string
+	var matLines []string
+	if !companionMode && p.Engine == "oxigraph" {
+		gr, inferredTTL, _, line := m.materializeInferred(ttls)
+		matLines = append(matLines, line)
+		if gr != "" {
+			extraGraphs = map[string]string{gr: inferredTTL}
+		}
+	}
+	proc, err := m.startEngine(ctx, eng, p, port, ttls, extraGraphs)
 	if err != nil {
 		_ = m.Store.SetStatus(id, "error", err.Error(), "")
 		return err
@@ -596,6 +609,9 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	// REQ-480：装载报告呈现——闭包补全/互引环/远端跳过 + 装载前并置一致性检查（强告警不阻断）；
 	// 引擎日志同文件追加（startEngine 成功后写入，防引擎截断）。
 	m.appendProcLog(id, cloRep.logLines())
+	if len(matLines) > 0 {
+		m.appendProcLog(id, matLines)
+	}
 	if line := m.preloadReasonCheck(ttls); line != "" {
 		m.appendProcLog(id, []string{line})
 	}
@@ -768,7 +784,7 @@ func (m *Manager) ProcEndpoint(id string) (string, error) {
 }
 
 // startEngine 按引擎能力分发启动（实现 ReasoningRuntime 的引擎透传推理开关，O6）。
-func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.Profile, port int, ttls map[string]string) (*engine.Process, error) {
+func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.Profile, port int, ttls map[string]string, extraGraphs map[string]string) (*engine.Process, error) {
 	// REQ-179/M-O16：执行方式为系统级全局配置——docker=容器执行（oxigraph 官方镜像）；
 	// native=内置二进制子进程；k8s=接口预留。
 	// REQ-236④/M63（D-O20 v0.73 变更，2026-10-01 开发者拍板）：默认执行方式改 docker，
@@ -778,6 +794,7 @@ func (m *Manager) startEngine(ctx context.Context, eng engine.Runtime, p *store.
 	opts := engine.GraphIsolationOpts{
 		CompanionMode: companionProfileName(p.Name),
 		Reasoning:     profileReasoning(p.Config),
+		ExtraGraphs:   extraGraphs, // REQ-481/M281：inferred 推断图（oxigraph per-graph 装载；fuseki 忽略）
 	}
 	switch m.Store.GetConfig().ExecutionMethod {
 	case "docker":

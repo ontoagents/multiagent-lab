@@ -816,6 +816,12 @@ def main() -> int:
         if "--format" in sys.argv:
             fmt = sys.argv[sys.argv.index("--format") + 1]
         return canon(fmt)
+    if cmd == "materialize":
+        # REQ-481/M281：装载期 OWL 2 RL 物化（推断三元组导出——运行平面 raw/inferred 双图隔离）
+        fmt = "turtle"
+        if "--format" in sys.argv:
+            fmt = sys.argv[sys.argv.index("--format") + 1]
+        return materialize(fmt)
     if cmd == "reason":
         # REQ-255②/M62 批次（60 号 H3）：推理级一致性检查档（owlrl OWL 2 RL 闭包；
         # 完整 DL 推理 HermiT 不引入——学习定位内 owlrl 够用）。输入 TTL，输出 JSON。
@@ -884,6 +890,50 @@ def reason(format: str) -> int:
         return 0
     json.dump({"consistent": consistent, "violations": violations[:50],
                "note": "OWL 2 RL 闭包一致性检查（owlrl；HermiT 完整 DL 推理不引入，60 号 H3 口径）"}, sys.stdout, ensure_ascii=False)
+    return 0
+
+
+def materialize(format: str) -> int:
+    """REQ-481/M281：OWL 2 RL 物化——stdin TTL 全集并置，输出**仅推断三元组**的 Turtle。
+
+    语义：owlrl OWLRL_Extension 闭包（与 reason 同一推理器）在原图上 expand，差集=
+    推断三元组（含 axiomatic 补全）。跨本体公理的推断不可归因单本体——运行平面将
+    输出装载为合并 inferred 图（raw 图 urn:onto:{oid} 之外独立，provenance 可分）。
+    stderr TRIPLES 计数与 export/canon 同口径（计数留痕）。owlrl 未安装 exit 3。
+    """
+    content, dec_warnings, _ = stdin_text()
+    for w in dec_warnings:
+        sys.stderr.write(f"note: {w}\n")
+    g = Graph()
+    fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
+    if fmt is None:
+        sys.stderr.write(f"未知物化格式 {format}\n")
+        return 2
+    try:
+        g.parse(data=content, format=fmt)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"RDF 解析失败: {e}\n")
+        return 1
+    original = set(g)
+    try:
+        import owlrl  # 推理物化档依赖（REQ-481；pip install owlrl——与 reason 同源）
+        # 空公理种子：只取数据级推断（subClassOf 链/传递/实例分类……）——axiomatic 词汇闭包
+        #（rdf:Alt a rdfs:Class 等 ~1700 条）不入物化输出（与 reason 的全集口径差异，物化只装数据推断）
+        sem = owlrl.OWLRL_Extension(g, [], [], rdfs=True)
+        sem.closure()
+    except ImportError:
+        sys.stderr.write("owlrl 未安装：pip install owlrl（物化档依赖）\n")
+        return 3
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"owlrl 物化失败: {e}\n")
+        return 1
+    inferred = Graph()
+    for t in g:
+        if t not in original:
+            inferred.add(t)
+    out = inferred.serialize(format="turtle")
+    sys.stderr.write(f"TRIPLES {len(inferred)}\n")
+    sys.stdout.write(out)
     return 0
 
 

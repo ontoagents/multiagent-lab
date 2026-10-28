@@ -108,6 +108,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
 	// REQ-262/M256：跨本体引用登记（external_refs 单源，D-O27 三形态收敛；导入侧自动登记在 importer 链）
 	m.HandleFunc("POST /api/ontologies/reason-check", s.reasonCheckEndpoint) // REQ-480/M280：组装载前并置一致性检查
+	m.HandleFunc("POST /api/ontologies/materialize", s.materializeEndpoint) // REQ-481/M281：组装载前并置物化
 	m.HandleFunc("GET /api/ontologies/{id}/external-refs", s.listExternalRefs)
 	m.HandleFunc("POST /api/ontologies/{id}/external-refs", s.registerExternalRef)
 	m.HandleFunc("DELETE /api/ontologies/{id}/external-refs/{refId}", s.deleteExternalRef)

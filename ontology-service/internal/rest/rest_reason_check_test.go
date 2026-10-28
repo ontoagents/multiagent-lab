@@ -35,7 +35,10 @@ func reasonCheckStubServer(t *testing.T) *Server {
 	script := "# fake sidecar stub（测试基建）\n" +
 		"import sys\n" +
 		"if sys.argv[1] == \"reason\":\n" +
-		"    sys.stdout.write('{\"consistent\":true,\"violations\":[],\"note\":\"stub\"}')\n"
+		"    sys.stdout.write('{\"consistent\":true,\"violations\":[],\"note\":\"stub\"}')\n" +
+		"elif sys.argv[1] == \"materialize\":\n" +
+		"    sys.stderr.write('TRIPLES 3\\n')\n" +
+		"    sys.stdout.write('<urn:i> <urn:t> <urn:c> .')\n"
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -74,5 +77,28 @@ func TestReasonCheckEndpoint_Req480(t *testing.T) {
 		strings.NewReader(`{"content":"x"}`)))
 	if w3.Code == http.StatusOK {
 		t.Fatalf("sidecar 未配置期望错误，实际 200")
+	}
+}
+
+// REQ-481/M281：materialize 端点——推断 TTL 直出正文 + X-Onto-Inferred-Triples 计数头。
+func TestMaterializeEndpoint_Req481(t *testing.T) {
+	s := reasonCheckStubServer(t) // 桩含 materialize 分支（TRIPLES 3 + 固定 TTL）
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/ontologies/materialize",
+		strings.NewReader(`{"content":"<urn:a> <urn:b> <urn:c> ."}`))
+	s.materializeEndpoint(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("期望 200，实际 %d body=%s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Onto-Inferred-Triples"); got != "3" {
+		t.Fatalf("计数头期望 3，实际 %q", got)
+	}
+	if !strings.Contains(w.Body.String(), "urn:i") {
+		t.Fatalf("正文应为推断 TTL: %s", w.Body.String())
+	}
+	w2 := httptest.NewRecorder()
+	s.materializeEndpoint(w2, httptest.NewRequest("POST", "/api/ontologies/materialize", strings.NewReader(`{}`)))
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("空 content 期望 400，实际 %d", w2.Code)
 	}
 }
