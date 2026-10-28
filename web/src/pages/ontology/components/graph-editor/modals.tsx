@@ -64,12 +64,15 @@ export function ConnectModal({
   onOk,
   onCancel,
   onKindChange,
+  declaredRelations,
 }: {
   connDraft: ConnDraft | null
   form: FormInstance<{ relName: string; relLabel?: string }>
   onOk: () => void
   onCancel: () => void
   onKindChange: (kind: 'relation' | 'parent') => void
+  /** REQ-460/M260：已声明关系类型清单——连线/实例断言关系名受控枚举（防绕过声明层产生声明外关系名）。 */
+  declaredRelations: string[]
 }) {
   return (
     <Modal
@@ -105,8 +108,23 @@ export function ConnectModal({
         )}
         {connDraft?.kind === 'relation' && (
           <>
-            <Form.Item name="relName" label="关系名（唯一标识）" rules={[{ required: true, message: '请输入关系名' }]}>
-              <Input placeholder="如 cites" />
+            {/* REQ-460/M260：关系名枚举已声明关系类型（声明为空引导先去「关系与属性」声明） */}
+            <Form.Item name="relName" label="关系名（已声明关系类型）" rules={[{ required: true, message: '请选择已声明的关系类型' }]}>
+              {declaredRelations.length > 0 ? (
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择已声明的关系类型"
+                  options={declaredRelations.map((r) => ({ value: r, label: r }))}
+                />
+              ) : (
+                <Select
+                  placeholder="暂无已声明关系类型——请先到「关系与属性」声明"
+                  options={[]}
+                  open={false}
+                  suffixIcon={<Typography.Text type="secondary" style={{ fontSize: 12 }}>先声明</Typography.Text>}
+                />
+              )}
             </Form.Item>
             <Form.Item name="relLabel" label="显示名（可选）">
               <Input placeholder="如 引用" />
@@ -123,8 +141,23 @@ export function ConnectModal({
             <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
               实例间关系（记录在 {instNameOf(connDraft.source)} 的 relations 上，指向 {instNameOf(connDraft.target)}）。
             </Typography.Text>
-            <Form.Item name="relName" label="关系名（对应概念层关系）" rules={[{ required: true, message: '请输入关系名' }]}>
-              <Input placeholder="如 cites（建议与概念层关系同名）" />
+            {/* REQ-460/M260：实例关系断言关系名同样受控（枚举已声明关系类型） */}
+            <Form.Item name="relName" label="关系名（对应概念层已声明关系）" rules={[{ required: true, message: '请选择已声明的关系类型' }]}>
+              {declaredRelations.length > 0 ? (
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择已声明的关系类型"
+                  options={declaredRelations.map((r) => ({ value: r, label: r }))}
+                />
+              ) : (
+                <Select
+                  placeholder="暂无已声明关系类型——请先声明概念层关系"
+                  options={[]}
+                  open={false}
+                  suffixIcon={<Typography.Text type="secondary" style={{ fontSize: 12 }}>先声明</Typography.Text>}
+                />
+              )}
             </Form.Item>
           </>
         )}

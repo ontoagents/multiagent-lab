@@ -425,6 +425,7 @@ export default function GraphEditor({
         onOk={applyConnect}
         onCancel={() => setConnDraft(null)}
         onKindChange={(kind) => setConnDraft((c) => (c ? { ...c, kind } : c))}
+        declaredRelations={(draft?.relations ?? []).map((r) => r.name)} // REQ-460/M260：关系名受控枚举源
       />
       <AddInstanceModal
         open={addInstOpen}
