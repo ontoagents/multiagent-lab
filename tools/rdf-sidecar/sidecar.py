@@ -278,7 +278,7 @@ def parse(format: str) -> int:
             warnings.append(f"重复关系名 {name} 已跳过")
             continue
         seen_r[uri] = name
-        rel = {"name": name, "evidence": "declared"}  # REQ-295①：显式 OWL 声明=declared 档（67 号 A2 分级）
+        rel = {"name": name, "evidence": "declared", "_uri": uri}  # REQ-295①：显式 OWL 声明=declared 档（_uri 供 REQ-473 特性捕获索引，出 spec 前剥离）
         mark((pr, RDF.type, OWL.ObjectProperty))
         for lab in g.objects(pr, RDFS.label):
             mark((pr, RDFS.label, lab))
@@ -347,8 +347,38 @@ def parse(format: str) -> int:
     if data_properties:
         spec["data_properties"] = data_properties
 
-    # REQ-328/B：函数性/逆/传递/对称/逆关系/属性链等属性公理不再特殊收集——
-    # 余量全域清扫（见尾部 reconciliation 段）会原样入账（含 BNode 结构），导出拼接还原
+    # REQ-473/M273：对象属性特性捕获（transitive/symmetric/functional/inverse_functional +
+    # owl:inverseOf）——升级为投影进 Relation（原落余量）；双端均注册为关系才入层。
+    _CH_TYPES = {
+        OWL.TransitiveProperty: "transitive",
+        OWL.SymmetricProperty: "symmetric",
+        OWL.FunctionalProperty: "functional",
+        OWL.InverseFunctionalProperty: "inverse_functional",
+    }
+    rel_uri_index = {r["_uri"]: r for r in spec["relations"] if r.get("_uri")}
+    for (pr, pt, po) in g.triples((None, RDF.type, None)):
+        ch = _CH_TYPES.get(po)
+        if ch is None or not isinstance(pr, URIRef):
+            continue
+        r = rel_uri_index.get(str(pr))
+        if r is not None:
+            r.setdefault("characteristics", [])
+            if ch not in r["characteristics"]:
+                r["characteristics"].append(ch)
+            mark((pr, pt, po))
+    for (pr, pt, po) in g.triples((None, OWL.inverseOf, None)):
+        if not isinstance(pr, URIRef) or not isinstance(po, URIRef):
+            continue
+        r = rel_uri_index.get(str(pr))
+        tgt = rel_uri_index.get(str(po))
+        if r is not None and tgt is not None:
+            r["inverse_of"] = tgt["name"]
+            mark((pr, pt, po))
+    for r in spec["relations"]:
+        r.pop("_uri", None)
+
+    # REQ-328/B：属性链等其余属性公理不再特殊收集——余量全域清扫（见尾部 reconciliation 段）
+    # 会原样入账（含 BNode 结构），导出拼接还原
 
     # REQ-269/M78（D-O22 批次三）：类级公理捕获——owl:disjointWith / owl:equivalentClass。
     # 双端均已注册为概念才入 axioms（URI → 已注册概念名归一）；任一端未注册则 warning 丢弃
@@ -609,6 +639,19 @@ def export(argv) -> int:
             L[-1] += f' ;\n    rdfs:domain <{cu(r["from"])}>'
         if r.get("to"):
             L[-1] += f' ;\n    rdfs:range <{cu(r["to"])}>'
+        # REQ-473/M273：特性附加 rdf:type 行 + owl:inverseOf（与 Go 导出器 ttlexport.go 对拍口径一致）
+        _CH_IRI = {
+            "transitive": "owl:TransitiveProperty",
+            "symmetric": "owl:SymmetricProperty",
+            "functional": "owl:FunctionalProperty",
+            "inverse_functional": "owl:InverseFunctionalProperty",
+        }
+        for ch in (r.get("characteristics") or []):
+            iri = _CH_IRI.get(ch)
+            if iri:
+                L[-1] += f' ;\n    rdf:type {iri}'
+        if r.get("inverse_of"):
+            L[-1] += f' ;\n    owl:inverseOf <{ru(r["inverse_of"])}>'
         L[-1] += ' .'
     for dp in (spec.get("data_properties") or []):
         # REQ-268/M77：声明导出为 <attr:名> owl:DatatypeProperty——与实例属性断言同 IRI（声明与使用统一）

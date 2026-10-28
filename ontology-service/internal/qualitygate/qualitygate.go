@@ -116,6 +116,36 @@ func defaultChecks() []checkDef {
 		// REQ-376①②/M172：限制公理承载配套检查（dangling 引用 + 基数约束 vs 实例断言）
 		{id: "dangling_restriction", title: "限制公理属性/值域引用不存在", dimension: DimConsistency, sev: SevError, run: checkDanglingRestriction},
 		{id: "restriction_cardinality", title: "实例断言违反基数限制（min/max/cardinality）", dimension: DimConsistency, sev: SevError, run: checkRestrictionCardinality},
+		// REQ-473/M273：函数性特性配套检查——functional/inverse_functional 关系上实例多目标断言
+		{id: "functional_relation_multiplicity", title: "函数性关系实例断言多值（functional/inverse_functional 应唯一）", dimension: DimConsistency, sev: SevWarning, run: checkFunctionalMultiplicity},
+	}
+}
+
+// checkFunctionalMultiplicity REQ-473/M273：声明 functional/inverse_functional 的关系，
+// 实例断言出现多目标即 warning（提示而非 error——闭世界数据缺失下多值或为暂态）。
+func checkFunctionalMultiplicity(sp *pkgspec.Spec, add func(path string)) {
+	hasCh := map[string]map[string]bool{}
+	for _, r := range sp.Relations {
+		m := map[string]bool{}
+		for _, c := range r.Characteristics {
+			m[c] = true
+		}
+		hasCh[r.Name] = m
+	}
+	for _, inst := range sp.Instances {
+		byRel := map[string]int{}
+		for _, ir := range inst.Relations {
+			byRel[ir.Rel]++
+		}
+		for rel, n := range byRel {
+			ch := hasCh[rel]
+			if ch == nil {
+				continue
+			}
+			if (ch["functional"] || ch["inverse_functional"]) && n > 1 {
+				add(fmt.Sprintf("instances[%s].relations[%s]（%d 个目标，函数性应至多 1）", inst.Name, rel, n))
+			}
+		}
 	}
 }
 

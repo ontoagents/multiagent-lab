@@ -6,7 +6,10 @@ package spec
 // A→C 直达边存在 A→B→C 二跳路径即疑似蕴含，measurement 口径只检测不自动删）。
 // 纯函数零依赖（与 Validate/Stats 同层），qualitygate 与 rest 影响端点共用。
 
-import "fmt"
+import (
+	"fmt"
+	"reflect" // REQ-473：Relation 含 slice 字段（characteristics）——DeepEqual 比较
+)
 
 // 变更动作与风险档（风险判词沿 65 号 A1：每条带理由，不给无解释的分数）。
 const (
@@ -91,7 +94,7 @@ func AnalyzeImpact(from, to *Spec) *ImpactReport {
 			addChange("relation", ActionRemoved, n)
 			continue
 		}
-		if r != nr {
+		if !reflect.DeepEqual(r, nr) { // REQ-473：Relation 含 slice 字段（characteristics）——DeepEqual 比较
 			addChange("relation", ActionChanged, n)
 		}
 	}

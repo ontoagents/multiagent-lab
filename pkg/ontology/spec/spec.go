@@ -47,13 +47,31 @@ var RestrictionTypes = map[string]bool{
 // Evidence 证据分级（REQ-295①，67 号 A2）：declared（显式声明，如导入 OWL 声明/人工配置列）
 // > name（命名推断，如结构化构建列名共现）> values（值/语料证据，如 KG 抽取、LLM 语料抽取）——
 // 溯源不是有无而是强度；空=未标注（存量零迁移）。仅 spec 层，不入 TTL 导出（沿 CQ 先例）。
+// Characteristics 特性（REQ-473/M273，Protégé 编辑能力对齐批②——D-O22 表达力档「属性特征」兑现）：
+// transitive | symmetric | functional | inverse_functional；TTL 导出为附加 rdf:type 行；
+// InverseOf 逆属性（引用 relations.name，可空）导出 owl:inverseOf。存量零迁移。
 type Relation struct {
-	Name       string `json:"name"`
-	Label      string `json:"label,omitempty"`
-	Definition string `json:"definition,omitempty"`
-	From       string `json:"from"` // 定义域概念名
-	To         string `json:"to"`   // 值域概念名
-	Evidence   string `json:"evidence,omitempty"`
+	Name           string   `json:"name"`
+	Label          string   `json:"label,omitempty"`
+	Definition     string   `json:"definition,omitempty"`
+	From           string   `json:"from"` // 定义域概念名
+	To             string   `json:"to"`   // 值域概念名
+	Evidence       string   `json:"evidence,omitempty"`
+	Characteristics []string `json:"characteristics,omitempty"`
+	InverseOf      string   `json:"inverse_of,omitempty"`
+}
+
+// RelationCharacteristics 合法关系特性（Protégé ObjectProperty characteristics 子集；
+// 反对称/自反/非自反/属性链不进本子集——spec 轻量口径）。
+var RelationCharacteristics = []string{"transitive", "symmetric", "functional", "inverse_functional"}
+
+func validRelationCharacteristic(v string) bool {
+	for _, c := range RelationCharacteristics {
+		if c == v {
+			return true
+		}
+	}
+	return false
 }
 
 // 证据分级枚举与排序权重（declared > name > values；权重仅用于构建报告排序，不入存储）。
@@ -204,6 +222,28 @@ func (s *Spec) Validate() []ValidationError {
 		}
 		if _, ok := cn[r.To]; !ok {
 			add(p+".to", "值域引用了未定义概念: "+r.To)
+		}
+		// REQ-473/M273：特性枚举 + 逆属性引用（自引用即 owl:inverseOf 自身=无意义，拒）
+		for _, ch := range r.Characteristics {
+			if !validRelationCharacteristic(ch) {
+				add(p+".characteristics", "非法特性 "+ch+"（合法：transitive|symmetric|functional|inverse_functional）")
+			}
+		}
+		if r.InverseOf == r.Name {
+			add(p+".inverse_of", "逆属性不能是自身")
+		}
+		// inverse_of 引用校验需全量关系名——两轮遍历（第一轮建名册，第二轮校验引用）
+		if r.InverseOf != "" {
+			found := false
+			for _, r2 := range s.Relations {
+				if r2.Name == r.InverseOf {
+					found = true
+					break
+				}
+			}
+			if !found {
+				add(p+".inverse_of", "逆属性 "+r.InverseOf+" 未在 relations 中声明")
+			}
 		}
 	}
 

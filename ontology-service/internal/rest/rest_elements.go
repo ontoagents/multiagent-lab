@@ -253,6 +253,11 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		label, hasLabel := body.str("label")
 		definition, hasDefinition := body.str("definition")
 		evidence, hasEvidence := body.str("evidence")
+		characteristics, characteristicsPresent, err := body.names("characteristics")
+		if err != nil {
+			return "", err
+		}
+		inverseOf, hasInverseOf := body.str("inverse_of")
 		var target *pkgspec.Relation
 		for i := range sp.Relations {
 			if sp.Relations[i].Name == name {
@@ -284,11 +289,17 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		if hasEvidence {
 			target.Evidence = evidence
 		}
+		if characteristicsPresent {
+			target.Characteristics = characteristics // REQ-473/M273：特性整组替换
+		}
+		if hasInverseOf {
+			target.InverseOf = inverseOf
+		}
 		verb := "已更新"
 		if created {
 			verb = "已新增"
 		}
-		return fmt.Sprintf("关系「%s」%s（%s → %s）", name, verb, target.From, target.To), nil
+		return fmt.Sprintf("关系「%s」%s（%s → %s，特性 %d 项）", name, verb, target.From, target.To, len(target.Characteristics)), nil
 	case "attribute":
 		domain, hasDomain := body.str("domain")
 		rng, hasRange := body.str("range")

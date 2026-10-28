@@ -246,3 +246,44 @@ func TestTTLAxiomRoundTrip_Req472(t *testing.T) {
 		t.Fatalf("equivalent_class 还原不符: %+v", eq)
 	}
 }
+
+// REQ-473/M273：关系特性 round-trip（导出附加 rdf:type 行+owl:inverseOf，读入端捕获还原）。
+func TestTTLRelationCharacteristicsRoundTrip_Req473(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name: "chrt", Concepts: []pkgspec.Concept{
+			{Name: "服务器"}, {Name: "存储节点"},
+		},
+		Relations: []pkgspec.Relation{
+			{Name: "挂载", From: "服务器", To: "存储节点", Characteristics: []string{"functional"}},
+			{Name: "同驻", From: "服务器", To: "服务器", Characteristics: []string{"transitive", "symmetric"}, InverseOf: "挂载"},
+		},
+	}
+	ttl, _, err := TTLGoExport("o1", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"owl:FunctionalProperty", "owl:TransitiveProperty", "owl:SymmetricProperty", "owl:inverseOf"} {
+		if !strings.Contains(ttl, want) {
+			t.Fatalf("导出应含 %s: %.500s", want, ttl)
+		}
+	}
+	res, err := ReadTurtleSpec(ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mount, cohost *pkgspec.Relation
+	for i := range res.Spec.Relations {
+		switch res.Spec.Relations[i].Name {
+		case "挂载":
+			mount = &res.Spec.Relations[i]
+		case "同驻":
+			cohost = &res.Spec.Relations[i]
+		}
+	}
+	if mount == nil || len(mount.Characteristics) != 1 || mount.Characteristics[0] != "functional" {
+		t.Fatalf("挂载特性还原不符: %+v", mount)
+	}
+	if cohost == nil || len(cohost.Characteristics) != 2 || cohost.InverseOf != "挂载" {
+		t.Fatalf("同驻特性/逆属性还原不符: %+v", cohost)
+	}
+}

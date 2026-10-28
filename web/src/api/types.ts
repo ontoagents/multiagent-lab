@@ -635,6 +635,10 @@ export interface SpecRelation {
   from: string
   to: string
   evidence?: string
+  /** REQ-473/M273：对象属性特性（transitive/symmetric/functional/inverse_functional；TTL 导出附加 rdf:type 行） */
+  characteristics?: string[]
+  /** REQ-473/M273：逆属性（引用 relations.name；TTL 导出 owl:inverseOf） */
+  inverse_of?: string
 }
 
 /** Spec 实例关系 */

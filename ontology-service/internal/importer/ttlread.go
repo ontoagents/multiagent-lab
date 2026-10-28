@@ -897,6 +897,54 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 			restrByBNode[t.S.Value] = rst
 		}
 	}
+	// REQ-473/M273：关系特性捕获——rdf:type owl:Transitive/Symmetric/Functional/InverseFunctionalProperty
+	// + owl:inverseOf（两端均注册为关系才入层；导出端 ttlexport 对偶 round-trip）。
+	chTypeIRIs := map[string]string{
+		nsOWL + "TransitiveProperty":       "transitive",
+		nsOWL + "SymmetricProperty":        "symmetric",
+		nsOWL + "FunctionalProperty":       "functional",
+		nsOWL + "InverseFunctionalProperty": "inverse_functional",
+	}
+	invOfT := ttlTerm{Kind: "iri", Value: nsOWL + "inverseOf"}
+	relByName := map[string]int{}
+	for i, r := range res.Spec.Relations {
+		relByName[r.Name] = i
+	}
+	relURIToName := map[string]string{}
+	for u, nm := range relNameByURI {
+		if i, ok := relByName[nm]; ok {
+			_ = i
+			relURIToName[u] = nm
+		}
+	}
+	for _, t := range triples {
+		if t.S.Kind != "iri" {
+			continue
+		}
+		sName, ok := relURIToName[t.S.Value]
+		if !ok {
+			continue
+		}
+		ri := relByName[sName]
+		if ch, isCh := chTypeIRIs[t.O.Value]; isCh && eq(t.P, typeT) && t.O.Kind == "iri" {
+			dup := false
+			for _, c := range res.Spec.Relations[ri].Characteristics {
+				if c == ch {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				res.Spec.Relations[ri].Characteristics = append(res.Spec.Relations[ri].Characteristics, ch)
+			}
+		}
+		if eq(t.P, invOfT) && t.O.Kind == "iri" {
+			if invName, ok2 := relURIToName[t.O.Value]; ok2 {
+				res.Spec.Relations[ri].InverseOf = invName
+			}
+		}
+	}
+
 	if len(restrByBNode) > 0 {
 		subClassOfT := subClassT
 		for _, t := range triples {

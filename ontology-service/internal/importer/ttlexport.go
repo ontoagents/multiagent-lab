@@ -193,6 +193,28 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec) (string, int, error) {
 			line += fmt.Sprintf(" ;\n    rdfs:range <%s>", w.concept(r.To))
 			n++
 		}
+		// REQ-473/M273：对象属性特性——附加 rdf:type 行（owl:Transitive/Symmetric/Functional/InverseFunctionalProperty）
+		for _, ch := range r.Characteristics {
+			var pref string
+			switch ch {
+			case "transitive":
+				pref = "owl:TransitiveProperty"
+			case "symmetric":
+				pref = "owl:SymmetricProperty"
+			case "functional":
+				pref = "owl:FunctionalProperty"
+			case "inverse_functional":
+				pref = "owl:InverseFunctionalProperty"
+			default:
+				continue
+			}
+			line += fmt.Sprintf(" ;\n    rdf:type %s", pref)
+			n++
+		}
+		if r.InverseOf != "" {
+			line += fmt.Sprintf(" ;\n    owl:inverseOf <%s>", w.relation(r.InverseOf))
+			n++
+		}
 		L = append(L, line+" .")
 	}
 	for _, dp := range sp.DataProperties {

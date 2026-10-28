@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Button, Empty, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
+import { Button, Checkbox, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
@@ -8,8 +8,10 @@ import type { Spec } from '../../../../api/types'
 // ---------------------------------------------------------------------------
 // REQ-240④/M66：关系类型管理页签（57 号 V2）——spec.relations 定义集中管理：
 //   关系名/标签/定义域→值域/实例引用计数（InstanceRel.rel 反查）。
-// REQ-420/M216（关系声明编辑补全）：label/定义/域值域经元素级端点编辑（服务端 Validate 单源）；
-//   编辑锚=三元组名+from+to（组合键——改 from/to 需删除重建，诚实提示）。
+// REQ-420/M216（关系声明编辑补全）：label/定义/域值域经元素级端点编辑（服务端 Validate 单源）。
+// REQ-473/M273（Protégé 编辑能力对齐批②）：①from/to 解锁编辑（后端元素端点本就支持——原前端锁死）；
+//   ②特性声明（transitive/symmetric/functional/inverse_functional Checkbox）+逆属性 Select；
+//   ③删除声明按钮（被实例引用时 Validate 拒——悬空定位）；④特性列呈现。
 // ---------------------------------------------------------------------------
 
 interface RelRow {
@@ -18,7 +20,16 @@ interface RelRow {
   label: string
   from: string
   to: string
+  characteristics: string[]
+  inverseOf: string
   refs: string[] // 引用该类型的实例关系（实例名 × rel）
+}
+
+const CH_META: Record<string, { color: string; text: string }> = {
+  transitive: { color: 'geekblue', text: '传递' },
+  symmetric: { color: 'cyan', text: '对称' },
+  functional: { color: 'orange', text: '函数' },
+  inverse_functional: { color: 'purple', text: '逆函数' },
 }
 
 export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec: Spec | null; ontologyId: string; onSaved: () => void }) {
@@ -42,6 +53,8 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
       label: r.label || '',
       from: r.from,
       to: r.to,
+      characteristics: r.characteristics ?? [],
+      inverseOf: r.inverse_of ?? '',
       refs: usage.get(r.name) ?? [],
     }))
   }, [spec])
@@ -58,24 +71,66 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
         {r.label && <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>{r.label}</Typography.Text>}
       </span>
     ) },
-    { title: '定义域（from）', dataIndex: 'from', width: 180, render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag> },
-    { title: '值域（to）', dataIndex: 'to', width: 180, render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag> },
+    { title: '定义域（from）', dataIndex: 'from', width: 150, render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag> },
+    { title: '值域（to）', dataIndex: 'to', width: 150, render: (v: string) => <Tag style={{ margin: 0 }}>{v}</Tag> },
+    {
+      title: '特性 / 逆属性',
+      key: 'ch',
+      width: 190,
+      render: (_: unknown, r) => (
+        <Space size={4} wrap>
+          {r.characteristics.map((c) => (
+            <Tag key={c} color={CH_META[c]?.color ?? 'default'} style={{ margin: 0 }}>{CH_META[c]?.text ?? c}</Tag>
+          ))}
+          {r.inverseOf && <Tooltip title={`owl:inverseOf → ${r.inverseOf}`}><Tag color="blue" style={{ margin: 0 }}>逆:{r.inverseOf}</Tag></Tooltip>}
+          {r.characteristics.length === 0 && !r.inverseOf && <Typography.Text type="secondary" style={{ fontSize: 12 }}>—</Typography.Text>}
+        </Space>
+      ),
+    },
     {
       title: '操作',
       key: 'ops',
-      width: 90,
+      width: 120,
       render: (_: unknown, r) => (
-        <Button
-          size="small"
-          type="link"
-          style={{ padding: 0 }}
-          onClick={() => {
-            setEditing({ key: r.key, name: r.name, from: r.from, to: r.to, label: r.label, definition: (spec?.relations ?? []).find((x) => x.name === r.name)?.definition ?? '' })
-            form.setFieldsValue({ label: r.label, definition: (spec?.relations ?? []).find((x) => x.name === r.name)?.definition ?? '' })
-          }}
-        >
-          编辑声明
-        </Button>
+        <Space size={4}>
+          <Button
+            size="small"
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() => {
+              const full = (spec?.relations ?? []).find((x) => x.name === r.name)
+              setEditing({ key: r.key, name: r.name, from: r.from, to: r.to, label: r.label, definition: full?.definition ?? '' })
+              form.setFieldsValue({
+                label: r.label,
+                definition: full?.definition ?? '',
+                from: r.from,
+                to: r.to,
+                characteristics: r.characteristics,
+                inverse_of: r.inverseOf || undefined,
+              })
+            }}
+          >
+            编辑
+          </Button>
+          <Popconfirm
+            title={`删除关系声明「${r.name}」？`}
+            description={r.refs.length > 0 ? `被 ${r.refs.length} 处实例断言引用——服务端校验将拒绝并给悬空定位` : '未被实例引用，可直接删除'}
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+            onConfirm={async () => {
+              try {
+                await api.elementDelete(ontologyId, 'relation', r.name)
+                message.success(`关系「${r.name}」已删除`)
+                onSaved()
+              } catch (e: any) {
+                message.error(e?.message ?? '删除失败')
+              }
+            }}
+          >
+            <Button size="small" type="link" danger style={{ padding: 0 }}>删除</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
     {
@@ -120,17 +175,22 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
           const v = await form.validateFields()
           setBusy(true)
           if (editing?.key) {
-            const target = (spec?.relations ?? []).find((x) => x.name === editing.name && x.from === editing.from && x.to === editing.to)
+            const target = (spec?.relations ?? []).find((x) => x.name === editing.name)
+            // REQ-473：from/to 解锁（后端元素端点本就支持）+ 特性/逆属性整组提交
             await api.elementUpsert(ontologyId, 'relation', {
-              name: editing.name, from: editing.from, to: editing.to,
+              name: editing.name, from: v.from, to: v.to,
               label: v.label ?? '', definition: v.definition ?? '',
+              characteristics: v.characteristics ?? [],
+              inverse_of: v.inverse_of ?? '',
               ...(target?.evidence ? { evidence: target.evidence } : {}),
             })
             message.success(`关系「${editing.name}」声明已更新`)
           } else {
             await api.elementUpsert(ontologyId, 'relation', {
-              name: v.name.trim(), from: v.from.trim(), to: v.to.trim(),
+              name: v.name.trim(), from: v.from, to: v.to,
               label: v.label ?? '', definition: v.definition ?? '',
+              characteristics: v.characteristics ?? [],
+              inverse_of: v.inverse_of ?? '',
             })
             message.success(`关系「${v.name.trim()}」已新增`)
           }
@@ -153,7 +213,6 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
             <Select
               allowClear
               showSearch
-              disabled={!!editing?.key}
               options={(spec?.concepts ?? []).map((c) => ({ value: c.name, label: c.label || c.name }))}
               placeholder="from"
             />
@@ -162,7 +221,6 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
             <Select
               allowClear
               showSearch
-              disabled={!!editing?.key}
               options={(spec?.concepts ?? []).map((c) => ({ value: c.name, label: c.label || c.name }))}
               placeholder="to"
             />
@@ -174,11 +232,24 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
         <Form.Item name="definition" label="定义（可选）">
           <Input.TextArea rows={2} />
         </Form.Item>
-        {editing?.key && (
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            编辑锚=三元组（名+域值域）：改端点需删除后重建；label/定义直接覆盖（presence 语义整体覆盖）。
-          </Typography.Text>
-        )}
+        {/* REQ-473/M273：特性声明（Protégé ObjectProperty characteristics 子集） */}
+        <Form.Item name="characteristics" label="特性（TTL 导出为附加 rdf:type 行）">
+          <Checkbox.Group
+            options={Object.entries(CH_META).map(([v, m]) => ({ value: v, label: m.text }))}
+            data-testid="rel-characteristics-group"
+          />
+        </Form.Item>
+        <Form.Item name="inverse_of" label="逆属性（owl:inverseOf，可选——选择已声明关系）">
+          <Select
+            allowClear
+            showSearch
+            placeholder="无"
+            options={(spec?.relations ?? []).filter((x) => x.name !== editing?.name).map((x) => ({ value: x.name, label: x.label || x.name }))}
+          />
+        </Form.Item>
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          语义提示：函数=每主体至多一个值（门禁对实例多值断言 warning）；传递/对称影响推理语义；逆属性两关系互为反向。
+        </Typography.Text>
       </Form>
     </Modal>
   )

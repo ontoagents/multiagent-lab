@@ -23,6 +23,11 @@ export function expressivityOf(spec: Spec | null | undefined): { sig: string; fe
     if ((spec.relations ?? []).every((r) => r.from && r.to)) feats.push('关系带域值域')
   }
   if ((spec.instances ?? []).some((i) => (i.relations ?? []).length > 0)) feats.push('实例关系')
+  // REQ-473/M273：关系特性（词条级呈现——签名维持轻量口径不动）
+  const chSet = new Set<string>()
+  for (const r of spec.relations ?? []) for (const c of r.characteristics ?? []) chSet.add(c)
+  if (chSet.size > 0) feats.push(`关系特性（${[...chSet].join('、')}）`)
+  if ((spec.relations ?? []).some((r) => r.inverse_of)) feats.push('逆属性')
   if ((spec.instances?.length ?? 0) > 0) {
     sig += 'N'
     feats.push('实例')
