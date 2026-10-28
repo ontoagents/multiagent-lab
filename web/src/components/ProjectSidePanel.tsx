@@ -51,6 +51,7 @@ const WORKFLOW_OPTIONS = [
   { value: 'sequential', label: 'sequential（顺序）' },
   { value: 'parallel', label: 'parallel（并行）' },
   { value: 'loop', label: 'loop（循环）' },
+  { value: 'plan_execute', label: 'plan_execute（计划执行）' },
 ]
 
 /** 单文件预览体积上限（与后端 dir-file ≤1MB 对齐） */
@@ -911,7 +912,7 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
             type="info"
             showIcon
             style={{ marginBottom: 8, fontSize: 12 }}
-            title={`${{ sequential: '顺序', parallel: '并行', loop: '循环' }[workflowMode] ?? workflowMode}工作流已兑现（REQ-205/M40，Eino ADK 工作流原语）：成员即节点（主智能体首个，余按名称序）、确定性拓扑无 LLM 路由；官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——推荐默认仍为 free + agent_as_tool。loop 迭代上限固定 3。`}
+            title={`${{ sequential: '顺序', parallel: '并行', loop: '循环', plan_execute: '计划执行' }[workflowMode] ?? workflowMode}工作流已兑现（REQ-205/M40，Eino ADK 工作流原语）：成员即节点（主智能体首个，余按名称序）、确定性拓扑无 LLM 路由；官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——推荐默认仍为 free + agent_as_tool。loop 迭代上限固定 3。`}
           />
         )}
       </Form>

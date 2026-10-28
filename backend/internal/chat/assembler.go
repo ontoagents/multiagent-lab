@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/patchtoolcalls"
+	"github.com/cloudwego/eino/adk/prebuilt/planexecute"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -340,8 +341,38 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 
 	// REQ-205/M40：workflow_mode 兑现——sequential/parallel/loop 走 ADK 工作流原语
 	//（确定性编排，成员即节点；free=自由协作按 collab_mode 分发）
-	if p.WorkflowMode != "" && p.WorkflowMode != "free" && p.WorkflowMode != "sequential" && p.WorkflowMode != "parallel" && p.WorkflowMode != "loop" {
+	// REQ-455/M251：plan_execute=计划执行工作流模板（adk prebuilt planexecute）——
+	// 协调者=计划器/重规划器，首个成员=执行器（模型+工具面生效）
+	if p.WorkflowMode != "" && p.WorkflowMode != "free" && p.WorkflowMode != "sequential" && p.WorkflowMode != "parallel" && p.WorkflowMode != "loop" && p.WorkflowMode != "plan_execute" {
 		warns = append(warns, fmt.Sprintf("未知工作流模式 %q，按自由协作处理", p.WorkflowMode))
+	}
+	if p.WorkflowMode == "plan_execute" {
+		// 节点序沿工作流约定：协调者首个 + 其余按成员名稳定序；执行器=首个成员
+		var execNode *store.Agent
+		rest := make([]*store.Agent, 0, len(members))
+		for _, m := range members {
+			ag, gerr := a.Store.GetAgent(m.AgentID)
+			if gerr != nil {
+				return nil, fmt.Errorf("load workflow node %s: %w", m.AgentID, gerr)
+			}
+			if m.AgentID == coordID {
+				execNode = sc.skillGated(ag)
+				continue
+			}
+			rest = append(rest, sc.skillGated(ag))
+		}
+		sort.Slice(rest, func(i, j int) bool { return rest[i].Name < rest[j].Name })
+		// 语义：协调者=计划器/重规划器（其指令不进预置 planner prompt——诚实告警）；
+		// 执行器=首个成员（有协调者兼任成员时取协调者，否则首个名序成员）
+		exec := execNode
+		if exec == nil && len(rest) > 0 {
+			exec = rest[0]
+		}
+		if exec != nil {
+			return a.assemblePlanExecute(ctx, coord, exec, warns, sc)
+		}
+		// 无成员可用=缺执行器：诚实告警后落穿自由协作分发（沿未知模式同型降级）
+		warns = append(warns, "plan_execute 模式需要至少 1 个项目成员作为执行器，按自由协作处理")
 	}
 	if p.WorkflowMode == "sequential" || p.WorkflowMode == "parallel" || p.WorkflowMode == "loop" {
 		// 工作流节点=协调者首个 + 其余按成员名稳定序（确定性拓扑，无 LLM 路由；
@@ -870,6 +901,86 @@ func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, coord *st
 		Snapshot:     snapshotOf("workflow_"+mode, entries),
 		Workflow:     &WorkflowMeta{Mode: mode, Nodes: nodeNames},
 	}, nil
+}
+
+// assemblePlanExecute 计划执行工作流模板（REQ-455/M251，workflow_mode=plan_execute）：
+// adk prebuilt planexecute 三角色——计划器产结构化任务清单（协调者模型，工具调用式结构化输出）→
+// 执行器逐项执行（首个成员模型+工具面）→ 重规划器评估进度（完成或修订计划），
+// execute-replan 循环上限 10（预置默认，防无限循环）。
+// 语义映射：协调者=计划器/重规划器（纯规划角色），首个成员=执行器。
+// 诚实边界=协调者 instruction 不进预置 planner/replanner prompt（预置角色自带提示词——
+// 角色专业化提示词随装配快照告警注记）；成员仅首个参与（其余成员暂不消费——告警注记）。
+func (a *Assembler) assemblePlanExecute(ctx context.Context, coord *store.Agent, exec *store.Agent, warns []string, sc assembleScope) (*BuildResult, error) {
+	cm, label, connID, err := a.buildModel(ctx, coord)
+	if err != nil {
+		return nil, fmt.Errorf("build plan_execute planner model: %w", err)
+	}
+	tcm, ok := cm.(model.ToolCallingChatModel)
+	if !ok {
+		return nil, fmt.Errorf("plan_execute 模式要求协调者模型支持工具调用协议（结构化计划输出依赖），当前连接协议不支持")
+	}
+	planner, err := planexecute.NewPlanner(ctx, &planexecute.PlannerConfig{ToolCallingChatModel: tcm})
+	if err != nil {
+		return nil, fmt.Errorf("build planner: %w", err)
+	}
+	replanner, err := planexecute.NewReplanner(ctx, &planexecute.ReplannerConfig{ChatModel: tcm})
+	if err != nil {
+		return nil, fmt.Errorf("build replanner: %w", err)
+	}
+	// 执行器=首个成员：模型+工具面（成员 instruction 不进预置执行器 prompt——其输入由
+	// 计划+已执行步骤组装，诚实告警；工具面/审批/连接器全量生效）
+	em, execLabel, _, err := a.buildModel(ctx, exec)
+	if err != nil {
+		return nil, fmt.Errorf("build plan_execute executor model: %w", err)
+	}
+	etb, err := a.assembleTools(ctx, exec, sc)
+	if err != nil {
+		return nil, fmt.Errorf("compose executor tools: %w", err)
+	}
+	executor, err := planexecute.NewExecutor(ctx, &planexecute.ExecutorConfig{
+		Model: em,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig:    compose.ToolsNodeConfig{Tools: etb.Tools},
+			EmitInternalEvents: true,
+		},
+		MaxIterations: normalizeMaxIter(exec.MaxIteration),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build executor: %w", err)
+	}
+	wf, err := planexecute.New(ctx, &planexecute.Config{Planner: planner, Executor: executor, Replanner: replanner})
+	if err != nil {
+		return nil, fmt.Errorf("build plan_execute agent: %w", err)
+	}
+	allWarns := append(append([]string{}, warns...),
+		fmt.Sprintf("工作流模式 plan_execute：协调者=计划器/重规划器（%s），首个成员=执行器（%s，模型+工具面生效）；execute-replan 循环上限 10；协调者/成员 instruction 不进预置角色提示词", label+"@"+coordNameOf(coord), execLabel))
+	if coord.Instruction != "" {
+		allWarns = append(allWarns, "计划器/重规划器为预置角色（自带提示词），协调者系统提示词不参与本轮编排")
+	}
+	entries := []map[string]any{
+		agentSnapshotEntry("planner_replanner", coord.Name, label, nil, nil, a.mcpSnapshotOf(coord), coord.Instruction),
+		agentSnapshotEntry("executor", exec.Name, execLabel, etb.SourceOf, etb.LoadedSkills, a.mcpSnapshotOf(exec), exec.Instruction),
+		map[string]any{"role": "workflow", "mode": "plan_execute", "nodes": []string{"planner:" + coord.Name, "executor:" + exec.Name}},
+	}
+	src := map[string]string{coord.Name: "agent:" + coord.ID, exec.Name: "agent:" + exec.ID}
+	loaded := appendLoadedSkills(nil, etb.LoadedSkills)
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: wf, EnableStreaming: true, CheckPointStore: a.CheckPoints})
+	return &BuildResult{
+		Runner: runner, AgentName: "workflow_plan_execute",
+		ModelLabel: "workflow(plan_execute)", ConnID: connID,
+		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
+		MaxIteration: 0,
+		Snapshot:     snapshotOf("workflow_plan_execute", entries),
+		Workflow:     &WorkflowMeta{Mode: "plan_execute", Nodes: []string{"planner:" + coord.Name, "executor:" + exec.Name}},
+	}, nil
+}
+
+// coordNameOf 协调者名（快照告警文案用；nil 安全）。
+func coordNameOf(ag *store.Agent) string {
+	if ag == nil {
+		return ""
+	}
+	return ag.Name
 }
 
 // assembleTransfer 协调者把控制权转移给成员（ADK SetSubAgents，对照路径）。

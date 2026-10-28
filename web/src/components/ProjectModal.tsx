@@ -187,6 +187,7 @@ export default function ProjectModal({
                   { value: 'sequential', label: 'sequential（顺序）' },
                   { value: 'parallel', label: 'parallel（并行）' },
                   { value: 'loop', label: 'loop（循环）' },
+                  { value: 'plan_execute', label: 'plan_execute（计划执行）' },
                 ]}
               />
             </Form.Item>
