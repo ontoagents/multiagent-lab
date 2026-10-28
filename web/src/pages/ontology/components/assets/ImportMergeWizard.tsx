@@ -207,6 +207,9 @@ export default function ImportMergeWizard({
             <Tag color="blue" style={{ margin: 0 }}>新增 {preview.added.length}</Tag>
             <Tag color="orange" style={{ margin: 0 }}>冲突 {preview.conflicts.length}</Tag>
             <Tag color="purple" style={{ margin: 0 }}>重命名 {preview.renamed.length}</Tag>
+            {(preview.semantic_conflicts?.length ?? 0) > 0 && (
+              <Tag color="red" style={{ margin: 0 }}>语义分歧 {preview.semantic_conflicts!.length}</Tag>
+            )}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               概念 +{preview.stats.concepts_added}/改{preview.stats.concepts_updated} · 关系 +{preview.stats.relations_added}/改{preview.stats.relations_updated} · 实例 +{preview.stats.instances_added}/改{preview.stats.instances_updated}/更名{preview.stats.instances_renamed}
             </Typography.Text>
@@ -224,6 +227,27 @@ export default function ImportMergeWizard({
             <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
               重命名清单：{preview.renamed.join('；')}
             </Typography.Paragraph>
+          )}
+          {/* REQ-259/M258：语义级冲突预检呈现——conflict=红（父类分歧/定义漂移，人工裁决）hint=金（label 同义，可登记 external_ref alignment 对齐） */}
+          {(preview.semantic_conflicts?.length ?? 0) > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={`语义分歧预检 ${preview.semantic_conflicts!.length} 条（合并策略行为不受影响——人工裁决后应用）`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {preview.semantic_conflicts!.map((c, i) => (
+                    <li key={i} style={{ fontSize: 12 }}>
+                      <Tag color={c.severity === 'conflict' ? 'red' : 'gold'} style={{ marginInlineEnd: 6 }}>
+                        {c.kind === 'parent_divergence' ? '父类分歧' : c.kind === 'definition_drift' ? '定义漂移' : 'label 同义'}
+                      </Tag>
+                      <Typography.Text code style={{ fontSize: 12 }}>{c.entity}</Typography.Text> — {c.detail}
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
           )}
           {/* REQ-235/H5/M62：有损导入清单——条目可定位，应用后可跳图形编辑补录再重跑对账 */}
           {preview.import_report?.reconciliation && (

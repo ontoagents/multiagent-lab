@@ -1082,6 +1082,8 @@ export interface MergePreview {
   renamed: string[]
   stats: { concepts_added: number; concepts_updated: number; relations_added: number; relations_updated: number; instances_added: number; instances_updated: number; instances_renamed: number; total_conflicts: number }
   target_name: string
+  /** REQ-259/M258：语义级冲突预检（同名概念父类分歧/定义漂移/label 同义提示——只报告不自动合并）。 */
+  semantic_conflicts?: { kind: string; entity: string; severity: string; detail: string }[]
   merged_spec: unknown
   /** REQ-235/H5/M62：原文件解析报告（lossy 清单+warnings；spec 直传时缺省） */
   import_report?: {

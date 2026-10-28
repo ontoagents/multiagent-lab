@@ -42,6 +42,10 @@ type MergePreview struct {
 	Prefix     string          `json:"prefix"`
 	Added      []string        `json:"added"` // 将新增的实体（kind:name）
 	Conflicts  []MergeConflict `json:"conflicts"`
+	// SemanticConflicts 语义级冲突预检（REQ-259/M258）：同名概念跨版本语义分歧（父类不一致/
+	// 定义漂移）与 label 同义提示（潜在同实体待对齐）——只报告不做自动合并（详设口径），
+	// 审查向导呈现供人工判断。
+	SemanticConflicts []SemanticConflict `json:"semantic_conflicts,omitempty"`
 	Renamed    []string        `json:"renamed"` // merge 策略重命名清单（old -> new）
 	Stats      MergeStats      `json:"stats"`
 	TargetName string          `json:"target_name"`
@@ -287,6 +291,9 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 	if dangling > 0 {
 		pv.Notes = append(pv.Notes, MergeNote{Kind: "unmatched", Text: fmt.Sprintf("%d 条关系端点引用未定义概念（结构校验将拦截，请先补概念）", dangling)})
 	}
+	// REQ-259/M258：语义级冲突预检（同名概念父类分歧/定义漂移+label 同义提示）——
+	// 只报告不做自动合并（详设口径）；三选项策略行为零变化。
+	pv.SemanticConflicts = semanticConflicts(target, incoming)
 	return pv, nil
 }
 
@@ -488,4 +495,86 @@ func rewireInstanceRefs(sp *pkgspec.Spec, oldName, newName string) {
 			}
 		}
 	}
+}
+
+
+// SemanticConflict 语义级冲突一条（REQ-259/M258 详设口径）。
+type SemanticConflict struct {
+	Kind     string `json:"kind"` // parent_divergence | definition_drift | label_synonym
+	Entity   string `json:"entity"`
+	Severity string `json:"severity"` // conflict | hint
+	Detail   string `json:"detail"`
+}
+
+// semanticConflicts 同名概念语义级预检（REQ-259；三选项策略行为零变化——只加检测）：
+// ①parent_divergence（conflict）：同名概念父类集互异（层级语义分歧——合并后无论哪版胜出都改变层级归属）；
+// ②definition_drift（conflict）：同名概念双方定义非空且互异超过阈值（同名义不同义风险）；
+// ③label_synonym（hint）：导入概念 label/synonym 与现行**不同名**概念的 label 相同（潜在同实体
+// 待对齐提示——REQ-262 external_refs alignment 的登记候选线索）。
+func semanticConflicts(target, incoming *pkgspec.Spec) []SemanticConflict {
+	var out []SemanticConflict
+	tIdx := map[string]int{}
+	for i, c := range target.Concepts {
+		tIdx[c.Name] = i
+	}
+	labelIdx := map[string]string{} // label → 概念名（现行侧）
+	for _, c := range target.Concepts {
+		if l := normalizeLabel(c.Label); l != "" {
+			labelIdx[l] = c.Name
+		}
+	}
+	parentSet := func(ps []string) map[string]bool {
+		m := map[string]bool{}
+		for _, p := range ps {
+			m[p] = true
+		}
+		return m
+	}
+	for _, in := range incoming.Concepts {
+		if i, ok := tIdx[in.Name]; ok {
+			cur := target.Concepts[i]
+			// ① 父类分歧：互有对方没有的父类（真分歧；单方空=增补不算）
+			cs, is := parentSet(cur.Parents), parentSet(in.Parents)
+			onlyCur, onlyIn := []string{}, []string{}
+			for p := range cs {
+				if !is[p] {
+					onlyCur = append(onlyCur, p)
+				}
+			}
+			for p := range is {
+				if !cs[p] {
+					onlyIn = append(onlyIn, p)
+				}
+			}
+			if len(onlyCur) > 0 && len(onlyIn) > 0 {
+				out = append(out, SemanticConflict{
+					Kind: "parent_divergence", Entity: in.Name, Severity: "conflict",
+					Detail: fmt.Sprintf("同名概念父类分歧：现行 [%s] vs 导入 [%s]（合并后层级归属随策略变化，请人工裁决）",
+						strings.Join(onlyCur, ","), strings.Join(onlyIn, ",")),
+				})
+			}
+			// ② 定义漂移：双方非空且互异（编辑噪声防抖：一方为空=增补不算漂移）
+			cd, id := strings.TrimSpace(cur.Definition), strings.TrimSpace(in.Definition)
+			if cd != "" && id != "" && cd != id {
+				out = append(out, SemanticConflict{
+					Kind: "definition_drift", Entity: in.Name, Severity: "conflict",
+					Detail: fmt.Sprintf("同名概念定义分歧：现行「%.60s」vs 导入「%.60s」", cd, id),
+				})
+			}
+		}
+		// ③ label 同义提示：导入概念 label 命中现行**不同名**概念的 label（潜在对齐候选）
+		if l := normalizeLabel(in.Label); l != "" {
+			if owner, ok := labelIdx[l]; ok && owner != in.Name {
+				out = append(out, SemanticConflict{
+					Kind: "label_synonym", Entity: in.Name, Severity: "hint",
+					Detail: fmt.Sprintf("导入概念 %q 的显示名「%s」与现行概念 %q 相同（潜在同实体——可登记 external_ref alignment 对齐）", in.Name, l, owner),
+				})
+			}
+		}
+	}
+	return out
+}
+
+func normalizeLabel(l string) string {
+	return strings.ToLower(strings.TrimSpace(l))
 }
