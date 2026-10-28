@@ -19,11 +19,49 @@ data_properties 声明导出为 <attr:名> owl:DatatypeProperty（与实例属�
 """
 import sys, json, decimal
 
+# REQ-465：输出统一 UTF-8——Windows 非 UTF-8 运行时下 sys.stdout/stderr 编码随 ANSI 代码页
+# （cp936 严格），非 GBK 字符会崩编码错误、JSON 输出成错码字节；固定 UTF-8 与导入侧
+# 显式解码口径对齐（stdin 侧见 stdin_text），Go 侧按字节消费不再受运行环境漂移影响。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     from rdflib import Graph, RDF, RDFS, OWL, URIRef, Literal, SKOS
 except ImportError:
     sys.stderr.write("rdflib 未安装：pip install rdflib\n")
     sys.exit(3)
+
+
+def stdin_text() -> tuple[str, list[str], bool]:
+    """stdin 字节级读取+显式解码三级回落（REQ-465 Windows 导入编码根治）。
+
+    sys.stdin.read() 的解码随运行环境漂移：Windows PYTHONUTF8/UTF-8 模式下 stdin 为
+    surrogateescape——文件中的非 UTF-8 字节被读成孤立代理字符（\\udcXX），RDF/XML 在
+    rdflib 严格 utf-8 编码处崩「surrogates not allowed」（真机实锤：64KB 文件单个 0x93
+    残留字节）；cp936 严格环境则整读直接 UnicodeDecodeError。字节自读后按序回落：
+    ①utf-8 严格（绝大多数文件，行为与 Linux 路径一致）；
+    ②坏字节稀疏（≤max(4, 总量万分之一)）→ utf-8+replace 保正文——受损 UTF-8（典型如
+      单个 cp1252 智能引号/GBK 尾字节残留），此形态走 GB18030 会把合法 UTF-8 中文整篇
+      乱码，故优先保正文、坏字节落 U+FFFD 如实降级（lossy）；
+    ③gb18030 严格（GBK/GB2312 超集）——全篇 GBK 中文文件无损解码（非 lossy）；
+    ④兜底 utf-8+replace（非 UTF-8 亦非 GB18030 的脏数据，如实降级 lossy）。
+    返回 (文本, warnings, 坏字节是否被替换)。
+    """
+    raw = sys.stdin.buffer.read()
+    try:
+        return raw.decode("utf-8"), [], False
+    except UnicodeDecodeError:
+        pass
+    degraded = raw.decode("utf-8", errors="replace")
+    n_bad = degraded.count("\ufffd")
+    if n_bad <= max(4, len(raw) // 10000):
+        pos = degraded.find("\ufffd")
+        return degraded, [f"文件非纯 UTF-8：{n_bad} 个坏字节已替换为 U+FFFD（首个约在第 {pos} 字节），正文按 UTF-8 保留；建议修复源文件编码后重新导入"], True
+    try:
+        return raw.decode("gb18030"), ["文件非 UTF-8，已按 GB18030 解码（GBK/GB2312 超集，中文无损）；建议源文件转存 UTF-8"], False
+    except UnicodeDecodeError:
+        return degraded, [f"文件无法按 UTF-8/GB18030 解码：{n_bad} 个坏字节已替换为 U+FFFD"], True
 
 RDFXML = "xml"
 TTL = "turtle"
@@ -93,7 +131,7 @@ def range_short(rng) -> str:
 
 
 def parse(format: str) -> int:
-    content = sys.stdin.read()
+    content, dec_warnings, dec_lossy = stdin_text()
     g = Graph()
     fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
     if fmt is None:
@@ -105,7 +143,7 @@ def parse(format: str) -> int:
         sys.stderr.write(f"RDF 解析失败: {e}\n")
         return 1
 
-    warnings, lossy = [], False
+    warnings, lossy = list(dec_warnings), dec_lossy
     # REQ-328/B：余量全量账本——凡未投影且非「纯系统词汇」三元组全部 N-Triples 入账（无上限，
     # 规模由 IMPORT_MAX_BODY_MB 上界自然约束），导出拼接还原；对账恒等式
     #   triples_in = vocabulary（纯系统）+ projected（投影消费）+ remainder（余量）
@@ -522,7 +560,9 @@ def export(argv) -> int:
             fmt = args[i + 1]; i += 2
         else:
             i += 1
-    spec = json.load(sys.stdin)
+    # REQ-465：spec_json 按字节读入固定 UTF-8 解码（sys.stdin 文本读随运行环境漂移，同 stdin_text 口径；
+    # 平台侧生成的 spec_json 恒为合法 UTF-8，无需回落链）
+    spec = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     base = f"urn:o:{sanitize(oid)}:"
     cu = lambda n: f"{base}concept:{sanitize(n)}"       # noqa: E731
     ru = lambda n: f"{base}relation:{sanitize(n)}"      # noqa: E731
@@ -644,7 +684,9 @@ def main() -> int:
 
 
 def canon(format: str) -> int:
-    content = sys.stdin.read()
+    content, dec_warnings, _ = stdin_text()
+    for w in dec_warnings:
+        sys.stderr.write(f"note: {w}\n")
     g = Graph()
     fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
     if fmt is None:
@@ -668,7 +710,9 @@ def canon(format: str) -> int:
 
 
 def reason(format: str) -> int:
-    content = sys.stdin.read()
+    content, dec_warnings, _ = stdin_text()
+    for w in dec_warnings:
+        sys.stderr.write(f"note: {w}\n")
     g = Graph()
     fmt = {"owl_rdfxml": RDFXML, "turtle": TTL, "jsonld": JSONLD}.get(format)
     if fmt is None:
