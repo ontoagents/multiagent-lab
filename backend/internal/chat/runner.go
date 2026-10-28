@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
@@ -46,6 +47,9 @@ type Service struct {
 	// 与 in-process interruptState 挂起（跨 Run 持久化+checkpoint 恢复）不同：外部通道的权限
 	// 挂起活在当前 run 进程内（SSE 保持打开），仅内存登记——进程重启即失效（dsh turn 随之终止）。
 	extApprovals map[string]chan string
+	// externalRetrievers REQ-456/M252：外部检索源注册表（source 名 -> eino Retriever；
+	// RegisterRetrieverSource 注册，recallChainWithExternal 按名稳定序追加准入链尾部）。
+	externalRetrievers map[string]retriever.Retriever
 	// cpAnchors REQ-214 顺修：恢复链 checkpoint 锚点（conversationID -> 恢复时所用 checkpointID）。
 	// ADK 在 Resume 后再次挂起时沿用恢复锚点 id 覆盖保存快照（adk/runner.go resumeInternal），
 	// 而平台侧此前按新 runID 派生新 id 记录挂起状态——多级审批第二次恢复必报 checkpoint not exist。
@@ -384,8 +388,11 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	// REQ-311 A6：逐源记录注入量（messages/chars），召回完成发 context.stats 上下文账单事件
 	//（发在 run.started 之后——召回依赖历史装配产物，事件随其物理时序；账单单一事件承载完整数据）
 	injections := make([]map[string]any, 0, 2)
-	recallNames := []string{"kb", "companion"}
-	for i, rp := range s.recallChain() {
+	// REQ-456：链名清单与链同源派生（内置 kb/companion + 外部注册源按名序）——
+	// context.stats 逐源注入量与实际消费链不再依赖两份手写清单对齐
+	chain := s.recallChainWithExternal()
+	recallNames := append([]string{"kb", "companion"}, externalSourceNames(s)...)
+	for i, rp := range chain {
 		before := len(histMsgs)
 		histMsgs = rp(runCtx, conv, agent, runID, input, histMsgs, emit)
 		if n := len(histMsgs) - before; n > 0 {
