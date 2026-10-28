@@ -148,3 +148,17 @@ func (s *Server) ontologyContributionSummary(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, rows)
 }
+
+// ontologyRunGroups GET /api/ontology/contribution/run-groups?limit=：REQ-482/M282④ 组维度
+// ——最近 N 次回答（run）各自命中的本体集合与方案归因（「一次回答命中哪些本体」）。
+func (s *Server) ontologyRunGroups(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Store.OntologyRunGroups(atoiDefault(r.URL.Query().Get("limit"), 10))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if rows == nil {
+		rows = []*store.OntologyRunGroup{}
+	}
+	writeJSON(w, http.StatusOK, rows)
+}

@@ -249,37 +249,78 @@ func (f *Facade) handleConcept() server.ToolHandlerFunc {
 		if errRes != nil {
 			return errRes, nil
 		}
-		u := uriOf(oid, "concept", name)
+		// REQ-482/M282：方案组作用域——概念按 rdfs:label 跨方案内全部本体匹配（URI 不再
+		// 钉死单本体命名空间），每命中标注来源本体（URI 反解）；单命中保持既有扁平形状并增
+		// ontology_id/profile_id，多命中返回 matches（§2.67 语义完备①③）。
 		q := fmt.Sprintf(`PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
-SELECT ?label ?comment ?parent WHERE {
-  <%s> rdf:type owl:Class ; rdfs:label ?label .
-  OPTIONAL { <%s> rdfs:comment ?comment }
-  OPTIONAL { <%s> rdfs:subClassOf ?parent }
-}`, u, u, u)
+SELECT ?c ?label ?comment ?parent WHERE {
+  ?c rdf:type owl:Class ; rdfs:label %s .
+  OPTIONAL { ?c rdfs:comment ?comment }
+  OPTIONAL { ?c rdfs:subClassOf ?parent }
+}`, sparqlString(name))
 		bindings, err := f.exec(ctx, "get_concept", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("查询失败: %v", err), nil
 		}
-		if len(bindings) == 0 {
-			return mcp.NewToolResultErrorf("概念 %q 不存在于本体 %s", name, oid), nil
+		type cHit struct {
+			src        string
+			uri        string
+			definition string
+			parents    []string
+			seen       map[string]bool
 		}
-		out := map[string]any{"name": name, "uri": u, "label": lit(bindings[0]["label"]), "parents": []string{}}
-		if bindings[0]["comment"] != nil {
-			out["definition"] = lit(bindings[0]["comment"])
-		}
-		seen := map[string]bool{}
+		order := []*cHit{}
+		byURI := map[string]*cHit{}
 		for _, b := range bindings {
+			if b["c"] == nil {
+				continue
+			}
+			cu := lit(b["c"])
+			h := byURI[cu]
+			if h == nil {
+				h = &cHit{src: hitSource(cu, oid), uri: cu, seen: map[string]bool{}}
+				byURI[cu] = h
+				order = append(order, h)
+			}
+			if h.definition == "" && b["comment"] != nil {
+				h.definition = lit(b["comment"])
+			}
 			if b["parent"] != nil {
 				pu := lit(b["parent"])
-				if !seen[pu] {
-					seen[pu] = true
-					out["parents"] = append(out["parents"].([]string), nameFromURI(pu))
+				if !h.seen[pu] {
+					h.seen[pu] = true
+					h.parents = append(h.parents, nameFromURI(pu))
 				}
 			}
 		}
-		return jsonResult(out), nil
+		if len(order) == 0 {
+			return mcp.NewToolResultErrorf("概念 %q 不存在于本体 %s（方案组内 %d 个本体）", name, oid, len(p.LoadedOntologyIDs())), nil
+		}
+		hitOut := func(h *cHit) map[string]any {
+			if h.parents == nil {
+				h.parents = []string{}
+			}
+			m := map[string]any{"ontology_id": h.src, "name": name, "uri": h.uri, "label": name, "parents": h.parents}
+			if h.definition != "" {
+				m["definition"] = h.definition
+			}
+			return m
+		}
+		if len(order) == 1 {
+			out := hitOut(order[0])
+			out["profile_id"] = p.ID
+			return jsonResult(out), nil
+		}
+		matches := make([]map[string]any, 0, len(order))
+		for _, h := range order {
+			matches = append(matches, hitOut(h))
+		}
+		return jsonResult(map[string]any{
+			"count": len(matches), "matches": matches, "profile_id": p.ID,
+			"note": "同名概念命中多个本体（方案组语义）——已标注来源本体，可用 GRAPH <urn:onto:{oid}> 深查",
+		}), nil
 	}
 }
 
@@ -295,29 +336,57 @@ func (f *Facade) handleInstance() server.ToolHandlerFunc {
 		if errRes != nil {
 			return errRes, nil
 		}
-		u := uriOf(oid, "instance", name)
-		q := fmt.Sprintf(`SELECT ?p ?o WHERE { <%s> ?p ?o }`, u)
+		// REQ-482/M282：方案组作用域——实例按 rdfs:label 跨方案内全部本体匹配并标注来源。
+		q := fmt.Sprintf(`SELECT ?i ?p ?o WHERE { ?i rdfs:label %s . ?i ?p ?o }`, sparqlString(name))
 		bindings, err := f.exec(ctx, "get_instance", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("查询失败: %v", err), nil
 		}
-		if len(bindings) == 0 {
-			return mcp.NewToolResultErrorf("实例 %q 不存在于本体 %s", name, oid), nil
-		}
-		out := map[string]any{"name": name, "uri": u, "attributes": map[string]any{}, "relations": []any{}}
-		pfx := "urn:o:" + pkgspec.Sanitize(oid) + ":"
-		for _, b := range bindings {
-			pu, ov := lit(b["p"]), b["o"]
-			switch {
-			case strings.HasSuffix(pu, "22-rdf-syntax-ns#type"):
-				out["concept"] = nameFromURI(lit(ov))
-			case strings.HasPrefix(pu, pfx+"attr:"):
-				out["attributes"].(map[string]any)[nameFromURI(pu)] = lit(ov)
-			case strings.HasPrefix(pu, pfx+"relation:"):
-				out["relations"] = append(out["relations"].([]any), map[string]string{"rel": nameFromURI(pu), "target": nameFromURI(lit(ov))})
+		build := func(src, iu string, rows []map[string]any) map[string]any {
+			out := map[string]any{"ontology_id": src, "name": name, "uri": iu,
+				"attributes": map[string]any{}, "relations": []any{}}
+			pfx := "urn:o:" + pkgspec.Sanitize(src) + ":"
+			for _, b := range rows {
+				pu, ov := lit(b["p"]), b["o"]
+				switch {
+				case strings.HasSuffix(pu, "22-rdf-syntax-ns#type"):
+					out["concept"] = nameFromURI(lit(ov))
+				case strings.HasPrefix(pu, pfx+"attr:"):
+					out["attributes"].(map[string]any)[nameFromURI(pu)] = lit(ov)
+				case strings.HasPrefix(pu, pfx+"relation:"):
+					out["relations"] = append(out["relations"].([]any), map[string]string{"rel": nameFromURI(pu), "target": nameFromURI(lit(ov))})
+				}
 			}
+			return out
 		}
-		return jsonResult(out), nil
+		order := []string{}
+		byURI := map[string][]map[string]any{}
+		for _, b := range bindings {
+			if b["i"] == nil {
+				continue
+			}
+			iu := lit(b["i"])
+			if _, ok := byURI[iu]; !ok {
+				order = append(order, iu)
+			}
+			byURI[iu] = append(byURI[iu], b)
+		}
+		if len(order) == 0 {
+			return mcp.NewToolResultErrorf("实例 %q 不存在于本体 %s（方案组内 %d 个本体）", name, oid, len(p.LoadedOntologyIDs())), nil
+		}
+		if len(order) == 1 {
+			out := build(hitSource(order[0], oid), order[0], byURI[order[0]])
+			out["profile_id"] = p.ID
+			return jsonResult(out), nil
+		}
+		matches := make([]map[string]any, 0, len(order))
+		for _, iu := range order {
+			matches = append(matches, build(hitSource(iu, oid), iu, byURI[iu]))
+		}
+		return jsonResult(map[string]any{
+			"count": len(matches), "matches": matches, "profile_id": p.ID,
+			"note": "同名实例命中多个本体（方案组语义）——已标注来源本体",
+		}), nil
 	}
 }
 
@@ -333,20 +402,49 @@ func (f *Facade) handleListInstances() server.ToolHandlerFunc {
 		if errRes != nil {
 			return errRes, nil
 		}
-		cu := uriOf(oid, "concept", concept)
+		// REQ-482/M282：方案组作用域——概念按 label 跨本体匹配，逐命中本体列实例。
 		q := fmt.Sprintf(`PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-SELECT ?i WHERE { ?i rdf:type <%s> } ORDER BY ?i`, cu)
+SELECT ?c ?i WHERE { ?c rdf:type owl:Class ; rdfs:label %s . ?i rdf:type ?c } ORDER BY ?i`, sparqlString(concept))
 		bindings, err := f.exec(ctx, "list_instances", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("查询失败: %v", err), nil
 		}
-		names := []string{}
-		for _, b := range bindings {
-			if b["i"] != nil {
-				names = append(names, nameFromURI(lit(b["i"])))
-			}
+		type cHit struct {
+			src       string
+			uri       string
+			instances []string
 		}
-		return jsonResult(map[string]any{"concept": concept, "count": len(names), "instances": names}), nil
+		order := []*cHit{}
+		byURI := map[string]*cHit{}
+		for _, b := range bindings {
+			if b["c"] == nil || b["i"] == nil {
+				continue
+			}
+			cu := lit(b["c"])
+			h := byURI[cu]
+			if h == nil {
+				h = &cHit{src: hitSource(cu, oid), uri: cu}
+				byURI[cu] = h
+				order = append(order, h)
+			}
+			h.instances = append(h.instances, nameFromURI(lit(b["i"])))
+		}
+		if len(order) == 0 {
+			return jsonResult(map[string]any{"concept": concept, "count": 0, "instances": []string{}, "profile_id": p.ID}), nil
+		}
+		hitOut := func(h *cHit) map[string]any {
+			return map[string]any{"ontology_id": h.src, "concept": concept, "count": len(h.instances), "instances": h.instances}
+		}
+		if len(order) == 1 {
+			out := hitOut(order[0])
+			out["profile_id"] = p.ID
+			return jsonResult(out), nil
+		}
+		matches := make([]map[string]any, 0, len(order))
+		for _, h := range order {
+			matches = append(matches, hitOut(h))
+		}
+		return jsonResult(map[string]any{"count": len(matches), "matches": matches, "profile_id": p.ID}), nil
 	}
 }
 
@@ -362,21 +460,55 @@ func (f *Facade) handleNeighbors() server.ToolHandlerFunc {
 		if errRes != nil {
 			return errRes, nil
 		}
-		u := uriOf(oid, "instance", name)
-		q := fmt.Sprintf(`SELECT ?p ?o WHERE { <%s> ?p ?o . FILTER(isIRI(?o)) FILTER(STRSTARTS(STR(?p), "urn:o:")) }`, u)
+		// REQ-482/M282：方案组作用域——实例按 label 跨本体匹配，逐命中列关系邻居。
+		q := fmt.Sprintf(`SELECT ?i ?p ?o WHERE { ?i rdfs:label %s . ?i ?p ?o . FILTER(isIRI(?o)) FILTER(STRSTARTS(STR(?p), "urn:o:")) }`, sparqlString(name))
 		bindings, err := f.exec(ctx, "neighbors", oid, p.ID, ep, q)
 		if err != nil {
 			return mcp.NewToolResultErrorf("查询失败: %v", err), nil
 		}
-		neighbors := []any{}
+		type iHit struct {
+			src       string
+			uri       string
+			neighbors []any
+		}
+		order := []*iHit{}
+		byURI := map[string]*iHit{}
 		for _, b := range bindings {
+			if b["i"] == nil {
+				continue
+			}
+			iu := lit(b["i"])
+			h := byURI[iu]
+			if h == nil {
+				h = &iHit{src: hitSource(iu, oid), uri: iu}
+				byURI[iu] = h
+				order = append(order, h)
+			}
 			pu := lit(b["p"])
 			if !strings.Contains(pu, ":relation:") {
 				continue
 			}
-			neighbors = append(neighbors, map[string]string{"rel": nameFromURI(pu), "target": nameFromURI(lit(b["o"]))})
+			h.neighbors = append(h.neighbors, map[string]string{"rel": nameFromURI(pu), "target": nameFromURI(lit(b["o"]))})
 		}
-		return jsonResult(map[string]any{"name": name, "neighbors": neighbors}), nil
+		if len(order) == 0 {
+			return jsonResult(map[string]any{"name": name, "neighbors": []any{}, "profile_id": p.ID}), nil
+		}
+		hitOut := func(h *iHit) map[string]any {
+			if h.neighbors == nil {
+				h.neighbors = []any{}
+			}
+			return map[string]any{"ontology_id": h.src, "name": name, "neighbors": h.neighbors}
+		}
+		if len(order) == 1 {
+			out := hitOut(order[0])
+			out["profile_id"] = p.ID
+			return jsonResult(out), nil
+		}
+		matches := make([]map[string]any, 0, len(order))
+		for _, h := range order {
+			matches = append(matches, hitOut(h))
+		}
+		return jsonResult(map[string]any{"count": len(matches), "matches": matches, "profile_id": p.ID}), nil
 	}
 }
 
@@ -428,7 +560,7 @@ SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class ; rdfs:label ?label } ORDER
 			names = names[:cut]
 			truncated = true
 		}
-		out := map[string]any{"ontology_id": oid, "count": len(names), "concepts": names}
+		out := map[string]any{"ontology_id": oid, "count": len(names), "concepts": names, "scope": scopeBlock(p)}
 		if truncated {
 			out["truncated"] = true
 		}

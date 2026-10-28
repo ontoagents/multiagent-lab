@@ -116,7 +116,7 @@ func firstQueryKind(query string) string { return sparqlguard.FirstQueryKind(que
 
 func (f *Facade) addSparqlQueryTool(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("sparql_query",
-		mcp.WithDescription("对本体或伴生图执行自定义只读 SPARQL 查询（开放问题查询面，如「哪些概念没有注释」）：SELECT 返回表格列与行，ASK 返回布尔判定。仅允许 SELECT/ASK，禁任何变更操作；SELECT 默认返回 50 行，可用 limit 调整（上限 200）。graph=companion 时查询指定智能体绑定本体的伴生子图（对话动态沉淀的知识，REQ-216 资产化后归属本体资产）。"),
+		mcp.WithDescription("对本体或伴生图执行自定义只读 SPARQL 查询（开放问题查询面，如「哪些概念没有注释」）：SELECT 返回表格列与行，ASK 返回布尔判定。仅允许 SELECT/ASK，禁任何变更操作；SELECT 默认返回 50 行，可用 limit 调整（上限 200）。graph=companion 时查询指定智能体绑定本体的伴生子图（对话动态沉淀的知识，REQ-216 资产化后归属本体资产）。方案组语义（REQ-482）：default 图=方案内全部本体 raw 图（+推断图）的并置 union，跨本体查询天然可见；结果携 scope 块（方案内本体清单与 GRAPH 限定线索），逐行来源可用 GRAPH <urn:onto:{oid}> 复查。"),
 		requiredString("ontology_id", "本体仓库 id（graph=companion 时可留空）"),
 		mcp.WithString("query", mcp.Required(), mcp.Description("SPARQL SELECT 或 ASK 查询全文（可带 PREFIX 声明）")),
 		mcp.WithNumber("limit", mcp.Description("返回行数上限（可选，默认 50，最大 200；仅 SELECT 生效）")),
@@ -174,6 +174,7 @@ func (f *Facade) handleSparqlQuery() server.ToolHandlerFunc {
 		return jsonResult(map[string]any{
 			"columns": cols, "rows": rows, "count": len(rows),
 			"total": len(bindings), "truncated": truncated, "limit": limit,
+			"scope": scopeBlock(p), // REQ-482/M282：union 侧漏转正为文档化组语义+归因线索
 		}), nil
 	}
 }

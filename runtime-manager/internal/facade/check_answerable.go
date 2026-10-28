@@ -85,6 +85,7 @@ SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class . { ?c rdfs:label ?label } 
 			"answerable": answerable, "matched_concepts": mc,
 			"coverage": coverage, "label_count": len(labels), "question_words": words,
 			"suggestion": suggestion,
+			"scope":      scopeBlock(p), // REQ-482/M282：概念覆盖跨本体转正（label 拉取本无命名空间过滤）+组作用域透出
 		}), nil
 	}
 }

@@ -412,3 +412,23 @@ func splitSQL(script string) []string {
 	}
 	return stmts
 }
+
+// LoadedOntologyIDs REQ-482/M282：有效装载清单——LoadedStatus 快照键序（REQ-480 闭包
+// 补全后的有效集）优先，缺失/解析失败回落声明集 OntologyIDs。facade 组作用域与
+// guide 组语义指引共用此单源。
+func (p *Profile) LoadedOntologyIDs() []string {
+	if strings.TrimSpace(p.LoadedStatus) != "" {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(p.LoadedStatus), &m); err == nil && len(m) > 0 {
+			ids := make([]string, 0, len(m))
+			for k := range m {
+				if k != "" && !strings.HasPrefix(k, "_") {
+					ids = append(ids, k)
+				}
+			}
+			sort.Strings(ids)
+			return ids
+		}
+	}
+	return p.OntologyIDs
+}

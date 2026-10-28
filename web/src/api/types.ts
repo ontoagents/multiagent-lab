@@ -1284,6 +1284,14 @@ export interface OntoContributionSummaryRow {
   last_hit_at?: string
   last_tool?: string
 }
+/** REQ-482/M282④：组维度——一次回答（run）命中的本体集合与方案归因 */
+export interface OntoRunGroup {
+  run_id: string
+  profile_id?: string
+  hits: number
+  last_hit_at?: string
+  ontologies: string[]
+}
 // REQ-224①：会话状态机读模型与变更留痕
 export interface ConversationStateSnapshot {
   conversation_id: string

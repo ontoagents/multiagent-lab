@@ -519,7 +519,15 @@ func (s *Server) guide(w http.ResponseWriter, r *http.Request) {
 	if respID == "" {
 		respID = p.ID
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"ontology_id": respID, "guide": strings.Join(parts, "\n\n")})
+	guideText := strings.Join(parts, "\n\n")
+	// REQ-482/M282：组语义指引——方案装载多个本体（闭包补全后的有效集）时追加组语义段：
+	// 结构化工具跨本体匹配+来源标注、union 默认图、skos 映射桥扩展、GRAPH 限定线索。
+	if eff := p.LoadedOntologyIDs(); len(eff) > 1 {
+		guideText += fmt.Sprintf("\n\n【方案组语义（REQ-482）】本方案装载 %d 个本体（%s）：概念/实例查询已按名跨本体匹配并在结果中标注来源本体（ontology_id）；"+
+			"sparql_query 默认图为方案组并置 union（逐行来源可用 GRAPH <urn:onto:{oid}> 限定，装载期物化的推断在 GRAPH <urn:inferred:assembly>）；"+
+			"跨本体关联优先沿 skos:exactMatch 等映射桥与共享标签扩展。", len(eff), strings.Join(eff, ", "))
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ontology_id": respID, "guide": guideText})
 }
 
 // fetchOntologyGuide 从构建平面拉取单个本体指引（5s 预算），

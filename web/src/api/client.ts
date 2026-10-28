@@ -6,6 +6,7 @@ import type {
   ConversationStateSnapshot,
   OntoContribution,
   OntoContributionSummaryRow,
+  OntoRunGroup,
   AiDraftJobState,
   AiDraftResult,
   BuildQualitySummary,
@@ -508,6 +509,8 @@ export const api = {
   ontologyContribution: (id: string, topN = 10) => req<OntoContribution>(`/api/ontology/${id}/contribution?top_n=${topN}`),
   /** REQ-224 H10：跨本体命中概览（消费审计栏一览） */
   ontologyContributionSummary: (limit = 20) => req<OntoContributionSummaryRow[]>(`/api/ontology/contribution/summary?limit=${limit}`),
+  /** REQ-482/M282④：组维度——最近 N 次回答各自命中的本体集合与方案归因 */
+  ontologyRunGroups: (limit = 10) => req<OntoRunGroup[]>(`/api/ontology/contribution/run-groups?limit=${limit}`),
   /** REQ-224①：会话状态机读模型（phase 派生 + 状态族全量） */
   conversationState: (id: string) => req<ConversationStateSnapshot>(`/api/conversations/${id}/state`),
   /** REQ-224①：会话状态变更留痕（prev→next 快照，倒序） */

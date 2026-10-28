@@ -241,6 +241,8 @@ func (s *Server) routes() {
 	// 精确路由压过 /api/ontology/ 反代前缀，沿 collab-pipeline 先例）
 	m.HandleFunc("GET /api/ontology/{id}/contribution", s.ontologyContribution)
 	m.HandleFunc("GET /api/ontology/contribution/summary", s.ontologyContributionSummary)
+	m.HandleFunc("GET /api/ontology/contribution/run-groups", s.ontologyRunGroups) // REQ-482/M282④ 组维度
+
 	m.HandleFunc("GET /api/agents/{id}", s.getAgent)
 	m.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
 	m.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)

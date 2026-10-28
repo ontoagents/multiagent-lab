@@ -1463,9 +1463,18 @@ func (s *Service) recordOntologyHit(rc *runConsumer, conv *store.Conversation, r
 			target = strings.TrimSuffix(target, "[截断]")
 		}
 	}
+	// REQ-482/M282：方案归因——facade 工具结果 JSON 的 profile_id（组作用域 scope 块）透出
+	// 落行；非 JSON/无字段静默跳过（存量形状兼容）。
+	var resScope struct {
+		ProfileID string `json:"profile_id"`
+	}
+	if msg.Content != "" {
+		_ = json.Unmarshal([]byte(msg.Content), &resScope)
+	}
 	h := &store.OntologyHit{
 		OntologyID: args.OntologyID, ConversationID: conv.ID, RunID: runID,
-		Tool: msg.ToolName, Target: target, OK: ok,
+		ProfileID: resScope.ProfileID,
+		Tool:      msg.ToolName, Target: target, OK: ok,
 	}
 	if err := s.Store.InsertOntologyHit(h); err != nil {
 		log.Printf("[ontology.hit] 落库失败: %v", err)
@@ -1473,6 +1482,7 @@ func (s *Service) recordOntologyHit(rc *runConsumer, conv *store.Conversation, r
 	}
 	data, _ := json.Marshal(map[string]any{
 		"ontology_id": h.OntologyID, "tool": h.Tool, "target": h.Target, "ok": h.OK,
+		"profile_id": h.ProfileID,
 	})
 	s.emitAndRecord(rc.ctx, conv, runID, newEvent("ontology.hit", runID, json.RawMessage(data)), emit)
 }

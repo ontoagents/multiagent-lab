@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { ExportOutlined, ReloadOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import LoadErrorAlert from '../../../../components/LoadErrorAlert'
 import { api } from '../../../../api/client'
-import type { OntoContribution, OntoContributionSummaryRow, RuntimeProfile } from '../../../../api/types'
+import type { OntoContribution, OntoContributionSummaryRow, OntoRunGroup, RuntimeProfile } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
 
 // ---------------------------------------------------------------------------
@@ -114,8 +114,14 @@ export default function AuditObserveTab({
   // REQ-224 H10：消费贡献一览（跨本体概览 + 点行展开单本体 TopN）
   const [hitSummary, setHitSummary] = useState<OntoContributionSummaryRow[]>([])
   const [hitDetail, setHitDetail] = useState<OntoContribution | null>(null)
+  // REQ-482/M282④：组维度——一次回答命中的本体集合与方案归因
+  const [runGroups, setRunGroups] = useState<OntoRunGroup[]>([])
+  const loadHitGroups = () => {
+    api.ontologyRunGroups().then(setRunGroups).catch(() => setRunGroups([]))
+  }
   useEffect(() => {
     api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
+    loadHitGroups()
   }, [])
   const loadHitDetail = (oid: string) => {
     if (hitDetail?.ontology_id === oid) {
@@ -391,6 +397,7 @@ export default function AuditObserveTab({
             icon={<ReloadOutlined />}
             onClick={() => {
               api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
+              loadHitGroups()
               setHitDetail(null)
             }}
           >
@@ -443,6 +450,30 @@ export default function AuditObserveTab({
                 <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 8, marginBottom: 0 }}>
                   按工具分布：{(hitDetail.by_tool ?? []).map((t) => `${t.tool}×${t.count}`).join(' · ') || '—'}
                 </Typography.Paragraph>
+              </Card>
+            )}
+            {runGroups.length > 0 && (
+              <Card
+                type="inner"
+                size="small"
+                title='回答 × 本体命中组（REQ-482④「一次回答命中哪些本体」）'
+                style={{ marginTop: 10 }}
+                data-testid="onto-run-groups"
+              >
+                {runGroups.map((g) => (
+                  <div key={g.run_id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', padding: '4px 0' }}>
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      run {g.run_id.slice(0, 8)} · {g.hits} 次命中{g.profile_id ? ` · 方案 ${g.profile_id.slice(0, 8)}` : ''}
+                    </Typography.Text>
+                    <Space size={4} wrap>
+                      {g.ontologies.map((o) => (
+                        <Tag key={o} color="purple" style={{ margin: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {o}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </div>
+                ))}
               </Card>
             )}
           </>
