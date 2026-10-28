@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/patchtoolcalls"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -1596,7 +1597,18 @@ type agentMeta struct {
 // newChatModelAgent 构造 ADK ChatModelAgent（统一 ToolsConfig / EmitInternalEvents）。
 // REQ-452/M248：全装配点统一挂模型调用重试（幂等白名单+指数退避）与可选故障转移
 // （mfc 非 nil 时启用——buildModelFailover 按 agent 备援清单构造）。
+// REQ-454/M250：全装配点统一挂 patchtoolcalls 中间件——恢复链路（interrupt resume/崩溃续跑
+// checkpoint）消息历史的悬空 ToolCalls 在下次模型调用前自动补合成结果（文案对齐 A1 unknownResultText），
+// 防部分 provider 拒收；健康运行零悬空调用零行为变更。
 func newChatModelAgent(ctx context.Context, name, description, instruction string, maxIter int, cm model.BaseChatModel, tools []einotool.BaseTool, mfc *adk.ModelFailoverConfig[*schema.Message]) (adk.Agent, error) {
+	patch, err := patchtoolcalls.New(ctx, &patchtoolcalls.Config{
+		PatchedToolResultGenerator: func(_ context.Context, toolName, toolCallID string, _ *schema.ToolArgument) (*patchtoolcalls.PatchedToolResult, error) {
+			return patchedUnknownToolResult(toolName, toolCallID), nil
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create patchtoolcalls middleware: %w", err)
+	}
 	inst, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          name,
 		Description:   description,
@@ -1610,11 +1622,18 @@ func newChatModelAgent(ctx context.Context, name, description, instruction strin
 		},
 		ModelRetryConfig:    modelRetryConfig(),
 		ModelFailoverConfig: mfc,
+		Handlers:            []adk.ChatModelAgentMiddleware{patch}, // REQ-454/M250
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create adk agent %q: %w", name, err)
 	}
 	return inst, nil
+}
+
+// patchedUnknownToolResult REQ-454/M250：悬空 ToolCalls 的合成结果——文案对齐 A1
+// unknownResultText（结果未知+重试边界纪律），附 patchtoolcalls 溯源尾注。
+func patchedUnknownToolResult(toolName, toolCallID string) *patchtoolcalls.PatchedToolResult {
+	return &patchtoolcalls.PatchedToolResult{Content: unknownResultText + "（patchtoolcalls 合成，tool=" + toolName + " id=" + toolCallID + "）"}
 }
 
 // modelRetryMax 模型调用重试次数（REQ-452/M248；环境变量 MODEL_RETRY_MAX 可调，默认 2，0=关闭）。
