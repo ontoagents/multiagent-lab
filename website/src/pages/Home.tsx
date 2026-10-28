@@ -33,8 +33,8 @@ const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     href: '#/module/design',
     i18n: {
-      zh: { title: '它是什么', desc: '单机可部署的智能体 + 本体双核平台，Go + Eino/ADK，数据全留本机' },
-      en: { title: 'What it is', desc: 'A self-hostable dual-core platform for agents + ontologies, on Go + Eino/ADK — data stays local' },
+      zh: { title: '它是什么', desc: '面向专业个人的工作学习助手——以本体为知识底座：知识可查询、可审计、可出题；单机自部署，数据全留本机' },
+      en: { title: 'What it is', desc: 'A personal work & learning assistant for professionals, grounded on ontologies — knowledge you can query, audit and quiz. Self-hosted, data stays local' },
     },
   },
   {
@@ -332,17 +332,18 @@ export default function HomePage() {
           <p className="hero-desc">
             {locale === 'zh' ? (
               <>
-                基于 Go + CloudWeGo Eino/ADK 的智能体构建平台，<strong>单机可部署</strong>。
-                <strong>智能体工程</strong>（对话 / 多智能体协作 / 知识·技能·本体增强）与
-                <strong>本体工程</strong>（构建 → 资产 → 运行 → 消费审计闭环）双核心，
-                内置学习中心与示例本体，能力边界诚实标注。
+                面向专业个人的<strong>工作学习助手</strong>，以本体为知识底座——知识不是一堆文档，
+                而是可查询、可审计、可出题的结构化资产。基于 Go + CloudWeGo Eino/ADK，<strong>单机自部署</strong>，
+                专业工作数据不离开本机；<strong>智能体工程</strong>（对话 / 多智能体协作 / 知识·技能·本体增强）与
+                <strong>本体工程</strong>（构建 → 资产 → 运行 → 消费审计闭环）双核心，能力边界诚实标注。
               </>
             ) : (
               <>
-                An agent construction platform on Go + CloudWeGo Eino/ADK, <strong>self-hostable on a single machine</strong>.
-                Dual cores: <strong>agent engineering</strong> (chat / multi-agent collaboration / knowledge·skill·ontology augmentation) and{' '}
-                <strong>ontology engineering</strong> (build → assets → run → consume & audit), with a built-in learning center and example
-                ontologies — capability boundaries honestly labeled.
+                A <strong>personal work &amp; learning assistant for professionals</strong>, grounded on ontologies — knowledge as a
+                structured asset you can query, audit and quiz, not a pile of documents. Built on Go + CloudWeGo Eino/ADK,{' '}
+                <strong>self-hosted on a single machine</strong>. Dual cores: <strong>agent engineering</strong> (chat / multi-agent
+                collaboration / knowledge·skill·ontology augmentation) and <strong>ontology engineering</strong> (build → assets → run →
+                consume &amp; audit) — capability boundaries honestly labeled.
               </>
             )}
           </p>

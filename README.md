@@ -17,7 +17,7 @@
 
 </div>
 
-**AgentLab** is a single-machine deployable **agent-building platform** built with Go (CloudWeGo Eino/ADK), React and SQLite. It is organized around two cores:
+**AgentLab** is a **personal work & learning assistant for knowledge-intensive professionals** (engineers, teachers, compliance officers, researchers, clinicians) — fully deployable on one machine. Its thesis: your knowledge should not be a pile of documents, but a **structured asset you can query, audit and quiz against** — an ontology. Built with Go (CloudWeGo Eino/ADK), React and SQLite, it is organized around two cores:
 
 - **Agent engineering** — a conversational agent workbench with fully observable execution, multi-agent collaboration, and knowledge / skill / ontology augmentation.
 - **Ontology engineering** — a full ontology (knowledge-graph) lifecycle: build → asset management → runtime engines → consumption & audit.

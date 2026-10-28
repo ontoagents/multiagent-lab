@@ -30,8 +30,8 @@ const GROUPS: {
   {
     id: 'core',
     i18n: {
-      zh: { title: '一、智能体平台核心（Go 栈）', desc: '项目主骨架与运行底座——「Go + Eino ADK 迷你版 Coze」的直接构成。' },
-      en: { title: '1. Agent platform core (Go stack)', desc: 'The project’s backbone and runtime base — what makes it “a mini Coze on Go + Eino ADK”.' },
+      zh: { title: '一、智能体平台核心（Go 栈）', desc: '项目主骨架与运行底座——「Go + Eino ADK 多智能体平台」的直接构成。' },
+      en: { title: '1. Agent platform core (Go stack)', desc: 'The project’s backbone and runtime base — what makes it “a multi-agent platform on Go + Eino ADK”.' },
     },
     rows: [
       { name: 'Eino / Eino ADK', license: 'Apache-2.0', stack: 'Go', status: 'integrated', note: { zh: '智能体编排主骨架：组件抽象、图编排、ReAct / 多智能体运行时', en: 'Agent orchestration backbone: component abstractions, graph orchestration, ReAct / multi-agent runtime' } },
@@ -321,7 +321,7 @@ function EcoGraph() {
       <g>
         <rect x={480} y={368} width={200} height={84} rx={14} fill="#1e293b" />
         <text x={580} y={404} textAnchor="middle" fontSize={14} fill="#fff" fontWeight={700}>eino-multiagent-lab</text>
-        <text x={580} y={424} textAnchor="middle" fontSize={10.5} fill="#94a3b8">{locale === 'zh' ? 'Go + Eino ADK 迷你版 Coze' : 'A mini Coze on Go + Eino ADK'}</text>
+        <text x={580} y={424} textAnchor="middle" fontSize={10.5} fill="#94a3b8">{locale === 'zh' ? 'Go + Eino ADK 多智能体平台' : 'A multi-agent platform on Go + Eino ADK'}</text>
         <text x={580} y={440} textAnchor="middle" fontSize={10.5} fill="#94a3b8">{locale === 'zh' ? '本体 · 知识库 · 智能体' : 'Ontology · Knowledge · Agents'}</text>
       </g>
 
