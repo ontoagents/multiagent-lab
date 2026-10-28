@@ -127,6 +127,11 @@ func startFixtureSetup(t *testing.T, exports map[string]int) *startFixture {
 			_, _ = w.Write([]byte("<urn:s> <urn:p> <urn:o> ."))
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/external-refs") {
+			// REQ-480 闭包数据源——门禁测试本体无引用登记（空清单，闭包零扩展）
+			_, _ = w.Write([]byte(`{"refs":[],"dangling":[]}`))
+			return
+		}
 		http.NotFound(w, r)
 	}))
 	t.Cleanup(build.Close)

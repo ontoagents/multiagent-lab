@@ -41,6 +41,7 @@ func (s *Server) listExternalRefs(w http.ResponseWriter, r *http.Request) {
 	if refs == nil {
 		refs = []*repo.ExternalRef{}
 	}
+	s.Store.AnnotateDangling(refs) // REQ-480/M280：逐条结构化悬空标注（运行平面装载门禁消费）
 	dangling, _ := s.Store.DetectDanglingRefs(id)
 	if dangling == nil {
 		dangling = []string{}

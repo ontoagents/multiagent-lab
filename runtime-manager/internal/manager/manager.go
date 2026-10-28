@@ -543,11 +543,20 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		_ = m.Store.SetStatus(id, "error", "未配置本体集合", "")
 		return fmt.Errorf("方案未配置本体集合")
 	}
+	// REQ-480/M280：组装载闭包扩展——沿仓内 external_refs（import/reuse）+owl:imports 登记
+	// 递归补全挂载清单（visited set 收敛=互引环并集装载）；悬空引用阻断启动（装载链门禁）；
+	// 远端 IRI 不拉取维持（D-O27）。载体=方案 OntologyIDs，闭包为装载期展开不回写声明集。
+	cloRep, cerr := m.expandClosure(p.OntologyIDs)
+	if cerr != nil {
+		_ = m.Store.SetStatus(id, "error", cerr.Error(), "")
+		return cerr
+	}
+	effective := cloRep.Effective
 	ttls := map[string]string{}
 	loadedVersions := map[string]int{}
 	loadedStatus := map[string]map[string]any{} // REQ-239/M65 → REQ-293③ v2：{oid:{status,version_name,generation,triple_count,source_triple_count,gate,loaded_at}}
 	sourceTriples := map[string]int{}           // REQ-293①：构建平面精确计数（-1=未知，跳过硬闸）
-	for _, oid := range p.OntologyIDs {
+	for _, oid := range effective {
 		ttl, srcCount, err := m.FetchTTLWithCount(oid)
 		if err != nil {
 			_ = m.Store.SetStatus(id, "error", err.Error(), "")
@@ -584,6 +593,12 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	m.procs[id] = proc
 	m.mu.Unlock()
 	_ = m.Store.SetStatus(id, "starting", "", fmt.Sprint(proc.PID))
+	// REQ-480：装载报告呈现——闭包补全/互引环/远端跳过 + 装载前并置一致性检查（强告警不阻断）；
+	// 引擎日志同文件追加（startEngine 成功后写入，防引擎截断）。
+	m.appendProcLog(id, cloRep.logLines())
+	if line := m.preloadReasonCheck(ttls); line != "" {
+		m.appendProcLog(id, []string{line})
+	}
 
 	// 健康检查直至就绪
 	var lastErr error
@@ -596,7 +611,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 			// REQ-293① 计数硬闸（REQ-320② 口径修正）：源三元组数（构建平面 X-Onto-Triples）
 			// ≠ 引擎侧计数 → 中止启动，旧 loaded 快照保持不动（此前成功装载的 generation
 			// 语义上仍「活跃」，Foundry 原子发布口径）。regular 方案按命名图逐本体对账。
-			for _, oid := range p.OntologyIDs {
+			// REQ-480：闭包补全本体同闸同权（有效装载清单逐本体对账沿用）。
+			for _, oid := range effective {
 				src := sourceTriples[oid]
 				if src < 0 {
 					if _, ok := loadedStatus[oid]; !ok {
@@ -647,7 +663,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 				}
 			}
 			// REQ-293③ 装载态升级 v2：行数一致性 + 装载 generation 号 + 装载时间
-			for _, oid := range p.OntologyIDs {
+			cycleTags := cloRep.cycleTags() // REQ-480：互引环逐本体标注（报告呈现环）
+			for _, oid := range effective {
 				if _, ok := loadedStatus[oid]; !ok {
 					loadedStatus[oid] = map[string]any{}
 				}
@@ -656,6 +673,9 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 				if src, ok := sourceTriples[oid]; ok && src >= 0 {
 					loadedStatus[oid]["source_triple_count"] = src
 					loadedStatus[oid]["triple_count"] = src
+				}
+				if tag, ok := cycleTags[oid]; ok {
+					loadedStatus[oid]["import_cycle"] = tag
 				}
 			}
 			if b, jerr := json.Marshal(loadedVersions); jerr == nil {
@@ -678,7 +698,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 				if b, jerr := json.Marshal(q); jerr == nil {
 					_ = m.Store.SetLoadedQuality(pid, string(b))
 				}
-			}(p.OntologyIDs, id)
+			}(effective, id)
 			// REQ-377/M173：伴生子图回放恢复（快照存在才动作；失败仅日志不阻断启动）
 			m.restoreCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
 			_ = m.Store.SetStatus(id, "running", "", "")

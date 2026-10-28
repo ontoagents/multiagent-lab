@@ -137,20 +137,35 @@ func (s *Store) DetectDanglingRefs(ontoID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.AnnotateDangling(refs)
 	var msgs []string
 	for _, r := range refs {
-		if r.ToOntoID == "" {
-			continue // 外部 IRI 登记态：无目标资产可校验，天然「悬空」但按设计不提醒
-		}
-		if _, err := s.GetOntology(r.ToOntoID); err != nil {
+		switch r.Dangling {
+		case "missing_ontology":
 			msgs = append(msgs, fmt.Sprintf("%s:%s →%s（目标本体已删除）", r.FromConcept, r.RefKind, r.ToOntoID))
-			continue
-		}
-		if !s.ConceptExists(r.ToOntoID, r.ToConcept) {
+		case "missing_concept":
 			msgs = append(msgs, fmt.Sprintf("%s:%s →%s:%s（目标概念不存在）", r.FromConcept, r.RefKind, r.ToOntoID, r.ToConcept))
 		}
 	}
 	return msgs, nil
+}
+
+// AnnotateDangling 逐条填充 refs 的 Dangling 字段（REQ-480/M280 装载门禁消费——
+// 运行平面闭包装载沿结构化字段阻断，不再解析 DetectDanglingRefs 的消息字符串）。
+// 只判 to_onto_id 非空的仓内引用；外部 IRI 登记态天然悬空但按设计不标注。
+func (s *Store) AnnotateDangling(refs []*ExternalRef) {
+	for _, r := range refs {
+		if r.ToOntoID == "" {
+			continue
+		}
+		if _, err := s.GetOntology(r.ToOntoID); err != nil {
+			r.Dangling = "missing_ontology"
+			continue
+		}
+		if !s.ConceptExists(r.ToOntoID, r.ToConcept) {
+			r.Dangling = "missing_concept"
+		}
+	}
 }
 
 // ConceptExists 概念名存在性（spec_json.Concepts 裸名匹配；spec 原文经 artifact 层解析，

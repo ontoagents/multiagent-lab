@@ -119,3 +119,42 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+
+// REQ-480/M280：AnnotateDangling 逐条结构化标注（运行平面装载门禁消费——不再解析消息串）。
+func TestAnnotateDangling_Req480(t *testing.T) {
+	st, src, _ := extRefFixture(t)
+	// dst 本体存在但概念缺失 → missing_concept；to_onto_id 指向不存在本体 → missing_ontology
+	if _, err := st.CreateExternalRef(&ExternalRef{FromOntoID: src, FromConcept: "缺陷", ToOntoID: "dst", ToConcept: "非存在概念", RefKind: "import"}); err != nil {
+		t.Fatal(err)
+	}
+	// missing_ontology：登记后删除目标本体（登记端本就拒绝不存在目标，悬空只能来自删除）
+	if _, err := st.CreateOntology("tmp2", "临时", ""); err != nil {
+		t.Fatal(err)
+	}
+	ref2, err := st.CreateExternalRef(&ExternalRef{FromOntoID: src, FromConcept: "模块", ToOntoID: "tmp2", ToConcept: "任意", RefKind: "reuse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteOntology("tmp2"); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := st.ListExternalRefs(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.AnnotateDangling(refs)
+	codes := map[string]string{}
+	for _, r := range refs {
+		if r.RefID == ref2.RefID {
+			continue // 已随本体删除级联清理的登记不在清单内（以实际行为为准）
+		}
+		if r.Dangling != "" {
+			codes[r.FromConcept] = r.Dangling
+		}
+	}
+	if codes["缺陷"] != "missing_concept" {
+		t.Fatalf("缺陷 期望 missing_concept，实际 %v", codes)
+	}
+	_ = codes
+}

@@ -3,6 +3,8 @@ package rest
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,6 +107,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontologies/{id}/quality-history", s.qualityHistory)    // REQ-331①：评分历史（趋势线+三点对照）
 	// REQ-255/M62 批次（60 号 H2）：CQ→SPARQL 翻译（LLM 辅助+人工确认模板；执行走运行方案 SPARQL 端点）
 	// REQ-262/M256：跨本体引用登记（external_refs 单源，D-O27 三形态收敛；导入侧自动登记在 importer 链）
+	m.HandleFunc("POST /api/ontologies/reason-check", s.reasonCheckEndpoint) // REQ-480/M280：组装载前并置一致性检查
 	m.HandleFunc("GET /api/ontologies/{id}/external-refs", s.listExternalRefs)
 	m.HandleFunc("POST /api/ontologies/{id}/external-refs", s.registerExternalRef)
 	m.HandleFunc("DELETE /api/ontologies/{id}/external-refs/{refId}", s.deleteExternalRef)
@@ -308,7 +311,7 @@ type persistError struct {
 }
 
 // persistSpec REQ-436①：Validate+strict 门禁+落盘+overlay 提取+版本推进+入库评分的**单一保存核**
-//（saveSpec 整包保存与元素级端点共用——版本门禁/Validate/伴生审计服务端单源，语义不再两处维护）。
+// （saveSpec 整包保存与元素级端点共用——版本门禁/Validate/伴生审计服务端单源，语义不再两处维护）。
 // 返回（新版本号, overlay 记录数, 结构化错误）。
 func (s *Server) persistSpec(id string, sp *pkgspec.Spec) (int, int, *persistError) {
 	if errs := sp.Validate(); len(errs) > 0 {
@@ -377,6 +380,12 @@ func (s *Server) validate(w http.ResponseWriter, r *http.Request) {
 }
 
 // newID 生成实体 id（时间戳形态，本体/job/方案共用）。
+// REQ-480 顺修（flake 实锤 REQ-479 交付注）：纯纳秒时间戳在同纳秒并发创建下 UNIQUE 冲突
+// （rest 包全量两轮各挂一件 ontochat/evolution 用例、单跑均 PASS）——补 2 字节 crypto/rand
+// 随机尾；字典序仍由时间前缀主导（时间排序消费不破坏），随机尾对全部消费方（IRI 命名空间
+// urn:o:{id}: sanitize/文件名/外键）均为不透明字符串安全增量。
 func newID() string {
-	return strings.ReplaceAll(time.Now().UTC().Format("060102150405.000000000"), ".", "")
+	b := make([]byte, 2)
+	_, _ = rand.Read(b)
+	return strings.ReplaceAll(time.Now().UTC().Format("060102150405.000000000"), ".", "") + hex.EncodeToString(b)
 }

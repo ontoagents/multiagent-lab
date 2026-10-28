@@ -159,6 +159,34 @@ func (s *Server) qualityReport(w http.ResponseWriter, r *http.Request) {
 
 // ontoextendListODPs M-O14 P2②（REQ-171 P2/26 号方案）：ODP 精选清单（人工 curated，编译期内嵌）
 
+// reasonCheckEndpoint POST /api/ontologies/reason-check（REQ-480/M280）：运行平面组装载前
+// 并置一致性检查的承载端——闭包全集 TTL 合并后经 sidecar reason（owlrl OWL 2 RL）跑检查，
+// 结果透传（consistent/violations/error/note）。复用 REQ-255① reason 管线零新依赖；
+// sidecar 未配置时返回错误（运行平面降级为日志注记跳过，不阻断）。
+func (s *Server) reasonCheckEndpoint(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Content string `json:"content"`
+		Format  string `json:"format"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if strings.TrimSpace(in.Content) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content 必填（并置 TTL 全文）"})
+		return
+	}
+	if in.Format == "" {
+		in.Format = "turtle"
+	}
+	res, err := s.reasonCheck(in.Content, in.Format)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (s *Server) reasonCheck(content, format string) (*sidecarReasonOut, error) {
 	if s.Sidecar == nil || s.Sidecar.Python == "" || s.Sidecar.Script == "" {
 		return nil, fmt.Errorf("sidecar 未配置（SIDECAR_SCRIPT）")

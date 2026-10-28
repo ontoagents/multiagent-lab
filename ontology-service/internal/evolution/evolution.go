@@ -8,7 +8,9 @@
 package evolution
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +70,11 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // Create 插入候选（label 由 base_version+同 base 序号 K 生成）。
 func (s *Store) Create(c *Candidate) (*Candidate, error) {
 	if c.ID == "" {
-		c.ID = fmt.Sprintf("evo_%d", time.Now().UnixNano())
+		// REQ-480 顺修：纯纳秒时间戳同纳秒创建即 UNIQUE 冲突（rest 全量 flake 第二源，
+		// 与 rest.go newID 同根因同款修法——随机尾增量，前缀时间语义保留）
+		b := make([]byte, 2)
+		_, _ = rand.Read(b)
+		c.ID = fmt.Sprintf("evo_%d_%s", time.Now().UnixNano(), hex.EncodeToString(b))
 	}
 	var k int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM evolution_candidate WHERE ontology_id=? AND base_version=?`, c.OntologyID, c.BaseVersion).Scan(&k); err != nil {
