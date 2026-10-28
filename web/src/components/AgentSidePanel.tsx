@@ -1106,6 +1106,24 @@ function AgentConfigForm({
                   >
                     <Select allowClear showSearch optionFilterProp="label" placeholder="跟随全局默认" options={conns.map((c) => ({ value: c.id, label: connLabel(c) }))} />
                   </Form.Item>
+                  {/* REQ-452/M248：备援模型连接（故障转移）——主连接持续失败（限流/5xx/网络抖动重试耗尽）时按序切换 */}
+                  <Form.Item
+                    name="model_failover_conn_ids"
+                    label="备援模型连接"
+                    className="item-inline"
+                    normalize={(v) => v ?? []}
+                    tooltip="主模型连接持续失败时按所选顺序自动切换备援连接，每次切换以 run.warning 事件如实留痕；留空=不启用故障转移。幂等可重试错误（429 限流/5xx/连接重置）先走原地重试（默认 2 次，环境变量 MODEL_RETRY_MAX 可调），重试耗尽仍失败才切换备援。"
+                  >
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      disabled={isBuiltin}
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="留空 = 不启用故障转移"
+                      options={conns.filter((c) => c.id !== modelConnId).map((c) => ({ value: c.id, label: connLabel(c) }))}
+                    />
+                  </Form.Item>
                   {sec('采样参数')}
                   <Form.Item name="temperature" label="温度" className="item-inline" tooltip="0~2，留空默认">
                     <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} placeholder="默认" />

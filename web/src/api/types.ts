@@ -6,6 +6,8 @@ export interface Agent {
   description: string
   instruction: string
   model_conn_id: string | null
+  /** REQ-452/M248：备援模型连接清单（主连接持续失败时按序切换；空=不启用故障转移） */
+  model_failover_conn_ids?: string[] | null
   temperature: number | null
   max_tokens: number | null
   max_iteration: number

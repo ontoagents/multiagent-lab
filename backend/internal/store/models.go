@@ -64,9 +64,12 @@ type Agent struct {
 	// REQ-366/M164：本体操作工具能力开关（false=关〔缺省，存量零变化〕| true=开启）。
 	// 开启时会话挂载本体时装配层并入 facade 13 件扩展工具（spec CRUD/校验/CQ 基准）；
 	// 原 6 查询工具挂载即并入的既有语义不变。写类 upsert/delete 入 danger 档审批。
-	OntoOps   bool   `json:"onto_ops"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	OntoOps bool `json:"onto_ops"`
+	// REQ-452/M248：备援模型连接清单（JSON 数组）——主连接持续失败时按序切换
+	// （adk ModelFailoverConfig；空数组=不启用，存量零回归）。切换即 run.warning 诚实标注。
+	ModelFailoverConnIDs []string `json:"model_failover_conn_ids"`
+	CreatedAt            string   `json:"created_at"`
+	UpdatedAt            string   `json:"updated_at"`
 }
 
 // AgentHookDenyRule 自定义 deny 规则（REQ-232②）：工具名 glob 模式 + 参数子串（大小写不敏感），

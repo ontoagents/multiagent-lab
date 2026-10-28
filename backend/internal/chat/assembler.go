@@ -6,10 +6,12 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -463,7 +465,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	}
 
 	coordInstruction := a.composeInstructionWithScope(coord, sc)
-	inst, err := newChatModelAgent(ctx, coord.Name, coord.Description, coordInstruction, coord.MaxIteration, cm, tools)
+	inst, err := newChatModelAgent(ctx, coord.Name, coord.Description, coordInstruction, coord.MaxIteration, cm, tools, a.buildModelFailover(ctx, coord))
 	if err != nil {
 		return nil, err
 	}
@@ -885,7 +887,7 @@ func (a *Assembler) assembleTransfer(ctx context.Context, coord *store.Agent, su
 
 	entries := make([]map[string]any, 0, len(subs)+1)
 	coordInstruction := a.composeInstructionWithScope(coord, sc)
-	inst, err := newChatModelAgent(ctx, coord.Name, coord.Description, coordInstruction, coord.MaxIteration, cm, tbc.Tools)
+	inst, err := newChatModelAgent(ctx, coord.Name, coord.Description, coordInstruction, coord.MaxIteration, cm, tbc.Tools, a.buildModelFailover(ctx, coord))
 	if err != nil {
 		return nil, err
 	}
@@ -954,7 +956,7 @@ func (a *Assembler) buildOne(ctx context.Context, ag *store.Agent, sc assembleSc
 			instruction += "\n\n# 本体运行方案指引（runtime_profile: " + sc.Mount + "）\n" + guide
 		}
 	}
-	inst, err := newChatModelAgent(ctx, ag.Name, ag.Description, instruction, ag.MaxIteration, cm, tb.Tools)
+	inst, err := newChatModelAgent(ctx, ag.Name, ag.Description, instruction, ag.MaxIteration, cm, tb.Tools, a.buildModelFailover(ctx, ag))
 	if err != nil {
 		return nil, err
 	}
@@ -1592,7 +1594,9 @@ type agentMeta struct {
 }
 
 // newChatModelAgent 构造 ADK ChatModelAgent（统一 ToolsConfig / EmitInternalEvents）。
-func newChatModelAgent(ctx context.Context, name, description, instruction string, maxIter int, cm model.BaseChatModel, tools []einotool.BaseTool) (adk.Agent, error) {
+// REQ-452/M248：全装配点统一挂模型调用重试（幂等白名单+指数退避）与可选故障转移
+// （mfc 非 nil 时启用——buildModelFailover 按 agent 备援清单构造）。
+func newChatModelAgent(ctx context.Context, name, description, instruction string, maxIter int, cm model.BaseChatModel, tools []einotool.BaseTool, mfc *adk.ModelFailoverConfig[*schema.Message]) (adk.Agent, error) {
 	inst, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          name,
 		Description:   description,
@@ -1604,11 +1608,105 @@ func newChatModelAgent(ctx context.Context, name, description, instruction strin
 			// agent_as_tool / transfer 模式下内层 Agent 事件流出（subagent 事件时间线，M4）
 			EmitInternalEvents: true,
 		},
+		ModelRetryConfig:    modelRetryConfig(),
+		ModelFailoverConfig: mfc,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create adk agent %q: %w", name, err)
 	}
 	return inst, nil
+}
+
+// modelRetryMax 模型调用重试次数（REQ-452/M248；环境变量 MODEL_RETRY_MAX 可调，默认 2，0=关闭）。
+func modelRetryMax() int {
+	if v := os.Getenv("MODEL_RETRY_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 10 {
+			return n
+		}
+	}
+	return 2
+}
+
+// modelRetryConfig 模型调用重试配置（REQ-452/M248）：幂等可重试白名单（复用 REQ-202④
+// IsIdempotentRetryable，补 429/rate limit）+ 指数退避（eino 默认 100ms 起步上限 10s 带抖动）。
+// 诚实边界：流式已产出增量（部分内容可能已下发客户端）不重试——防重复输出；
+// 主动停止（ctx 取消）不重试。流正常结束（Err==nil）不重试原样接受。
+func modelRetryConfig() *adk.ModelRetryConfig {
+	return &adk.ModelRetryConfig{
+		MaxRetries: modelRetryMax(),
+		ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+			if rc == nil || rc.Err == nil || ctx.Err() != nil {
+				return nil
+			}
+			if !IsIdempotentRetryable(rc.Err) {
+				return nil
+			}
+			if messageHasEmittedContent(rc.OutputMessage) {
+				return nil
+			}
+			return &adk.RetryDecision{Retry: true}
+		},
+	}
+}
+
+// messageHasEmittedContent 判定消息是否已产出可见内容（REQ-452/M248 防重复输出边界）——
+// 流式重试/故障转移都会重放请求，已有增量下发的调用不再重放。
+func messageHasEmittedContent(m *schema.Message) bool {
+	if m == nil {
+		return false
+	}
+	return m.Content != "" || m.ReasoningContent != "" || len(m.ToolCalls) > 0 || len(m.MultiContent) > 0
+}
+
+// buildModelFailover agent 级备援模型连接故障转移配置（REQ-452/M248）。
+// 主连接持续失败（重试耗尽仍失败）时按备援清单顺序切换（eino 内部先试最近成功连接）；
+// 空清单返回 nil（存量零回归）。切换即 run.warning 诚实标注（经 ctx 事件汇，SSE+落库同源）。
+// 诚实边界：流式已产出增量不切换（防重复输出）；主动停止不切换；备援连接停用/不可达
+// 即终止故障转移并如实报错（不静默跳过——装配期不预解析，失败面收敛在真实切换时点）。
+func (a *Assembler) buildModelFailover(ctx context.Context, ag *store.Agent) *adk.ModelFailoverConfig[*schema.Message] {
+	if a.Store == nil || len(ag.ModelFailoverConnIDs) == 0 {
+		return nil
+	}
+	ids := ag.ModelFailoverConnIDs
+	return &adk.ModelFailoverConfig[*schema.Message]{
+		MaxRetries: uint(len(ids)),
+		ShouldFailover: func(ctx context.Context, outputMessage *schema.Message, outputErr error) bool {
+			if outputErr == nil || ctx.Err() != nil || errors.Is(outputErr, context.Canceled) {
+				return false
+			}
+			return !messageHasEmittedContent(outputMessage)
+		},
+		GetFailoverModel: func(ctx context.Context, fc *adk.FailoverContext[*schema.Message]) (model.BaseChatModel, []*schema.Message, error) {
+			idx := int(fc.FailoverAttempt) - 1
+			if idx < 0 || idx >= len(ids) {
+				return nil, nil, fmt.Errorf("备援模型连接已用尽（共 %d 个）", len(ids))
+			}
+			rec, err := a.Store.GetConnectionRecord(ids[idx])
+			if err != nil {
+				return nil, nil, fmt.Errorf("解析备援模型连接 %s: %w", ids[idx], err)
+			}
+			if !rec.Conn.Enabled {
+				return nil, nil, fmt.Errorf("备援模型连接 %q 已停用，请在「设置-模型管理」启用或更换", rec.Conn.Name)
+			}
+			apiKey := ""
+			if a.Box != nil && len(rec.Encrypted) > 0 {
+				if apiKey, err = a.Box.Decrypt(rec.Encrypted); err != nil {
+					return nil, nil, fmt.Errorf("decrypt api key: %w", err)
+				}
+			}
+			bcm, err := buildChatModel(ctx, rec.Conn, apiKey, ag.Temperature, ag.MaxTokens)
+			if err != nil {
+				return nil, nil, err
+			}
+			// REQ-117：备援连接同走观测包装（level>0 时采集 model.step，身份一致）
+			bcm = wrapDebug(bcm, ag.Name, debugFrom(ctx))
+			tool.EmitEvent(ctx, "run.warning", map[string]any{
+				"message": fmt.Sprintf("模型连接持续失败（%v），已切换备援连接 %s@%s（第 %d/%d 备援）",
+					fc.LastErr, rec.Conn.Name, rec.Conn.ModelName, fc.FailoverAttempt, len(ids)),
+			})
+			return bcm, nil, nil
+		},
+	}
 }
 
 // requireAgentToolFields AgentTool 要求 Name/Description 非空（装配期前置校验，给清晰错误）。

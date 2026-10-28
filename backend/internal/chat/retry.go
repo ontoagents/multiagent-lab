@@ -3,6 +3,8 @@ package chat
 // REQ-202/M38 Harness 执行面：幂等重试白名单。
 // 现状「单次失败即降级，不重试风暴」（assembler 注）整体保留——白名单只对**幂等且明确可重试**
 // 的失败开 N=2 例外：context deadline、连接重置/断开、HTTP 5xx。非白名单错误不重试原样返回。
+// REQ-452/M248：白名单消费方扩模型调用重试（adk ModelRetryConfig.ShouldRetry）——补 429 限流/
+// rate limit 特征（限流后退避重试是标准语义）；判定函数保持单源共用。
 
 import (
 	"context"
@@ -24,6 +26,10 @@ var retryablePatterns = []string{
 	"service unavailable",
 	"gateway timeout",
 	"internal server error",
+	// REQ-452/M248：限流特征（429 子串仅出现在 HTTP 状态码语境，模型错误文本含 "status code: 429" 等）
+	"429",
+	"rate limit",
+	"too many requests",
 }
 
 // IsIdempotentRetryable 判定错误是否属幂等可重试白名单。
