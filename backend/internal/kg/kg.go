@@ -166,26 +166,85 @@ func (x *Extractor) persist(kbID, docID string, out *kgOut, chunks []*store.Know
 		rels = append(rels, &store.KGRelationship{ID: store.NewID(), KBID: kbID, DocID: docID,
 			Source: r.Source, Target: r.Target, Type: r.Type})
 	}
+	located, total := 0, 0
 	claims := make([]*store.KGClaim, 0, len(out.Claims))
 	for _, c := range out.Claims {
+		total++
+		chunkID, start, end := LocateClaimSpan(c.Text, chunks)
+		if chunkID != "" && start >= 0 {
+			located++
+		}
 		claims = append(claims, &store.KGClaim{ID: store.NewID(), KBID: kbID, DocID: docID,
-			ChunkID: claimChunkOf(c.Text, chunks), Subject: c.Subject, Text: c.Text})
+			ChunkID: chunkID, Subject: c.Subject, Text: c.Text, SpanStart: start, SpanEnd: end})
+	}
+	if total > 0 {
+		log.Printf("[kg] doc %s claim 溯源定位 %d/%d（%.0f%%）", docID, located, total, 100*float64(located)/float64(total))
 	}
 	return x.Store.ReplaceKGForDoc(kbID, docID, entities, rels, claims)
 }
 
-// claimChunkOf claim 文本反查出处 chunk（首 24 rune 命中即认；未命中留空 = 溯源缺失，不阻断）。
-func claimChunkOf(text string, chunks []*store.KnowledgeChunk) string {
-	head := []rune(text)
+// LocateClaimSpan claim 文本回溯出处 chunk 与内容内 rune 起止偏移（KB-17/M289 结构化溯源）。
+// 两级定位：①原文精确 Contains（偏移即真相）②归一化窗口 Contains（大小写/空白差异——
+// 经 rune 级映射表回原偏移）；两级皆未命中 → 首 24 rune 前缀兜底（现状语义保留，start=-1
+// 表未定位到原文段——溯源失败率=chunkID 空或 start<0 计数）。
+func LocateClaimSpan(text string, chunks []*store.KnowledgeChunk) (chunkID string, start, end int) {
+	start, end = -1, -1
+	if strings.TrimSpace(text) == "" {
+		return "", -1, -1
+	}
+	runes := []rune(text)
+	// ①原文精确
+	for _, c := range chunks {
+		if i := strings.Index(c.Content, text); i >= 0 {
+			start := len([]rune(c.Content[:i]))
+			return c.ID, start, start + len(runes)
+		}
+	}
+	// ②归一化窗口（小写+去空白）——构建 chunk 归一化 rune 数组与原 rune 偏移映射
+	nText := normalizeForSpan(text)
+	for _, c := range chunks {
+		content := []rune(c.Content)
+		norm := make([]rune, 0, len(content))
+		mapBack := make([]int, 0, len(content)) // norm 序号 → content rune 序号
+		for i, r := range content {
+			for _, nr := range normalizeForSpan(string(r)) {
+				norm = append(norm, nr)
+				mapBack = append(mapBack, i)
+			}
+		}
+		if i := strings.Index(string(norm), nText); i >= 0 {
+			// i 为 byte 偏移（string Index）——换算 norm rune 序号
+			nStart := len([]rune(string(norm)[:i]))
+			nEnd := nStart + len([]rune(nText))
+			if nEnd <= len(mapBack) {
+				return c.ID, mapBack[nStart], mapBack[nEnd-1] + 1
+			}
+		}
+	}
+	// ③首 24 rune 前缀兜底（弱定位——chunk 可查，span 不落）
+	head := runes
 	if len(head) > 24 {
 		head = head[:24]
 	}
 	for _, c := range chunks {
 		if strings.Contains(c.Content, string(head)) {
-			return c.ID
+			return c.ID, -1, -1
 		}
 	}
-	return ""
+	return "", -1, -1
+}
+
+// normalizeForSpan 归一化（小写+剥离全部空白——LLM 改写常见的空白/大小写漂移）。
+func normalizeForSpan(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\u3000':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToLower(b.String())
 }
 
 // ---- 内置规则抽取（lightweight 回退；参考 semantica worker 内置轻量抽取的句式口径） ----

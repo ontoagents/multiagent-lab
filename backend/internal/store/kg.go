@@ -58,7 +58,10 @@ type KGClaim struct {
 	// Status 审核状态（M16/REQ-129：approved|rejected；rejected 不参与检索）
 	Status     string `json:"status,omitempty"`
 	SubjectUID string `json:"subject_uid,omitempty"`
-	CreatedAt  string `json:"created_at,omitempty"`
+	// KB-17/M289：结构化溯源 span（chunk 内容内 rune 起止偏移；-1=未定位——失败率可量化）
+	SpanStart int `json:"span_start,omitempty"`
+	SpanEnd   int `json:"span_end,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // KGEntityUID 稳定实体 id 派生（KB-16/M286 单源）：kb_id::name——确定性、可读、迁移 SQL
@@ -81,7 +84,7 @@ type OntoDecision struct {
 
 const kgEntityCols = `id,kb_id,doc_id,name,type,description,alias,uid,created_at`
 const kgRelCols = `id,kb_id,doc_id,source,target,rel_type,status,created_at`
-const kgClaimCols = `id,kb_id,doc_id,chunk_id,subject,text,status,created_at`
+const kgClaimCols = `id,kb_id,doc_id,chunk_id,subject,text,status,created_at,span_start,span_end`
 const decisionCols = `id,subject_kind,subject_id,title,rationale,derived_from,meta_json,created_at`
 
 func scanKGEntity(row interface{ Scan(...any) error }) (*KGEntity, error) {
@@ -102,7 +105,7 @@ func scanKGRel(row interface{ Scan(...any) error }) (*KGRelationship, error) {
 
 func scanKGClaim(row interface{ Scan(...any) error }) (*KGClaim, error) {
 	var c KGClaim
-	if err := row.Scan(&c.ID, &c.KBID, &c.DocID, &c.ChunkID, &c.Subject, &c.Text, &c.Status, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.KBID, &c.DocID, &c.ChunkID, &c.Subject, &c.Text, &c.Status, &c.CreatedAt, &c.SpanStart, &c.SpanEnd); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -228,7 +231,7 @@ func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels [
 			return err
 		}
 	}
-	ic, err := tx.Prepare(`INSERT INTO kg_claim(id,kb_id,doc_id,chunk_id,subject,text,status,created_at,subject_uid) VALUES (?,?,?,?,?,?,?,?,?)`)
+	ic, err := tx.Prepare(`INSERT INTO kg_claim(id,kb_id,doc_id,chunk_id,subject,text,status,created_at,subject_uid,span_start,span_end) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -242,7 +245,7 @@ func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels [
 		if c.SubjectUID == "" {
 			c.SubjectUID = uidFor(c.Subject)
 		}
-		if _, err := ic.Exec(c.ID, c.KBID, c.DocID, c.ChunkID, c.Subject, c.Text, "approved", now(), c.SubjectUID); err != nil {
+		if _, err := ic.Exec(c.ID, c.KBID, c.DocID, c.ChunkID, c.Subject, c.Text, "approved", now(), c.SubjectUID, c.SpanStart, c.SpanEnd); err != nil {
 			return err
 		}
 		// chunk↔实体倒排（抽取期落库；与 claim 反查两路对照）
