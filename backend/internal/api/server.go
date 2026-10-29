@@ -416,6 +416,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/kb/{id}/docs", s.importKBDoc)
 	m.HandleFunc("DELETE /api/kb/{id}/docs/{did}", s.deleteKBDoc)
 	m.HandleFunc("POST /api/kb/{id}/docs/{did}/reindex", s.reindexKBDoc)
+	m.HandleFunc("GET /api/kb/{id}/docs/{did}/content", s.kbDocContent) // REQ-523/M330：溯源最后一跳——chunk 按 seq 拼接原文
 	m.HandleFunc("POST /api/kb/{id}/search-preview", s.previewKBSearch)
 	m.HandleFunc("POST /api/kb/{id}/graphrag-search", s.graphragSearchKB) // M14 D-KB4：GraphRAG 子模块直查
 	m.HandleFunc("GET /api/kb/{id}/wiki/pages", s.wikiPages)              // REQ-241：wiki 页面视图

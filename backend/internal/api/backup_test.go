@@ -137,3 +137,52 @@ func TestExportBackupPlatformFail(t *testing.T) {
 		t.Fatalf("主库快照失败应 500，got %d", rec.Code)
 	}
 }
+
+// TestKBDocContent REQ-523/M330（P05）：内容读取端点——chunk 按 seq 拼接+doc 归属守卫
+//（不属于该 KB 的 doc 404；KB 模块未接入 503）。
+func TestKBDocContent(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "platform.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	kb, err := st.CreateKnowledgeBase(&store.KnowledgeBase{Name: "溯源库", Mode: "rag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := st.CreateKnowledgeDoc(&store.KnowledgeDoc{KBID: kb.ID, Title: "溯源文档", Status: "success"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertKnowledgeChunks([]*store.KnowledgeChunk{
+		{ID: store.NewID(), KBID: kb.ID, DocID: doc.ID, Seq: 1, Content: "第二段"},
+		{ID: store.NewID(), KBID: kb.ID, DocID: doc.ID, Seq: 0, Content: "第一段"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Store: st, DBPath: filepath.Join(dir, "platform.db")}
+
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.SetPathValue("id", kb.ID)
+	req.SetPathValue("did", doc.ID)
+	rec := httptest.NewRecorder()
+	s.kbDocContent(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"doc_id":"`+doc.ID+`"`) || !strings.Contains(rec.Body.String(), "第一段") {
+		t.Fatalf("应含 doc_id 与拼接内容: %.200s", rec.Body.String())
+	}
+
+	// 归属守卫：另一 KB 的 doc id → 404
+	kb2, _ := st.CreateKnowledgeBase(&store.KnowledgeBase{Name: "别的库", Mode: "rag"})
+	req2 := httptest.NewRequest("GET", "/x", nil)
+	req2.SetPathValue("id", kb2.ID)
+	req2.SetPathValue("did", doc.ID)
+	rec2 := httptest.NewRecorder()
+	s.kbDocContent(rec2, req2)
+	if rec2.Code != 404 {
+		t.Fatalf("跨 KB doc 应 404，got %d", rec2.Code)
+	}
+}

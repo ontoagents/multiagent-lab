@@ -397,6 +397,8 @@ export interface KBDoc {
 /** 检索试运行命中（§6.9 retrieval 事件 hits 结构；B1 起附命中区间高亮） */
 export interface KBHit {
   doc: string
+  /** REQ-523/M330：溯源最后一跳——命中可下钻原文（graphrag 实体/claims 无文档为空） */
+  doc_id?: string
   seq: number
   score: number
   excerpt: string
@@ -404,7 +406,7 @@ export interface KBHit {
   /** B1 引用溯源：excerpt 内命中区间（rune 偏移，start 含 / end 不含） */
   spans?: { start: number; end: number }[]
   /** REQ-246：wiki 臂命中页溯源（chunk_id 解析为 doc 标题 + 序号，回答可下钻原文；非 wiki 臂为空） */
-  sources?: { doc?: string; seq: number }[]
+  sources?: { doc?: string; doc_id?: string; seq: number }[]
 }
 
 /** REQ-246（M70）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */

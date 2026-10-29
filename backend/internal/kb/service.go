@@ -277,7 +277,7 @@ func (s *Service) vectorArm(ctx context.Context, kb *store.KnowledgeBase, query 
 		if len([]rune(excerpt)) < len([]rune(content)) {
 			spans = ClipSpans(spans, len([]rune(excerpt)))
 		}
-		out = append(out, RetrievalHit{Doc: name, Seq: h.Seq, Score: h.Score, Excerpt: excerpt, Strategy: h.Strategy, Spans: spans})
+		out = append(out, RetrievalHit{Doc: name, DocID: h.DocID, Seq: h.Seq, Score: h.Score, Excerpt: excerpt, Strategy: h.Strategy, Spans: spans})
 	}
 	return out, nil
 }
@@ -285,6 +285,7 @@ func (s *Service) vectorArm(ctx context.Context, kb *store.KnowledgeBase, query 
 // RetrievalHit retrieval 事件 / search-preview 响应条目（§306：hits[{doc,seq,score,excerpt}]）。
 type RetrievalHit struct {
 	Doc      string  `json:"doc"`
+	DocID    string  `json:"doc_id,omitempty"` // REQ-523/M330：溯源最后一跳——命中可下钻原文（graphrag 实体/claims 无文档为空）
 	Seq      int     `json:"seq"`
 	Score    float64 `json:"score"`
 	Excerpt  string  `json:"excerpt"`
@@ -298,8 +299,9 @@ type RetrievalHit struct {
 
 // HitSource wiki 页 sources 的可读定位（doc 标题 + chunk 序号）。
 type HitSource struct {
-	Doc string `json:"doc,omitempty"`
-	Seq int    `json:"seq"`
+	Doc   string `json:"doc,omitempty"`
+	DocID string `json:"doc_id,omitempty"` // REQ-523/M330：来源页可下钻原文
+	Seq   int    `json:"seq"`
 }
 
 // RenderContext 检索结果注入文本（§341：[片段 doc:seq score] 格式）。

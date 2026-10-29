@@ -374,7 +374,7 @@ func (s *Service) wikiArm(k *store.KnowledgeBase, query string, topK int) ([]Ret
 		src := make([]HitSource, 0, len(h.page.Sources))
 		for _, id := range h.page.Sources {
 			if p, ok := chunkPos[id]; ok {
-				src = append(src, HitSource{Doc: titles[p.docID], Seq: p.seq})
+				src = append(src, HitSource{Doc: titles[p.docID], DocID: p.docID, Seq: p.seq}) // REQ-523/M330：来源页带 doc_id 可下钻
 			}
 		}
 		out = append(out, RetrievalHit{

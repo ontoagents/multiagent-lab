@@ -277,7 +277,7 @@ export default function WikiPage({ kbs, loadErr, onReloadKBs, onCreate, focusId,
             检索
           </Button>
         </div>
-        <HitsList hits={hits} />
+        <HitsList hits={hits} kbId={active?.id} />
       </Card>
     </>
   )
@@ -477,7 +477,7 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
                       <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {p.content_md.replace(/[#*\[\]\n]/g, ' ').slice(0, 80)}
                       </Typography.Text>
-                      <Tooltip title={`溯源 ${p.sources.length} 个 chunk（预览中可下钻原文）`}>
+                      <Tooltip title={`溯源 ${p.sources.length} 个 chunk`}>
                         <Tag style={{ margin: 0, fontSize: 11 }}>溯源 {p.sources.length}</Tag>
                       </Tooltip>
                     </div>
@@ -508,7 +508,7 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
             {preview.sources.length > 0 && (
               <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
                 来源 chunk：{preview.sources.length} 个（{preview.sources.slice(0, 6).join('、')}
-                {preview.sources.length > 6 ? ' …' : ''}）——回答引用该页时可经此下钻原文
+                {preview.sources.length > 6 ? ' …' : ''}）（原文下钻：chat 命中卡与检索试运行命中点 doc 名）
               </Typography.Paragraph>
             )}
             <div className="wiki-page-md">

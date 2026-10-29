@@ -4,6 +4,7 @@ import type { BadgeProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
+import KBContentModal from '../../components/KBContentModal' 
 import type { KBDoc, KBHit, KnowledgeBase } from '../../api/types'
 import { useUI } from '../../store/ui'
 import HighlightSpans from '../../components/HighlightSpans'
@@ -301,10 +302,13 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
 }
 
 /** 检索命中列表（三类型共用显示；来源标签 / spans 高亮 / 相似度分档） */
-export function HitsList({ hits }: { hits: KBHit[] | null }) {
+export function HitsList({ hits, kbId }: { hits: KBHit[] | null; kbId?: string }) {
+  // REQ-523/M330：doc 名可点下钻原文（doc_id 在位时）——承诺文案由「可下钻」兑现
+  const [docTarget, setDocTarget] = useState<{ kbId: string; docId: string; doc: string; seq: number } | null>(null)
   if (!hits) return null
   return (
     <>
+      {docTarget && <KBContentModal target={docTarget} onClose={() => setDocTarget(null)} />}
       {hits.length === 0 && (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无命中（可尝试降低 min_score 或补充文档）" style={{ marginTop: 16 }} />
       )}
@@ -316,12 +320,28 @@ export function HitsList({ hits }: { hits: KBHit[] | null }) {
             return (
               <div className={`hit ${band}`} key={`${h.doc}-${h.seq}-${i}`}>
                 <div className="hit-top">
-                  <span className="hit-doc">{h.doc}</span>
+                  <span
+                    className="hit-doc"
+                    style={h.doc_id && kbId ? { cursor: 'pointer', textDecoration: 'underline dotted' } : undefined}
+                    title={h.doc_id && kbId ? `${h.doc}（点击下钻原文）` : h.doc}
+                    onClick={() => {
+                      if (h.doc_id && kbId) setDocTarget({ kbId, docId: h.doc_id, doc: h.doc, seq: h.seq })
+                    }}
+                  >
+                    {h.doc}
+                  </span>
                   <span className="hit-seq">#{h.seq}</span>
                   <span className="hit-spacer" />
                   {h.sources && h.sources.length > 0 && (
-                    <Tooltip title={`来源 chunk：${h.sources.map((s) => `${s.doc ?? '?'}#${s.seq}`).join('、')}（回答引用该页可下钻原文）`}>
-                      <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+                    <Tooltip title={`来源 chunk：${h.sources.map((s) => `${s.doc ?? '?'}#${s.seq}`).join('、')}${h.sources[0]?.doc_id && kbId ? '（点击下钻原文）' : ''}`}>
+                      <Tag
+                        color="default"
+                        style={{ margin: 0, fontSize: 11, ...(h.sources[0]?.doc_id && kbId ? { cursor: 'pointer' } : {}) }}
+                        onClick={() => {
+                          const s0 = h.sources?.[0]
+                          if (s0?.doc_id && kbId) setDocTarget({ kbId, docId: s0.doc_id, doc: s0.doc ?? h.doc, seq: s0.seq })
+                        }}
+                      >
                         来源 {h.sources.length}
                       </Tag>
                     </Tooltip>

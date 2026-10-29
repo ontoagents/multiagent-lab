@@ -256,6 +256,9 @@ export const api = {
   /** REQ-140：内部方案文档只读查看（限 docs/ 下 .md，fsutil 防越界） */
   docRead: (path: string) =>
     req<{ path: string; title: string; content: string }>('/api/docs/read?path=' + encodeURIComponent(path)),
+  /** REQ-523/M330：KB 文档内容读取（chunk 按 seq 拼接）——溯源最后一跳命中下钻 */
+  kbDocContent: (kbId: string, docId: string) =>
+    req<{ doc: string; doc_id: string; chunks: { seq: number; content: string }[] }>(`/api/kb/${kbId}/docs/${docId}/content`),
   /** REQ-136：对话自动命名（首轮用户输入提炼短标题；后台异步，失败回退默认名） */
   autoNameConversation: (id: string, input: string) =>
     req<{ started: boolean; reason?: string }>('/api/conversations/' + id + '/auto-name', { method: 'POST', body: JSON.stringify({ input }) }),
@@ -944,6 +947,7 @@ export function resumeConversation(
 ): { abort: () => void; done: Promise<void> } {
   return streamRun(`/api/conversations/${conversationId}/resume`, { input: answer, debug_level: debugLevel, ...(debugPersist ? { debug_persist: true } : {}) }, onEvent)
 }
+
 
 /** SSE over fetch 公共流（运行 / 恢复共用；POST JSON → 逐事件回调）。 */
 function streamRun(

@@ -297,7 +297,7 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
                   <span style={{ color: 'var(--c-ink-2)', fontSize: 12 }}>降级：{searchMeta.error ?? '检索降级'}</span>
                 </div>
               )}
-              <HitsList hits={hits} />
+              <HitsList hits={hits} kbId={active?.id} />
             </Card>
           </>
         )}

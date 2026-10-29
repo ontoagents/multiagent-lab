@@ -26,6 +26,7 @@ import type {
   RuntimeProfile,
 } from '../api/types'
 import { useUI } from '../store/ui'
+import KBContentModal from './KBContentModal'
 // REQ-401/M197 拆分：事件注册表单源与五域辅助件（行为零变更；四份事件清单收敛 lib/eventRegistry）
 import { describeEvent, eventSource, fmtNum, injectSourceLabel, isKeyGranularity, levelGated } from '../lib/eventRegistry'
 import { applyRunEvent, toInterruptState, type ChatItem } from './chat/runApply'
@@ -132,7 +133,9 @@ export default function ChatWindow({
    *  经 useEffect 写入输入框（会话切换复用实例时也能到达），非挂载期一次性。 */
   initialDraft?: string
 }) {
-  const { bumpData, showToast, setCurrentConv } = useUI()
+  const { bumpData, showToast, setCurrentConv, setPage } = useUI()
+  // REQ-523/M330：溯源最后一跳——命中卡 doc 名/来源页可点下钻原文（KB 臂 doc_id 在位）
+  const [kbDocTarget, setKbDocTarget] = useState<{ kbId: string; docId: string; doc: string; seq: number } | null>(null)
   const isProjectScope = conversation.scope === 'project'
 
   const project = isProjectScope
@@ -883,7 +886,22 @@ export default function ChatWindow({
                     {hits.map((h, hi) => (
                       <li key={hi} className="retrieval-hit">
                         <div className="retrieval-meta">
-                          <span className="retrieval-doc" title={h.doc}>{h.doc}</span>
+                          <span
+                            className="retrieval-doc"
+                            title={(h.doc_id || it.evData?.mode === 'graphrag') && it.evData?.kb_id ? `${h.doc}（点击下钻）` : h.doc}
+                            style={h.doc_id || it.evData?.mode === 'graphrag' ? { cursor: 'pointer', textDecoration: 'underline dotted' } : undefined}
+                            onClick={() => {
+                              if (h.doc_id && it.evData?.kb_id) {
+                                setKbDocTarget({ kbId: String(it.evData.kb_id), docId: String(h.doc_id), doc: h.doc, seq: h.seq })
+                              } else if (it.evData?.mode === 'graphrag' && it.evData?.kb_id) {
+                                // REQ-523/M330：graphrag 实体/claims 命中无文档——跳知识库图视图（eino.kb.focus 深链）
+                                localStorage.setItem('eino.kb.focus', String(it.evData.kb_id))
+                                setPage('knowledge')
+                              }
+                            }}
+                          >
+                            {h.doc}
+                          </span>
                           <span className="retrieval-seq">#{h.seq}</span>
                           <span className="retrieval-score">{typeof h.score === 'number' ? h.score.toFixed(3) : '—'}</span>
                         </div>
@@ -894,7 +912,22 @@ export default function ChatWindow({
                         {/* REQ-311 A3：wiki 页溯源（REQ-241 后端已返回，此前未渲染） */}
                         {(h.sources ?? []).length > 0 && (
                           <div className="retrieval-meta" style={{ marginTop: 2 }}>
-                            <span className="retrieval-seq">来源页：{(h.sources ?? []).map((s) => `${s.doc || '页面'}#${s.seq}`).join('、')}</span>
+                            <span className="retrieval-seq">
+                              来源页：
+                              {(h.sources ?? []).map((s, si) => (
+                                <span
+                                  key={si}
+                                  style={s.doc_id && it.evData?.kb_id ? { cursor: 'pointer', textDecoration: 'underline dotted', marginRight: 6 } : { marginRight: 6 }}
+                                  onClick={() => {
+                                    if (s.doc_id && it.evData?.kb_id) {
+                                      setKbDocTarget({ kbId: String(it.evData.kb_id), docId: String(s.doc_id), doc: s.doc || h.doc, seq: s.seq })
+                                    }
+                                  }}
+                                >
+                                  {`${s.doc || '页面'}#${s.seq}`}
+                                </span>
+                              ))}
+                            </span>
                           </div>
                         )}
                       </li>
@@ -992,6 +1025,7 @@ export default function ChatWindow({
           <div className="event-detail">{String(it.evData.reason ?? it.evData.detail)}</div>
         )}
         {/* REQ-514/M321：断流卡快捷重发（对比窗格重发=整组重跑，不在此提供，沿用窗格发送） */}
+        {kbDocTarget && <KBContentModal target={kbDocTarget} onClose={() => setKbDocTarget(null)} />}
         {it.evType === 'connection.lost' && !cmp.on && !running && (
           <a className="event-link" onClick={() => regenerate()}>重新生成</a>
         )}

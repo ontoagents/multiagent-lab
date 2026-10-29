@@ -15,6 +15,7 @@ import (
 // Spans/Sources 为事件透传载荷（B1 命中区间 / REQ-241 wiki 溯源定位），chat 不解构。
 type KBHit struct {
 	Doc     string
+	DocID   string // REQ-523/M330：溯源最后一跳——命中可下钻原文（graphrag 实体/claims 无文档为空）
 	Seq     int
 	Score   float64
 	Excerpt string

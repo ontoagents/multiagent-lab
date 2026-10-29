@@ -40,7 +40,7 @@ func (a KBChatSource) RetrieveContext(ctx context.Context, cfg *store.KnowledgeB
 	}
 	hits := make([]chat.KBHit, 0, len(detail.Hits))
 	for _, h := range detail.Hits {
-		ch := chat.KBHit{Doc: h.Doc, Seq: h.Seq, Score: h.Score, Excerpt: h.Excerpt}
+		ch := chat.KBHit{Doc: h.Doc, DocID: h.DocID, Seq: h.Seq, Score: h.Score, Excerpt: h.Excerpt}
 		if len(h.Spans) > 0 {
 			ch.Spans = h.Spans
 		}
@@ -71,7 +71,7 @@ func (a KBChatSource) Search(ctx context.Context, cfg *store.KnowledgeBase, quer
 	}
 	out := make([]chat.KBHit, 0, len(hits))
 	for _, h := range hits {
-		ch := chat.KBHit{Doc: h.Doc, Seq: h.Seq, Score: h.Score, Excerpt: h.Excerpt}
+		ch := chat.KBHit{Doc: h.Doc, DocID: h.DocID, Seq: h.Seq, Score: h.Score, Excerpt: h.Excerpt}
 		if len(h.Spans) > 0 {
 			ch.Spans = h.Spans
 		}

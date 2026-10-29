@@ -364,7 +364,7 @@ export default function GraphRagPage({ kbs, loadErr, onReloadKBs, onCreate, focu
             description={searchMeta.error}
           />
         )}
-        <HitsList hits={hits} />
+        <HitsList hits={hits} kbId={active?.id} />
       </Card>
     </>
   )

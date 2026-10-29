@@ -489,3 +489,34 @@ func buildflowTracePoster(base string) func(stage, note string, durationMS int64
 		}()
 	}
 }
+
+// kbDocContent REQ-523/M330（P05 溯源最后一跳）：KB 文档内容读取——chunk 按 seq 拼接全文，
+// 供命中下钻模态（chat 召回卡/检索试运行命中卡 → 原文上下文）。KnowledgeDoc 无 content 列
+// （原文仅在 chunk），按 chunk 聚合即单源；响应携 chunk 边界供前端 #seq 锚点定位。
+func (s *Server) kbDocContent(w http.ResponseWriter, r *http.Request) {
+	kbID := r.PathValue("id")
+	docID := r.PathValue("did")
+	if _, err := s.Store.GetKnowledgeBase(kbID); err != nil {
+		writeErr(w, err)
+		return
+	}
+	doc, err := s.Store.GetKnowledgeDoc(docID)
+	if err != nil || doc == nil || doc.KBID != kbID {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "文档不存在或不属于该知识库"})
+		return
+	}
+	chunks, err := s.Store.ListKnowledgeChunksByDoc(docID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	type chunkOut struct {
+		Seq     int    `json:"seq"`
+		Content string `json:"content"`
+	}
+	out := make([]chunkOut, 0, len(chunks))
+	for _, ch := range chunks {
+		out = append(out, chunkOut{Seq: ch.Seq, Content: ch.Content})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"doc": doc.Title, "doc_id": doc.ID, "chunks": out})
+}
