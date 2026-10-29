@@ -33,7 +33,8 @@ type indexJob struct {
 	reindex bool
 }
 
-// startIndexWorker NewService 装配时启动（单消费 goroutine，进程生命周期）。
+// startIndexWorker NewService 装配时启动（单消费 goroutine，进程生命周期）；
+// KB-21/M293：启动即扫描 indexing 悬挂文档分派恢复（自动重入队或 failed 明示）。
 func (s *Service) startIndexWorker() {
 	s.jobs = make(chan indexJob, indexQueueCap)
 	go func() {
@@ -41,6 +42,45 @@ func (s *Service) startIndexWorker() {
 			s.runIndexJob(j)
 		}
 	}()
+	s.RecoverStalledIndexing()
+}
+
+// RecoverStalledIndexing 重启悬挂恢复（KB-21/M293）：进程重启丢队列任务，文档停留 indexing。
+// 分派：①有 chunks（重建中悬挂）→ 自动重入队 reindex（原文自 chunks 拼接，幂等索引语义）；
+// ②无 chunks（导入中悬挂——原文仅存于丢失的内存队列，不可恢复）→ failed 明示「请重新导入」。
+// 不引入外部队列（D-O15/单机基线维持）。
+func (s *Service) RecoverStalledIndexing() {
+	kbs, err := s.Store.ListKnowledgeBases()
+	if err != nil {
+		log.Printf("[kb] warn: 悬挂索引扫描失败（列库）: %v", err)
+		return
+	}
+	requeued, marked := 0, 0
+	for _, kb := range kbs {
+		docs, err := s.Store.ListKnowledgeDocs(kb.ID)
+		if err != nil {
+			continue
+		}
+		for _, d := range docs {
+			if d.Status != "indexing" {
+				continue
+			}
+			chunks, cerr := s.Store.ListKnowledgeChunksByDoc(d.ID)
+			if cerr == nil && len(chunks) > 0 {
+				// 重建中悬挂：原文可自 chunks 拼接——自动重入队（幂等）
+				s.enqueue(indexJob{kbcfg: kb, kbID: kb.ID, docID: d.ID, reindex: true})
+				requeued++
+				continue
+			}
+			// 导入中悬挂：原文未落库不可恢复——failed 明示
+			_ = s.Store.UpdateKnowledgeDocStatus(d.ID, "failed", 0, 0,
+				"进程重启致索引中断，导入原文未留存——请重新导入该文档")
+			marked++
+		}
+	}
+	if requeued > 0 || marked > 0 {
+		log.Printf("[kb] 启动悬挂恢复：%d 个 indexing 文档重入队（重建中悬挂，幂等重索），%d 个标 failed（导入中悬挂，原文未留存）", requeued, marked)
+	}
 }
 
 // ImportAsync 异步导入：校验+切分+落库（indexing）同步完成（快，400 可同步报），索引进后台。
