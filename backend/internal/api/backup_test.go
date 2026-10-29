@@ -4,9 +4,11 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
@@ -45,5 +47,93 @@ func TestExportBackup(t *testing.T) {
 		if !names[want] {
 			t.Fatalf("缺 %s（got %v）", want, names)
 		}
+	}
+}
+
+// TestExportBackupExtended REQ-517/M324（P04）：覆盖面扩四项+失败聚合——projects/.secret/
+// companion-snapshots/agent-files 子目录入包，manifest.json 记 skipped，X-Backup-Warnings 头携带跳过数。
+func TestExportBackupExtended(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "platform.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	write := func(rel, content string) {
+		abs := filepath.Join(dir, rel)
+		os.MkdirAll(filepath.Dir(abs), 0o755)
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("projects/p1/README.md", "项目文件")
+	write("projects/p1/.git/HEAD", "git-metadata") // .git 一并入包（唯一不可从库重建的用户产出）
+	write(".secret/key.bin", "secret-key")
+	write("companion-snapshots/snap-1.json", `{"v":1}`)
+	write("agent-files/ag-1/artifact.txt", "子目录产物") // agent-files 子目录（原平铺跳过修复点）
+
+	s := &Server{Store: st, DBPath: filepath.Join(dir, "platform.db")}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/x", nil)
+	s.exportBackup(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("zip 解析: %v", err)
+	}
+	names := map[string]bool{}
+	var manifest []byte
+	for _, f := range zr.File {
+		names[f.Name] = true
+		if f.Name == "manifest.json" {
+			rc, _ := f.Open()
+			manifest, _ = io.ReadAll(rc)
+			rc.Close()
+		}
+	}
+	for _, want := range []string{
+		"data/platform.db",
+		"data/projects/p1/README.md",
+		"data/projects/p1/.git/HEAD",
+		"data/.secret/key.bin",
+		"data/companion-snapshots/snap-1.json",
+		"data/agent-files/ag-1/artifact.txt",
+		"manifest.json",
+	} {
+		if !names[want] {
+			t.Fatalf("缺 %s（got %v）", want, names)
+		}
+	}
+	// manifest 记卫星库缺失（本测试未建 ontology/runtime.db——not_found 如实列出）
+	if len(manifest) == 0 {
+		t.Fatal("manifest.json 应在 zip 根")
+	}
+	if !strings.Contains(string(manifest), "ontology.db") || !strings.Contains(string(manifest), "not_found") {
+		t.Fatalf("manifest 应如实记录卫星库 not_found: %.200s", manifest)
+	}
+	// X-Backup-Warnings 头=跳过数
+	if w := rec.Header().Get("X-Backup-Warnings"); w == "" {
+		t.Fatal("部分跳过时 X-Backup-Warnings 头应在位")
+	}
+}
+
+// TestExportBackupPlatformFail REQ-517：主库快照失败=500（静默 200 缺库 zip 形态根除）。
+func TestExportBackupPlatformFail(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "platform.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s := &Server{Store: st, DBPath: filepath.Join(dir, "platform.db")}
+	// 平台库源损坏形态：DBPath 指向不存在文件 → VACUUM INTO 失败 → 500
+	s.DBPath = filepath.Join(dir, "gone", "platform.db")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/x", nil)
+	s.exportBackup(rec, req)
+	if rec.Code != 500 {
+		t.Fatalf("主库快照失败应 500，got %d", rec.Code)
 	}
 }

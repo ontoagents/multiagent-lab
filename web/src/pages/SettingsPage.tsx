@@ -354,8 +354,33 @@ export default function SettingsPage() {
                   >
                     导出诊断包（JSON）
                   </Button>
-                  <Button data-testid="export-backup" onClick={() => window.open('/api/backup/export', '_blank')}>
-                    一键备份（zip：三库快照+伴生图+智能体文件）
+                  <Button
+                    data-testid="export-backup"
+                    onClick={async () => {
+                      // REQ-517/M324：备份钮同步提示——X-Backup-Warnings 头携带跳过数，
+                      // 失败非 200 显错误（原 window.open 静默下载缺库 zip 无提示形态根除）
+                      try {
+                        const res = await fetch('/api/backup/export')
+                        if (!res.ok) {
+                          showToast((await res.text()) || `备份失败（HTTP ${res.status}）`, 'err')
+                          return
+                        }
+                        const warn = res.headers.get('X-Backup-Warnings')
+                        const blob = await res.blob()
+                        const a = document.createElement('a')
+                        a.href = URL.createObjectURL(blob)
+                        a.download = res.headers.get('Content-Disposition')?.match(/filename=(\S+)/)?.[1] ?? 'backup.zip'
+                        a.click()
+                        URL.revokeObjectURL(a.href)
+                        if (warn && warn !== '0') {
+                          showToast(`备份完成，${warn} 项被跳过（详见压缩包根 manifest.json）`)
+                        }
+                      } catch (e: any) {
+                        showToast(e?.message ?? '备份失败', 'err')
+                      }
+                    }}
+                  >
+                    一键备份（zip：三库快照+项目文件+密钥+伴生快照+智能体文件）
                   </Button>
                 </Space>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
