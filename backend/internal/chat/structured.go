@@ -143,6 +143,9 @@ func generateStructuredWithModel(ctx context.Context, cm model.BaseChatModel, sc
 	return &GenerateStructuredResult{DraftJSON: raw, Usage: usage}, nil
 }
 
+// ExtractJSON 导出别名（api 层 LLM 直调面复用——quiz 批改/出题解析；逻辑单源于 extractJSON）。
+func ExtractJSON(content string) json.RawMessage { return extractJSON(content) }
+
 // extractJSON 从模型输出中提取首个完整 JSON 值（剥围栏、找首尾大括号）。
 func extractJSON(content string) json.RawMessage {
 	c := strings.TrimSpace(content)

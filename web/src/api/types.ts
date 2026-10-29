@@ -409,6 +409,16 @@ export interface KBHit {
   sources?: { doc?: string; doc_id?: string; seq: number }[]
 }
 
+/** REQ-524/M331：学习自测出题（概念子图——answer 作答后才展示） */
+export interface QuizItem {
+  id: string
+  ontology_id: string
+  concept_names: string[]
+  question: string
+  answer: string
+  difficulty: string
+}
+
 /** REQ-246（M70）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */
 export interface WikiPage {
   id: string

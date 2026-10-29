@@ -71,6 +71,7 @@ import type {
   Connector,
   OverlayRow,
   ImpactReport,
+  QuizItem,
 } from './types'
 
 /** 携带 HTTP 状态与校验错误的接口错误（供 UI 区分 404 / 400 validation_errors / 502 不可达） */
@@ -256,6 +257,13 @@ export const api = {
   /** REQ-140：内部方案文档只读查看（限 docs/ 下 .md，fsutil 防越界） */
   docRead: (path: string) =>
     req<{ path: string; title: string; content: string }>('/api/docs/read?path=' + encodeURIComponent(path)),
+  /** REQ-524/M331：出题·批改·掌握度最小闭环（Q-23 衍生③——概念子图出题+LLM 批改+掌握度落表） */
+  quizGenerate: (ontologyId: string, body: { difficulty?: string; count?: number }) =>
+    req<{ items: QuizItem[] }>(`/api/quiz/${ontologyId}/generate`, { method: 'POST', body: JSON.stringify(body) }),
+  quizSubmit: (ontologyId: string, itemId: string, body: { answer: string }) =>
+    req<{ score: number; verdict: 'correct' | 'partial' | 'wrong'; feedback: string; concepts: string[] }>(`/api/quiz/${ontologyId}/items/${itemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
+  quizMastery: (ontologyId: string) =>
+    req<{ mastery: { concept_name: string; asked_count: number; correct_count: number; score: number }[] }>(`/api/quiz/${ontologyId}/mastery`),
   /** REQ-523/M330：KB 文档内容读取（chunk 按 seq 拼接）——溯源最后一跳命中下钻 */
   kbDocContent: (kbId: string, docId: string) =>
     req<{ doc: string; doc_id: string; chunks: { seq: number; content: string }[] }>(`/api/kb/${kbId}/docs/${docId}/content`),

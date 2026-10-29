@@ -11,6 +11,8 @@ import { useUI } from '../../store/ui'
 import { STAGE_DEFS } from './shared'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 import PipelinePane from './components/PipelinePane'
+import QuizPane from './learn/QuizPane'
+import type { Ontology } from '../../api/types'
 
 // ---------------------------------------------------------------------------
 // 学习中心（LearnPage，REQ-104 ①，默认页）：本体模块 = 学习各种本体构建、运行方式的模块
@@ -309,6 +311,7 @@ export default function LearnPage() {
   const { showToast } = useUI()
   const [checklist, setChecklist] = useState<Record<string, string>>(readChecklist)
   const [learningExamples, setLearningExamples] = useState<{ key: string; name: string; description: string }[] | null>(null)
+  const [ontologies, setOntologies] = useState<Ontology[]>([]) // REQ-524/M331：出题自测本体选择
   const [activeStage, setActiveStage] = useState<string>('s1') // REQ-162①：方块步骤条选中阶段
   // REQ-182：左导航子模块选中（学习路径默认首屏主轴；localStorage 记忆）
   // 开发者拍板合并（2026-09-29）：methods 页签删除——旧记忆 key=methods 兼容重定向到 path
@@ -317,12 +320,16 @@ export default function LearnPage() {
     const r = parseOntoHash()
     if (r?.col === 'learn' && r.learn) return r.learn
     const saved = localStorage.getItem('eino.onto.learn.section') ?? 'path'
-    const valid = ['path', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
+    const valid = ['path', 'quiz', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
     return valid.includes(saved) ? saved : 'path'
   })
   useEffect(() => {
     localStorage.setItem('eino.onto.learn.section', section)
   }, [section])
+  // REQ-524/M331：出题自测本体清单（失败静默——出题页空态自明）
+  useEffect(() => {
+    api.listOntologies().then(setOntologies).catch(() => setOntologies([]))
+  }, [])
   // REQ-470：后退/前进按 hash 恢复子模块
   useEffect(() => {
     const onPop = () => {
@@ -502,6 +509,7 @@ export default function LearnPage() {
   // REQ-270：path 视图底部的「全部阶段方法论总览」收起区亦退役——步骤条已按阶段切换，全量重复无增量
   const menuItems = [
     { key: 'path', label: <Space size={6}>学习路径<Tag style={{ margin: 0 }} color="geekblue">{totalDone}/{TASKS.length}</Tag></Space> },
+    { key: 'quiz', label: '出题自测' },
     { key: 'build-paths', label: '构建方式对照' },
     { key: 'runtime-paths', label: '运行方式对照' },
     { key: 'examples', label: '示例本体库' },
@@ -624,6 +632,7 @@ export default function LearnPage() {
             </Card>
           )}
 
+          {section === 'quiz' && <QuizPane ontologies={ontologies} />}
           {section === 'examples' && (
             <Card className="work-card" size="small" title="示例本体库">
               {learningExamples === null ? (
