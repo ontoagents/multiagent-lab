@@ -218,3 +218,39 @@ func TestAgentsWindowEntryBudget(t *testing.T) {
 		}
 	}
 }
+
+// TestReqIndexOpenSet ⑥（REQ-499 人读/机读分层）：docs/19 开放需求索引机读格式校验——
+// 状态列枚举合法（📋/🚧/🔁/🧊，完结态 ✅/⛔ 禁止出现=完结即删行）+行内 REQ 号必须存在于 18 号注册表。
+// 本档是「待开发什么」的唯一查询单点（替代全库 📋 语义扫描——首次盘点实测 15 分钟/4M tokens）。
+func TestReqIndexOpenSet(t *testing.T) {
+	idx := readRepo(t, "docs/19_REQ状态索引.md")
+	reg := readRepo(t, "docs/18_REQ编号注册表.md")
+	valid := map[string]bool{"📋": true, "🚧": true, "🔁": true, "🧊": true}
+	reReq := regexp.MustCompile(`REQ-\d+`)
+	rows := 0
+	for _, line := range strings.Split(idx, "\n") {
+		if !strings.HasPrefix(line, "| ") {
+			continue
+		}
+		cols := strings.Split(line, "|")
+		if len(cols) < 3 {
+			continue
+		}
+		st := strings.TrimSpace(cols[2])
+		if !valid[st] {
+			continue // 表头/分隔行/非状态行
+		}
+		rows++
+		if strings.Contains(line, "✅") || strings.Contains(line, "⛔") {
+			t.Errorf("19 号索引禁止完结态行（✅/⛔=完结即删行，历史在 18 号）：%.50s", line)
+		}
+		for _, req := range reReq.FindAllString(line, -1) {
+			if !strings.Contains(reg, req) {
+				t.Errorf("19 号索引引用的 %s 在 18 号注册表中不存在", req)
+			}
+		}
+	}
+	if rows < 40 {
+		t.Errorf("19 号开放需求行数 %d 异常偏少（建档初版 56 行）——疑似误删", rows)
+	}
+}
