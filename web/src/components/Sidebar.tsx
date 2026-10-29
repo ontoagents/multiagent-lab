@@ -12,6 +12,7 @@ import {
 import { Conversations } from '@ant-design/x'
 import { api } from '../api/client'
 import EmptyGuide from './EmptyGuide'
+import LoadErrorAlert from './LoadErrorAlert'
 import type { Agent, Conversation, Project } from '../api/types'
 import { useUI } from '../store/ui'
 import { confirmAction } from '../lib/antd'
@@ -46,6 +47,8 @@ export default function Sidebar({
   onNewConversation,
   onConfigureAgent,
   onConfigureProject,
+  loadErr,
+  onRetry,
 }: {
   mode: 'agent' | 'project'
   agents: Agent[]
@@ -60,6 +63,9 @@ export default function Sidebar({
   onNewConversation: (nodeId: string) => void
   onConfigureAgent: (id: string) => void
   onConfigureProject: (id: string) => void
+  // REQ-515/M322 三态收口：主列表加载失败由页面透传——错误态不再被空态引导冒充
+  loadErr?: string | null
+  onRetry?: () => void
 }) {
   const { currentConvId, setCurrentConv, bumpData, showToast } = useUI()
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -186,8 +192,16 @@ export default function Sidebar({
       </div>
 
       <div className="conv-list">
-        {nodes.length === 0 && (
-          isAgent ? (
+        {loadErr ? (
+          <LoadErrorAlert
+            title={isAgent ? '智能体列表加载失败' : '项目列表加载失败'}
+            message={loadErr}
+            onRetry={onRetry}
+            style={{ margin: 12 }}
+          />
+        ) : (
+          nodes.length === 0 && (
+            isAgent ? (
             <EmptyGuide
               title="创建第一个智能体"
               steps={[
@@ -211,6 +225,7 @@ export default function Sidebar({
               onAction={onNewProject}
               footer="项目会话由成员智能体协作处理。"
             />
+          )
           )
         )}
 

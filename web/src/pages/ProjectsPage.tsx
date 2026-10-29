@@ -21,6 +21,7 @@ export default function ProjectsPage() {
   const { currentConvId, setCurrentConv, dataVersion, bumpData, showToast } = useUI()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -29,10 +30,15 @@ export default function ProjectsPage() {
   const [panelView, setPanelView] = useState<PanelView>('files')
 
   const reload = () => {
+    // REQ-515/M322 三态收口：主列表失败进错误态（LoadErrorAlert），不再吞成空列表
     api.listProjects().then((ps) => {
       setProjects(ps)
+      setLoadErr(null)
       setActiveProjectId((cur) => (cur && ps.some((p) => p.id === cur) ? cur : (ps[0]?.id ?? null)))
-    }).catch(() => setProjects([]))
+    }).catch((e) => {
+      setProjects([])
+      setLoadErr(e?.message ?? '项目列表加载失败')
+    })
     api.listAgents().then(setAgents).catch(() => setAgents([]))
     api.listConversations().then(setConvs).catch(() => setConvs([]))
   }
@@ -96,6 +102,8 @@ export default function ProjectsPage() {
           onNewConversation={newConversation}
           onConfigureAgent={() => {}}
           onConfigureProject={configureProject}
+          loadErr={loadErr}
+          onRetry={reload}
         />
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">

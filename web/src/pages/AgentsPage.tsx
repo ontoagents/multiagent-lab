@@ -18,6 +18,7 @@ import AgentSidePanel from '../components/AgentSidePanel'
 export default function AgentsPage() {
   const { currentConvId, setCurrentConv, dataVersion, bumpData, showToast } = useUI()
   const [agents, setAgents] = useState<Agent[]>([])
+  const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
   // REQ-461/M261：被引用面板深链（eino.agents.focus）——agents 载入后自动选中
@@ -67,10 +68,15 @@ export default function AgentsPage() {
   }, [])
 
   const reload = () => {
+    // REQ-515/M322 三态收口：主列表失败进错误态（LoadErrorAlert），不再吞成空列表
     api.listAgents().then((as) => {
       setAgents(as)
+      setLoadErr(null)
       setActiveAgentId((cur) => (cur && as.some((a) => a.id === cur) ? cur : (as[0]?.id ?? null)))
-    }).catch(() => setAgents([]))
+    }).catch((e) => {
+      setAgents([])
+      setLoadErr(e?.message ?? '智能体列表加载失败')
+    })
     api.listConversations().then(setConvs).catch(() => setConvs([]))
   }
 
@@ -138,6 +144,8 @@ export default function AgentsPage() {
           onNewConversation={newConversation}
           onConfigureAgent={configureAgent}
           onConfigureProject={() => {}}
+          loadErr={loadErr}
+          onRetry={reload}
         />
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">

@@ -6,6 +6,7 @@ import { DownloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { ProviderGroupMeta } from '../api/client'
 import HintIcon from './settings/HintIcon'
+import LoadErrorAlert from '../components/LoadErrorAlert'
 import type { InferenceBackendStatus, ModelConnection, UsageGroupBy, UsageRow } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
@@ -56,8 +57,10 @@ export default function SettingsPage() {
   const [discoverKey, setDiscoverKey] = useState<string | null>(null)
 
   const [groupMetas, setGroupMetas] = useState<ProviderGroupMeta[]>([])
+  const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const reload = () => {
-    api.listConnections().then(setConns).catch(() => setConns([]))
+    // REQ-515/M322 三态收口：连接/组列表失败进错误态（LoadErrorAlert），不再吞成空列表引导重建
+    api.listConnections().then((cs) => { setConns(cs); setLoadErr(null) }).catch((e) => { setConns([]); setLoadErr(e?.message ?? '模型连接列表加载失败') })
     api.listProviderGroups().then(setGroupMetas).catch(() => setGroupMetas([]))
   }
   useEffect(reload, [])
@@ -385,7 +388,16 @@ export default function SettingsPage() {
                 </Typography.Title>
               </div>
 
-              {!hasChat && (
+              {loadErr && (
+                <LoadErrorAlert
+                  title="模型连接列表加载失败"
+                  message={loadErr}
+                  onRetry={reload}
+                  style={{ marginTop: 12 }}
+                />
+              )}
+
+              {!hasChat && !loadErr && (
                 <Alert
                   type="warning"
                   showIcon
@@ -412,7 +424,7 @@ export default function SettingsPage() {
                     },
                     expandedRowRender,
                   }}
-                  locale={{ emptyText: '暂无提供商，点击下方按钮添加' }}
+                  locale={{ emptyText: loadErr ? <span /> : '暂无提供商，点击下方按钮添加' }}
                 />
                 <div className="tab-footer">
                   <Button type="primary" onClick={() => setProviderModal('new')}>＋ 添加提供商</Button>

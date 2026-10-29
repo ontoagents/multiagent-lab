@@ -3,6 +3,7 @@ import { Button, Card, Checkbox, Input, InputNumber, Space, Table, Tag, Typograp
 import type { KBDoc, KBHit } from '../../api/types'
 import { api } from '../../api/client'
 import { useUI } from '../../store/ui'
+import LoadErrorAlert from '../../components/LoadErrorAlert'
 import {
   KbDetailHead,
   KbListColumn,
@@ -29,6 +30,7 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
 
   const [docs, setDocs] = useState<KBDoc[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
+  const [docsErr, setDocsErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [reindexing, setReindexing] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
 
@@ -47,8 +49,8 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
   const reloadDocs = (kbId: string) => {
     setDocsLoading(true)
     api.listKBDocs(kbId)
-      .then(setDocs)
-      .catch(() => setDocs([]))
+      .then((d) => { setDocs(d); setDocsErr(null) })
+      .catch((e) => { setDocs([]); setDocsErr(e?.message ?? '文档列表加载失败') })
       .finally(() => setDocsLoading(false))
   }
 
@@ -71,6 +73,7 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
     setSearchMeta(null)
     if (!active?.id) {
       setDocs([])
+      setDocsErr(null) // REQ-515/M322
       setTopK(4)
       setMinScore(0)
       return
@@ -241,7 +244,9 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
                 loading={docsLoading}
                 pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
                 size="middle"
-                locale={{ emptyText: '暂无文档，点击右上「上传文档」导入 txt / md' }}
+                locale={{ emptyText: docsErr
+                  ? <LoadErrorAlert title="文档列表加载失败" message={docsErr} onRetry={() => active && reloadDocs(active.id)} style={{ margin: 12 }} />
+                  : '暂无文档，点击右上「上传文档」导入 txt / md' }}
               />
             </Card>
 

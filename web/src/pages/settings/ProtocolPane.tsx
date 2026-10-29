@@ -3,6 +3,7 @@ import { Alert, Button, Empty, Spin, Table, Tabs, Tag, Tooltip, Typography } fro
 import { CopyOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import type { A2aCardEntry, A2aTaskInfo, Agent, McpServeInfo } from '../../api/types'
+import LoadErrorAlert from '../../components/LoadErrorAlert'
 
 // REQ-418/M214：设置页「协议」总览面——MCP 服务面（mcp_serve 接入指引）/A2A 服务面
 //（发现端点+agent card 只读预览+capabilities 如实标注）/A2A 任务列表（a2a_task 可视——
@@ -22,16 +23,22 @@ function copyText(t: string, ok = '已复制') {
 
 export function ProtocolPane() {
   const [agents, setAgents] = useState<Agent[] | null>(null)
+  const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [serves, setServes] = useState<Record<string, McpServeInfo | null>>({})
   const [cards, setCards] = useState<A2aCardEntry[] | null>(null)
   const [tasks, setTasks] = useState<A2aTaskInfo[] | null>(null)
 
   const load = () => {
+    // REQ-515/M322 三态收口：智能体列表失败进错误态，不再吞成空列表
     api.listAgents().then((as) => {
       setAgents(as)
+      setLoadErr(null)
       Promise.all(as.map(async (a) => [a.id, await api.getAgentMcpServe(a.id).catch(() => null)] as const))
         .then((entries) => setServes(Object.fromEntries(entries.filter(([, v]) => v != null))))
-    }).catch(() => setAgents([]))
+    }).catch((e) => {
+      setAgents([])
+      setLoadErr(e?.message ?? '智能体列表加载失败')
+    })
     api.listA2aCards().then((r) => setCards(r.cards ?? [])).catch(() => setCards([]))
     api.listA2aTasks(100).then((r) => setTasks(r.tasks ?? [])).catch(() => setTasks([]))
   }
@@ -67,6 +74,9 @@ export function ProtocolPane() {
         message="MCP 服务面：平台智能体可作为 MCP server 被外部客户端（Claude Desktop / Cursor 等）调用"
         description="每智能体一个工具（侧板「对外服务」开启并生成 Token）；外部客户端经 Streamable HTTP 握手 tools/list → tools/call。鉴权：智能体级 Token 或平台凭证（PLATFORM_TOKEN）。"
       />
+      {loadErr && (
+        <LoadErrorAlert title="智能体列表加载失败" message={loadErr} onRetry={load} style={{ marginBottom: 10 }} />
+      )}
       {serveEnabled.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未有智能体开启 MCP 对外服务——在智能体侧板「对外服务」开启" />
       ) : (
