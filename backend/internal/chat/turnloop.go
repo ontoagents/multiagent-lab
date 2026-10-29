@@ -181,17 +181,19 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 		},
 	})
 
-	// 登记运行句柄（steerRun 抢占入口；对比窗格多路不登记）；退出时注销
+	// 登记运行句柄（steerRun 抢占入口；对比窗格多路不登记）；退出时按值注销
+	var handle *loopHandle
 	if steerable {
+		handle = &loopHandle{loop: loop, runID: runID, emit: rc.emit}
 		s.mu.Lock()
-		s.loops[conv.ID] = &loopHandle{loop: loop, runID: runID, emit: rc.emit}
+		s.loops[conv.ID] = handle
 		s.mu.Unlock()
 	}
 	defer func() {
 		if steerable {
-			s.mu.Lock()
-			delete(s.loops, conv.ID)
-			s.mu.Unlock()
+			// REQ-521/M328（P22）：按值删除（指针相同才删）——双运行同键覆盖时，先完成者
+			// 的 defer 不得摘掉后运行者仍在使用的句柄（原按键删除致 steer 409）
+			s.removeLoopHandle(conv.ID, handle)
 		}
 	}()
 
@@ -231,6 +233,16 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 		}
 	}
 	return exit
+}
+
+// removeLoopHandle REQ-521/M328（P22）：按值删除运行句柄——仅当登记句柄仍是自己时才删，
+// 防并发同会话双运行的先完成者 defer 误摘后运行者的 steer 句柄。
+func (s *Service) removeLoopHandle(convID string, h *loopHandle) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur := s.loops[convID]; cur == nil || cur == h {
+		delete(s.loops, convID)
+	}
 }
 
 // flushTurnAssistant 轮界助手产物落盘（每轮一条 assistant 消息+段事件；rc.buf 复位防 finalize 重复落库）。

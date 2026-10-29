@@ -42,6 +42,10 @@ type Service struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // conversationID -> cancel
+	// running REQ-521/M328 并发运行闸占位（conversationID -> true，Run/Resume 入口 acquire、
+	// defer release）——cancels 注册在装配完成后，若仅凭 IsRunning 检查则「检查→注册」间有
+	// 竞态窗口（双 goroutine 同会话并发 Run 可同过）；占位在同锁段内检查+置位原子化。
+	running map[string]bool
 	// loops REQ-385/M181：运行中 TurnLoop 句柄（conversationID -> handle）——主会话运行中
 	// steer 抢占介入入口（steerRun）；TurnLoop 引擎关闭（CHAT_TURNLOOP=0）时恒空。
 	loops map[string]*loopHandle
@@ -76,7 +80,7 @@ type CommunitySource interface {
 
 // NewService 构造。kbSrc 为知识库检索源（REQ-355 R1 接口反转，api 装配层适配 kb.Service；nil=未接入）。
 func NewService(st *store.Store, asm *Assembler, kbSrc KBSource) *Service {
-	return &Service{Store: st, Assembler: asm, KB: kbSrc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}, loops: map[string]*loopHandle{}}
+	return &Service{Store: st, Assembler: asm, KB: kbSrc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}, loops: map[string]*loopHandle{}, running: map[string]bool{}}
 }
 
 // ResolveExtApproval REQ-206/M41 S2：外部推理后端权限挂起的人工决议（approve|deny）。
@@ -187,6 +191,13 @@ type RunResult struct {
 
 // Run 执行一次对话运行：持久化用户消息 → 装配（M4：单 Agent / 项目多 Agent）→ 流式执行 → 翻译事件 → 持久化。
 func (s *Service) Run(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID string, input string, debug int, debugPersist bool, emit EmitFn) (*RunResult, error) {
+	// REQ-521/M328 并发运行闸（与 A2A REQ-441④ 同构）：同会话双运行会覆盖注册 cancels（Stop
+	// 只能取消最后注册者）且 TurnLoop 句柄同键覆盖（先完成者 defer 按键删除摘掉后运行者的
+	// steer 句柄）。A2A.RunFunc 经此处同闸（A2A 面自身 Busy 检查在本闸之前的入端口）。
+	if err := s.acquireRun(conv.ID); err != nil {
+		return nil, err
+	}
+	defer s.releaseRun(conv.ID)
 	if emit == nil {
 		emit = func(*Event) {}
 	}
@@ -1164,6 +1175,11 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 // Resume 恢复挂起的中断（M11 收尾）：以用户答复按 InterruptCtx.ID 定向恢复 ask_human 中断点，
 // 复用 Run 的事件翻译管线；恢复过程若再次中断（如连环提问），照常落新的挂起状态。
 func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, answer string, debug int, debugPersist bool, emit EmitFn) (*RunResult, error) {
+	// REQ-521/M328：恢复路径同闸（恢复进行中的会话再 Resume 同样属并发双跑）
+	if err := s.acquireRun(conv.ID); err != nil {
+		return nil, err
+	}
+	defer s.releaseRun(conv.ID)
 	if emit == nil {
 		emit = func(*Event) {}
 	}
@@ -1522,10 +1538,39 @@ func (s *Service) recordOntologyHit(rc *runConsumer, conv *store.Conversation, r
 	s.emitAndRecord(rc.ctx, conv, runID, newEvent("ontology.hit", runID, json.RawMessage(data)), emit)
 }
 
-// IsRunning 会话是否有进行中的运行（REQ-224① 状态机抽象 phase=running 判据；cancels 注册即活跃）。
+// ErrConversationBusy 会话已有进行中的运行（REQ-521/M328 并发闸——与 A2A REQ-441④ Busy 闸
+// 同构语义；handler 层映射 409）。
+var ErrConversationBusy = errors.New("conversation busy: 该会话已有进行中的运行")
+
+// acquireRun REQ-521/M328 并发运行闸：同会话单运行占位（检查+置位同锁段原子化——并发 Run
+// 同会话恰一成功一 ErrConversationBusy）。Run/Resume 入口 acquire、defer release。
+func (s *Service) acquireRun(conversationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running[conversationID] {
+		return ErrConversationBusy
+	}
+	if s.running == nil { // 测试字面量构造（&Service{Store: st}）nil map 防御
+		s.running = map[string]bool{}
+	}
+	s.running[conversationID] = true
+	return nil
+}
+
+func (s *Service) releaseRun(conversationID string) {
+	s.mu.Lock()
+	delete(s.running, conversationID)
+	s.mu.Unlock()
+}
+
+// IsRunning 会话是否有进行中的运行（REQ-224① 状态机抽象 phase=running 判据；REQ-521 起
+// running 占位（Run 全生命周期）与 cancels 注册（装配后）任一即活跃）。
 func (s *Service) IsRunning(conversationID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.running[conversationID] {
+		return true
+	}
 	_, ok := s.cancels[conversationID]
 	return ok
 }

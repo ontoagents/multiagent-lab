@@ -527,6 +527,11 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeJSON(w, he.Status, map[string]string{"error": he.Msg})
 		return
 	}
+	// REQ-521/M328 并发运行闸：同会话已有进行中运行 → 409 人话提示（与 A2A REQ-441 Busy 同构）
+	if errors.Is(err, chat.ErrConversationBusy) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "该会话已有进行中的运行——请等待完成或先停止，再发送新消息/恢复"})
+		return
+	}
 	var mnc *chat.ModelNotConfiguredError
 	if errors.As(err, &mnc) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": mnc.Error()})

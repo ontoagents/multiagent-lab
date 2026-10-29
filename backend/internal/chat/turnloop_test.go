@@ -10,6 +10,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -404,5 +405,64 @@ func TestTurnLoopSteerSeesPersistedRecall(t *testing.T) {
 	}
 	if !m.sawRecall.Load() {
 		t.Fatal("续轮模型输入应含落库召回 system 文本（P03 修复点——抢占轮不丢检索上下文）")
+	}
+}
+
+// TestAcquireRunGateAtomic REQ-521/M328（P22 并发闸）：检查+占位同锁段原子化——并发 acquire
+// 同会话恰一成功其余 ErrConversationBusy（handler 层映射 409）。
+func TestAcquireRunGateAtomic(t *testing.T) {
+	s := tlService(t)
+	conv, _ := tlConv(t, s)
+	const n = 20
+	okCh := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := s.acquireRun(conv.ID); err == nil {
+				okCh <- i
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(okCh)
+	wins := len(okCh)
+	if wins != 1 {
+		t.Fatalf("并发 acquire 应恰一成功，got %d", wins)
+	}
+	if err := s.acquireRun(conv.ID); !errors.Is(err, ErrConversationBusy) {
+		t.Fatalf("占位期间再 acquire 应 busy: %v", err)
+	}
+	s.releaseRun(conv.ID)
+	if err := s.acquireRun(conv.ID); err != nil {
+		t.Fatalf("释放后应可再获: %v", err)
+	}
+	s.releaseRun(conv.ID)
+}
+
+// TestRemoveLoopHandleByValue REQ-521/M328（P22 句柄按值删除）：双运行同键覆盖时，
+// 先完成者的按值删除不得摘掉后运行者的句柄（原按键删除致 steer 409）。
+func TestRemoveLoopHandleByValue(t *testing.T) {
+	s := tlService(t)
+	conv, _ := tlConv(t, s)
+	h1 := &loopHandle{runID: "r1"}
+	h2 := &loopHandle{runID: "r2"}
+	s.mu.Lock()
+	s.loops[conv.ID] = h2 // 后运行者已覆盖登记
+	s.mu.Unlock()
+	s.removeLoopHandle(conv.ID, h1) // 先完成者退出（持旧句柄）——不得误删
+	s.mu.Lock()
+	got := s.loops[conv.ID]
+	s.mu.Unlock()
+	if got != h2 {
+		t.Fatal("先完成者 defer 不得摘掉后运行者的句柄（按值删除修复点）")
+	}
+	s.removeLoopHandle(conv.ID, h2) // 后运行者退出——正确删除
+	s.mu.Lock()
+	got = s.loops[conv.ID]
+	s.mu.Unlock()
+	if got != nil {
+		t.Fatal("本人退出应删除自己的句柄")
 	}
 }
