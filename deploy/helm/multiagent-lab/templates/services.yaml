@@ -1,4 +1,5 @@
 {{- range .Values.components }}
+{{- if eq (.enabled | toString) "false" }}{{- continue }}{{- end }}
 ---
 apiVersion: v1
 kind: Service

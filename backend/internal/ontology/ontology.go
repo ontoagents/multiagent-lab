@@ -36,10 +36,17 @@ type Service struct {
 // NewService 从环境变量构建；始终返回可用实例（不可达由调用方降级）。
 func NewService() *Service {
 	s := &Service{
-		MCPURL:      getenv("ONTOLOGY_MCP_URL", "http://127.0.0.1:8090/mcp"),
 		RuntimeURL:  getenv("RUNTIME_MGR_URL", "http://127.0.0.1:8090"),
 		BuildURL:    getenv("BUILD_SVC_URL", "http://127.0.0.1:8091"),
 		DialTimeout: 3 * time.Second,
+	}
+	// REQ-518/M325：ONTOLOGY_MCP_URL 缺省自 RUNTIME_MGR_URL 派生（同一服务的 /mcp 路径）——
+	// 容器编排只配 RUNTIME_MGR_URL 时 MCP 面自动可达；原独立默认 127.0.0.1:8090/mcp 在容器内
+	// 打进 backend 自身容器，onto_* 工具静默缺失（ontology.unavailable 外显但部署文档无修复路径）。
+	if v := os.Getenv("ONTOLOGY_MCP_URL"); v != "" {
+		s.MCPURL = v
+	} else {
+		s.MCPURL = strings.TrimRight(s.RuntimeURL, "/") + "/mcp"
 	}
 	if v := os.Getenv("ONTOLOGY_DIAL_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {

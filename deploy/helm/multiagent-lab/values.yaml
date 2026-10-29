@@ -1,5 +1,7 @@
 # multiagent-lab Helm values
-# 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 docs/13 §4）
+# 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 platform-knowledge/01_整体设计/16_部署与运行.md）
+# REQ-518/M325：components.enabled 旗标（缺省 true）——休眠组件置 false 即从 deployments/services/pvc 三模板过滤；
+# 服务间编址契约表见 16 号 §3.0（ONTOLOGY_MCP_URL 缺省自 RUNTIME_MGR_URL 派生 /mcp——此处显式双保险）
 
 image:
   registry: ""          # 例：registry.cn-hangzhou.aliyuncs.com/your-ns
@@ -18,6 +20,7 @@ qdrant:
 # ---- 三服务公共模板 ----
 components:
   - name: backend
+    enabled: true
     image: multiagent-lab/backend
     tag: latest
     port: 8080
@@ -27,14 +30,15 @@ components:
         value: http://multiagent-lab-ontology-service:8091
       - name: RUNTIME_MGR_URL
         value: http://multiagent-lab-runtime-manager:8090
-      - name: SEMANTICA_WORKER_URL
-        value: http://multiagent-lab-semantica-worker:8093
+      - name: ONTOLOGY_MCP_URL
+        value: http://multiagent-lab-runtime-manager:8090/mcp
       # - name: KB_VECTOR_BACKEND
       #   value: qdrant
       # - name: QDRANT_URL
       #   value: http://multiagent-lab-qdrant:6333
-      # Docker 沙箱（进阶，默认关）：需 DinD/宿主 sock，见 docs/13 §4
+      # Docker 沙箱（进阶，默认关）：需 DinD/宿主 sock，见 16 号 §3.0
   - name: ontology-service
+    enabled: true
     image: multiagent-lab/ontology-service
     tag: latest
     port: 8091
@@ -43,6 +47,7 @@ components:
       - name: PLATFORM_URL
         value: http://multiagent-lab-backend:8080
   - name: runtime-manager
+    enabled: true
     image: multiagent-lab/runtime-manager
     tag: latest
     port: 8090
@@ -50,14 +55,19 @@ components:
     env:
       - name: BUILD_SVC_URL
         value: http://multiagent-lab-ontology-service:8091
-  - name: semantica-worker
-    image: multiagent-lab/semantica-worker
-    tag: latest
-    port: 8093
-    storage: 5Gi
-    env:
-      - name: SEMANTICA_DATA_DIR
-        value: /app/data/graph.json
+      - name: PLATFORM_API_URL
+        value: http://multiagent-lab-backend:8080
+  # REQ-518/M325：semantica-worker 自编排摘除（D-O15 归档休眠不再构建/分发——原裸 range
+  # 默认渲染出 6~10GB 镜像 Deployment；如需恢复在下方追加组件并 enabled: true）
+  # - name: semantica-worker
+  #   enabled: false
+  #   image: multiagent-lab/semantica-worker
+  #   tag: latest
+  #   port: 8093
+  #   storage: 5Gi
+  #   env:
+  #     - name: SEMANTICA_DATA_DIR
+  #       value: /app/data/graph.json
 
 resources:
   requests:
