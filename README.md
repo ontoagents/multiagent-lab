@@ -181,11 +181,13 @@ The project has grown from a teaching demo into a **production-grade, single-mac
 
 ## 🙏 Appreciation
 
-AgentLab stands on the shoulders of the open-source community and academic work — direct dependencies are used under their own licenses; methodological borrowings follow the principle of **borrowing ideas, implementing ourselves**. This section is a retrieval-friendly selection; the full ledger (with requirement links, evaluation notes and rejected candidates) lives in [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md).
+AgentLab stands on the shoulders of the open-source community and academic work — direct dependencies are used under their own licenses; methodological borrowings follow the principle of **borrowing ideas, implementing ourselves**. The lists below are grouped by this project's **architecture layers** (direct use) and by **domain** (key references); the full ledger (with requirement links, evaluation notes and rejected candidates) lives in [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md).
 
-### Directly integrated open source
+### Directly used — by architecture layer
 
-| Project | License | Role in this project |
+**Agent engine (Go backend)**
+
+| Project | License | Role |
 | --- | --- | --- |
 | [CloudWeGo Eino / Eino ADK](https://github.com/cloudwego/eino) | Apache-2.0 | Agent orchestration backbone: ReAct agents, multi-agent (Agent-as-Tool / Transfer), streaming chat |
 | [CloudWeGo Hertz](https://github.com/cloudwego/hertz) | Apache-2.0 | HTTP framework: REST API, SSE streaming, static hosting of the web UI |
@@ -193,64 +195,75 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 | [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) | MIT | MCP serving foundation: the agent `/mcp` endpoint and the ontology `onto_*` facade |
 | [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | MIT | Pure-Go SQLite driver (no CGO, zero external dependencies) |
 | [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) | MIT | spec_json structural validation |
+| [gonum](https://github.com/gonum/gonum) | BSD-3 | Planned: KG community detection (Louvain) |
+
+**Ontology plane (build & runtime)**
+
+| Project | License | Role |
+| --- | --- | --- |
 | [rdflib](https://github.com/RDFLib/rdflib) | BSD-3 | Python sidecar (`tools/rdf-sidecar`): OWL/RDF parsing, TTL export and read-back validation |
 | [pySHACL](https://github.com/RDFLib/pySHACL) | Apache-2.0 | SHACL constraint validation (optional sidecar component, business-constraint layer of the quality gate) |
 | [Oxigraph](https://github.com/oxigraph/oxigraph) | MIT / Apache-2.0 | Default SPARQL 1.1 store (single binary, managed by the runtime plane) |
 | [Apache Jena Fuseki](https://github.com/apache/jena) | Apache-2.0 | SPARQL service with an OWL reasoning switch (optional runtime engine) |
+
+**Frontend (React)**
+
+| Project | License | Role |
+| --- | --- | --- |
+| [Ant Design](https://github.com/ant-design/ant-design) · [Ant Design X](https://github.com/ant-design/x) | MIT | UI component library and AI chat components |
 | [ReactFlow](https://github.com/xyflow/xyflow) | MIT | Ontology structure view canvas (renders spec_json directly) |
 | [3d-force-graph](https://github.com/vasturiano/3d-force-graph) · [react-force-graph-3d](https://github.com/vasturiano/react-force-graph-3d) | MIT | 3D force-directed ontology browsing |
 | [WebVOWL](https://github.com/VisualDataWeb/WebVOWL) | MIT | Standard TBox visualization (comparison view) |
 | [CodeMirror 6](https://github.com/codemirror/dev) ([@uiw/react-codemirror](https://github.com/uiwjs/react-codemirror)) | MIT | spec / JSON / SPARQL editors (highlighting, inline lint, text diff) |
 | [react-diff-viewer-continued](https://github.com/afzalsayed96/react-diff-viewer-continued) | MIT | Side-by-side version diff |
-| [Ant Design](https://github.com/ant-design/ant-design) · [Ant Design X](https://github.com/ant-design/x) | MIT | UI component library and AI chat components |
-| [Tauri 2](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Windows / macOS desktop shell (system tray, single instance) |
-| [gonum](https://github.com/gonum/gonum) | BSD-3 | Planned: KG community detection (Louvain) |
 
-<details>
-<summary><b>Guided ontology toolchain (used outside the platform, outputs imported back)</b></summary>
+**Desktop & delivery**
 
-### Guided ontology toolchain
-
-"Guided execution" build paths direct users to these mature tools outside the platform; their outputs can be imported back:
-
-| Tool | License | Role |
+| Project | License | Role |
 | --- | --- | --- |
-| [Protégé](https://github.com/protegeproject/protege) / [WebProtégé](https://github.com/protegeproject/webprotege) | BSD / Apache-2.0 | Industry-standard ontology editors (desktop / collaborative web); OWL/TTL exports import back |
-| [ROBOT](https://github.com/ontodev/robot) | Apache-2.0 | CLI ontology processing: template batch generation / merge / subset |
-| [OOPS!](https://oops.linkeddata.es) | Apache-2.0 | Ontology pitfall scanning (34 common error classes); a reference dimension of the quality gate |
-| [ELK](https://github.com/liveontologies/elk-reasoner) / [HermiT](https://github.com/phillord/hermit-reasoner) | LGPL | OWL reasoners (ELK fast / HermiT complete) for logical-consistency checks |
+| [Tauri 2](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Windows / macOS desktop shell (system tray, single instance) |
 
-</details>
+### Key references (ideas borrowed, implemented in-house)
 
-<details>
-<summary><b>Borrowed methodology (ideas borrowed, implemented in-house)</b></summary>
+**Ontology methodology & toolchain**（含引导使用 guided execution paths——平台外使用、产物回流）
 
-### Borrowed methodology (ideas borrowed, implemented in-house)
-
-| Project / source | Links | What was borrowed |
+| Project / source | Links | What was borrowed / role |
 | --- | --- | --- |
 | **OntoChat** | [GitHub](https://github.com/King-s-Knowledge-Graph-Lab/OntoChat) · [paper](https://arxiv.org/abs/2403.05921) | Blueprint for the conversational ontology path: user story → CQ → clustering → testing workflow plus prompt templates; CQ extraction / purification / analysis implemented step-by-step per the paper, with the coverage test station shipped as a CQ regression baseline |
 | **OntoExtend** | [GitHub](https://github.com/dersuchendee/OntoExtend) · [paper](https://arxiv.org/abs/2607.17963) | The three-stage CQ-driven extension pipeline (Retriever → Extender → Integrator) and its retrieval recipe (element-level serialization + sentence-embedding top-k); implemented as the CQ-driven evolution path |
 | **CQ4OE**（OEG-UPM） | [GitHub](https://github.com/oeg-upm/cq4oe-benchmark) · [paper](https://arxiv.org/abs/2609.26029) | Benchmark methodology for LLM ontology generation: three-level CQ coverage metrics and the multi-method term-alignment pipeline — the blueprint for asset-level layered quality assessment |
+| OWLAPY | [GitHub](https://github.com/dice-group/owlapy) | Python LLM ontology framework: generate-validate loop and prompt design reference |
+| Protégé / WebProtégé（guided） | [Protégé](https://github.com/protegeproject/protege) · [WebProtégé](https://github.com/protegeproject/webprotege)（BSD / Apache-2.0） | Industry-standard ontology editors (desktop / collaborative web); OWL/TTL exports import back via guided execution paths |
+| ROBOT（guided） | [GitHub](https://github.com/ontodev/robot)（Apache-2.0） | CLI ontology processing: template batch generation / merge / subset |
+| OOPS!（guided） | [oops.linkeddata.es](https://oops.linkeddata.es)（Apache-2.0） | Ontology pitfall scanning (34 common error classes); a reference dimension of the quality gate |
+| ELK / HermiT（guided） | [ELK](https://github.com/liveontologies/elk-reasoner) · [HermiT](https://github.com/phillord/hermit-reasoner)（LGPL） | OWL reasoners (ELK fast / HermiT complete) for logical-consistency checks |
+
+**Knowledge systems & retrieval**
+
+| Project / source | Links | What was borrowed |
+| --- | --- | --- |
 | ontology-on-snowflake（Snowflake-Labs） | [GitHub](https://github.com/Snowflake-Labs/ontology-on-snowflake) | Flattened GraphRAG concept-profile precomputation — the direct basis of the companion retrieval "concept profile unit"; its benchmark data and profile-doc structure informed the design |
 | HelixDB · Helix Foundry | [helix-db](https://github.com/HelixDB/helix-db) · [helix-foundry](https://github.com/HelixDB/helix-foundry) | The "pre-filter → ranking" hybrid retrieval shape, base+overlay+audit layering and evidence grading (engine not adopted — non-RDF ecosystem, conflicts with the spec→TTL→SPARQL mainline) |
 | semantica | [GitHub](https://github.com/semantica-agi/semantica) | Three-layer architecture, GraphRAG hybrid retrieval ideas and the PROV-O decision-provenance narrative — the reference sample behind our lightweight in-house consumption & audit plane (no runtime integration) |
 | Open Ontologies | [GitHub](https://github.com/fabio-rovai/open-ontologies) | Deep study of judgement discipline, lifecycle governance (plan / apply / drift) and bi-temporal mechanics, distilled into research notes and an in-house adoption list (dual-track integration retired) |
 | OpenBKN | [GitHub](https://github.com/openbkn-ai/bkn-foundry) | Enterprise ontology platform (Palantir Foundry counterpart) as design reference: knowledge packaging, ontology retrieval, managed evolution steps |
 | Graphiti / Zep | [GitHub](https://github.com/getzep/graphiti) | The reference standard for agent temporal knowledge-graph memory: time-aware edges, incremental evolution, hybrid retrieval — informs the companion ontology roadmap |
-| OWLAPY | [GitHub](https://github.com/dice-group/owlapy) | Python LLM ontology framework: generate-validate loop and prompt design reference |
-| Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | A same-position ontology learning site: progressive domain paths, sample catalogs and gamification as learning-center design references |
 | LangChain / LlamaIndex | [LangChain](https://github.com/langchain-ai/langchain) · [LlamaIndex](https://github.com/run-llama/llama_index) | Cross-ecosystem check: external MCP clients consuming the same facade to validate open integration |
 
-</details>
+**Product & learning-space references**
+
+| Project / source | Links | What was borrowed |
+| --- | --- | --- |
+| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [paper](https://arxiv.org/abs/2604.26962) | Agent-native personal learning workspace (40k★/9 months) — product-narrative reference and the direct input to the Q-23 positioning: scene sharpness beats engine generality; its learning loop (quiz · grading · mastery) is borrowed while differentiation comes from **ontology-grounded** coverage guarantees and concept-graph mastery (vs pure LLM quiz generation); cold-start modeling cost is the make-or-break. Full analysis: [调研档 91 号](platform-knowledge/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
+| Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | A same-position ontology learning site: progressive domain paths, sample catalogs and gamification as learning-center design references |
+
+### Papers & standards
 
 <details>
 <summary><b>Papers & standards</b></summary>
 
 ### Papers & standards
 
-| Paper / standard | Link | What it supports |
-| --- | --- | --- |
 | OntoChat: a Framework for Conversational Ontology Engineering using Language Models (ESWC 2024) | [arXiv 2403.05921](https://arxiv.org/abs/2403.05921) | The four-step conversational OE workflow (user story → CQ → clustering → testing) and practitioner survey |
 | Improving Ontology Requirements Engineering with OntoChat and Participatory Prompting | [arXiv 2408.15256](https://arxiv.org/abs/2408.15256) | The participatory prompting protocol (user-story guidance) |
 | OntoChat Assistant for User Story Generation in Ontology Engineering | [ACM DL 10.1145/3810943](https://doi.org/10.1145/3810943) | A design-validated prompting framework for user-story generation |
