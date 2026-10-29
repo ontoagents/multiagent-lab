@@ -52,6 +52,7 @@ func TestRegistryREQReferences(t *testing.T) {
 	reqRowRe := regexp.MustCompile(`^\|\s*REQ-(\d{3})`)
 	for _, src := range []string{
 		"docs/18_REQ编号注册表.md",
+		"docs/18A_REQ归档册.md", // REQ-499 拆册：完结注册行归档册与 18 号同为位号事实源
 		"docs/01_智能体_需求文档_PRD.md",
 		"docs/03_本体_需求文档.md",
 		"docs/11_知识库_需求文档.md",  // KB 域 REQ 行（REQ-102/241 等在册处）
@@ -224,7 +225,7 @@ func TestAgentsWindowEntryBudget(t *testing.T) {
 // 本档是「待开发什么」的唯一查询单点（替代全库 📋 语义扫描——首次盘点实测 15 分钟/4M tokens）。
 func TestReqIndexOpenSet(t *testing.T) {
 	idx := readRepo(t, "docs/19_REQ状态索引.md")
-	reg := readRepo(t, "docs/18_REQ编号注册表.md")
+	reg := readRepo(t, "docs/18_REQ编号注册表.md") + readRepo(t, "docs/18A_REQ归档册.md") // REQ-499 拆册两册同权
 	valid := map[string]bool{"📋": true, "🚧": true, "🔁": true, "🧊": true}
 	reReq := regexp.MustCompile(`REQ-\d+`)
 	rows := 0
