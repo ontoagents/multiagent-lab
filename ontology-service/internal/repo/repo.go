@@ -87,27 +87,41 @@ func (s *Store) migrate() error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
-		legacy := false
+		// REQ-519/M326：单文件迁移事务包裹（sql.Tx）——中途失败全回滚、版本不记录，重启
+		// 重放；tolerance=duplicate column（REQ-156 语义维持）+already exists（存量半套 schema 收敛）。
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", f, err)
+		}
 		for _, stmt := range splitSQL(string(bts)) {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
-			if _, err := s.db.Exec(stmt); err != nil {
+			if _, err := tx.Exec(stmt); err != nil {
 				// 幂等容忍：重放式迁移下 ALTER ADD COLUMN 无法 IF NOT EXISTS，
 				// 重复启动时列已存在视为已应用（REQ-156/M-O15 005 起的 ALTER 类迁移依赖此语义）
-				if strings.Contains(err.Error(), "duplicate column name") {
-					legacy = true
+				if isLegacyTolerable(err) {
 					continue
 				}
+				tx.Rollback()
 				return fmt.Errorf("apply migration %s: %w", f, err)
 			}
 		}
-		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))`, f); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))`, f); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", f, err)
 		}
-		_ = legacy
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", f, err)
+		}
 	}
 	return nil
+}
+
+// isLegacyTolerable 存量库 legacy 已应用容忍（REQ-519/M326：duplicate column 维持+already exists 扩展）。
+func isLegacyTolerable(err error) bool {
+	e := err.Error()
+	return strings.Contains(e, "duplicate column name") || strings.Contains(e, "already exists")
 }
 
 // splitSQL 将多语句迁移脚本按分号拆分为独立语句（modernc sqlite 的 Exec 只执行第一条）。
