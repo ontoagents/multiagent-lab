@@ -252,6 +252,10 @@ func (s *Store) ReplaceKGForDoc(kbID, docID string, entities []*KGEntity, rels [
 			}
 		}
 	}
+	// 实体向量孤儿清理（KB-4②③/M287：kg_entity_vec 键=entity_uid，实体行回收后缓存同事务回收）
+	if err := deleteOrphanKGEntityVecsTx(tx, kbID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -609,11 +613,13 @@ func (s *Store) deleteKG(kbID, docID string) {
 		s.DB.Exec(`DELETE FROM kg_entity WHERE kb_id = ?`, kbID)
 		s.DB.Exec(`DELETE FROM kg_relationship WHERE kb_id = ?`, kbID)
 		s.DB.Exec(`DELETE FROM kg_claim WHERE kb_id = ?`, kbID)
+		s.DeleteOrphanKGEntityVecs(kbID) // KB-4②③/M287：KB 删除级联回收实体向量缓存
 		return
 	}
 	s.DB.Exec(`DELETE FROM kg_entity WHERE kb_id = ? AND doc_id = ?`, kbID, docID)
 	s.DB.Exec(`DELETE FROM kg_relationship WHERE kb_id = ? AND doc_id = ?`, kbID, docID)
 	s.DB.Exec(`DELETE FROM kg_claim WHERE kb_id = ? AND doc_id = ?`, kbID, docID)
+	s.DeleteOrphanKGEntityVecs(kbID) // KB-4②③/M287：doc 删除后实体行可能随之回收（uid 语义）
 }
 
 // ---- 审计决策（REQ-101 学习视图，D-O15 消费/审计页）----
@@ -795,6 +801,10 @@ func (s *Store) MergeKGEntities(kbID, keep string, merge []string) (movedRels, m
 	if _, err = tx.Exec(`DELETE FROM kg_entity WHERE kb_id=? AND name IN (`+ph+`)`, base...); err != nil {
 		return 0, 0, err
 	}
+	// 实体向量孤儿清理（KB-4②③/M287：被并实体缓存回收；keep 行别名变化不影响向量指纹）
+	if err := deleteOrphanKGEntityVecsTx(tx, kbID); err != nil {
+		return 0, 0, err
+	}
 	return movedRels, movedClaims, tx.Commit()
 }
 
@@ -960,7 +970,7 @@ func (s *Store) KGEntitiesByChunks(kbID string, chunkIDs []string) ([]*KGChunkEn
 	if len(chunkIDs) == 0 {
 		return nil, nil
 	}
-	q := `SELECT entity_uid, name FROM kg_chunk_entity WHERE kb_id = ? AND chunk_id IN (` +
+	q := `SELECT entity_uid, name, chunk_id FROM kg_chunk_entity WHERE kb_id = ? AND chunk_id IN (` +
 		strings.TrimRight(strings.Repeat("?,", len(chunkIDs)), ",") + `) ORDER BY entity_uid`
 	args := make([]any, 0, len(chunkIDs)+1)
 	args = append(args, kbID)
@@ -975,7 +985,7 @@ func (s *Store) KGEntitiesByChunks(kbID string, chunkIDs []string) ([]*KGChunkEn
 	out := []*KGChunkEntityRef{}
 	for rows.Next() {
 		r := &KGChunkEntityRef{}
-		if err := rows.Scan(&r.UID, &r.Name); err != nil {
+		if err := rows.Scan(&r.UID, &r.Name, &r.ChunkID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -1001,8 +1011,10 @@ func (s *Store) KGChunkSubjectsByChunks(kbID string, chunkIDs []string) ([]strin
 	return out, nil
 }
 
-// KGChunkEntityRef 倒排行投影（uid+展示名）。
+// KGChunkEntityRef 倒排行投影（uid+展示名；ChunkID=来源 chunk——KB-4②③/M287 融合打分
+// 需要实体继承其所属 chunk 的向量命中分，只增字段向后兼容）。
 type KGChunkEntityRef struct {
-	UID  string `json:"uid"`
-	Name string `json:"name"`
+	UID     string `json:"uid"`
+	Name    string `json:"name"`
+	ChunkID string `json:"chunk_id,omitempty"`
 }

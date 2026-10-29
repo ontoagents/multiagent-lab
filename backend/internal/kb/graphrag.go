@@ -58,6 +58,12 @@ func (s *Service) GraphragIngest(ctx context.Context, kbID string, chunks []*sto
 		if err != nil {
 			log.Printf("[kb] warn: 记录 KG 决策失败 (kb=%s): %v", kbID, err)
 		}
+		// KB-4②③/M287：抽取成功后刷新实体向量（实体「名称+描述」embedding 落 kg_entity_vec，
+		// 指纹未变跳过）。失败/未配置 embedding 连接降级不阻断（导入主链路已成功；检索侧
+		// 实体向量臂对无缓存库如实跳过——沿抽取 degraded 非阻断同族语义）。
+		if _, _, verr := s.RefreshEntityVectors(ctx, kbID); verr != nil {
+			log.Printf("[kb] warn: 实体向量刷新降级 (kb=%s): %v（检索侧实体向量臂将跳过）", kbID, verr)
+		}
 	}
 	return info
 }
@@ -73,6 +79,10 @@ type GraphragOpts struct {
 	Hops       int      `json:"hops,omitempty"`           // 关系扩展跳数：1（默认）~3（KB-4① 递归 CTE）
 	RelTypes   []string `json:"relation_types,omitempty"` // 关系类型过滤（空 = 不过滤）
 	MaxResults int      `json:"max_results,omitempty"`
+	// Rank 命中排序口径（KB-4③/M287 只增参数，A/B 对照教学价值点）：
+	//   "" | "ppr"（默认）= Personalized PageRank 图感知排序（种子=向量命中/聚焦实体带权）；
+	//   "hops" = 原常数口径（seed 1.0/邻居 0.6/claim 0.8）保留作对照与回归护栏。
+	Rank string `json:"rank,omitempty"`
 }
 
 // KGClaimDetail 带 chunk 溯源的 claim 明细（定位原文 doc#seq；B1 起附出处摘录与句级高亮区间）。
@@ -138,6 +148,7 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 
 	var (
 		subjects     []string
+		seedWeights  map[string]float64 // KB-4②③：种子实体权重（chunk 路径与实体向量臂融合，PPR personalization）
 		scoreByChunk map[string]float64
 		err          error
 	)
@@ -151,6 +162,7 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 			return nil, errKGEmpty
 		}
 		subjects = []string{opts.Entity}
+		seedWeights = map[string]float64{opts.Entity: 1.0}
 		scoreByChunk = map[string]float64{}
 	} else {
 		if query == "" {
@@ -174,10 +186,45 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 			chunkIDs = append(chunkIDs, h.ChunkID)
 			scoreByChunk[h.ChunkID] = h.Score
 		}
-		// ② 命中 chunk → 提及实体（KB-16/M286：chunk-entity 倒排路径；claim 反查保留两路对照）
-		subjects, err = s.Store.KGChunkSubjectsByChunks(k.ID, chunkIDs)
-		if err != nil {
-			return nil, err
+		// ② 双入口种子集（KB-4②③/M287）：
+		//   chunk 路径 = 倒排（KB-16）带 chunk_id 投影，实体继承其所属 chunks 的最大命中分；
+		//   实体向量臂 = query 向量 vs kg_entity_vec 全库余弦 TopN（名称+描述 embedding），
+		//   并入种子集融合（权重=max 两路）。臂失败/无缓存如实跳过（诚实降级纯 chunk 路径，
+		//   沿 KB-7 vector_degraded 先例）。
+		seedWeights = map[string]float64{}
+		subjects = []string{}
+		addSeed := func(name string, score float64) {
+			if name == "" {
+				return
+			}
+			if !containsSeed(subjects, name) {
+				subjects = append(subjects, name)
+			}
+			if score > seedWeights[name] {
+				seedWeights[name] = score
+			}
+		}
+		if refs, rerr := s.Store.KGEntitiesByChunks(k.ID, chunkIDs); rerr == nil {
+			for _, ref := range refs {
+				if sc, ok := scoreByChunk[ref.ChunkID]; ok {
+					addSeed(ref.Name, sc)
+				} else {
+					addSeed(ref.Name, 0)
+				}
+			}
+		} else {
+			return nil, rerr
+		}
+		if vecRows, verr2 := s.Store.KGEntityVecs(k.ID); verr2 == nil && len(vecRows) > 0 {
+			namesByUID, nerr := s.Store.KGEntityNamesOfKB(k.ID)
+			if nerr != nil {
+				return nil, nerr
+			}
+			for _, h := range entityVecTopN(vec, vecRows, namesByUID, maxResults) {
+				addSeed(h.Name, h.Score)
+			}
+		} else if verr2 != nil {
+			log.Printf("[kb] warn: 实体向量臂读取失败 (kb=%s): %v → 跳过实体臂", k.ID, verr2)
 		}
 		if len(subjects) == 0 {
 			return nil, errKGEmpty
@@ -242,11 +289,30 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 	if err != nil {
 		return nil, err
 	}
+	// 排序口径（KB-4③/M287）：默认 PPR 图感知分——种子带权 personalization 在扩展边集上
+	// 迭代，取相对分（max 归一 0~1，Hits.Score 区间语义不变）；"hops" 保留原常数对照。
+	// PPR 失败（无种子权重/空图）回落常数口径（如实降级，不空转）。
+	relPPR := map[string]float64{}
+	if opts.Rank != "hops" {
+		if ppr := PersonalizedPageRank(names, allRels, seedWeights, pprDamping, 0, pprTol); ppr != nil {
+			if rel := relativeScores(ppr); rel != nil {
+				relPPR = rel
+			}
+		}
+	}
 	claims := make([]KGClaimDetail, 0, len(rawClaims))
 	for _, c := range rawClaims {
+		score := claimScore(scoreByChunk, c.ChunkID) // 常数对照口径：chunk 继承分/0.8 兜底
+		if len(relPPR) > 0 {
+			if v, ok := relPPR[c.Subject]; ok {
+				score = v
+			} else {
+				score = pprClaimFloor // subject 未入图（审核过滤等）：兜底而非伪装图分
+			}
+		}
 		detail := KGClaimDetail{
 			Subject: c.Subject, Text: c.Text, ChunkID: c.ChunkID, DocID: c.DocID, ChunkSeq: c.ChunkSeq,
-			Score: claimScore(scoreByChunk, c.ChunkID),
+			Score: score,
 		}
 		// B1：出处摘录 + 句级高亮区间（claim 原样命中出处 chunk 才标，不臆造）
 		if c.ChunkContent != "" {
@@ -258,7 +324,7 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 		claims = append(claims, detail)
 	}
 
-	// ④ hits 组装（与原管线同语义：实体描述在前，claims 随后）
+	// ④ hits 组装（实体命中在前、claims 补事实——与原管线同语义，排序分改图感知）
 	subjectSet := map[string]bool{}
 	for _, n := range subjects {
 		subjectSet[n] = true
@@ -279,10 +345,13 @@ func (s *Service) GraphragQueryDetail(ctx context.Context, k *store.KnowledgeBas
 			if subjectSet[n] {
 				sc = 1.0
 			}
+			if len(relPPR) > 0 {
+				sc = relPPR[n] // PPR 相对分（种子不必然最高——枢纽吸分即「全局证据分布」语义）
+			}
 			expansions = append(expansions, expansion{name: n, score: sc})
 		}
 	}
-	sort.Slice(expansions, func(i, j int) bool { return expansions[i].score > expansions[j].score })
+	sort.SliceStable(expansions, func(i, j int) bool { return expansions[i].score > expansions[j].score })
 	hits := make([]RetrievalHit, 0, maxResults)
 	for _, e := range expansions {
 		if len(hits) >= maxResults {
@@ -317,6 +386,9 @@ func (s *Service) GraphragQueryWithFallbackDetail(ctx context.Context, k *store.
 }
 
 // GraphragQuery 自研 GraphRAG 检索（D-O15 三步：向量命中 → KG 一跳扩展 → 拼上下文）。
+// KB-4③/M287 注：主消费链路已收敛 SearchUnified→GraphragQueryDetail（双入口+PPR 排序）；
+// 本简版保留 M14 原形态与常数打分作教学对照（legacyGraphragQueryWithFallback 专路），
+// 不随升级面扩张——两口径差异由 Rank 参数在 Detail 主路径承载。
 func (s *Service) GraphragQuery(ctx context.Context, k *store.KnowledgeBase, query string, maxResults int) ([]RetrievalHit, error) {
 	if query == "" {
 		return nil, nil
@@ -421,6 +493,8 @@ func (s *Service) GraphragQuery(ctx context.Context, k *store.KnowledgeBase, que
 }
 
 // claimScore claim 分数继承其出处 chunk 的向量命中分（无溯源 chunk 时给固定值）。
+// KB-4③/M287 注：本函数保留供 Rank="hops" 常数对照口径与简版 GraphragQuery（教学对照）
+// 使用；主路径 Rank=ppr 下 claim 分=subject 的 PPR 相对分（见 GraphragQueryDetail）。
 func claimScore(scoreByChunk map[string]float64, chunkID string) float64 {
 	if chunkID == "" {
 		return 0.8
@@ -429,6 +503,16 @@ func claimScore(scoreByChunk map[string]float64, chunkID string) float64 {
 		return v
 	}
 	return 0.8
+}
+
+// containsSeed 种子集去重判等（KB-4② 双入口融合的小工具；种子集规模=教学尺度线性扫足够）。
+func containsSeed(names []string, name string) bool {
+	for _, n := range names {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // KGEntity / KGRelationship KG 读回元素（O13 策略 B/C 数据源；D-O15 起读自存表）。

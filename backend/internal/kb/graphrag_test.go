@@ -113,3 +113,53 @@ func TestGraphragQueryDetailEntityFocus(t *testing.T) {
 		t.Fatal("want errKGEmpty for missing entity")
 	}
 }
+
+// KB-4③/M287：实体聚焦路径的排序口径断言（零网络——PPR 在 Store 图数据上纯计算）。
+func TestGraphragQueryDetailPPRRank(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const kb = "kb1"
+	seedKG(t, st, kb) // 链：编排引擎-智能体-大模型-Token
+	svc := &Service{Store: st}
+
+	kbRow := &store.KnowledgeBase{ID: kb, Name: "测试库", TopK: 4}
+	// Rank 默认（ppr）：种子=编排引擎。稳态：智能体（双邻接收两路）> 编排引擎（restart）> 大模型。
+	d1, err := svc.GraphragQueryDetail(context.Background(), kbRow, "", GraphragOpts{Entity: "编排引擎", Hops: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d1.Hits[0].Doc != "测试库 · 智能体" || d1.Hits[1].Doc != "测试库 · 编排引擎" {
+		t.Fatalf("ppr order unexpected: %s | %s", d1.Hits[0].Doc, d1.Hits[1].Doc)
+	}
+	if d1.Hits[0].Score != 1.0 || d1.Hits[1].Score <= 0 || d1.Hits[1].Score >= 1.0 {
+		t.Fatalf("ppr relative scores unexpected: %v %v", d1.Hits[0].Score, d1.Hits[1].Score)
+	}
+	// 显式 Rank=ppr 与默认一致
+	d2, err := svc.GraphragQueryDetail(context.Background(), kbRow, "", GraphragOpts{Entity: "编排引擎", Hops: 2, Rank: "ppr"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d2.Hits[0].Doc != d1.Hits[0].Doc || d2.Hits[0].Score != d1.Hits[0].Score {
+		t.Fatalf("explicit ppr differs from default: %v vs %v", d2.Hits[0], d1.Hits[0])
+	}
+	// Rank="hops" 常数对照：种子 1.0 在前、邻居 0.6 次之（原口径复现）
+	d3, err := svc.GraphragQueryDetail(context.Background(), kbRow, "", GraphragOpts{Entity: "编排引擎", Hops: 2, Rank: "hops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d3.Hits[0].Doc != "测试库 · 编排引擎" || d3.Hits[0].Score != 1.0 {
+		t.Fatalf("hops constant order unexpected: %+v", d3.Hits[0])
+	}
+	found := false
+	for _, h := range d3.Hits {
+		if h.Doc == "测试库 · 智能体" {
+			found = h.Score == 0.6
+		}
+	}
+	if !found {
+		t.Fatalf("hops constant neighbor score missing: %+v", d3.Hits)
+	}
+}

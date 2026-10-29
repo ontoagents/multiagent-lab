@@ -119,6 +119,96 @@ func TestKBEval(t *testing.T) {
 			}
 			mhHit += edgeHit
 			t.Logf("[图跳] %-6s hops=%d R=%.2f  miss=%v", q.ID, q.Hops, float64(edgeHit)/float64(len(q.GoldEdges)), miss)
+			// —— KB-14 补强（KB-4③/M287「先测再上」）：检索管线臂 + 排序质量两口径对比 ——
+			// 原臂只测 CTE 可达性（常数打分下「满分」系基准偏易）：seed 图直写绕开检索面。
+			// 补强=①gold 边经检索管线（实体聚焦全链）可达；②排序质量量化：gold 端点实体的
+			// 平均命中分 vs 噪声实体最大分（margin>0=图感知排序能区分证据与噪声）。
+			// ppr（默认口径）与 hops（常数对照）各跑一遍——常数口径同分 margin=0 结构性
+			// 「不可区分」即原基准偏易的实证；ppr 口径 margin>0 断言 PPR 排序价值落地。
+			// 实体向量臂（KB-4②）需真实 embedding 连接：本库未刷向量，实体聚焦路径不依赖——
+			// 向量双入口融合随真机冒烟量化（同向量臂诚实边界，离线不伪造）。
+			svc := &kb.Service{Store: st} // 聚焦路径仅用 Store；Vector/embedder 不参与
+			type rankProbe struct {
+				label     string
+				goldAvg   float64
+				noiseMax  float64
+				noiseSeen bool // 噪声实体是否出现在管线 hits（未入=无噪声可比，margin 断言跳过）
+				pipeEdges int
+			}
+			probes := []rankProbe{}
+			for _, rank := range []string{"ppr", "hops"} {
+				detail, derr := svc.GraphragQueryDetail(t.Context(), &store.KnowledgeBase{ID: kbID, Name: "评测基准库", TopK: topK},
+					"", kb.GraphragOpts{Entity: q.Seed, Hops: q.Hops, Rank: rank})
+				if derr != nil {
+					t.Fatalf("[%s] pipeline(%s): %v", q.ID, rank, derr)
+				}
+				relInPipe := map[string]bool{}
+				for _, r := range detail.Relationships {
+					relInPipe[r.Source+"|"+r.Type+"|"+r.Target] = true
+				}
+				for _, e := range q.GoldEdges {
+					if !relInPipe[e[0]+"|"+e[1]+"|"+e[2]] {
+						t.Errorf("[%s] 检索管线(%s) gold 边不可达: %s-%s->%s", q.ID, rank, e[0], e[1], e[2])
+					}
+				}
+				goldEnts := map[string]bool{}
+				for _, e := range q.GoldEdges {
+					goldEnts[e[0]] = true
+					goldEnts[e[2]] = true // gold_edges 三元组=[source, rel_type, target]
+				}
+				delete(goldEnts, q.Seed)
+				noiseEnts := map[string]bool{}
+				for _, ent := range ents {
+					if !goldEnts[ent.Name] && ent.Name != q.Seed {
+						noiseEnts[ent.Name] = true
+					}
+				}
+				entScore := map[string]float64{}
+				for _, h := range detail.Hits {
+					for name := range goldEnts {
+						if h.Doc == "评测基准库 · "+name {
+							entScore[name] = h.Score
+						}
+					}
+					for name := range noiseEnts {
+						if h.Doc == "评测基准库 · "+name {
+							entScore[name] = h.Score
+						}
+					}
+				}
+				p := rankProbe{label: rank}
+				gsum, gn := 0.0, 0
+				for name := range goldEnts {
+					gsum += entScore[name]
+					gn++
+				}
+				if gn > 0 {
+					p.goldAvg = gsum / float64(gn)
+				}
+				for name := range noiseEnts {
+					if sc, ok := entScore[name]; ok {
+						p.noiseSeen = true
+						if sc > p.noiseMax {
+							p.noiseMax = sc
+						}
+					}
+				}
+				p.pipeEdges = len(detail.Relationships)
+				probes = append(probes, p)
+			}
+			for _, p := range probes {
+				margin := p.goldAvg - p.noiseMax
+				t.Logf("[排序] %-6s rank=%-4s 管线边=%d gold端点均分=%.3f 噪声最大分=%.3f margin=%+.3f",
+					q.ID, p.label, p.pipeEdges, p.goldAvg, p.noiseMax, margin)
+				if p.noiseSeen && p.pipeEdges > 0 {
+					if p.label == "ppr" && margin <= 0 {
+						t.Errorf("[%s] PPR 排序未区分 gold 与噪声（margin=%.3f 应 >0）——图感知排序回归", q.ID, margin)
+					}
+					if p.label == "hops" && margin != 0 {
+						t.Errorf("[%s] 常数对照口径 margin=%.3f 应为 0（同分不可分）——常数路径被误改", q.ID, margin)
+					}
+				}
+			}
 		case "community":
 			cmTotal++
 			hits := kg.GlobalSearch(kbID, q.Q, comms)

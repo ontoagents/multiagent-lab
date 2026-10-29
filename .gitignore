@@ -24,6 +24,8 @@ exe/
 # REQ-223 agenteval 评测产物（agent 写入的样例文件，不入库）
 backend/internal/agenteval/data/
 backend/internal/inference/data/
+# KB-4②③/M287 轮实测发现：以 store 包为 cwd 跑后端时 DB_PATH 默认 ./data/platform.db 落此处（运行时数据不入库，沿 agenteval/inference data/ 先例）
+backend/internal/store/data/
 
 # REQ-321 Windows 桌面安装包构建产物（staging/安装包/本地编译的壳二进制不入库）
 deploy/windows/build/

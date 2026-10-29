@@ -254,6 +254,7 @@ func (s *Server) graphragSearchKB(w http.ResponseWriter, r *http.Request) {
 		Entity     string   `json:"entity"`
 		Hops       int      `json:"hops"`
 		RelTypes   []string `json:"relation_types"`
+		Rank       string   `json:"rank"` // KB-4③/M287 只增参数：空|ppr（默认图感知）|hops（常数对照）
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -264,7 +265,7 @@ func (s *Server) graphragSearchKB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, mode, degraded, err := s.KB.GraphragQueryWithFallbackDetail(r.Context(), k, in.Query, in.MaxResults, 0, kb.GraphragOpts{
-		Entity: in.Entity, Hops: in.Hops, RelTypes: in.RelTypes, MaxResults: in.MaxResults,
+		Entity: in.Entity, Hops: in.Hops, RelTypes: in.RelTypes, MaxResults: in.MaxResults, Rank: in.Rank,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
