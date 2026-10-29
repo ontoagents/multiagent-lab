@@ -712,6 +712,9 @@ pre.raw-json {
 .cmp-pane-status.st-error .dot { background: #d4380d; }
 .cmp-pane-status.st-stopped { color: #d48806; }
 .cmp-pane-status.st-stopped .dot { background: #d48806; }
+/* REQ-514/M321：断流态（琥珀与出错红区分——内容可能不完整但非运行失败） */
+.cmp-pane-status.st-lost { color: #d46b08; }
+.cmp-pane-status.st-lost .dot { background: #d46b08; }
 @keyframes cmp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* ---- REQ-240 前端优化⑥：暗色主题（html[data-theme='dark']；亮色默认不动） ---- */

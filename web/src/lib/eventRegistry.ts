@@ -32,6 +32,9 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       return { text: `⚠ 运行警告 · ${d?.message ?? ''}`.replace(/ ·\s*$/, ''), warn: true }
     case 'run.error':
       return { text: `⚠ ${d?.message ?? '运行失败'}`, err: true }
+    // REQ-514/M321：断流可感知——client 层合成事件（流结束未收终态），非后端发出
+    case 'connection.lost':
+      return { text: `⚠ ${d?.message ?? '连接中断，内容可能不完整'}——回答可能不完整，可重新生成`, err: true }
     case 'model.step': {
       // REQ-117/M17：模型调用链路（调试观测）
       const parts = [`🧠 模型调用 #${d?.seq ?? '?'}`]
@@ -265,6 +268,7 @@ const KEY_GRANULARITY_PREFIXES = ['tool.', 'run.']
 const KEY_GRANULARITY_TYPES = new Set([
   'artifact.saved', 'approval.granted', 'approval.denied', 'hook.denied',
   'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats',
+  'connection.lost', // REQ-514/M321：断流卡必须跨粒度可见（状态诚实性）
 ])
 export function isKeyGranularity(type: string): boolean {
   return KEY_GRANULARITY_PREFIXES.some((p) => type.startsWith(p)) || KEY_GRANULARITY_TYPES.has(type)

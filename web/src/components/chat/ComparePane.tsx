@@ -9,7 +9,7 @@ import { connDisplayName } from '../../api/client'
 import { paneBadgeSelect, type PaneSel } from './bits'
 import type { Agent, KnowledgeBase, ModelConnection } from '../../api/types'
 
-export type PaneStatus = 'idle' | 'streaming' | 'error' | 'stopped' | 'done'
+export type PaneStatus = 'idle' | 'streaming' | 'error' | 'stopped' | 'done' | 'lost'
 
 export default function ComparePane({
   index,
@@ -54,7 +54,7 @@ export default function ComparePane({
   onSaveProfile: (i: number) => void
   onCopyPrev: (i: number) => void
 }) {
-  const statusLabel = { idle: '待提问', streaming: '生成中', error: '出错', stopped: '已停止', done: '完成' }[status]
+  const statusLabel = { idle: '待提问', streaming: '生成中', error: '出错', stopped: '已停止', done: '完成', lost: '连接中断' }[status]
   return (
     <section className="cmp-pane" aria-label={`对比窗格 ${index + 1}`}>
       <header className="cmp-pane-head">

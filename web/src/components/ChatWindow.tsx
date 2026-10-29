@@ -991,6 +991,10 @@ export default function ChatWindow({
         {it.evType === 'ontology.unavailable' && (it.evData?.reason != null || it.evData?.detail != null) && (
           <div className="event-detail">{String(it.evData.reason ?? it.evData.detail)}</div>
         )}
+        {/* REQ-514/M321：断流卡快捷重发（对比窗格重发=整组重跑，不在此提供，沿用窗格发送） */}
+        {it.evType === 'connection.lost' && !cmp.on && !running && (
+          <a className="event-link" onClick={() => regenerate()}>重新生成</a>
+        )}
         {isTool && it.evData && (
           <Collapse
             ghost
@@ -1132,23 +1136,27 @@ export default function ChatWindow({
     [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, running, runStart, nowTick],
   )
 
-  // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问），窗格头统一呈现
-  const paneStatus = (i: number): 'idle' | 'streaming' | 'error' | 'stopped' | 'done' => {
+  // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问/断流），窗格头统一呈现
+  const paneStatus = (i: number): 'idle' | 'streaming' | 'error' | 'stopped' | 'done' | 'lost' => {
     const list = paneItems[i] ?? []
     if (!list.length) return 'idle'
     const last = list[list.length - 1]
     if (last.kind === 'msg' && last.streaming) return 'streaming'
     let err = false
     let stopped = false
+    let lost = false
     for (let k = list.length - 1; k >= 0; k--) {
       const it = list[k]
       if (it.kind === 'msg' && it.role === 'user') break // 只看本轮（最后一条提问之后）
       if (it.kind === 'event') {
         if (it.evType === 'run.error') err = true
+        if (it.evType === 'connection.lost') lost = true
         if (it.evType === 'run.finished' && it.evData?.reason === 'stopped') stopped = true
       }
     }
     if (err) return 'error'
+    // REQ-514/M321 断流可感知：client 合成的 connection.lost 事件卡命中
+    if (lost) return 'lost'
     // 主动停止：正常路径 run.finished(reason=stopped) 事件卡命中；断流兜底路径命中收尾写入的停止文案
     if (stopped) return 'stopped'
     const lastMsg = list[list.length - 1]

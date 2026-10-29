@@ -953,46 +953,63 @@ function streamRun(
 ): { abort: () => void; done: Promise<void> } {
   const ctrl = new AbortController()
   const done = (async () => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    })
-    if (!res.ok || !res.body) {
-      let msg = `HTTP ${res.status}`
-      try {
-        const j = await res.json()
-        if (j.error) msg = j.error
-      } catch { /* ignore */ }
-      onEvent({ event: 'run.error', data: { data: { message: msg } } })
-      return
+    // REQ-514/M321 断流可感知：终态守卫——流结束/读异常但未收到 run.finished/run.error 终态
+    // 即合成 connection.lost（覆盖后端优雅关闭 EOF 与网络断流两类静默；用户主动 abort 不合成，
+    // 走既有「已停止生成」兜底）。历史回放无此事件（客户端合成、不落 run_event）。
+    let sawTerminal = false
+    const emit = (ev: { event: string; data: any }) => {
+      if (ev.event === 'run.finished' || ev.event === 'run.error') sawTerminal = true
+      onEvent(ev)
     }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done: streamDone, value } = await reader.read()
-      if (streamDone) break
-      buf += decoder.decode(value, { stream: true })
-      let idx: number
-      // SSE 事件以空行分隔
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const raw = buf.slice(0, idx)
-        buf = buf.slice(idx + 2)
-        let event = 'message'
-        let data = ''
-        for (const line of raw.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim()
-          else if (line.startsWith('data:')) data += line.slice(5).trim()
-        }
-        if (!data) continue
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      })
+      if (!res.ok || !res.body) {
+        let msg = `HTTP ${res.status}`
         try {
-          onEvent({ event, data: JSON.parse(data) })
-        } catch {
-          onEvent({ event, data: { raw: data } })
+          const j = await res.json()
+          if (j.error) msg = j.error
+        } catch { /* ignore */ }
+        emit({ event: 'run.error', data: { data: { message: msg } } })
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done: streamDone, value } = await reader.read()
+        if (streamDone) break
+        buf += decoder.decode(value, { stream: true })
+        let idx: number
+        // SSE 事件以空行分隔
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          let event = 'message'
+          let data = ''
+          for (const line of raw.split('\n')) {
+            if (line.startsWith('event:')) event = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += line.slice(5).trim()
+          }
+          if (!data) continue
+          try {
+            emit({ event, data: JSON.parse(data) })
+          } catch {
+            emit({ event, data: { raw: data } })
+          }
         }
       }
+    } catch (e) {
+      if (ctrl.signal.aborted) throw e
+      if (!sawTerminal) emit({ event: 'connection.lost', data: { data: { message: '连接中断，内容可能不完整' } } })
+      return
+    }
+    if (!sawTerminal && !ctrl.signal.aborted) {
+      emit({ event: 'connection.lost', data: { data: { message: '连接中断，内容可能不完整' } } })
     }
   })()
   return { abort: () => ctrl.abort(), done }

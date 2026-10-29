@@ -118,6 +118,20 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
       const ev: ChatItem = { kind: 'event', evType: 'run.error', eventErr: true, eventText: `⚠ ${msg}`, evData: payload, ts: new Date().toISOString() }
       return [...next, ev]
     }
+    // REQ-514/M321：断流可感知——半截消息定格+中断事件卡（主区与对比窗格同构；
+    // client 层在「流结束未收终态」时合成，非后端事件）
+    case 'connection.lost': {
+      const msg = payload.message ?? '连接中断，内容可能不完整'
+      const next = sealReasoning([...prev])
+      const ti = next.length - 1
+      const last = next[ti]
+      if (last && last.kind === 'msg' && last.streaming) {
+        if (!last.content) next.pop()
+        else next[ti] = { ...last, streaming: false }
+      }
+      const ev: ChatItem = { kind: 'event', evType: 'connection.lost', eventErr: true, eventText: `⚠ ${msg}`, evData: payload, ts: new Date().toISOString() }
+      return [...next, ev]
+    }
     default:
       // 过程类事件（工具/技能/子智能体/知识召回/本体）：REQ-362——关闭/弹出尾部正文段后
       // 追加到流尾（正文段自此按事件边界分段，时间顺序即呈现顺序）
