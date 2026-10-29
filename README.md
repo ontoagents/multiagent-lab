@@ -26,7 +26,8 @@ Everything runs locally: data lives in a local SQLite database, model API keys a
 
 ## Contents
 
-- [✨ Highlights](#-highlights)
+- [✨ Key Features](#-key-features)
+- [🧭 Explore](#-explore)
 - [🚀 Quick Start](#-quick-start)
 - [💻 Development Mode](#-development-mode-frontend-hot-reload)
 - [🧱 Tech Stack](#-tech-stack)
@@ -38,7 +39,23 @@ Everything runs locally: data lives in a local SQLite database, model API keys a
 - [🤝 Contributing](#-contributing)
 - [📜 License](#-license)
 
-## ✨ Highlights
+## ✨ Key Features
+
+- **Fully observable execution** — tool calls, thinking, sub-agent delegation, knowledge recall and ontology queries appear as color-coded event cards; export & replay make every answer accountable.
+- **Multi-agent collaboration** — Agent-as-Tool / Transfer orchestration with a visible delegation timeline; a 2–4-pane comparison mode runs one question under different configurations side by side.
+- **Ontology as the knowledge backbone** — build → assets → runtime → consumption & audit; answers trace back to structured knowledge, not text scraps.
+- **AI-assisted building behind quality gates** — six build paths (manual, OntoChat conversational authoring, CQ-driven evolution, build-from-KB, CSV, import/merge); LLM output enters the library only after scoring and self-repair.
+- **CQ regression baselines** — competency questions become re-runnable test assets: coverage quantification plus an answerability pre-check (`check_answerable`).
+- **RAG + GraphRAG knowledge bases** — vector retrieval plus a self-contained KG backend (graph browsing / multi-hop / community QA); a companion ontology grows with every conversation.
+- **Open by protocol** — every agent is itself an MCP server; MCP + A2A connect external agents; execution backends are pluggable (in-process / Docker / Kubernetes).
+- **Single-machine & desktop** — one command to start, zero Python runtime dependency; Windows / macOS installers; data, keys and ontologies never leave the machine.
+
+Each point unfolds below in [Explore](#-explore); module-level guides live in [platform-knowledge/](platform-knowledge/README.md).
+
+## 🧭 Explore
+
+<details>
+<summary><b>🔍 Agent engineering — a fully observable conversation workbench</b></summary>
 
 ### Agent engineering: a fully observable conversation workbench
 
@@ -46,6 +63,11 @@ Everything runs locally: data lives in a local SQLite database, model API keys a
 - **Multi-agent collaboration** — projects orchestrate multiple agents (Agent-as-Tool / Transfer) with a visible delegation timeline; a 2–4 pane comparison mode runs the same question under different configurations (model / knowledge base / ontology / skill / temperature / prompt override) side by side.
 - **Knowledge · skill · ontology augmentation** — document upload → chunking → embedding → retrieval, with a GraphRAG sub-module covering graph browsing, multi-hop retrieval and community-summary QA; skill packs inject with preview and per-session toggles; the **companion ontology** extracts knowledge candidates after each conversation and merges confirmed entries into the graph and retrieval sources — the agent grows to understand your domain.
 - **Open integration** — every agent is itself an MCP server (the `/mcp` endpoint): any MCP client (Claude Desktop, Cursor, …) can connect and chat; execution backends are pluggable behind one interface: in-process assembly (default) / Docker sandbox (one container per agent) / Kubernetes Pod.
+
+</details>
+
+<details>
+<summary><b>🕸 Ontology engineering — a full lifecycle from build to audit</b></summary>
 
 ### Ontology engineering: a full lifecycle from build to audit
 
@@ -55,12 +77,19 @@ Everything runs locally: data lives in a local SQLite database, model API keys a
 - **Runtime plane** — Oxigraph / Fuseki engine profiles (with an OWL reasoning switch), one-click engine install, a load-reconciliation hard gate (source/engine triple counts compared, mismatch aborts startup), and per-graph isolation for multi-ontology profiles.
 - **Consumption & audit** — a KG retrieval observatory over TTL / text sources plus a full decision audit trail — the ontology is not just a modeling artifact but a consumable, accountable runtime asset.
 
+</details>
+
+<details>
+<summary><b>🛠 Engineering & product form</b></summary>
+
 ### Engineering & product form
 
 - **Single-machine deployable, all local** — one command to start (`run-dev.sh`), no Python runtime dependency; data, keys, knowledge and ontologies never leave the machine.
 - **Desktop clients** — Windows / macOS installers (Tauri 2 shell): system tray, single instance, whole-process-tree teardown, one-click install for engines and the sidecar on first launch.
 - **Platform knowledge shipped in-app** — product design, technical principles, module guides and research notes render in place; capability boundaries are honestly labeled (e.g. KG-augmented retrieval is a lightweight implementation).
 - **Quality assets maintained in-repo** — a regression smoke-test checklist plus headless UI smoke suites, so every delivery round is verifiable and replayable.
+
+</details>
 
 ## 🚀 Quick Start
 
@@ -139,7 +168,7 @@ A directional overview follows in [Roadmap](#-roadmap); requirement status detai
 
 ## 🧭 Roadmap
 
-The project has grown from a teaching demo into a **production-grade, single-machine deployable product**: desktop installers on both platforms, a quality gate and regression smoke-test system in place. Work continues along the two cores; the directions below are an overview (authoritative requirement rows, priorities and delivery status live in docs/02 §12 and docs/18; some items are trigger-driven):
+The project has grown from a teaching demo into a **production-grade, single-machine deployable product**: desktop installers on both platforms, a quality gate and regression smoke-test system in place. Positioning now anchors on a **personal work & learning assistant grounded on ontologies** (Q-23, 2026-10-28). Work continues along the two cores plus the assistant product surface; the directions below are an overview (authoritative requirement rows, priorities and delivery status live in docs/02 §12 and docs/18; some items are trigger-driven):
 
 | Direction | Evolution |
 | --- | --- |
@@ -148,8 +177,9 @@ The project has grown from a teaching demo into a **production-grade, single-mac
 | **KG & retrieval augmentation** | Community detection upgrade (Louvain) and multi-hop evidence collection; a "pre-filter → ranking" hybrid retrieval shape; temporal dimensions for the companion ontology and deeper agent memory |
 | **Agent runtime** | Long-running tasks across sessions with cost guards; workflow orchestration (sequential / parallel / loop, trigger-driven); sandbox hardening (gVisor / Kata isolation options, Kubernetes scheduling) |
 | **Delivery & ecosystem** | Continued desktop polish (CI packaging, auto-update, etc.); a growing MCP facade tool surface; an expanding authority-ontology catalog and online vocabulary lookup |
+| **Personal knowledge loop & product surface** | A unified assistant entry (with the workspace rename folded in) as the daily surface; the **Notes** module (REQ-495) as a self-produced document asset layer — cited back into knowledge bases and distilled into ontologies; a quiz · grading · mastery loop grounded in ontologies; cross-session memory and near-zero-effort cold-start modeling — all backlog items, trigger-driven ([docs/01 §9](docs/01_智能体_需求文档_PRD.md)) |
 
-## 🙏 Open Source & Papers
+## 🙏 Appreciation
 
 AgentLab stands on the shoulders of the open-source community and academic work — direct dependencies are used under their own licenses; methodological borrowings follow the principle of **borrowing ideas, implementing ourselves**. This section is a retrieval-friendly selection; the full ledger (with requirement links, evaluation notes and rejected candidates) lives in [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md).
 
@@ -176,6 +206,9 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 | [Tauri 2](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Windows / macOS desktop shell (system tray, single instance) |
 | [gonum](https://github.com/gonum/gonum) | BSD-3 | Planned: KG community detection (Louvain) |
 
+<details>
+<summary><b>Guided ontology toolchain (used outside the platform, outputs imported back)</b></summary>
+
 ### Guided ontology toolchain
 
 "Guided execution" build paths direct users to these mature tools outside the platform; their outputs can be imported back:
@@ -186,6 +219,11 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 | [ROBOT](https://github.com/ontodev/robot) | Apache-2.0 | CLI ontology processing: template batch generation / merge / subset |
 | [OOPS!](https://oops.linkeddata.es) | Apache-2.0 | Ontology pitfall scanning (34 common error classes); a reference dimension of the quality gate |
 | [ELK](https://github.com/liveontologies/elk-reasoner) / [HermiT](https://github.com/phillord/hermit-reasoner) | LGPL | OWL reasoners (ELK fast / HermiT complete) for logical-consistency checks |
+
+</details>
+
+<details>
+<summary><b>Borrowed methodology (ideas borrowed, implemented in-house)</b></summary>
 
 ### Borrowed methodology (ideas borrowed, implemented in-house)
 
@@ -203,6 +241,11 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 | OWLAPY | [GitHub](https://github.com/dice-group/owlapy) | Python LLM ontology framework: generate-validate loop and prompt design reference |
 | Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | A same-position ontology learning site: progressive domain paths, sample catalogs and gamification as learning-center design references |
 | LangChain / LlamaIndex | [LangChain](https://github.com/langchain-ai/langchain) · [LlamaIndex](https://github.com/run-llama/llama_index) | Cross-ecosystem check: external MCP clients consuming the same facade to validate open integration |
+
+</details>
+
+<details>
+<summary><b>Papers & standards</b></summary>
 
 ### Papers & standards
 
@@ -225,6 +268,8 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 | LLM Wiki: a pattern for building personal knowledge bases using LLMs (A. Karpathy) | [Gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) | The "compile knowledge at write time, keep it fresh" pattern — a reference for the write-time accumulation route of the knowledge base and companion ontology |
 | Model Context Protocol (MCP) specification | [modelcontextprotocol.io](https://modelcontextprotocol.io) | The integration protocol across the platform: tool consumption plus agent / ontology facade serving |
 | RDF 1.1 / OWL 2 / SHACL / SPARQL 1.1 / PROV-O (W3C) | [RDF](https://www.w3.org/TR/rdf11-concepts/) · [OWL 2](https://www.w3.org/TR/owl2-overview/) · [SHACL](https://www.w3.org/TR/shacl/) · [SPARQL 1.1](https://www.w3.org/TR/sparql11-query/) · [PROV-O](https://www.w3.org/TR/prov-o/) | Standards behind the data model, expressivity baseline, constraint validation, query language and provenance ontology |
+
+</details>
 
 ## ❓ FAQ
 

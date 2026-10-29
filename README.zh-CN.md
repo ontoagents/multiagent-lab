@@ -26,19 +26,36 @@
 
 ## 目录
 
-- [✨ 项目亮点](#-项目亮点)
+- [✨ 核心特性](#-核心特性)
+- [🧭 探索详情](#-探索详情)
 - [🚀 快速开始](#-快速开始)
 - [💻 开发模式](#-开发模式前端热更新)
 - [🧱 技术栈](#-技术栈)
 - [🗂 目录结构](#-目录结构)
 - [📚 文档索引](#-文档索引)
 - [🧭 发展前景](#-发展前景)
-- [🙏 开源项目与论文](#-开源项目与论文)
+- [🙏 致谢](#-致谢)
 - [❓ 常见问题](#-常见问题)
 - [🤝 参与贡献](#-参与贡献)
 - [📜 许可证](#-许可证)
 
-## ✨ 项目亮点
+## ✨ 核心特性
+
+- **执行过程全程可观测** —— 工具调用、深度思考、子智能体委派、知识召回、本体查询以事件卡逐帧呈现，可导出重放，每次回答有据可查。
+- **多智能体协作** —— Agent-as-Tool / Transfer 编排、委派时间线可见；2~4 窗格对比模式同问不同配置横向对照。
+- **本体即知识底座** —— 构建 → 资产 → 运行 → 消费与审计全生命周期；回答可溯源到结构化知识，而非文本碎片。
+- **AI 辅助构建必过质量门禁** —— 六条构建路径（手动建模 / OntoChat 对话式 / CQ 驱动演化 / 由知识库构建 / CSV 灌装 / 导入合并）；LLM 生成内容经评分与自修复后才入库。
+- **CQ 回归基准** —— 能力问题升级为可重跑的测试资产：覆盖度量化 + `check_answerable` 可回答性预检。
+- **RAG + GraphRAG 双子模块** —— 向量检索 + 自研轻量 KG 后端（图谱浏览 / 多跳检索 / 社区摘要问答）；伴生本体随每轮对话成长。
+- **协议级开放** —— 每个 Agent 都是 MCP Server；MCP + A2A 接入外部智能体；执行后端可插拔（进程内 / Docker / Kubernetes）。
+- **单机与桌面** —— 一条命令启动、零 Python 运行时依赖；Windows / macOS 安装包；数据、密钥、本体不出本机。
+
+每条详情在下节[探索详情](#-探索详情)折叠展开；模块级导读见 [platform-knowledge/](platform-knowledge/README.md)。
+
+## 🧭 探索详情
+
+<details>
+<summary><b>🔍 智能体工程：过程可观测的对话工作台</b></summary>
 
 ### 智能体工程：过程可观测的对话工作台
 
@@ -46,6 +63,11 @@
 - **多智能体协作** —— 项目编排多个 Agent（Agent-as-Tool / Transfer），委派时间线可见；2~4 窗格对比模式支持同问不同配置（模型 / 知识库 / 本体 / 技能 / 温度 / 提示词覆盖）横向对照。
 - **知识·技能·本体三路增强** —— 文档上传 → 切分 → 向量化 → 检索召回，GraphRAG 子模块覆盖图谱浏览、多跳检索与社区摘要问答；技能包注入带预览与会话级启停；**伴生本体**在对话收尾自动抽取知识候选，人工确认后并入图谱与检索源——智能体越用越「懂」你的领域。
 - **开放集成** —— 每个 Agent 本身就是一个 MCP Server（`/mcp` 端点），Claude Desktop / Cursor 等任意 MCP 客户端可直连对话；执行后端同接口可插拔：进程内装配（默认）/ Docker 沙箱（每 Agent 独立容器）/ Kubernetes Pod。
+
+</details>
+
+<details>
+<summary><b>🕸 本体工程：从构建到审计的全生命周期</b></summary>
 
 ### 本体工程：从构建到审计的全生命周期
 
@@ -55,12 +77,19 @@
 - **运行平面** —— Oxigraph / Fuseki 双引擎方案管理（含 OWL 推理开关）、引擎一键安装、装载对账硬闸（源 / 引擎三元组计数比对，失配即中止）、多本体 per-graph 装载隔离。
 - **消费与审计** —— TTL / 文本双源 KG 检索观测台 + 决策审计全程留痕——本体不只是建模产物，更是可消费、可追责的运行资产。
 
+</details>
+
+<details>
+<summary><b>🛠 工程化与产品形态</b></summary>
+
 ### 工程化与产品形态
 
 - **单机可部署、一切本地** —— 一条命令启动（`run-dev.sh`），不引入 Python 运行时依赖；数据、密钥、知识、本体全部留在本机。
 - **桌面客户端** —— Windows / macOS 安装包（Tauri 2 壳）：系统托盘、单实例、服务整树回收、引擎与 sidecar 首启一键安装。
 - **平台知识随包内置** —— 产品设计、技术原理、模块导读、调研依据页内即读；能力边界诚实标注（如 KG 增强检索为轻量实现）。
 - **质量资产随仓维护** —— 回归冒烟清单 + headless UI 冒烟套件入库，每个交付轮次可验证、可回放。
+
+</details>
 
 ## 🚀 快速开始
 
@@ -139,7 +168,7 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 
 ## 🧭 发展前景
 
-项目已从教学演示演进为**可生产使用的工程化产品**：单机可部署、双平台桌面安装包、质量门禁与回归冒烟体系完备。后续沿双核心推进，方向性概览如下（具体需求行、优先级与交付状态以 docs/02 §12 与 docs/18 为准，部分方向为触发驱动）：
+项目已从教学演示演进为**可生产使用的工程化产品**：单机可部署、双平台桌面安装包、质量门禁与回归冒烟体系完备。定位已锚定**面向专业个人的工作学习助手**（Q-23，2026-10-28），后续沿双核心与助手产品面推进，方向性概览如下（具体需求行、优先级与交付状态以 docs/02 §12 与 docs/18 为准，部分方向为触发驱动）：
 
 | 方向 | 演进内容 |
 | --- | --- |
@@ -148,8 +177,9 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 | **知识图谱与检索增强** | KG 社区检测升级（Louvain）与多跳证据收集；「pre-filter → ranking」混合检索形态；伴生本体时间维度与智能体记忆纵深 |
 | **智能体运行时** | 长任务跨会话推进与成本护栏；工作流编排（sequential / parallel / loop，触发驱动）；沙箱执行纵深（gVisor / Kata 强隔离备选、K8s 调度） |
 | **交付形态与生态** | 桌面端持续打磨（CI 自动打包、自动更新等）；MCP facade 工具面扩展；权威本体库目录扩充与在线词表检索 |
+| **个人知识闭环与产品面** | 助手统一入口（「项目→工作区」显示层改名随轮落地）；**笔记本**模块（REQ-495）作为自产成果文档资产层——引用回流知识库、沉淀入本体；本体驱动的出题·批改·掌握度闭环；跨会话记忆与冷启动建模体验——均为需求池触发驱动项（[docs/01 §9](docs/01_智能体_需求文档_PRD.md)） |
 
-## 🙏 开源项目与论文
+## 🙏 致谢
 
 AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各自许可证使用；方法论借鉴遵循「**借鉴思想、自研实现**」。本节为面向检索的精选清单，完整台账（含关联需求号、评估结论与落选留档）见 [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md)。
 
@@ -176,6 +206,9 @@ AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各�
 | [Tauri 2](https://github.com/tauri-apps/tauri) | MIT / Apache-2.0 | Windows / macOS 桌面客户端壳（系统托盘、单实例） |
 | [gonum](https://github.com/gonum/gonum) | BSD-3 | 规划集成：KG 社区检测（Louvain） |
 
+<details>
+<summary><b>引导使用的本体工具链（平台外使用，产物回流导入）</b></summary>
+
 ### 引导使用的本体工具链
 
 「引导执行」构建路径会指导用户在平台外使用这些成熟工具，产物可回流导入：
@@ -186,6 +219,11 @@ AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各�
 | [ROBOT](https://github.com/ontodev/robot) | Apache-2.0 | 命令行本体处理：模板批量生成 / merge / subset |
 | [OOPS!](https://oops.linkeddata.es) | Apache-2.0 | 本体建模陷阱扫描（34 类常见错误），质量门禁对照维度 |
 | [ELK](https://github.com/liveontologies/elk-reasoner) / [HermiT](https://github.com/phillord/hermit-reasoner) | LGPL | OWL 推理器（ELK 快 / HermiT 全量），逻辑一致性校验 |
+
+</details>
+
+<details>
+<summary><b>借鉴方法论与实现（借鉴思想，自研实现）</b></summary>
 
 ### 借鉴方法论与实现（借鉴思想，自研实现）
 
@@ -203,6 +241,11 @@ AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各�
 | OWLAPY | [GitHub](https://github.com/dice-group/owlapy) | Python LLM 本体构建框架：生成-校验循环与提示词设计参考 |
 | Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | 同定位本体学习站：渐进式领域路径、示例本体库、成就激励等学习中心设计对照 |
 | LangChain / LlamaIndex | [LangChain](https://github.com/langchain-ai/langchain) · [LlamaIndex](https://github.com/run-llama/llama_index) | 跨生态对照：作外部 MCP client 消费同一 facade，验证开放集成 |
+
+</details>
+
+<details>
+<summary><b>论文与标准</b></summary>
 
 ### 论文与标准
 
@@ -225,6 +268,8 @@ AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各�
 | LLM Wiki: a pattern for building personal knowledge bases using LLMs（A. Karpathy） | [Gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) | 「知识写时编译、持续保鲜」范式——知识库与伴生本体写时积累路线的对照物 |
 | Model Context Protocol（MCP）规范 | [modelcontextprotocol.io](https://modelcontextprotocol.io) | 全线集成协议：工具消费与 Agent / 本体 facade 服务化双向 |
 | RDF 1.1 / OWL 2 / SHACL / SPARQL 1.1 / PROV-O（W3C） | [RDF](https://www.w3.org/TR/rdf11-concepts/) · [OWL 2](https://www.w3.org/TR/owl2-overview/) · [SHACL](https://www.w3.org/TR/shacl/) · [SPARQL 1.1](https://www.w3.org/TR/sparql11-query/) · [PROV-O](https://www.w3.org/TR/prov-o/) | 数据模型、表达力基线、约束校验、查询语言与溯源本体的标准依据 |
+
+</details>
 
 ## ❓ 常见问题
 
