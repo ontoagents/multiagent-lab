@@ -139,7 +139,9 @@ func TestDelegateInterruptAndColdResume(t *testing.T) {
 		case <-release:
 			return "恢复后完成", nil
 		case <-ctx.Done():
-			return "", ctx.Err()
+			// REQ-520/M327：模拟生产 chat.Run 停止形态——(半截文本, ErrRunStopped 哨兵) 而非
+			// (nil, ctx.Err())。原桩与生产契约失配（测试全绿掩盖打断被误标 completed）。
+			return "半截产出", ErrRunStopped
 		}
 	}
 	d, _ := m.Start(parent, member, "长任务")
@@ -227,5 +229,31 @@ func TestDelegateBelongGuard(t *testing.T) {
 	tools := delegateBackgroundTools(DelegateToolDeps{Manager: m, Store: st, ParentConvID: other.ID, Members: []*store.Agent{member}})
 	if len(tools) != 6 {
 		t.Fatalf("应装配 6 件工具: %d", len(tools))
+	}
+}
+
+// TestDelegateUserStopChild REQ-520/M327：用户直接停止子会话（委派 ctx 未取消）——生产停止形态
+// (半截文本, ErrRunStopped 哨兵) 应归类 stopped 而非 completed（修复点直接实证：原 (text,nil)
+// 形态使打断被误标 completed、digest 半截告知成功、delegate_continue 冷恢复失效）。
+func TestDelegateUserStopChild(t *testing.T) {
+	m, st, parent, member := delegateTestManager(t)
+	m.StartRun = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		time.Sleep(100 * time.Millisecond) // 模拟运行中——委派 ctx 未取消
+		return "半截产出", ErrRunStopped   // 用户在子会话按停止：仅哨兵错误
+	}
+	d, _ := m.Start(parent, member, "长任务")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		cur, _ := st.GetDelegate(d.ID)
+		if cur != nil && cur.Status == "stopped" {
+			return // 命中即通过
+		}
+		if time.Now().After(deadline) {
+			if cur != nil && cur.Status == "completed" {
+				t.Fatalf("用户停子会话被误标 completed（修复失效）: %+v", cur)
+			}
+			t.Fatalf("未收束为 stopped: %+v", cur)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

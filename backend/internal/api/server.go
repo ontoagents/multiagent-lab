@@ -105,6 +105,11 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 		if res.Error != "" {
 			return "", errors.New(res.Error)
 		}
+		if res.Stopped {
+			// REQ-520/M327：用户打断/抢占 → 哨兵错误——后台委派链（DelegateManager.runLoop）
+			// 据此归类 stopped（原 (text,nil) 形态使打断被误标 completed、冷恢复失效）
+			return "", chat.ErrRunStopped
+		}
 		msgs, merr := st.ListMessages(conv.ID)
 		if merr == nil {
 			for i := len(msgs) - 1; i >= 0; i-- {

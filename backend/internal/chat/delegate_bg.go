@@ -13,6 +13,8 @@ package chat
 // 会话轨迹与 UI 卡片消费。
 
 import (
+	"errors"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,7 +122,9 @@ func (m *DelegateManager) runLoop(delegateID string, child *store.Conversation, 
 		m.mu.Unlock()
 		cancel()
 		if err != nil {
-			if ctx.Err() != nil { // 打断/超时：stopped 留档（可冷恢复）
+			// REQ-520/M327：stopped 哨兵（生产 StartRun 对用户打断返回 ErrRunStopped）与
+			// ctx 取消（打断/超时）同归 stopped 留档（可冷恢复）
+			if ctx.Err() != nil || errors.Is(err, ErrRunStopped) {
 				m.finish(delegateID, child, "stopped", truncateRunesBG(text), "已打断（子会话历史完整，可续跑恢复）")
 				return
 			}

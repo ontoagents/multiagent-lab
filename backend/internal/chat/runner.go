@@ -172,6 +172,12 @@ type PaneConfig struct {
 }
 
 // RunResult 运行结果摘要。
+// ErrRunStopped 运行被停止（用户打断/抢占）的哨兵错误——后台委派链（DelegateManager.runLoop）
+// 据此把委派终态归类 stopped 而非 completed（REQ-520/M327：生产 StartRun=chat.Run 对用户打断
+// 返回 res.Stopped=true + nil error，桩-生产契约失配曾使打断/停止被误标 completed、
+// delegate_continue 冷恢复失效、digest 半截告知成功）。
+var ErrRunStopped = errors.New("chat: run stopped")
+
 type RunResult struct {
 	AssistantMessageID string `json:"assistant_message_id,omitempty"`
 	Stopped            bool   `json:"stopped,omitempty"`
