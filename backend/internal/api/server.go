@@ -227,6 +227,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/projects/{id}/files", s.listProjectFiles)
 	m.HandleFunc("POST /api/projects/{id}/files", s.uploadProjectFile)
 	m.HandleFunc("GET /api/projects/{id}/files/{fid}/content", s.downloadProjectFile)
+	m.HandleFunc("POST /api/projects/{id}/graph-state/sync", s.graphStateSync)   // REQ-389/M185：运行状态→伴生图投影（实验）
+	m.HandleFunc("POST /api/projects/{id}/graph-state/query", s.graphStateQuery) // REQ-389/M185：SPARQL 查运行状态（实验）
 	// M12 REQ-101/102：项目绑定本地目录 + 目录文件视图
 	m.HandleFunc("POST /api/projects/validate-dir", s.validateProjectDir)
 	// REQ-133：同机部署系统目录选择对话框（远程部署由前端降级手输）
@@ -417,6 +419,12 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/kb/{id}/docs/{did}", s.deleteKBDoc)
 	m.HandleFunc("POST /api/kb/{id}/docs/{did}/reindex", s.reindexKBDoc)
 	m.HandleFunc("GET /api/kb/{id}/docs/{did}/content", s.kbDocContent) // REQ-523/M330：溯源最后一跳——chunk 按 seq 拼接原文
+
+	// 出题·批改·掌握度（REQ-524/M331——Q-23 衍生③ 转正交付；精确路由压过 /api/ontologies* 反代前缀）
+	m.HandleFunc("POST /api/quiz/{id}/generate", s.quizGenerate)
+	m.HandleFunc("POST /api/quiz/{id}/items/{qid}/submit", s.quizSubmit)
+	m.HandleFunc("GET /api/quiz/{id}/mastery", s.quizMastery)
+	m.HandleFunc("GET /api/quiz/{id}/items", s.quizHistory)
 	m.HandleFunc("POST /api/kb/{id}/search-preview", s.previewKBSearch)
 	m.HandleFunc("POST /api/kb/{id}/graphrag-search", s.graphragSearchKB) // M14 D-KB4：GraphRAG 子模块直查
 	m.HandleFunc("GET /api/kb/{id}/wiki/pages", s.wikiPages)              // REQ-241：wiki 页面视图
