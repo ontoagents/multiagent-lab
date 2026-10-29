@@ -8,6 +8,9 @@ import type { L10n } from '../locale'
 // 整体架构页（REQ-238 扩展）：三平面 + 双代理总图（SVG 内联，源=platform-knowledge/
 // 01_整体设计/00_整体设计.md §2/§3 + docs/02 §1/§2/§7 + 16_部署与运行）。
 // REQ-360：全页文案中英双份（zh 为事实源）；架构图内文字随语言切换（diagrams.tsx）。
+// REQ-496 内容口径（2026-10-29）：本页只讲「整体架构设计」——三平面职责 / 技术栈 /
+// 协议面 / 部署形态，不出现模块内部细节（检查项数、工具清单、机制名、REQ 编号、
+// 端点路径等归各模块页与「实现与原理」页）。
 // ---------------------------------------------------------------------------
 
 const PLANES: { port: string; i18n: L10n<{ name: string; desc: string; points: string[] }> }[] = [
@@ -16,13 +19,13 @@ const PLANES: { port: string; i18n: L10n<{ name: string; desc: string; points: s
     i18n: {
       zh: {
         name: '主平台 backend',
-        desc: '智能体装配与运行的中枢：Eino ADK 动态装配、SSE 事件流、知识库、技能/工具、模型代理、平台助手；经反向代理同源嵌入本体两平面。',
-        points: ['配置驱动装配：改配置下次运行即生效', 'SSE 过程可观测（事件协议见 docs/02 §8）', '执行后端可插拔：inprocess / docker / k8s'],
+        desc: '智能体装配与运行的中枢：对话、多智能体协作、知识库、技能与工具、模型接入、平台助手；经反向代理同源嵌入本体两平面。',
+        points: ['配置驱动：改配置，下次运行即生效', '对话过程事件流全程可观测、可回放', '执行方式可插拔：进程内 / 容器 / 集群'],
       },
       en: {
         name: 'Main platform (backend)',
-        desc: 'The hub for agent assembly and running: dynamic Eino ADK assembly, SSE event streams, knowledge base, skills/tools, model proxy, platform assistant; embeds the two ontology planes same-origin via reverse proxy.',
-        points: ['Config-driven assembly: change config, effective on the next run', 'Observable SSE process (event protocol in docs/02 §8)', 'Pluggable execution backends: inprocess / docker / k8s'],
+        desc: 'The hub for agent assembly and running: chat, multi-agent collaboration, knowledge base, skills & tools, model access and the platform assistant; embeds the two ontology planes same-origin via reverse proxy.',
+        points: ['Config-driven: change config, effective on the next run', 'Conversation event streams fully observable and replayable', 'Pluggable execution: in-process / containers / cluster'],
       },
     },
   },
@@ -31,13 +34,13 @@ const PLANES: { port: string; i18n: L10n<{ name: string; desc: string; points: s
     i18n: {
       zh: {
         name: '本体构建平面 ontology-service',
-        desc: '本体全生命周期前半程：六条构建路径、LLM 生成必过质量门禁（qualitygate）、spec_json 多形态资产仓库、导入审查合并与工具链。',
-        points: ['六路径收敛于资产段，差异只在生成段', '质量门禁 11 检查项 + 三维评分 + 自修复', '版本 diff / 源码视图 / 进化候选受控生长'],
+        desc: '本体全生命周期前半程：多条构建路径、LLM 生成必过质量门禁、版本化本体资产仓库与导入审查。',
+        points: ['多条构建路径收敛于同一资产库', 'LLM 参与的生成必过统一质量门禁', '资产版本化：diff、溯源与受控演化'],
       },
       en: {
         name: 'Ontology build plane (ontology-service)',
-        desc: 'First half of the ontology lifecycle: six build paths, LLM generations that must pass the quality gate, a multi-form spec_json asset store, import review/merge and tooling.',
-        points: ['Six paths converge on the asset stage; only generation differs', 'Quality gate: 11 checks + three-dimension score + self-repair', 'Version diff / source view / controlled growth of evolution candidates'],
+        desc: 'First half of the ontology lifecycle: build paths, LLM generations that must pass the quality gate, a versioned ontology asset store and import review.',
+        points: ['Build paths converge on one asset store', 'LLM-generated artifacts pass a unified quality gate', 'Versioned assets: diff, provenance, controlled evolution'],
       },
     },
   },
@@ -46,13 +49,13 @@ const PLANES: { port: string; i18n: L10n<{ name: string; desc: string; points: s
     i18n: {
       zh: {
         name: '本体运行平面 runtime-manager',
-        desc: '本体全生命周期后半程：运行方案编排（Oxigraph / Fuseki 引擎）、引擎一键安装、统一 MCP facade 供智能体消费。',
-        points: ['MCP facade：onto_* 五工具 + sparql_query', '方案级等值对账硬闸（装载零丢失，REQ-293）', 'Fuseki 推理形态下限闸（REQ-329）'],
+        desc: '本体全生命周期后半程：运行方案编排与图引擎管理、统一工具面（MCP facade）供智能体消费。',
+        points: ['运行方案编排，图引擎一键安装与启停', '服务重启后自动对账恢复', '统一 MCP 工具面，智能体无需了解引擎差异'],
       },
       en: {
         name: 'Ontology runtime plane (runtime-manager)',
-        desc: 'Second half of the ontology lifecycle: run-plan orchestration (Oxigraph / Fuseki engines), one-click engine install, and a unified MCP facade for agent consumption.',
-        points: ['MCP facade: five onto_* tools + sparql_query', 'Plan-level equivalence reconciliation hard gate (zero-loss loading, REQ-293)', 'Fuseki reasoning-mode lower-bound gate (REQ-329)'],
+        desc: 'Second half of the ontology lifecycle: run-plan orchestration and graph-engine management, plus a unified tool facade (MCP) for agent consumption.',
+        points: ['Run plans with one-click engine install and start/stop', 'Automatic reconciliation after restarts', 'A unified MCP tool facade — engine differences hidden from agents'],
       },
     },
   },
@@ -79,8 +82,8 @@ const STACK: { i18n: L10n<{ layer: string; pick: string }> }[] = [
   },
   {
     i18n: {
-      zh: { layer: '存储', pick: 'SQLite（业务库，Key AES-256-GCM）· Qdrant 向量（主）+ SQLite 余弦（fallback）' },
-      en: { layer: 'Storage', pick: 'SQLite (business DB, AES-256-GCM keys) · Qdrant vectors (primary) + SQLite cosine (fallback)' },
+      zh: { layer: '存储', pick: 'SQLite（业务库，密钥加密存储）· 向量库 Qdrant（主）+ SQLite 余弦（fallback）' },
+      en: { layer: 'Storage', pick: 'SQLite (business DB, encrypted keys) · Qdrant vectors (primary) + SQLite cosine (fallback)' },
     },
   },
   {
@@ -125,14 +128,14 @@ const DEPLOYS: { link?: string; i18n: L10n<{ title: string; desc: string; linkTe
   },
   {
     i18n: {
-      zh: { title: 'Docker Compose', desc: 'deploy/ 下 docker compose up -d，服务器起步推荐；含远程访问凭证配置（REQ-209）。', linkText: '' },
-      en: { title: 'Docker Compose', desc: 'docker compose up -d under deploy/ — the recommended server starting point; includes remote-access credential config (REQ-209).', linkText: '' },
+      zh: { title: 'Docker Compose', desc: 'deploy/ 下 docker compose up -d，服务器起步推荐；远程访问凭证可在部署时配置。', linkText: '' },
+      en: { title: 'Docker Compose', desc: 'docker compose up -d under deploy/ — the recommended server starting point; remote-access credentials configurable at deploy time.', linkText: '' },
     },
   },
   {
     i18n: {
-      zh: { title: 'Kubernetes（Helm）', desc: 'helm install 一键部署，Ingress / Qdrant 按需启用，适合团队共享部署。', linkText: '' },
-      en: { title: 'Kubernetes (Helm)', desc: 'One-command helm install; Ingress / Qdrant optional — good for team-shared deployments.', linkText: '' },
+      zh: { title: 'Kubernetes（Helm）', desc: 'helm install 一键部署，Ingress / 向量库按需启用，适合团队共享部署。', linkText: '' },
+      en: { title: 'Kubernetes (Helm)', desc: 'One-command helm install; Ingress / vector store optional — good for team-shared deployments.', linkText: '' },
     },
   },
 ]
@@ -147,7 +150,7 @@ const COPY = {
     taglineB2: 'MCP Client',
     taglinePost: '两种方式对接本体构建（:8091）/ 运行（:8090）两平面；一条 run-dev 命令拉起全栈，桌面安装包则由壳进程托管。',
     diagNote:
-      '架构总览：客户端层（浏览器 / Tauri 桌面壳 / 外部 MCP 客户端）→ 主平台 → 本体两平面 → 引擎与存储；LLM 供应商经模型代理接入，Key 仅存本地加密。',
+      '架构总览：客户端层（浏览器 / 桌面客户端 / 外部 MCP·A2A 客户端）→ 主平台 → 本体两平面 → 引擎与存储；大模型供应商经模型代理接入，密钥仅存本地加密。',
     planesTitle: '三平面职责',
     stackTitle: '技术栈总表',
     stackHeadLayer: '层',
@@ -155,16 +158,16 @@ const COPY = {
     protoTitle: '协议面',
     deployTitle: '部署形态',
     proto1Title: 'REST + SSE',
-    proto1Desc: 'POST fetch 流式（SSE），事件统一 {type, run_id, ts, data}；对话过程以来源着色事件卡呈现，可展开 JSON、调试原始事件、导出重放。',
-    proto2Title: 'MCP facade（消费侧）',
-    proto2Desc: 'runtime-manager 统一暴露 onto_* 五工具 + sparql_query，挂给任意 Agent——智能体无需理解图引擎差异即可消费本体。',
+    proto1Desc: '对话过程以统一事件流实时推送：界面按事件来源着色呈现，可展开明细、可导出重放。',
+    proto2Title: 'MCP 工具面（消费侧）',
+    proto2Desc: '本体能力封装为一组标准工具（查询、可回答性预检、本体操作等）挂给任意智能体——智能体无需理解图引擎差异即可消费本体。',
     proto3Title: 'MCP 服务化（供给侧）',
-    proto3Desc: '任意智能体可一键暴露为 MCP Server（/mcp · Streamable HTTP），Claude Desktop / Cursor 直连对话（REQ-131，实测见 docs/27）。',
+    proto3Desc: '任意智能体一键开放为 MCP 服务，Claude Desktop / Cursor 等客户端直连对话。',
     proto4Title: 'A2A 双向（Agent ↔ Agent）',
-    proto4Desc: '供给侧：平台智能体暴露为 A2A 端点——agent card 发现 + message/send · message/stream，任务落库可查（REQ-369/442）；消费侧：kind=a2a 连接器把任意 A2A 远程智能体接入协作委派，CLI 编码智能体（kind=cli，Claude Code / OpenCode / Aider / DSH）与本地 stdio MCP server（kind=stdio）同队（REQ-416/426/433）。',
+    proto4Desc: '供给侧：平台智能体以标准名片（agent card）暴露为 A2A 端点，任务落库可查；消费侧：远程 A2A 智能体、命令行编码智能体与本地 MCP 服务经连接器接入，与本地成员同队协作。',
     hubTitle: '协议枢纽：双向开放全景',
     hubNote:
-      '左侧外部客户端调用平台智能体（MCP /mcp、A2A agent card 发现）；右侧外部智能体经三类连接器（CLI / A2A / stdio）接入为委派成员；治理（审批 / 审计 / 沙箱 / 凭据 / 上下文供给）内外一体。',
+      '左侧外部客户端调用平台智能体（MCP / A2A）；右侧外部智能体经连接器接入为委派成员；治理（审批 / 审计 / 沙箱 / 凭据 / 上下文供给）内外一体。',
     hintPre: '部署细节与环境变量速查见 ',
     hintLink: '《部署与运行》',
     hintPost: '（单实例假设，刻意不做企业级多租户能力）。',
@@ -183,7 +186,7 @@ const COPY = {
     taglineB2: 'MCP client',
     taglinePost: '; one run-dev command boots the full stack, while the desktop installer is hosted by its shell process.',
     diagNote:
-      'Overview: client layer (browser / Tauri desktop shell / external MCP clients) → main platform → two ontology planes → engines & storage; LLM vendors connect via the model proxy, keys stored locally with encryption only.',
+      'Overview: client layer (browser / desktop client / external MCP & A2A clients) → main platform → two ontology planes → engines & storage; LLM vendors connect via the model proxy, keys stored locally with encryption only.',
     planesTitle: 'Plane responsibilities',
     stackTitle: 'Tech stack table',
     stackHeadLayer: 'Layer',
@@ -191,16 +194,16 @@ const COPY = {
     protoTitle: 'Protocol surface',
     deployTitle: 'Deployment forms',
     proto1Title: 'REST + SSE',
-    proto1Desc: 'Streaming via POST fetch (SSE) with a unified {type, run_id, ts, data} event envelope; the conversation renders as source-colored event cards — expandable JSON, raw-event debugging, export & replay.',
-    proto2Title: 'MCP facade (consumer side)',
-    proto2Desc: 'runtime-manager uniformly exposes five onto_* tools + sparql_query; attach them to any agent so it can consume ontologies without knowing graph-engine differences.',
+    proto1Desc: 'Conversation progress streams as unified events: rendered with source colors in the UI, expandable to details, exportable and replayable.',
+    proto2Title: 'MCP tool facade (consumer side)',
+    proto2Desc: 'Ontology capabilities wrap into a standard tool set (queries, answerability pre-checks, ontology operations) attachable to any agent — engine differences stay invisible to agents.',
     proto3Title: 'MCP serving (provider side)',
-    proto3Desc: 'Any agent can be exposed as an MCP Server (/mcp · Streamable HTTP) in one click; Claude Desktop / Cursor connect directly (REQ-131, tested in docs/27).',
+    proto3Desc: 'Any agent can become an MCP service in one click; Claude Desktop / Cursor connect directly.',
     proto4Title: 'A2A both ways (agent ↔ agent)',
-    proto4Desc: 'Provider: platform agents exposed as A2A endpoints — agent-card discovery + message/send · message/stream with persisted tasks (REQ-369/442). Consumer: kind=a2a connectors pull any remote A2A agent into delegation, alongside CLI coding agents (kind=cli: Claude Code / OpenCode / Aider / DSH) and local stdio MCP servers (kind=stdio) in one team (REQ-416/426/433).',
+    proto4Desc: 'Provider: platform agents expose as A2A endpoints via a standard agent card, with persisted tasks; consumer: remote A2A agents, CLI coding agents and local MCP services join via connectors and work alongside local members.',
     hubTitle: 'Protocol hub: open both ways',
     hubNote:
-      'Left: external clients call platform agents (MCP /mcp; A2A agent-card discovery). Right: external agents join as delegable members via three connector kinds (CLI / A2A / stdio). Governance (approvals / audit / sandbox / credentials / context supply) applies uniformly both ways.',
+      'Left: external clients call platform agents (MCP / A2A). Right: external agents join as delegable members via connectors. Governance (approvals / audit / sandbox / credentials / context supply) applies uniformly both ways.',
     hintPre: 'Deployment details and the env-var quick reference: ',
     hintLink: 'Deploy & Run',
     hintPost: ' (single-instance assumption; enterprise multi-tenancy intentionally not provided).',

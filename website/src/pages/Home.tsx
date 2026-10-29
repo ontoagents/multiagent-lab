@@ -1,7 +1,5 @@
 import {
-  ApartmentOutlined,
   ApiOutlined,
-  CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
   ExperimentOutlined,
@@ -10,7 +8,10 @@ import {
   RocketOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
+  SearchOutlined,
+  TeamOutlined,
   ThunderboltOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons'
 import { Button, Tag } from 'antd'
 import { MODULES, REPO_URL, SEEDS, moduleText } from '../content'
@@ -21,12 +22,14 @@ import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / platform-knowledge/
-// 01_整体设计/00_整体设计.md（摘编口径，深入阅读走模块页，避免双源）。
+// 01_整体设计/17_产品_信息架构与界面设计（摘编口径，深入阅读走模块页，避免双源）。
 // 新人导览：Hero 后紧跟产品预览与"30 秒了解"五步导览，覆盖 长什么样→是什么→
 // 能做什么→如何工作→上手。
 // REQ-360：全页文案中英双份（zh 为事实源）。
-// REQ-364：新增产品预览区（mockups 界面示意图，不跑平台即可直观了解界面形态）；
-// "如何工作"导览随关键实现/实现原理合并改指 #/implementation。
+// REQ-364：新增产品预览区（mockups 界面示意图，不跑平台即可直观了解界面形态）。
+// REQ-496 内容口径（2026-10-29）：首页偏向「使用场景」、不出现技术细节——
+// 场景卡按 Q-23 用户画像（工程师/教师/合规/研究者/医生）重写，双核心与特性卡
+// 改为能力语言（去实现机制与选型名），技术栈条撤除（归「整体架构」页）。
 // ---------------------------------------------------------------------------
 
 const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
@@ -40,22 +43,22 @@ const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     href: '#/module/agents',
     i18n: {
-      zh: { title: '能做什么', desc: '六大模块：智能体 / 本体 / 知识库 / 连接器 / 消费审计 / 学习中心' },
-      en: { title: 'What it does', desc: 'Six modules: agents / ontology / knowledge base / connectors / consumption & audit / learning center' },
+      zh: { title: '能做什么', desc: '七大功能模块：智能体 / 本体 / 知识库 / 项目 / 技能 / 平台知识 / 设置' },
+      en: { title: 'What it does', desc: 'Seven modules: agents / ontology / knowledge base / projects / skills / platform knowledge / settings' },
     },
   },
   {
     href: '#/architecture',
     i18n: {
-      zh: { title: '系统长什么样', desc: '三平面 + 双代理拓扑，一张总图看清服务边界与端口' },
-      en: { title: 'What it looks like', desc: 'Three planes + dual-proxy topology; one diagram shows service boundaries and ports' },
+      zh: { title: '平台如何组成', desc: '整体架构一页看清：平台由哪些服务组成、如何分工协作' },
+      en: { title: 'How it is composed', desc: 'One architecture page shows what the platform consists of and how the pieces work together' },
     },
   },
   {
     href: '#/implementation',
     i18n: {
-      zh: { title: '如何工作', desc: '五层执行模型 + 质量门禁机制，附论文与开源依据' },
-      en: { title: 'How it works', desc: 'Five-layer execution model + quality gates, with papers and open-source evidence' },
+      zh: { title: '如何工作', desc: '五层执行模型与核心机制图，附论文与开源依据' },
+      en: { title: 'How it works', desc: 'Five-layer execution model + core mechanism diagrams, with papers and open-source evidence' },
     },
   },
   {
@@ -73,13 +76,13 @@ const SCENES: { icon: ReactNode; href: string; i18n: L10n<{ title: string; desc:
     href: '#/deploy',
     i18n: {
       zh: {
-        title: '个人 AI 工作台自托管',
-        desc: '下载桌面安装包开箱即用：智能体、本体与知识库全套服务内置托管，SQLite 单文件存储，数据完全留在本机。',
+        title: '个人 AI 工作台，数据不出本机',
+        desc: '桌面安装包或一条命令启动：智能体、知识库、本体全套服务跑在自己的电脑上，专业工作数据不离开本机。',
         link: '获取安装包',
       },
       en: {
-        title: 'Self-hosted personal AI workbench',
-        desc: 'Download the desktop installer and go: agents, ontology and knowledge-base services all hosted locally, single-file SQLite storage — data never leaves your machine.',
+        title: 'A personal AI workbench that keeps data local',
+        desc: 'Boot from a desktop installer or one command: agents, knowledge base and ontology services all run on your own machine — work data never leaves it.',
         link: 'Get the installer',
       },
     },
@@ -89,45 +92,77 @@ const SCENES: { icon: ReactNode; href: string; i18n: L10n<{ title: string; desc:
     href: '#/module/ontology',
     i18n: {
       zh: {
-        title: '领域知识工程',
-        desc: '六条构建路径把文档、对话与经验沉淀为可治理的本体资产：质量门禁、版本 diff、进化候选受控生长。',
+        title: '领域知识资产化',
+        desc: '把文档、对话与经验沉淀为结构化的领域本体：概念、关系有据可查，版本可追溯，知识不再散落一地。',
         link: '看本体工程',
       },
       en: {
-        title: 'Domain knowledge engineering',
-        desc: 'Six build paths turn documents, conversations and experience into governable ontology assets: quality gates, version diff, controlled growth of evolution candidates.',
+        title: 'Turn domain knowledge into assets',
+        desc: 'Distill documents, conversations and experience into structured domain ontologies — concepts and relations you can query, versions you can trace.',
         link: 'Explore ontology engineering',
       },
     },
   },
   {
-    icon: <ExperimentOutlined />,
-    href: '#/implementation',
+    icon: <ReadOutlined />,
+    href: '#/module/knowledge',
     i18n: {
       zh: {
-        title: '智能体工程实验田',
-        desc: '配置驱动装配、SSE 全事件流可观测、质量门禁与评估任务集——把 idea 推进为可复现的智能体方案。',
-        link: '看实现与原理',
+        title: '资料问答，句句有出处',
+        desc: '上传资料即建知识库：即问即答、回答标注原文出处；跨文档的复杂关联问题交给知识图谱多跳检索。',
+        link: '看知识库',
       },
       en: {
-        title: 'Agent engineering playground',
-        desc: 'Config-driven assembly, fully observable SSE event streams, quality gates and eval task sets — push an idea into a reproducible agent design.',
-        link: 'See implementation & principles',
+        title: 'Document Q&A with receipts',
+        desc: 'Upload materials and start asking: answers cite their sources, while cross-document links go through multi-hop graph retrieval.',
+        link: 'Explore the knowledge base',
       },
     },
   },
   {
-    icon: <ReadOutlined />,
+    icon: <TeamOutlined />,
+    href: '#/module/projects',
+    i18n: {
+      zh: {
+        title: '组一支智能体小队',
+        desc: '把任务拆解给多个智能体协作完成：规划、执行、审查各司其职，还可纳入命令行编码智能体，谁在做什么全程可见。',
+        link: '看项目协作',
+      },
+      en: {
+        title: 'Assemble an agent team',
+        desc: 'Decompose work across collaborating agents — planning, execution and review in their lanes, CLI coding agents welcome — with everything visible as it happens.',
+        link: 'Explore project collaboration',
+      },
+    },
+  },
+  {
+    icon: <ApiOutlined />,
+    href: '#/module/agents',
+    i18n: {
+      zh: {
+        title: '让外部工具用上你的智能体',
+        desc: '智能体一键开放为 MCP / A2A 标准服务：Claude Desktop、Cursor 等客户端直接调用；也能把外部智能体请进你的协作。',
+        link: '看智能体',
+      },
+      en: {
+        title: 'Put your agents in external tools',
+        desc: 'Expose agents as MCP / A2A services callable from Claude Desktop, Cursor and more — or bring external agents into your own collaboration.',
+        link: 'Explore agents',
+      },
+    },
+  },
+  {
+    icon: <ExperimentOutlined />,
     href: '#/demo',
     i18n: {
       zh: {
         title: '教学与团队演示',
-        desc: '内置学习中心与 5 个示例本体（组织 / 缺陷 / 失效分析 / 基因 / 医学），在线 demo 免安装即可演示完整闭环。',
+        desc: '内置学习中心与 5 个示例本体（组织 / 缺陷 / 失效分析 / 基因 / 医学），在线演示免安装即可走完构建到消费全流程。',
         link: '在线演示',
       },
       en: {
         title: 'Teaching & team demos',
-        desc: 'Built-in learning center and 5 example ontologies (orgs / defects / failure analysis / gene / medical) — the online demo shows the full loop with zero install.',
+        desc: 'A built-in learning center plus 5 example ontologies (orgs / defects / failure analysis / gene / medical) — the online demo walks the full loop with zero install.',
         link: 'Online demo',
       },
     },
@@ -141,22 +176,24 @@ const CORES: { i18n: L10n<{ title: string; desc: string; points: string[] }> }[]
         title: '智能体工程',
         desc: '对话工作台 × 多智能体协作 × 能力增强，过程完全可观测',
         points: [
-          '流式对话与调用轨迹面板（工具 / 子智能体 / 检索 / 审批事件全留痕）',
-          '多智能体协作：项目工作空间、成员编排、委派与切换事件可见',
-          '协议枢纽双向开放：智能体暴露为 MCP / A2A 服务，CLI 与 A2A 外部智能体接入协作',
-          '上下文工程 / Harness 沙箱与审批 / Loop 持久化与续跑（五层视角）',
-          '评估驱动质量：agenteval 种子任务集 + LLM Judge 门控',
+          '流式对话与轨迹面板：工具、委派、检索、审批全程留痕，可回放',
+          '多智能体协作：项目工作空间编排成员，外部智能体可请入协作',
+          '能力增强：挂载知识库、本体与技能，回答有据可查',
+          '安全可控：沙箱隔离执行，危险操作分级审批',
+          '对外开放：智能体可被 Claude Desktop / Cursor 等外部工具调用（MCP / A2A）',
+          '质量可回归：内置评估任务集，行为改动可量化验证',
         ],
       },
       en: {
         title: 'Agent engineering',
         desc: 'Chat workbench × multi-agent collaboration × capability augmentation, fully observable',
         points: [
-          'Streaming chat with a call-trace panel (tool / sub-agent / retrieval / approval events fully traced)',
-          'Multi-agent collaboration: project workspace, member orchestration, visible delegation and transfer events',
-          'Protocol hub open both ways: agents serve MCP / A2A outward; CLI and A2A external agents join collaboration inward',
-          'Context engineering / harness sandbox & approvals / loop persistence & resume (five-layer view)',
-          'Evaluation-driven quality: agenteval seed task sets + LLM judge gating',
+          'Streaming chat with a trace panel: tools, delegation, retrieval and approvals traced and replayable',
+          'Multi-agent collaboration: orchestrate members in project workspaces and welcome external agents',
+          'Augmentation: mount knowledge bases, ontologies and skills so answers stay grounded',
+          'Safety: isolated sandboxed execution with tiered approvals for dangerous operations',
+          'Openness: agents callable from Claude Desktop, Cursor and beyond (MCP / A2A)',
+          'Regression-ready quality: built-in evaluation task sets quantify behavior changes',
         ],
       },
     },
@@ -167,20 +204,22 @@ const CORES: { i18n: L10n<{ title: string; desc: string; points: string[] }> }[]
         title: '本体工程',
         desc: '构建 → 资产 → 运行 → 消费审计 的完整闭环',
         points: [
-          '六条构建路径：手工向导 / AI 对话 / 由知识库构建 / OO 双轨 / OntoExtend 等',
-          '资产治理：质量门禁与质量卡、版本与 diff、进化候选受控生长、被引用聚合',
-          '多引擎运行平面：Oxigraph / Fuseki，MCP facade（onto_* 工具）供智能体消费',
-          '消费与审计观测台：KG 检索来源徽标、决策溯源、PROV-O 导出',
+          '多条构建路径：AI 对话 / 向导 / 由知识库构建 / 外部导入 / 权威词表引入',
+          '资产治理：质量门禁、版本 diff、演化候选受控生长',
+          '专业编辑：公理与关系特性编辑、重命名级联改写，网页端对齐专业本体编辑器',
+          '多本体协同：相互引用的本体整体装载与推理，答案标注来源本体',
+          '运行与消费：运行方案多引擎可选，智能体经统一工具面消费，决策可溯源',
         ],
       },
       en: {
         title: 'Ontology engineering',
         desc: 'A complete loop: build → assets → run → consume & audit',
         points: [
-          'Six build paths: manual wizard / AI chat / from knowledge base / OO dual-track / OntoExtend and more',
-          'Asset governance: quality gate & quality card, versions and diff, controlled growth of evolution candidates, reference aggregation',
-          'Multi-engine runtime plane: Oxigraph / Fuseki, with an MCP facade (onto_* tools) for agent consumption',
-          'Consumption & audit observatory: KG retrieval source badges, decision provenance, PROV-O export',
+          'Multiple build paths: AI chat / wizard / from knowledge base / external import / authoritative vocabularies',
+          'Asset governance: quality gates, version diff, controlled growth of evolution candidates',
+          'Professional editing: axioms and relation characteristics, rename with cascading rewrites — professional-grade, on the web',
+          'Multi-ontology synergy: mutually referencing ontologies load and reason as a whole, answers labeled by source',
+          'Run & consume: multi-engine run plans, a unified tool facade for agents, decisions traceable',
         ],
       },
     },
@@ -189,38 +228,38 @@ const CORES: { i18n: L10n<{ title: string; desc: string; points: string[] }> }[]
 
 const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }[] = [
   {
-    icon: <ApartmentOutlined />,
+    icon: <SearchOutlined />,
     i18n: {
-      zh: { title: '知识库 RAG / GraphRAG', desc: '向量检索 + 自研 KG 抽取（LLM 主路径 + 规则回退），本体 TTL 直接装载为 KG 源，与本体双向打通' },
-      en: { title: 'Knowledge base RAG / GraphRAG', desc: 'Vector retrieval + built-in KG extraction (LLM primary path with rule fallback); ontology TTLs load directly as KG sources' },
+      zh: { title: '知识库检索与图谱', desc: '文档即问即答、句句溯源；知识图谱支撑跨文档多跳关联，语料与本体双向打通' },
+      en: { title: 'Knowledge base & graph', desc: 'Ask your documents with sentence-level citations; a knowledge graph links evidence across documents, connected both ways with ontologies' },
     },
   },
   {
     icon: <CloudServerOutlined />,
     i18n: {
-      zh: { title: '外部连接器', desc: 'Kubernetes / SSH / 自定义 MCP / A2A / CLI / stdio 六类连接器，凭据加密托管，agent 级授权白名单' },
-      en: { title: 'External connectors', desc: 'Kubernetes / SSH / custom MCP / A2A / CLI / stdio — six connector kinds with encrypted credential hosting and agent-level authorization whitelists' },
+      zh: { title: '外部连接器', desc: 'MCP / Kubernetes / SSH / A2A / 命令行 / 本地服务六类连接器，凭据加密托管，按智能体授权' },
+      en: { title: 'External connectors', desc: 'Six connector kinds — MCP / Kubernetes / SSH / A2A / CLI / local services — with encrypted credential hosting and per-agent authorization' },
     },
   },
   {
     icon: <SafetyCertificateOutlined />,
     i18n: {
-      zh: { title: '沙箱执行与审批', desc: 'docker / k8s 执行后端，danger 级工具三档审批、挂起超时与结构化审计事件' },
-      en: { title: 'Sandbox execution & approvals', desc: 'docker / k8s execution backends; three-tier approval for dangerous tools, suspension timeouts and structured audit events' },
+      zh: { title: '沙箱与审批', desc: '智能体副作用隔离执行；危险操作分级审批、全程结构化留痕' },
+      en: { title: 'Sandbox & approvals', desc: 'Agent side effects run isolated; dangerous operations take tiered approvals with structured audit trails' },
     },
   },
   {
     icon: <ThunderboltOutlined />,
     i18n: {
-      zh: { title: '技能复用', desc: 'SKILL.md 标准技能包封装复用，.zip 批量导入（首批 177 件），集合一卡多子技能挂载' },
-      en: { title: 'Skill reuse', desc: 'SKILL.md standard packs, packaged and reused; batch .zip import (177 first batch) and one-card collections' },
+      zh: { title: '技能复用', desc: '业界标准技能包封装复用，.zip 批量导入（首批 177 件科学技能包），一卡多技能' },
+      en: { title: 'Skill reuse', desc: 'Industry-standard skill packs reused across agents; batch .zip import (177 scientific packs first batch) and one-card collections' },
     },
   },
   {
     icon: <ApiOutlined />,
     i18n: {
-      zh: { title: '协议开放（MCP + A2A）', desc: '智能体一键暴露为 MCP Server（/mcp）与 A2A 端点，被其他 Agent 调用；外部智能体（CLI 编码智能体 / A2A 远程智能体 / stdio MCP server）经连接器接入协作' },
-      en: { title: 'Open protocols (MCP + A2A)', desc: 'Expose any agent as an MCP Server (/mcp) or A2A endpoint for other agents to call; external agents (CLI coding agents / A2A remote agents / stdio MCP servers) plug in via connectors' },
+      zh: { title: '协议开放（MCP + A2A）', desc: '智能体一键开放为标准服务，被 Claude Desktop / Cursor 等外部工具调用；外部智能体也能请入协作' },
+      en: { title: 'Open protocols (MCP + A2A)', desc: 'Expose any agent as a standard service callable from Claude Desktop / Cursor and beyond; welcome external agents into collaboration, too' },
     },
   },
   {
@@ -233,13 +272,11 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <RocketOutlined />,
     i18n: {
-      zh: { title: '单机可部署', desc: 'run-dev.sh 一条命令启动全栈（零 venv）；Docker Compose / Helm 交付；SQLite 单文件存储' },
-      en: { title: 'Self-hostable', desc: 'One command (run-dev.sh) boots the full stack with zero venv; Docker Compose / Helm delivery; single-file SQLite storage' },
+      zh: { title: '单机可部署', desc: '一条命令或桌面安装包即可启动，数据全留本机；Docker Compose / Helm 交付可选' },
+      en: { title: 'Self-hostable', desc: 'One command or a desktop installer to boot; data never leaves your machine, with optional Docker Compose / Helm delivery' },
     },
   },
 ]
-
-const TECH = ['Go', 'CloudWeGo Eino / ADK', 'Hertz', 'SQLite', 'SSE', 'React 18', 'AntD 6', 'Vite', 'three.js', '@xyflow/react']
 
 const COPY = {
   zh: {
@@ -256,14 +293,13 @@ const COPY = {
     modulesTitle: '功能模块',
     modulesMore: '查看详细介绍 →',
     featuresTitle: '平台特性',
-    techTitle: '技术栈',
     quickstartTitle: '快速开始',
     qs1Title: '一条命令启动（开发/演示）',
     qs1Code: `git clone https://github.com/<owner>/multiagent-lab.git
 cd multiagent-lab
 ./run-dev.sh
 # 打开 http://localhost:8080（前端 :5173 由反代同源承载）`,
-    qs1NotePre: '仓库地址见本页右上角「GitHub」链接；零 Python venv 依赖；首次启动自动建库（SQLite）并播种示例本体与学习中心内容包。',
+    qs1NotePre: '仓库地址见本页右上角「GitHub」链接；零 Python venv 依赖；首次启动自动建库并播种示例本体与学习中心内容包。',
     qs2Title: 'Docker Compose / Helm',
     qs2Code: `cd deploy
 docker compose up -d
@@ -291,14 +327,13 @@ docker compose up -d
     modulesTitle: 'Modules',
     modulesMore: 'Explore in detail →',
     featuresTitle: 'Platform features',
-    techTitle: 'Tech stack',
     quickstartTitle: 'Quick start',
     qs1Title: 'One command to start (dev / demo)',
     qs1Code: `git clone https://github.com/<owner>/multiagent-lab.git
 cd multiagent-lab
 ./run-dev.sh
 # Open http://localhost:8080 (frontend :5173 served same-origin behind the proxy)`,
-    qs1NotePre: 'Find the repo URL in the "GitHub" link at the top-right; zero Python venv dependency; first start creates the database (SQLite) and seeds the example ontologies and learning-center content pack automatically.',
+    qs1NotePre: 'Find the repo URL in the "GitHub" link at the top-right; zero Python venv dependency; first start creates the database and seeds the example ontologies and learning-center content pack automatically.',
     qs2Title: 'Docker Compose / Helm',
     qs2Code: `cd deploy
 docker compose up -d
@@ -333,17 +368,17 @@ export default function HomePage() {
             {locale === 'zh' ? (
               <>
                 面向专业个人的<strong>工作学习助手</strong>，以本体为知识底座——知识不是一堆文档，
-                而是可查询、可审计、可出题的结构化资产。基于 Go + CloudWeGo Eino/ADK，<strong>单机自部署</strong>，
-                专业工作数据不离开本机；<strong>智能体工程</strong>（对话 / 多智能体协作 / 知识·技能·本体增强）与
+                而是可查询、可审计、可出题的结构化资产。<strong>单机自部署</strong>，专业工作数据不离开本机；
+                <strong>智能体工程</strong>（对话 / 多智能体协作 / 知识·技能·本体增强）与
                 <strong>本体工程</strong>（构建 → 资产 → 运行 → 消费审计闭环）双核心，能力边界诚实标注。
               </>
             ) : (
               <>
                 A <strong>personal work &amp; learning assistant for professionals</strong>, grounded on ontologies — knowledge as a
-                structured asset you can query, audit and quiz, not a pile of documents. Built on Go + CloudWeGo Eino/ADK,{' '}
-                <strong>self-hosted on a single machine</strong>. Dual cores: <strong>agent engineering</strong> (chat / multi-agent
-                collaboration / knowledge·skill·ontology augmentation) and <strong>ontology engineering</strong> (build → assets → run →
-                consume &amp; audit) — capability boundaries honestly labeled.
+                structured asset you can query, audit and quiz, not a pile of documents. <strong>Self-hosted on a single machine</strong> —
+                work data stays local. Dual cores: <strong>agent engineering</strong> (chat / multi-agent collaboration /
+                knowledge·skill·ontology augmentation) and <strong>ontology engineering</strong> (build → assets → run → consume &amp;
+                audit), with capability boundaries honestly labeled.
               </>
             )}
           </p>
@@ -454,18 +489,6 @@ export default function HomePage() {
                   <div className="feat-desc">{f.i18n[locale].desc}</div>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 技术栈 */}
-        <section className="sec">
-          <h2>{c.techTitle}</h2>
-          <div className="tech-strip">
-            {TECH.map((t) => (
-              <Tag key={t} style={{ margin: 0, padding: '4px 12px', fontSize: 13 }}>
-                {t}
-              </Tag>
             ))}
           </div>
         </section>

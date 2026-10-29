@@ -80,11 +80,11 @@ const POINTS: { i18n: L10n<{ title: string; desc: string }> }[] = [
     i18n: {
       zh: {
         title: '协议枢纽双向 + 诚实降级',
-        desc: '消费侧：本体 facade 五工具挂给 Agent、外部 MCP / stdio server 亦可接入；供给侧：任意智能体一键 MCP 服务化（/mcp）或暴露为 A2A 端点（agent card 发现 + message/send·stream，任务落库）；CLI 编码智能体（Claude Code / OpenCode / Aider / DSH）与 A2A 远程智能体经连接器接入协作委派。方案未运行、向量库不可用等场景明确提示并降级，主链路不受影响。',
+        desc: '消费侧：本体 facade 统一工具面（查询 / 可回答性预检 / 本体操作等 21 件）挂给 Agent、外部 MCP / stdio server 亦可接入；供给侧：任意智能体一键 MCP 服务化（/mcp）或暴露为 A2A 端点（agent card 发现 + message/send·stream，任务落库）；CLI 编码智能体（Claude Code / OpenCode / Aider / DSH）与 A2A 远程智能体经连接器接入协作委派。方案未运行、向量库不可用等场景明确提示并降级，主链路不受影响。',
       },
       en: {
         title: 'Protocol hub, both ways + honest degradation',
-        desc: 'Consumer side: the five ontology facade tools attach to any agent, and external MCP / stdio servers plug in too. Provider side: any agent can be exposed via MCP (/mcp) or as an A2A endpoint (agent-card discovery + message/send · stream, tasks persisted); CLI coding agents (Claude Code / OpenCode / Aider / DSH) and remote A2A agents join collaboration as delegated members via connectors. When a plan isn’t running or the vector store is unavailable, the platform says so clearly and degrades — the main path is unaffected.',
+        desc: 'Consumer side: the unified ontology tool facade (21 tools — queries, answerability pre-checks, ontology operations) attaches to any agent, and external MCP / stdio servers plug in too. Provider side: any agent can be exposed via MCP (/mcp) or as an A2A endpoint (agent-card discovery + message/send · stream, tasks persisted); CLI coding agents (Claude Code / OpenCode / Aider / DSH) and remote A2A agents join collaboration as delegated members via connectors. When a plan isn’t running or the vector store is unavailable, the platform says so clearly and degrades — the main path is unaffected.',
       },
     },
   },
@@ -263,11 +263,11 @@ const ONTOLOGY: { i18n: L10n<{ title: string; desc: string }> }[] = [
     i18n: {
       zh: {
         title: 'MCP facade 消费',
-        desc: '本体能力以 6 个只读 onto_* 工具（概念查询 / 实例枚举 / 邻居扩展 / SPARQL）经 MCP facade 暴露给智能体，只读白名单与图隔离保证消费侧不污染数据源。',
+        desc: '本体能力以 21 件 onto_* 工具（只读查询含可回答性预检 / 本体操作 / 时序查询）经 MCP facade 暴露给智能体，只读白名单与图隔离保证消费侧不污染数据源。',
       },
       en: {
         title: 'Consuming via MCP facade',
-        desc: 'Ontology capabilities are exposed to agents through six read-only onto_* tools (concept query / instance enumeration / neighbor expansion / SPARQL) via the MCP facade; read-only whitelists and graph isolation keep the consumer side from polluting data sources.',
+        desc: 'Ontology capabilities are exposed to agents through 21 onto_* tools (read-only queries incl. answerability pre-checks / ontology operations / history queries) via the MCP facade; read-only whitelists and graph isolation keep the consumer side from polluting data sources.',
       },
     },
   },
@@ -466,7 +466,7 @@ const COPY = {
     qgTitle: '六条构建路径收敛于质量门禁与资产段',
     qgNotePre: '设计要义：',
     qgNoteB: '差异只在生成段，收敛在资产段',
-    qgNoteMid: '——无论手工向导、AI 对话、OO 双轨导入、由知识库构建还是 CSV 灌装，产物一律经 qualitygate（LLM 生成必过 + 自修复）进入统一的多形态资产仓库；版本、diff、审查合并、进化候选均作用于资产层。',
+    qgNoteMid: '——无论手工向导、AI 对话、导入外部本体、由知识库构建还是权威词表引入，产物一律经 qualitygate（LLM 生成必过 + 自修复）进入统一的多形态资产仓库；版本、diff、审查合并、进化候选均作用于资产层。',
     compTitle: '伴生本体：对话驱动的动态薄本体',
     compNote:
       '与「先建本体再对话」的传统路径互补：在对话收尾时由旁路抽取候选，人工确认后进入会话图并自动并入 KG 检索源——本体随对话生长，而主链路零感知。',
@@ -527,7 +527,7 @@ const COPY = {
     qgTitle: 'Six build paths converge on the quality gate and asset stage',
     qgNotePre: 'Design essence: ',
     qgNoteB: 'differences live only in generation; everything converges on the asset stage',
-    qgNoteMid: ' — manual wizard, AI chat, OO dual-track import, from-knowledge-base or CSV fill: all artifacts enter the unified multi-form asset store through qualitygate (mandatory for LLM generations, with self-repair); versions, diff, review merge and evolution candidates all act on the asset layer.',
+    qgNoteMid: ' — manual wizard, AI chat, external ontology import, from-knowledge-base or authoritative-vocabulary bring-in: all artifacts enter the unified multi-form asset store through qualitygate (mandatory for LLM generations, with self-repair); versions, diff, review merge and evolution candidates all act on the asset layer.',
     compTitle: 'Companion ontology: a conversation-driven dynamic thin ontology',
     compNote:
       'Complementary to the traditional "build the ontology first, then chat" path: a bypass extracts candidates as the conversation wraps up; after human confirmation they enter the session graph and automatically join KG retrieval sources — the ontology grows with the conversation while the main path stays oblivious.',

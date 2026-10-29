@@ -97,7 +97,7 @@ const COPY = {
   zh: {
     crumbsHome: '首页',
     title: '功能模块',
-    tagline: '七个模块一页纵览——左侧导航直达对应区块，或直接向下滚动逐一了解。',
+    tagline: '全部模块一页纵览——左侧导航直达对应区块，或直接向下滚动逐一了解。',
     navAria: '模块导航',
     briefAria: '模块速览',
     flowHead: '典型流程',
@@ -108,7 +108,7 @@ const COPY = {
   en: {
     crumbsHome: 'Home',
     title: 'Modules',
-    tagline: 'All seven modules on one page — use the left rail to jump, or simply scroll.',
+    tagline: 'Every module on one page — use the left rail to jump, or simply scroll.',
     navAria: 'Module navigation',
     briefAria: 'Module at a glance',
     flowHead: 'Typical flow',
