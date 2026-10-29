@@ -4,7 +4,7 @@ topic: Loop 域事实源（设计总纲·实现现状·演进跟踪）
 desc: 循环层技术沉淀——ReAct 迭代上限/挂起恢复 checkpoint/定时续跑/进度产物/usage；代码地图、REQ/M39·M52 映射、C3 LongRun/C4 Evaluator 后置；姊妹档 53 号 Harness/54 号 Context/56 号 Graph
 req: [REQ-204, REQ-49, REQ-210]
 docs: ["02 §6 五层总纲", "38 号 C 阶段", "51 号体检"]
-synced: 2026-10-24
+synced: 2026-10-29
 ---
 
 # Loop：设计、实现与演进（2026-10-01 沉淀）
@@ -44,6 +44,7 @@ synced: 2026-10-24
 3. **挂起触达缺失**——审批/追问挂起无提醒通道（**已立项 REQ-395/M191：桌面客户端（REQ-321/324）推送打通，2026-10-24 漏项补立**）；超时自动 deny 已有，主动触达随 REQ-395 落地。
 4. **abandon 语义单一**——仅新消息触发放弃挂起；显式「放弃本次挂起」按钮列观察项。
 5. **REQ-385 TurnLoop 原语评估（2026-10-24，M181 评估件落痕）**——eino v0.9.19 `adk/turn_loop.go` 实测在位：`NewTurnLoop[T,M](TurnLoopConfig)` + **`Push(item, opts)` 运行中 push-based 输入原语**（preemptController 抢占式 turn 目标管理+Push 临界区）+checkpoint 集成（saveTurnLoopCheckpoint）+GenResume 恢复钩子。**评估结论**：①Push 原语可解「Eino 无 mid-run 输入通道」诚实边界（REQ-208 steer 轮界接续的深化路径=TurnLoop.Push 运行中介入）——**采用价值成立**；②采用是大改造面：Runner 装配链（chat.Assemble 产出 Runner→TurnLoop 形态）、事件翻译管线（runConsumer 消费 AgentEvent 不变）、checkpoint/checkPointIDOf 语义衔接、delegate 底盘汇流（REQ-208 delegate_background 已承载子调用异步化——汇流=TurnLoop 与 delegate 底盘的编排层归一）四线并行；③**拍板=评估通过、采用实施留专项重构轮**（与 REQ-390② assembleTools 函数化/③Service 分域拆分同窗口——运行时结构改造集中一轮，避免碎片化重构）；REQ-387 已交付的 A2A tasks 落库/凭证批（REQ-394）为长任务观测面提供了前置。
+   **✅ 采用已落地（2026-10-29，REQ-385/M181 专项重构轮，01 v2.34）**：四线全落——①chat/turnloop.go 引擎接入 runOnce/Resume 主链（默认开，CHAT_TURNLOOP=0 回滚；工作流 Runner 不叠加）②轮界产物即刷即持久化（长任务有界增量）③主会话 steer=Service.Steer→Push(WithPreempt(AnySafePoint))+三事件可观测（steer.pushed/run.preempted/steer.applied）④delegate 汇流=agent delegate_async 开关（迁移 072）转 DelegateManager 底盘。本开放问题闭环。
 
 > 体检来源：39 号 P-4「长任务可控断层」驱动 REQ-204/M39（39 号已于 2026-10-01 清理，结论归档于 00 号）。
 

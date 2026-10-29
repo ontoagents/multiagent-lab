@@ -307,6 +307,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/fork", s.forkConversation) // REQ-478③：派生会话（配置+消息拷贝）
 	m.HandleFunc("POST /api/conversations/{id}/runs", s.runConversation)
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)
+	m.HandleFunc("POST /api/conversations/{id}/steer", s.steerConversation) // REQ-385/M181：运行中介入（TurnLoop 抢占式 steer）
 	m.HandleFunc("GET /api/conversations/{id}/export", s.exportConversation) // REQ-113①：对话导出 Markdown
 	m.HandleFunc("GET /api/docs/read", s.docRead)
 	m.HandleFunc("GET /api/assistant/config", s.assistantConfigGet) // M27/REQ-166

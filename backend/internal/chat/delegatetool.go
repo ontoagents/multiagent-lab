@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/adk"
@@ -24,6 +25,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
 )
 
@@ -109,4 +111,57 @@ func delegateTaskOf(argsInJSON string) string {
 		}
 	}
 	return argsInJSON
+}
+
+// asyncDelegateTool REQ-385/M181：成员委派异步形态（delegate_async 开关成员）——委派转后台
+// 委派底盘（DelegateManager.Start，与 delegate_background 同一编排层=「底盘汇流」），协调者
+// 不阻塞：工具即返 delegate_id，结果经 delegate_status/delegate_collect 跟进（长任务/并行委派）。
+type asyncDelegateTool struct {
+	manager *DelegateManager
+	member  *store.Agent
+	parent  *store.Conversation
+}
+
+func (t asyncDelegateTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	name := t.member.Name
+	desc := fmt.Sprintf(
+		"委派成员智能体 %q（后台异步形态）：任务即转后台运行，本工具立即返回 delegate_id 不阻塞；用 delegate_status 查进度、delegate_collect 收结果、delegate_steer 中途插话。适合长任务与并行委派。", name)
+	return &schema.ToolInfo{
+		Name: name,
+		Desc: desc,
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"request": {Type: schema.String, Required: true, Desc: "委派给该成员的任务描述"},
+		}),
+	}, nil
+}
+
+func (t asyncDelegateTool) InvokableRun(ctx context.Context, argsInJSON string, _ ...einotool.Option) (string, error) {
+	task := delegateTaskOf(argsInJSON)
+	if strings.TrimSpace(task) == "" {
+		return `{"error":"bad_request","detail":"委派任务描述为空"}`, nil
+	}
+	tool.EmitEvent(ctx, "subagent.delegate", map[string]any{
+		"member": t.member.Name, "channel": "internal", "via": "agent_as_tool_async",
+		"task": truncateRunes(task, 200),
+	})
+	d, err := t.manager.Start(t.parent, t.member, task)
+	if err != nil {
+		tool.EmitEvent(ctx, "run.warning", map[string]any{
+			"message":       fmt.Sprintf("成员 %q 后台委派启动失败: %s（可重试或自行完成）", t.member.Name, truncateRunes(err.Error(), 200)),
+			"member_failed": map[string]any{"member": t.member.Name, "error": truncateRunes(err.Error(), 300)},
+		})
+		payload, _ := json.Marshal(map[string]any{"error": "delegate_start_failed", "member": t.member.Name, "detail": truncateRunes(err.Error(), 300)})
+		return string(payload), nil
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"delegate_id": d.ID, "member": t.member.Name, "status": "running",
+		"child_conversation_id": d.ChildConversationID,
+		"hint":                  "已转后台运行（协调者不阻塞）。delegate_status 查进度、delegate_collect 收结果、delegate_steer 可插话引导。",
+	})
+	return string(payload), nil
+}
+
+// newAsyncDelegateTool 异步委派工具构造（装配层 delegate_async 成员分支入口）。
+func newAsyncDelegateTool(m *DelegateManager, member *store.Agent, parent *store.Conversation) einotool.BaseTool {
+	return asyncDelegateTool{manager: m, member: member, parent: parent}
 }

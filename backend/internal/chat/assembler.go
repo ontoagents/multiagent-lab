@@ -74,6 +74,7 @@ type WorkflowMeta struct {
 // BuildResult 装配产物。
 type BuildResult struct {
 	Runner          *adk.Runner
+	Agent           adk.Agent // REQ-385/M181：裸 Agent（TurnLoop PrepareAgent 每轮取用；Runner 供旧路径直跑）
 	AgentName       string            // 根 Agent 名
 	ModelLabel      string            // 根 Agent 的连接名@模型名
 	ConnID          string            // 根 Agent 使用的连接
@@ -283,6 +284,7 @@ func (a *Assembler) assembleSingle(ctx context.Context, ag *store.Agent, sc asse
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: b.Inst, EnableStreaming: true, CheckPointStore: a.CheckPoints})
 	return &BuildResult{
 		Runner:          runner,
+		Agent:           b.Inst, // REQ-385/M181：TurnLoop 裸 Agent 同源
 		AgentName:       ag.Name,
 		ModelLabel:      b.Meta.ModelLabel,
 		ConnID:          b.Meta.ConnID,
@@ -448,9 +450,20 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 			return nil, fmt.Errorf("build member %q: %w", s.Name, berr)
 		}
 		entries = append(entries, agentSnapshotEntry("member", s.Name, sb.Meta.ModelLabel, sb.Meta.SourceOf, sb.Meta.LoadedSkills, a.mcpSnapshotOf(s), sb.Meta.Instruction))
-		// REQ-319 A1/A2/A3：成员委派包装——错误降级回喂（中断类穿透）+ per-member 超时（成员行
-		// delegate_timeout_seconds，0=不限）+ subagent.delegate 委派单事件
-		tools = append(tools, normalizeEmptyArgsTool(newDelegateTool(adk.NewAgentTool(ctx, sb.Inst), s.Name, time.Duration(s.DelegateTimeoutSeconds)*time.Second)))
+		// REQ-385/M181：成员委派异步汇流——delegate_async 成员转后台委派底盘（DelegateManager，
+		// 与 delegate_background 同编排层），协调者不阻塞（delegate_status/collect 跟进）；
+		// REQ-319 A1/A2/A3 同步包装保持缺省路径（错误降级回喂+per-member 超时+委派单事件）
+		if s.DelegateAsync && a.Delegates != nil {
+			if parent, perr := a.Store.GetConversation(sc.ConversationID); perr == nil {
+				tools = append(tools, normalizeEmptyArgsTool(newAsyncDelegateTool(a.Delegates, s, parent)))
+				allWarns = append(allWarns, fmt.Sprintf("成员 %q 已按 delegate_async 装配为后台异步委派（协调者不阻塞，结果经 delegate_status/collect 跟进）", s.Name))
+			} else {
+				allWarns = append(allWarns, fmt.Sprintf("成员 %q delegate_async 生效失败（父会话不可得：%s）——回落同步委派", s.Name, perr.Error()))
+				tools = append(tools, normalizeEmptyArgsTool(newDelegateTool(adk.NewAgentTool(ctx, sb.Inst), s.Name, time.Duration(s.DelegateTimeoutSeconds)*time.Second)))
+			}
+		} else {
+			tools = append(tools, normalizeEmptyArgsTool(newDelegateTool(adk.NewAgentTool(ctx, sb.Inst), s.Name, time.Duration(s.DelegateTimeoutSeconds)*time.Second)))
+		}
 		for k, v := range sb.Meta.SourceOf {
 			if _, dup := src[k]; !dup {
 				src[k] = v
@@ -504,7 +517,7 @@ func (a *Assembler) assembleAgentAsTool(ctx context.Context, coord *store.Agent,
 	entries = append(entries, agentSnapshotEntry("coordinator", coord.Name, label, tbc.SourceOf, tbc.LoadedSkills, a.mcpSnapshotOf(coord), coordInstruction))
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: inst, EnableStreaming: true, CheckPointStore: a.CheckPoints})
 	return &BuildResult{
-		Runner: runner, AgentName: coord.Name,
+		Runner: runner, Agent: inst, AgentName: coord.Name,
 		ModelLabel: label, ConnID: connID,
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
 		MaxIteration: normalizeMaxIter(coord.MaxIteration), // REQ-311 A4：协调者生效迭代上限
@@ -894,7 +907,7 @@ func (a *Assembler) assembleWorkflow(ctx context.Context, mode string, coord *st
 	entries = append(entries, map[string]any{"role": "workflow", "mode": mode, "nodes": nodeNames})
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: wf, EnableStreaming: true, CheckPointStore: a.CheckPoints})
 	return &BuildResult{
-		Runner: runner, AgentName: "workflow_" + mode,
+		Runner: runner, Agent: wf, AgentName: "workflow_" + mode,
 		ModelLabel: "workflow(" + mode + ")", ConnID: "",
 		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
 		MaxIteration: 0,

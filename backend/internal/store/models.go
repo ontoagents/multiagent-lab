@@ -4,20 +4,23 @@ package store
 
 // Agent 智能体配置实体。
 type Agent struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	Description  string      `json:"description"`
-	Instruction  string      `json:"instruction"`
-	ModelConnID  *string     `json:"model_conn_id"` // 空 = 跟随全局默认（P1）
-	Temperature  *float64    `json:"temperature"`
-	MaxTokens    *int        `json:"max_tokens"`
-	MaxIteration int         `json:"max_iteration"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Instruction  string   `json:"instruction"`
+	ModelConnID  *string  `json:"model_conn_id"` // 空 = 跟随全局默认（P1）
+	Temperature  *float64 `json:"temperature"`
+	MaxTokens    *int     `json:"max_tokens"`
+	MaxIteration int      `json:"max_iteration"`
 	// REQ-319 A2：本 agent 作为项目成员被委派调用时的单次执行超时秒数（0=不限）；
 	// 超时经委派包装器降级回喂协调者（chat/delegatetool.go），不终止整个 run
-	DelegateTimeoutSeconds int         `json:"delegate_timeout_seconds"`
-	Tools                  []string    `json:"tools"`
-	Skills                 []string    `json:"skills"`      // P2 生效
-	MCPServers             []MCPServer `json:"mcp_servers"` // P2 生效；REQ-214 起退役为兼容残留（存量迁移后置空，JSON 字段保留供旧导出消费）
+	DelegateTimeoutSeconds int `json:"delegate_timeout_seconds"`
+	// REQ-385/M181：成员委派异步化开关（0=同步阻塞〔缺省，存量零变化〕| 1=被委派时转后台
+	// 委派底盘 DelegateManager——协调者不阻塞，delegate_status/collect 跟进结果）
+	DelegateAsync bool        `json:"delegate_async"`
+	Tools         []string    `json:"tools"`
+	Skills        []string    `json:"skills"`      // P2 生效
+	MCPServers    []MCPServer `json:"mcp_servers"` // P2 生效；REQ-214 起退役为兼容残留（存量迁移后置空，JSON 字段保留供旧导出消费）
 	// REQ-214/M46：连接器引用（实例 id 数组）——agent 级连接白名单（最小权限第一层）。
 	Connectors       []string `json:"connectors"`
 	RuntimeBackend   string   `json:"runtime_backend"`
@@ -75,8 +78,8 @@ type Agent struct {
 // AgentHookDenyRule 自定义 deny 规则（REQ-232②）：工具名 glob 模式 + 参数子串（大小写不敏感），
 // 命中即拒绝（hook.denied 结构化事件，guard=custom:<name>）。
 type AgentHookDenyRule struct {
-	Name        string `json:"name"`                  // 规则名（审计展示用）
-	ToolPattern string `json:"tool_pattern"`          // 工具名 glob（path.Match 语义，如 http_fetch / mcp__* / web_*）
+	Name        string `json:"name"`                   // 规则名（审计展示用）
+	ToolPattern string `json:"tool_pattern"`           // 工具名 glob（path.Match 语义，如 http_fetch / mcp__* / web_*）
 	ArgsPattern string `json:"args_pattern,omitempty"` // 参数 JSON 子串匹配（大小写不敏感；空=仅按工具名）
 	Reason      string `json:"reason,omitempty"`       // 拒绝原因（回喂模型）
 }
@@ -180,10 +183,10 @@ type Conversation struct {
 	// ContextModeOverride 会话级上下文预算档覆盖（REQ-393/M189：nil=不改 | ''=跟随 Agent 级 |
 	// compact/standard/full=覆盖；合并序 会话>Agent>全局默认，与 REQ-291 同构）
 	ContextModeOverride *string `json:"context_mode,omitempty"`
-	TopK      int     `json:"top_k"`
-	MinScore  float64 `json:"min_score"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	TopK                int     `json:"top_k"`
+	MinScore            float64 `json:"min_score"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 // Message 消息（role: user/assistant/system/tool）。

@@ -139,6 +139,34 @@ func (s *Server) stopConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"stopped": ok})
 }
 
+// steerConversation REQ-385/M181：主会话运行中介入（steer）——插话经 TurnLoop.Push(WithPreempt)
+// 在安全点打断当前轮、下一轮以全量历史（含插话）接续。无进行中 TurnLoop 运行 → 409
+// （引导走常规新消息运行）；引擎关闭（CHAT_TURNLOOP=0）同样 409（无抢占通道）。
+func (s *Server) steerConversation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in struct {
+		Message string `json:"message"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	if in.Message == "" {
+		writeErr(w, errors.New("message 不能为空"))
+		return
+	}
+	ok, err := s.Chat.Steer(id, in.Message)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "该会话当前无 TurnLoop 运行（引擎关闭或已收束）——请走常规新消息", "steered": false})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"steered": true, "preempt": "safe_point"})
+}
+
 // extApproval REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批的人工决议。
 // body {decision: "approve"|"deny"}；approve 映射首个 allow 选项，deny/无待决 → cancelled/409。
 // 与 in-process resume（checkpoint 挂起恢复）不同：外部通道的权限挂起活在当前 run 内，

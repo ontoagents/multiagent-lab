@@ -42,6 +42,9 @@ type Service struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // conversationID -> cancel
+	// loops REQ-385/M181：运行中 TurnLoop 句柄（conversationID -> handle）——主会话运行中
+	// steer 抢占介入入口（steerRun）；TurnLoop 引擎关闭（CHAT_TURNLOOP=0）时恒空。
+	loops map[string]*loopHandle
 	// extApprovals REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批的挂起登记
 	// （conversationID -> 决议通道；approval.request 事件发出即登记，POST ext-approval 决议）。
 	// 与 in-process interruptState 挂起（跨 Run 持久化+checkpoint 恢复）不同：外部通道的权限
@@ -73,7 +76,7 @@ type CommunitySource interface {
 
 // NewService 构造。kbSrc 为知识库检索源（REQ-355 R1 接口反转，api 装配层适配 kb.Service；nil=未接入）。
 func NewService(st *store.Store, asm *Assembler, kbSrc KBSource) *Service {
-	return &Service{Store: st, Assembler: asm, KB: kbSrc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}}
+	return &Service{Store: st, Assembler: asm, KB: kbSrc, cancels: map[string]context.CancelFunc{}, extApprovals: map[string]chan string{}, loops: map[string]*loopHandle{}}
 }
 
 // ResolveExtApproval REQ-206/M41 S2：外部推理后端权限挂起的人工决议（approve|deny）。
@@ -425,10 +428,18 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	}
 
 	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
-	// WithCheckPointID（M11 收尾）：中断时 ADK 自动存 checkpoint，供 Resume 定向恢复
-		// REQ-453/M249：callbacks 统一执行观测面（model/tool 计时/错误/token 落 obs.timing，
+	// REQ-453/M249：callbacks 统一执行观测面（model/tool 计时/错误/token 落 obs.timing，
 	// level>0 才激活——与 model.step 同门控；debugModel 维持现状评估结论见 callbacks.go 注）
-	rc.consume(rt.Runner.Run(runCtx, histMsgs, adk.WithCheckPointID(checkPointIDOf(runID)), adk.WithCallbacks(&obsHandler{level: DebugLevel(debug)})))
+	obs := &obsHandler{level: DebugLevel(debug)}
+	// REQ-385/M181：TurnLoop push-based 引擎（默认开；CHAT_TURNLOOP=0 回滚）——长任务有界增量
+	// （轮间 checkpoint+每轮产物即刷即持久化）与运行中 steer 抢占（SteerRun→Push(WithPreempt)）；
+	// 工作流 Runner 与外部 CLI 路径不在此分支（编排自有循环语义/独立适配器）。
+	if turnLoopEnabled() && rt.Workflow == nil {
+		s.runTurnLoop(runCtx, rc, conv, agent, rt, runID, checkPointIDOf(runID), histMsgs, nil, obs, opts.HistMsgs == nil)
+	} else {
+		// WithCheckPointID（M11 收尾）：中断时 ADK 自动存 checkpoint，供 Resume 定向恢复
+		rc.consume(rt.Runner.Run(runCtx, histMsgs, adk.WithCheckPointID(checkPointIDOf(runID)), adk.WithCallbacks(obs)))
+	}
 	rc.subagentLeave(rc.lastAgent)
 
 	// 4)+5) run 收尾单源（REQ-390①/M186：assistant 落库+finishData+终态事件+verify 背压+
@@ -999,7 +1010,10 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 			break
 		}
 		if ev.Err != nil {
-			if errors.Is(ev.Err, context.Canceled) {
+			// 取消类（用户 Stop 的 ctx 取消 / TurnLoop 抢占与优雅停止的 *adk.CancelError，
+			// REQ-385/M181）→ stopped 语义；抢占续跑时由 OnAgentEvents 复位（运行未终）。
+			var ce *adk.CancelError
+			if errors.Is(ev.Err, context.Canceled) || errors.As(ev.Err, &ce) {
 				rc.stopped = true
 			} else {
 				rc.runErr = humanizeRunErr(ev.Err.Error(), rc.lastFinish)
@@ -1209,21 +1223,31 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 		"field": "interrupt_state", "reason": "resume",
 	}), emit)
 
-	iter, err := rt.Runner.ResumeWithParams(runCtx, st.CheckpointID, &adk.ResumeParams{
-		Targets: map[string]any{st.TargetID: answer},
-	}, adk.WithCallbacks(&obsHandler{level: DebugLevel(debug)})) // REQ-453/M249 观测面同门控
-	if err != nil {
-		s.emitAndRecord(runCtx, conv, runID, newEvent("run.error", runID, map[string]any{
-			"code": "resume_failed", "message": err.Error(), "elapsed_ms": time.Since(start).Milliseconds(),
-		}), emit)
-		return nil, err
+	// REQ-385/M181：恢复执行两路——TurnLoop（默认）经 GenResume 定向恢复（ResumeParams 同构
+	// Runner.ResumeWithParams；checkpointID=挂起锚点 st.CheckpointID，框架自动加载）；旧路径
+	// 直调 Runner.ResumeWithParams。两路互斥（防双恢复）。
+	obs := &obsHandler{level: DebugLevel(debug)}
+	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
+	if turnLoopEnabled() && rt.Workflow == nil {
+		s.runTurnLoop(runCtx, rc, conv, agent, rt, runID, st.CheckpointID, nil, &adk.ResumeParams{
+			Targets: map[string]any{st.TargetID: answer},
+		}, obs, true)
+	} else {
+		iter, rerr := rt.Runner.ResumeWithParams(runCtx, st.CheckpointID, &adk.ResumeParams{
+			Targets: map[string]any{st.TargetID: answer},
+		}, adk.WithCallbacks(obs)) // REQ-453/M249 观测面同门控
+		if rerr != nil {
+			s.emitAndRecord(runCtx, conv, runID, newEvent("run.error", runID, map[string]any{
+				"code": "resume_failed", "message": rerr.Error(), "elapsed_ms": time.Since(start).Milliseconds(),
+			}), emit)
+			return nil, rerr
+		}
+		rc.consume(iter)
 	}
 	// 登记恢复链锚点：ADK 再次挂起时沿用本 id 覆盖保存快照，handleInterrupted 据此记录
 	// 同一 id（REQ-214 顺修——多级审批/多轮 ask_human 第二次恢复不再 checkpoint not exist）
 	s.cpAnchors.Store(conv.ID, st.CheckpointID)
 
-	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
-	rc.consume(iter)
 	rc.subagentLeave(rc.lastAgent)
 
 	// REQ-390①/M186：Resume 收尾走同一 runFinalize（漂移消除）——VerifyOnStop=false 如实保留
