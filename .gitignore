@@ -46,3 +46,4 @@ apps/desktop/src-tauri/tools/
 apps/desktop/src-tauri/.cargo/
 deploy/macos/.build-number
 ontology-service/data/
+runtime-manager/internal/engine/fuseki/run/

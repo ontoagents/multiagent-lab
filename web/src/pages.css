@@ -329,6 +329,11 @@
   white-space: pre;
 }
 
+/* 推理对照双栏（REQ-94②/REQ-379②）：推理新增行绿色 / 仅对照侧行琥珀色 */
+.onto-inference-compare .ant-table-cell { font-family: var(--mono); font-size: 12px; }
+tr.onto-diff-row-only-a > td { background: rgba(82, 196, 26, 0.12) !important; }
+tr.onto-diff-row-only-b > td { background: rgba(250, 173, 20, 0.12) !important; }
+
 /* 未启用态占位（无 running 方案时的「查询」页签） */
 .onto-disabled-pane {
   margin-top: 12px;

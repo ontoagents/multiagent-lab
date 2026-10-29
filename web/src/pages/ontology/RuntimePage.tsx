@@ -45,6 +45,7 @@ import { StatusBadge } from './shared'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import SparqlWorkbench from './components/SparqlWorkbench'
+import InferenceComparePane from './components/InferenceComparePane'
 import LifecyclePane from './components/LifecyclePane'
 import TraceTable from './components/TraceTable'
 import { useOntologies } from './shared/useOntoList'
@@ -754,8 +755,10 @@ function EngineProfilesPage({
 
       <ProfileDetail
         profile={detail}
+        profiles={profiles}
         profilesErr={profilesErr}
         onClose={() => setDetailId(null)}
+        onChanged={reload}
       />
     </>
   )
@@ -1033,12 +1036,16 @@ const TOOL_COLUMNS: ColumnsType<(typeof ONTO_TOOLS)[number]> = [
 
 function ProfileDetail({
   profile,
+  profiles,
   profilesErr,
   onClose,
+  onChanged,
 }: {
   profile: RuntimeProfile | null
+  profiles: RuntimeProfile[]
   profilesErr: boolean
   onClose: () => void
+  onChanged?: () => void
 }) {
   return (
     <Drawer
@@ -1081,6 +1088,21 @@ function ProfileDetail({
               key: 'query',
               label: '查询与挂载',
               children: <QueryMountPane profile={profile} profilesErr={profilesErr} />,
+            },
+            {
+              key: 'compare',
+              label: '推理对照',
+              children:
+                profile.status === 'running' ? (
+                  <InferenceComparePane profile={profile} profiles={profiles} onChanged={onChanged} />
+                ) : (
+                  <Alert
+                    type="info"
+                    showIcon
+                    title="启动方案后可执行推理对照"
+                    description="推理对照（REQ-94②/REQ-379②）对两个 running 方案并行执行同一查询并 diff 结果；需第二个对照方案（建议同本体集合、推理一开一关）。"
+                  />
+                ),
             },
             {
               key: 'trace',
