@@ -45,3 +45,4 @@ apps/desktop/src-tauri/research/
 apps/desktop/src-tauri/tools/
 apps/desktop/src-tauri/.cargo/
 deploy/macos/.build-number
+ontology-service/data/

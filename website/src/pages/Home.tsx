@@ -36,8 +36,8 @@ const TOUR: { href: string; i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     href: '#/module/design',
     i18n: {
-      zh: { title: '它是什么', desc: '面向专业个人的工作学习助手——以本体为知识底座：知识可查询、可审计、可出题；单机自部署，数据全留本机' },
-      en: { title: 'What it is', desc: 'A personal work & learning assistant for professionals, grounded on ontologies — knowledge you can query, audit and quiz. Self-hosted, data stays local' },
+      zh: { title: '它是什么', desc: '面向专业个人的工作学习助手——以本体为知识底座：知识可查询、可审计、可出题；自托管部署，数据/密钥/知识不出个人掌控' },
+      en: { title: 'What it is', desc: 'A personal work & learning assistant for professionals, grounded on ontologies — knowledge you can query, audit and quiz. Self-hosted — data stays under your control' },
     },
   },
   {
@@ -76,8 +76,8 @@ const SCENES: { icon: ReactNode; href: string; i18n: L10n<{ title: string; desc:
     href: '#/deploy',
     i18n: {
       zh: {
-        title: '个人 AI 工作台，数据不出本机',
-        desc: '桌面安装包或一条命令启动：智能体、知识库、本体全套服务跑在自己的电脑上，专业工作数据不离开本机。',
+        title: '个人 AI 工作台，数据自主可控',
+        desc: '桌面安装包或一条命令启动：智能体、知识库、本体全套服务跑在自己的电脑上，专业工作数据不出个人掌控（本地客户端默认，服务端自部署并行）。',
         link: '获取安装包',
       },
       en: {
@@ -272,7 +272,7 @@ const FEATURES: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }
   {
     icon: <RocketOutlined />,
     i18n: {
-      zh: { title: '单机可部署', desc: '一条命令或桌面安装包即可启动，数据全留本机；Docker Compose / Helm 交付可选' },
+      zh: { title: '单机可部署', desc: '一条命令或桌面安装包即可启动，数据不出个人掌控；Docker Compose / Helm 交付可选' },
       en: { title: 'Self-hostable', desc: 'One command or a desktop installer to boot; data never leaves your machine, with optional Docker Compose / Helm delivery' },
     },
   },
@@ -368,15 +368,15 @@ export default function HomePage() {
             {locale === 'zh' ? (
               <>
                 面向专业个人的<strong>工作学习助手</strong>，以本体为知识底座——知识不是一堆文档，
-                而是可查询、可审计、可出题的结构化资产。<strong>单机自部署</strong>，专业工作数据不离开本机；
+                而是可查询、可审计、可出题的结构化资产。<strong>自托管部署</strong>（本地客户端默认、服务端并行），专业工作数据不出个人掌控；
                 <strong>智能体工程</strong>（对话 / 多智能体协作 / 知识·技能·本体增强）与
                 <strong>本体工程</strong>（构建 → 资产 → 运行 → 消费审计闭环）双核心，能力边界诚实标注。
               </>
             ) : (
               <>
                 A <strong>personal work &amp; learning assistant for professionals</strong>, grounded on ontologies — knowledge as a
-                structured asset you can query, audit and quiz, not a pile of documents. <strong>Self-hosted on a single machine</strong> —
-                work data stays local. Dual cores: <strong>agent engineering</strong> (chat / multi-agent collaboration /
+                structured asset you can query, audit and quiz, not a pile of documents. <strong>Self-hosted</strong> (local client by default, server deployment in parallel) —
+                work data stays under your control. Dual cores: <strong>agent engineering</strong> (chat / multi-agent collaboration /
                 knowledge·skill·ontology augmentation) and <strong>ontology engineering</strong> (build → assets → run → consume &amp;
                 audit), with capability boundaries honestly labeled.
               </>

@@ -177,3 +177,44 @@ func TestIterationRecentDupGuards(t *testing.T) {
 		}
 	}
 }
+
+// TestHeadLineBudget ④（REQ-498 治理批）：五档头部「> 状态：」行 ≤2,000 字节——
+// 「当前版本+一行摘要+前版指针」口径的机械守卫，禁止递归嵌套前版链
+// （治理报告实测：压平前五档头部行合计 94,032B，单行最长 33,126B）。
+func TestHeadLineBudget(t *testing.T) {
+	for _, doc := range []string{
+		"docs/01_智能体_需求文档_PRD.md",
+		"docs/02_智能体_技术方案设计.md",
+		"docs/03_本体_需求文档.md",
+		"docs/18_REQ编号注册表.md",
+		"docs/20_回归冒烟清单.md",
+	} {
+		text := readRepo(t, doc)
+		for _, line := range strings.Split(text, "\n") {
+			if strings.HasPrefix(line, "> 状态：") {
+				if n := len(line); n > 2000 {
+					t.Errorf("%s 头部状态行 %d 字节超 2,000B 上限（REQ-498 口径：当前版本+一行摘要+前版指针，前版链史归迭代表）", doc, n)
+				}
+				break
+			}
+		}
+	}
+}
+
+// TestAgentsWindowEntryBudget ⑤（REQ-498 治理批）：AGENTS「当前状态」单条 ≤600 字节——
+// 窗口条目「REQ 号+一句话状态+全量指针」一行口径的机械守卫
+// （拍板=保 20 条压单条：36.9KB→约 5KB，详录全量在各档迭代表）。
+func TestAgentsWindowEntryBudget(t *testing.T) {
+	text := readRepo(t, "AGENTS.md")
+	i := strings.Index(text, "## 当前状态")
+	if i < 0 {
+		t.Fatal("AGENTS.md 未找到「当前状态」节")
+	}
+	for _, line := range strings.Split(text[i:], "\n") {
+		if strings.HasPrefix(line, "- **") {
+			if n := len(line); n > 600 {
+				t.Errorf("AGENTS 当前状态单条 %d 字节超 600B 上限（REQ-498 拍板：一行指针式，详录归各档迭代表）——条目头：%.40s", n, line)
+			}
+		}
+	}
+}

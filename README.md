@@ -4,7 +4,7 @@
 
 # AgentLab
 
-**Build agents. Build their ontologies. All locally.**
+**Build agents. Build their ontologies. Self-hosted.**
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -22,7 +22,7 @@
 - **Agent engineering** — a conversational agent workbench with fully observable execution, multi-agent collaboration, and knowledge / skill / ontology augmentation.
 - **Ontology engineering** — a full ontology (knowledge-graph) lifecycle: build → asset management → runtime engines → consumption & audit.
 
-Everything runs locally: data lives in a local SQLite database, model API keys are AES-256-GCM encrypted on disk, and the only external dependency is the LLM provider(s) you configure.
+Self-hosted — data, keys and knowledge stay under your control: data lives in a local SQLite database, model API keys are AES-256-GCM encrypted on disk, and the only external dependency is the LLM provider(s) you configure.
 
 ## Contents
 
@@ -261,8 +261,6 @@ AgentLab stands on the shoulders of the open-source community and academic work 
 
 <details>
 <summary><b>Papers & standards</b></summary>
-
-### Papers & standards
 
 | OntoChat: a Framework for Conversational Ontology Engineering using Language Models (ESWC 2024) | [arXiv 2403.05921](https://arxiv.org/abs/2403.05921) | The four-step conversational OE workflow (user story → CQ → clustering → testing) and practitioner survey |
 | Improving Ontology Requirements Engineering with OntoChat and Participatory Prompting | [arXiv 2408.15256](https://arxiv.org/abs/2408.15256) | The participatory prompting protocol (user-story guidance) |

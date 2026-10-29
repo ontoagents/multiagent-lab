@@ -1,0 +1,11 @@
+#!/bin/sh
+# REQ-498 文档治理批（2026-10-29）：提交前文档一致性机械门禁。
+# 启用（每环境一次）：git config core.hooksPath hooks
+# 在途豁免：git commit --no-verify，但提交注必须挂账（原因+责任批/销账触发）；
+# 责任批收口前必须归绿（纪律 2）；已收口批漏落由任一轮代补并注记「代某批补落」。
+echo "[pre-commit] doccheck 文档一致性门禁运行中…"
+cd backend && go test -count=1 ./internal/doccheck || {
+  echo ""
+  echo "✗ doccheck 未过（见上）。处理：①本批责任→同轮补落后重新提交；②并行在途漂移→git commit --no-verify 并在提交注挂账（原因+责任批）。"
+  exit 1
+}

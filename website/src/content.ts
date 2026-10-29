@@ -560,8 +560,8 @@ export const MODULES: ModuleInfo[] = [
       {
         icon: 'AimOutlined',
         i18n: {
-          zh: { title: '产品定位', desc: '面向专业个人的工作学习助手，以本体为知识底座；单机自部署，数据全留本机，能力边界诚实标注' },
-          en: { title: 'Positioning', desc: 'A personal work & learning assistant for professionals, grounded on ontologies; self-hosted with data kept local, capability boundaries honestly labeled' },
+          zh: { title: '产品定位', desc: '面向专业个人的工作学习助手，以本体为知识底座；自托管部署，数据不出个人掌控，能力边界诚实标注' },
+          en: { title: 'Positioning', desc: 'A personal work & learning assistant for professionals, grounded on ontologies; self-hosted with data under your control, capability boundaries honestly labeled' },
         },
       },
       {

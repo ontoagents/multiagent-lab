@@ -26,7 +26,7 @@ sources:
 - [决策·不接 Python 运行时（D-O15）](platform-knowledge/09_知识体系/01_本体线/cards/08_决策_不接Python运行时.md): decision｜ontology｜semantica worker 的引入与退役——零 venv 一键启动、Go 原生 TTL 导出对齐，以及边界里保留了什么｜前置 1·源指针 3
 - [实践·六路径构建](platform-knowledge/09_知识体系/01_本体线/cards/09_实践_六路径构建.md): practice｜ontology｜六条建本体的动线各自怎么走、代码落点在哪、按什么选路径，以及共同的写入口纪律｜前置 1·源指针 3
 - [实践·质量门禁与进化](platform-knowledge/09_知识体系/01_本体线/cards/10_实践_质量门禁与进化.md): practice｜ontology｜三维分怎么算、strict 门禁何时拦截、CQ 基准「测我」三率怎么读、以及进化候选的状态机｜前置 2·源指针 5
-- [实践·消费与审计三件套](platform-knowledge/09_知识体系/01_本体线/cards/11_实践_消费与审计三件套.md): practice｜ontology｜facade 工具面（20 件）读、KG 抽取与治理、PROV-O 决策审计——消费面代码落点与一致性来源｜前置 1·源指针 4
+- [实践·消费与审计三件套](platform-knowledge/09_知识体系/01_本体线/cards/11_实践_消费与审计三件套.md): practice｜ontology｜facade 工具面（21 件）读、KG 抽取与治理、PROV-O 决策审计——消费面代码落点与一致性来源｜前置 1·源指针 4
 - [决策·MCP 工具面扩展（REQ-366，6→19）](platform-knowledge/09_知识体系/01_本体线/cards/12_决策_MCP工具面扩展.md): decision｜ontology｜为什么把本体操作从 UI/REST 专有消费升级为 MCP 标准工具面——证据、门控取舍与写路径纪律｜前置 1·源指针 4
 - [双时序知识图（vt×tt）](platform-knowledge/09_知识体系/01_本体线/cards/13_概念_双时序知识图.md): concept｜ontology｜有效性时间与事务时间的区别、失效语义，以及平台伴生图的落点（companion_history 三模式）｜前置 1·源指针 4
 

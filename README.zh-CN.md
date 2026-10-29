@@ -17,7 +17,7 @@
 
 </div>
 
-**面向专业个人的工作学习助手**（工程师/教师/合规/研究者/医生等知识密集型专业个人）——以本体为知识底座：知识不是一堆文档，而是**可查询、可审计、可出题的结构化资产**；单机自部署，专业工作数据不离开本机（Go + CloudWeGo Eino/ADK + React + SQLite），围绕双核心组织能力：
+**面向专业个人的工作学习助手**（工程师/教师/合规/研究者/医生等知识密集型专业个人）——以本体为知识底座：知识不是一堆文档，而是**可查询、可审计、可出题的结构化资产**；自托管部署——本地客户端为默认形态、服务端自部署为并行方向，数据/密钥/知识不出个人掌控（Go + CloudWeGo Eino/ADK + React + SQLite），围绕双核心组织能力：
 
 - **智能体工程** —— 对话式智能体工作台，执行过程完全可观测，支持多智能体协作与知识 / 技能 / 本体增强。
 - **本体工程** —— 本体（知识图谱）全生命周期：构建 → 资产管理 → 运行引擎 → 消费与审计。
@@ -48,7 +48,7 @@
 - **CQ 回归基准** —— 能力问题升级为可重跑的测试资产：覆盖度量化 + `check_answerable` 可回答性预检。
 - **RAG + GraphRAG 双子模块** —— 向量检索 + 自研轻量 KG 后端（图谱浏览 / 多跳检索 / 社区摘要问答）；伴生本体随每轮对话成长。
 - **协议级开放** —— 每个 Agent 都是 MCP Server；MCP + A2A 接入外部智能体；执行后端可插拔（进程内 / Docker / Kubernetes）。
-- **单机与桌面** —— 一条命令启动、零 Python 运行时依赖；Windows / macOS 安装包；数据、密钥、本体不出本机。
+- **单机与桌面** —— 一条命令启动、零 Python 运行时依赖；Windows / macOS 安装包；数据、密钥、本体不出个人掌控。
 
 每条详情在下节[探索详情](#-探索详情)折叠展开；模块级导读见 [platform-knowledge/](platform-knowledge/README.md)。
 
@@ -261,8 +261,6 @@ AgentLab 站在开源社区与学术工作的肩膀上——直接依赖按各�
 
 <details>
 <summary><b>论文与标准</b></summary>
-
-### 论文与标准
 
 | OntoChat: a Framework for Conversational Ontology Engineering using Language Models（ESWC 2024） | [arXiv 2403.05921](https://arxiv.org/abs/2403.05921) | 对话式本体工程四步工作流（用户故事 → CQ → 聚类 → 测试）与从业者调查 |
 | Improving Ontology Requirements Engineering with OntoChat and Participatory Prompting | [arXiv 2408.15256](https://arxiv.org/abs/2408.15256) | 参与式提示协议（用户故事引导提示策略） |
