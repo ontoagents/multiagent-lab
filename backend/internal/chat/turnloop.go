@@ -22,6 +22,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -50,6 +51,9 @@ var turnLoopStreamingDefault = true
 type loopHandle struct {
 	loop  *adk.TurnLoop[runItem, *schema.Message]
 	runID string
+	// emit 该运行的实时事件通道（REQ-516/M323 P26①：steer.pushed 此前经 no-op emit 只落库
+	// 不进实时 SSE——「三事件生效时点可观测」承诺在 steer.pushed 一环断链）
+	emit EmitFn
 }
 
 // Steer 主会话运行中介入（REQ-385/M181 steer 深化——轮界接续→运行中抢占）：插话落消息流，
@@ -74,9 +78,11 @@ func (s *Service) Steer(convID, message string) (bool, error) {
 		return true, fmt.Errorf("save steer message: %w", err)
 	}
 	ok, _ := h.loop.Push(runItem{Content: message, Kind: "steer"}, adk.WithPreempt[runItem, *schema.Message](adk.AnySafePoint))
+	// REQ-516/M323（P26①/P26③）：steer.pushed 走该运行的 rc.emit 实时可达（原 no-op 只落库）；
+	// late=true 标注运行已收束后到达的插话（Push 返回 false——内容已落消息流，重新发送即可）
 	s.emitAndRecord(context.Background(), conv, h.runID, newEvent("steer.pushed", h.runID, map[string]any{
-		"preempt": ok, "note": runeforTitle(message, 100),
-	}), func(*Event) {})
+		"preempt": ok, "late": !ok, "note": runeforTitle(message, 100),
+	}), h.emit)
 	return true, nil
 }
 
@@ -138,7 +144,10 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 			}
 			if len(consumed) > 0 && consumed[0].Kind == "steer" {
 				s.emitRunEvent(conv.ID, runID, "steer.applied", map[string]any{
-					"turn_items": len(consumed), "note": "插话在轮界消费（全量历史含插话接续）",
+					"turn_items": len(consumed),
+					// REQ-516/M323（P03）：标注召回上下文去留——注入已落库，全量重建历史可见
+					"recall_in_store": true,
+					"note":            "插话在轮界消费（全量历史含插话接续，召回上下文已落库可见）",
 				}, rc.emit)
 			}
 			return rt.Agent, nil
@@ -153,7 +162,10 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 				// 复位防终态误标；随后 GenInput 消费插话续跑。
 				rc.stopped = false
 				s.emitRunEvent(conv.ID, runID, "run.preempted", map[string]any{
-					"safe_point": "any", "note": "steer 抢占生效——当前轮在安全点终止，下一轮以全量历史接续",
+					"safe_point": "any",
+					// REQ-516/M323（P03）：召回上下文已落库——续轮全量重建历史可见（注入去留可观测）
+					"recall_in_store": true,
+					"note":            "steer 抢占生效——当前轮在安全点终止，下一轮以全量历史（含落库召回上下文）接续",
 				}, rc.emit)
 				return nil // 续跑 steer 轮（GenInput 消费插话）
 			default:
@@ -172,7 +184,7 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 	// 登记运行句柄（steerRun 抢占入口；对比窗格多路不登记）；退出时注销
 	if steerable {
 		s.mu.Lock()
-		s.loops[conv.ID] = &loopHandle{loop: loop, runID: runID}
+		s.loops[conv.ID] = &loopHandle{loop: loop, runID: runID, emit: rc.emit}
 		s.mu.Unlock()
 	}
 	defer func() {
@@ -189,6 +201,19 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 
 	// 退出态映射（诚实可观测）：业务中断/取消由 rc.consume 事件侧已置位；此处补框架级信号
 	if exit != nil {
+		// REQ-516/M323（P26②）：框架级退出此前静默收成 completed——GenInput/历史重建/checkpoint
+		// 装载失败时 rc 三态全空，runFinalize 走 default 发 run.finished reason=completed，
+		// 用户插话无响应却显示正常完成。收口：非 CancelError（正常 Stop/用户取消）且三态全空
+		// 的框架级退出 → run.error + rc.runErr（终态诚实）。
+		if exit.ExitReason != nil && !rc.stopped && !rc.interrupted && rc.runErr == "" {
+			var cancelErr *adk.CancelError
+			if !errors.As(exit.ExitReason, &cancelErr) {
+				s.emitRunEvent(conv.ID, runID, "run.error", map[string]any{
+					"message": "TurnLoop 框架级退出（本轮未完成）: " + exit.ExitReason.Error(),
+				}, rc.emit)
+				rc.runErr = "turnloop: " + exit.ExitReason.Error()
+			}
+		}
 		if exit.CheckpointErr != nil {
 			s.emitRunEvent(conv.ID, runID, "run.warning", map[string]any{
 				"message": "TurnLoop checkpoint 保存失败（恢复能力降级）: " + exit.CheckpointErr.Error(),

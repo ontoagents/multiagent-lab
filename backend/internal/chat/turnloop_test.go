@@ -289,3 +289,120 @@ func tlGateTool(t *testing.T, gate chan struct{}) einotool.BaseTool {
 	}
 	return tp
 }
+
+// TestTurnLoopRecallPersisted REQ-516/M323（P03 落库侧）：召回注入即落库（system 角色）——
+// persistRecallInjections 把注入文本写入 store，ListMessages 可见且 meta 记来源。
+func TestTurnLoopRecallPersisted(t *testing.T) {
+	s := tlService(t)
+	conv, _ := tlConv(t, s)
+	s.persistRecallInjections(context.Background(), conv, "tlr_recall", "kb",
+		[]*schema.Message{schema.SystemMessage("REQ516 召回注入文本：kb 命中片段")}, func(*Event) {})
+	msgs, err := s.Store.ListMessages(conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range msgs {
+		if m.Role == "system" && strings.Contains(m.Content, "REQ516 召回注入文本") {
+			found = true
+			if !strings.Contains(m.Meta, "recall_source") {
+				t.Fatalf("system 消息应记 recall_source 溯源: meta=%q", m.Meta)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("召回注入应落库为 system 消息（steer 续轮全量重建才不丢上下文）: %d 条", len(msgs))
+	}
+}
+
+// tlRecallModel steer 抢占桩：首轮阻塞工具等抢占；续轮全量历史应含落库召回文本（system 原样保留）。
+type tlRecallModel struct {
+	sawSteer  syncAtomicBool
+	sawRecall syncAtomicBool
+}
+
+func (m *tlRecallModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	steer, recall := false, false
+	for _, msg := range input {
+		if msg.Role == schema.User && strings.Contains(msg.Content, "换个方向") {
+			steer = true
+		}
+		if msg.Role == schema.System && strings.Contains(msg.Content, "REQ516 落库召回文本") {
+			recall = true
+		}
+	}
+	if steer {
+		m.sawSteer.Store(true)
+		if recall {
+			m.sawRecall.Store(true)
+		}
+		return schema.AssistantMessage("已按插话收尾", nil), nil
+	}
+	return schema.AssistantMessage("", []schema.ToolCall{
+		{ID: fmt.Sprintf("call_%d", time.Now().UnixNano()), Function: schema.FunctionCall{Name: "tl_gate", Arguments: `{}`}},
+	}), nil
+}
+func (m *tlRecallModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, fmt.Errorf("stub model: stream not implemented")
+}
+
+// TestTurnLoopSteerSeesPersistedRecall REQ-516/M323（P03 重建可见侧）：注入落库的 system 消息经
+// steer 轮 buildRunContext 全量重建（mergeToolTurns 对 system 原样保留）进入续轮模型输入——
+// 修复「抢占轮静默丢失本轮召回上下文」。
+func TestTurnLoopSteerSeesPersistedRecall(t *testing.T) {
+	s := tlService(t)
+	conv, ag := tlConv(t, s)
+	m := &tlRecallModel{}
+	gate := make(chan struct{})
+	rt := &BuildResult{Agent: tlAgent(t, m, tlGateTool(t, gate)), AgentName: "tl-root"}
+
+	if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: "开始长任务"}); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟 runOnce 已把召回注入落库（persistRecallInjections 产物——落库侧另有单测覆盖）
+	if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "system", Content: "REQ516 落库召回文本：kb 命中片段", Meta: `{"recall_source":"kb"}`}); err != nil {
+		t.Fatal(err)
+	}
+
+	runCtx := context.Background()
+	start := time.Now()
+	rc := newRunConsumer(s, runCtx, conv, "tlr_recall_steer", rt, func(*Event) {}, start, false)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// 首轮输入不含 system（runOnce 内存态）——落库召回只在 store，续轮重建才可见
+		s.runTurnLoop(runCtx, rc, conv, ag, rt, "tlr_recall_steer", checkPointIDOf("tlr_recall_steer"),
+			[]*schema.Message{schema.UserMessage("开始长任务")}, nil, &obsHandler{}, true)
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s.mu.Lock()
+		h := s.loops[conv.ID]
+		s.mu.Unlock()
+		if h != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("运行句柄未登记（TurnLoop 未启动）")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	ok, err := s.Steer(conv.ID, "换个方向：直接收尾")
+	if err != nil || !ok {
+		t.Fatalf("Steer 失败: ok=%v err=%v", ok, err)
+	}
+	close(gate)
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("TurnLoop 未在抢占后收束")
+	}
+	if !m.sawSteer.Load() {
+		t.Fatal("续轮模型输入应含插话（全量历史接续）")
+	}
+	if !m.sawRecall.Load() {
+		t.Fatal("续轮模型输入应含落库召回 system 文本（P03 修复点——抢占轮不丢检索上下文）")
+	}
+}

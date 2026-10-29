@@ -406,6 +406,11 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			injections = append(injections, map[string]any{
 				"source": src, "messages": n, "chars": messagesChars(histMsgs[len(histMsgs)-n:]),
 			})
+			// REQ-516/M323（P03）：召回注入即落库（system 角色）——注入此前仅存活于内存 histMsgs，
+			// steer 抢占轮 GenInput 经 buildRunContext 全量重建（ListMessages+ListToolEvents）时
+			// 本轮检索上下文不在任何持久化载体而静默丢失；落库后续轮历史可见（mergeToolTurns
+			// 对 system 原样保留）。失败仅告警不阻断（与召回降级同口径）。
+			s.persistRecallInjections(runCtx, conv, runID, src, histMsgs[len(histMsgs)-n:], emit)
 		}
 	}
 	budgetTokens := ContextBudget(ctxMode)
@@ -1820,6 +1825,25 @@ func (s *Service) recallKB(ctx context.Context, conv *store.Conversation, agent 
 		}
 	}
 	return histMsgs
+}
+
+// persistRecallInjections REQ-516/M323（P03）：召回注入即落库（system 角色）——注入此前仅存活于
+// 内存 histMsgs，steer 抢占轮 GenInput 经 buildRunContext 全量重建（ListMessages+ListToolEvents）
+// 时本轮检索上下文不在任何持久化载体而静默丢失；落库后续轮历史可见（mergeToolTurns 对 system
+// 原样保留；Eino 首条非 system 为 user 边界不受影响——注入恒在 user 之后）。失败仅告警不阻断
+// （与召回降级同口径）。meta 记 recall_source 供审计溯源。
+func (s *Service) persistRecallInjections(ctx context.Context, conv *store.Conversation, runID, src string, msgs []*schema.Message, emit EmitFn) {
+	for _, m := range msgs {
+		if _, ierr := s.Store.InsertMessage(&store.Message{
+			ConversationID: conv.ID, Role: "system", Content: m.Content,
+			Meta: `{"recall_source":"` + src + `"}`,
+		}); ierr != nil {
+			s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
+				"message": "召回注入落库失败（运行中插话续轮可能丢失该检索上下文）: " + ierr.Error(),
+			}), emit)
+			return
+		}
+	}
 }
 
 // recallCompanion 伴生图检索源并入（REQ-170 P2 / REQ-127~130 检索源矩阵）：agent.companion_ontology
