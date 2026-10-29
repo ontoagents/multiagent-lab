@@ -131,14 +131,20 @@ func (m *DelegateManager) runLoop(delegateID string, child *store.Conversation, 
 			m.finish(delegateID, child, "failed", truncateRunesBG(text), err.Error())
 			return
 		}
+		// REQ-522/M329（P23①）：收束判定「置 completed→查 SteerNote」整段置于 m.mu——
+		// 与 Steer 的「读状态→落插话→写标记」互斥，TOCTOU 窗口消除（插话或被本轮界消费、
+		// 或触发 Steer 侧另起循环，二者必居其一不残留）。
+		m.mu.Lock()
 		_ = m.Store.UpdateDelegateStatus(delegateID, "completed", text, "")
+		pending, _ := m.Store.GetDelegate(delegateID)
+		steered := pending != nil && pending.SteerNote != ""
+		m.mu.Unlock()
 		m.emitDelegateEvent(child.ID, runID, "completed", map[string]any{"delegate_id": delegateID})
 		m.emitDelegateEvent(m.parentOf(delegateID), runID, "completed", map[string]any{
 			"delegate_id": delegateID, "member": member.Name, "result_head": truncateRunesBG(text),
 		})
 		// 收束判定：无新插话即结束；有插话 → 续跑轮（插话在循环头取走）
-		pending, _ := m.Store.GetDelegate(delegateID)
-		if pending == nil || pending.SteerNote == "" {
+		if !steered {
 			return
 		}
 		m.emitDelegateEvent(m.parentOf(delegateID), runID, "steered", map[string]any{
@@ -172,34 +178,55 @@ func (m *DelegateManager) parentOf(delegateID string) string {
 // Steer 中途引导：插话落子会话（界面对话流可见）+ 标记；运行中→轮界续跑消费；
 // 已收束→直接以插话续跑一轮。
 func (m *DelegateManager) Steer(delegateID, message string) (*store.Delegate, error) {
-	d, err := m.Store.GetDelegate(delegateID)
-	if err != nil {
-		return nil, err
-	}
 	if message == "" {
 		return nil, fmt.Errorf("插话内容为空")
 	}
+	// REQ-522/M329（P23①）：读状态→落插话→写标记→另起循环判定 整段置于 m.mu（与 runLoop
+	// 收束判定「UpdateDelegateStatus→查 SteerNote」互斥）——原三语句无互斥的轮界 TOCTOU：
+	// Steer 在 runLoop 收束前读 running、SetDelegateSteer 落在其收束检查之后→插话残留永不消费。
+	m.mu.Lock()
+	d, err := m.Store.GetDelegate(delegateID)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
 	// 插话先落子会话消息流（历史与冷恢复一致性：续跑轮经消息历史可见该插话）
 	if _, err := m.Store.InsertMessage(&store.Message{ConversationID: d.ChildConversationID, Role: "user", Content: message}); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	if _, err := m.Store.SetDelegateSteer(delegateID, message); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
+	startNew := d.Status != "running"
+	var member *store.Agent
+	var child *store.Conversation
+	if startNew {
+		// REQ-522/M329（P23②）：已收束续跑以插话为首轮输入，且启动前取走 steer 标记——
+		// 原空输入首轮+标记残留致同一指令双轮重复执行（轮 1 经子会话历史见插话、轮 2 再作输入）
+		if _, err := m.Store.TakeDelegateSteer(delegateID); err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+		member, err = m.Store.GetAgent(d.MemberAgentID)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+		child, err = m.Store.GetConversation(d.ChildConversationID)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+	}
+	m.mu.Unlock()
 	m.emitDelegateEvent(d.ParentConversationID, d.RunID, "steered", map[string]any{
 		"delegate_id": delegateID, "member": d.MemberName, "note": runeforTitle(message, 100),
 	})
-	if d.Status != "running" {
-		// 已收束：直接续跑一轮（冷恢复同路径）
-		member, gerr := m.Store.GetAgent(d.MemberAgentID)
-		if gerr != nil {
-			return nil, gerr
-		}
-		child, gerr := m.Store.GetConversation(d.ChildConversationID)
-		if gerr != nil {
-			return nil, gerr
-		}
-		go m.runLoop(delegateID, child, member, "")
+	if startNew {
+		// 已收束：直接以插话续跑一轮（冷恢复同路径）
+		go m.runLoop(delegateID, child, member, message)
 	}
 	return m.Store.GetDelegate(delegateID)
 }

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"sync"
 	"context"
 	"encoding/json"
 	"strings"
@@ -28,11 +29,16 @@ func (f *fakeInner) Stream(ctx context.Context, input []*schema.Message, opts ..
 }
 
 func TestDebugModelEmitsStep(t *testing.T) {
+	// REQ-522/M328（P28）：旁路 goroutine 上报与测试读取此前仅靠 sleep 时序——DATA RACE。
+	// mutex 收集+deadline 轮询替代固定 sleep（并发安全且不再赌 200ms）。
+	var mu sync.Mutex
 	var got []map[string]any
 	rec := &debugRecorder{level: DebugFull, runID: "r1", emit: func(ev *Event) {
 		var m map[string]any
 		_ = json.Unmarshal(ev.Data, &m)
+		mu.Lock()
 		got = append(got, m)
+		mu.Unlock()
 	}}
 	inner := &fakeInner{}
 	m := wrapDebug(inner, "测试Agent", rec)
@@ -48,7 +54,22 @@ func TestDebugModelEmitsStep(t *testing.T) {
 			break
 		}
 	}
-	time.Sleep(200 * time.Millisecond) // 旁路 goroutine 的上报与消费端 EOF 存在天然竞态
+	// REQ-522/M328（P28）：deadline 轮询替代固定 200ms sleep（旁路 goroutine 上报时序不赌）
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("model.step events = 0, want 1（2s 轮询超时）")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	if len(got) != 1 {
 		t.Fatalf("model.step events = %d, want 1", len(got))
 	}

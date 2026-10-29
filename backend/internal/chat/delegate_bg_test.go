@@ -257,3 +257,110 @@ func TestDelegateUserStopChild(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestDelegateSteerResumesWithMessageInput REQ-522/M329（P23② 双跑消除）：已收束态 Steer——
+// 续跑以插话为首轮输入（原空输入首轮+标记残留致同一指令双轮重复执行），StartRun 恰被调一次。
+func TestDelegateSteerResumesWithMessageInput(t *testing.T) {
+	m, st, parent, member := delegateTestManager(t)
+	var mu sync.Mutex
+	var inputs []string
+	release := make(chan struct{})
+	m.StartRun = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		mu.Lock()
+		inputs = append(inputs, input)
+		mu.Unlock()
+		select {
+		case <-release:
+			return "ok:" + input, nil
+		case <-ctx.Done():
+			return "半截产出", ErrRunStopped // 生产停止契约形态（同 REQ-520 桩）
+		}
+	}
+	d, _ := m.Start(parent, member, "首轮任务")
+	// 等首轮进入阻塞（StartRun 已被调一次）
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		n := len(inputs)
+		mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("首轮 StartRun 未被调")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// 打断收束 → 等 stopped
+	if _, err := m.Interrupt(d.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		cur, _ := st.GetDelegate(d.ID)
+		if cur != nil && cur.Status == "stopped" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("未收束为 stopped")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// 已收束态 Steer：应恰起一轮且首轮输入=插话（原形态=空输入轮+SteerNote 残留再轮 2 双跑）
+	close(release)
+	time.Sleep(100 * time.Millisecond) // 等 runLoop 完全收束
+	if _, err := m.Steer(d.ID, "补充要求：换个写法"); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		cur, _ := st.GetDelegate(d.ID)
+		if cur != nil && cur.Status == "completed" && cur.SteerNote == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			cur, _ := st.GetDelegate(d.ID)
+			t.Fatalf("插话未消费/残留: status=%s note=%q", cur.Status, cur.SteerNote)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// 恰 2 轮：首轮（被打断）+插话续跑轮（输入=插话原文）——原缺陷形态=空输入轮+标记残留
+	// 再消费轮（3 次调用且插话执行两次）
+	if len(inputs) != 2 {
+		t.Fatalf("StartRun 应恰被调 2 次（首轮+插话续跑轮），got %d: %v", len(inputs), inputs)
+	}
+	if inputs[1] != "补充要求：换个写法" {
+		t.Fatalf("续跑首轮输入应为插话原文（消除空输入轮），got %q", inputs[1])
+	}
+}
+
+// TestDelegateSteerNoteNeverStuck REQ-522/M329（P23① TOCTOU）：Steer 与完成沿交错的收束窗口
+// 压力——收束判定与落插话互斥后，终态必 completed 且 SteerNote 空（原窗口可致插话残留永不消费）。
+func TestDelegateSteerNoteNeverStuck(t *testing.T) {
+	m, st, parent, member := delegateTestManager(t)
+	m.StartRun = func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string) (string, error) {
+		time.Sleep(2 * time.Millisecond) // 快收束——Steer 落在完成沿窗口概率最大化
+		return "ok", nil
+	}
+	d, _ := m.Start(parent, member, "任务")
+	for i := 0; i < 30; i++ {
+		if _, err := m.Steer(d.ID, fmt.Sprintf("插话%d", i)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(3 * time.Millisecond) // 落点扫过「completed 前读 running/后写插话」窗口
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		cur, _ := st.GetDelegate(d.ID)
+		if cur != nil && cur.Status == "completed" && cur.SteerNote == "" {
+			return // 全部插话要么轮界消费、要么触发续跑轮消费——无残留
+		}
+		if time.Now().After(deadline) {
+			cur, _ := st.GetDelegate(d.ID)
+			t.Fatalf("插话标记残留（TOCTOU 修复失效）: status=%s note=%q", cur.Status, cur.SteerNote)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
