@@ -40,6 +40,22 @@ func NewService(st *store.Store, box *secrets.Box, backend, qdrantURL string) (*
 }
 
 // embedder 惰性构造（依赖 Store/Box）。
+// embedClient 向量化最小接口（KB-20 测试注入点：embedOverride 非 nil 时绕过库装配）。
+type embedClient interface {
+	EmbedTexts(ctx context.Context, texts []string) ([][]float32, error)
+	EmbedOne(ctx context.Context, text string) ([]float32, error)
+}
+
+// embedOverride 测试注入（生产恒 nil——embedder() 走库装配）。
+var embedOverride embedClient
+
+func embedClientOf(s *Service) embedClient {
+	if embedOverride != nil {
+		return embedOverride
+	}
+	return s.embedder()
+}
+
 func (s *Service) embedder() *Embedder { return &Embedder{Store: s.Store, Box: s.Box} }
 
 // Import 粘贴文本导入并同步索引（内部路径：chat.KBAdminSource/平台助手等单条小文本场景；
@@ -68,7 +84,7 @@ func (s *Service) Import(ctx context.Context, kbID, title, content string) (*sto
 	}
 	if kbcfg.Mode == "graphrag" {
 		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // M14 ②：chunks → KG 抽取（降级不阻断）
-		s.persistGraphrag(kbID, doc.ID, out.Graphrag)     // REQ-440：结果落库（与异步路径一致）
+		s.persistGraphrag(kbID, doc.ID, out.Graphrag)      // REQ-440：结果落库（与异步路径一致）
 	}
 	return out, nil
 }
@@ -102,7 +118,7 @@ func (s *Service) Reindex(ctx context.Context, kbID, docID string) (*store.Knowl
 	}
 	if kbcfg.Mode == "graphrag" {
 		out.Graphrag = s.GraphragIngest(ctx, kbID, chunks) // 同步重抽 KG（降级不阻断）
-		s.persistGraphrag(kbID, doc.ID, out.Graphrag)     // REQ-440：结果落库（与异步路径一致）
+		s.persistGraphrag(kbID, doc.ID, out.Graphrag)      // REQ-440：结果落库（与异步路径一致）
 	}
 	return out, nil
 }
@@ -133,7 +149,7 @@ func (s *Service) indexDoc(ctx context.Context, kbcfg *store.KnowledgeBase, kbID
 	for i, p := range pieces {
 		contents[i] = p.Content
 	}
-	vecs, err := s.embedder().EmbedTexts(ctx, contents)
+	vecs, err := embedClientOf(s).EmbedTexts(ctx, contents)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +159,19 @@ func (s *Service) indexDoc(ctx context.Context, kbcfg *store.KnowledgeBase, kbID
 	dim := len(vecs[0])
 	if dim == 0 {
 		return nil, fmt.Errorf("embedding 维度为 0")
+	}
+	// KB-20/M292：库级维度登记与写入校验（维度漂移根治——换 embedding 模型拒绝写而非混存）
+	if kbcfg.EmbedDim > 0 && kbcfg.EmbedDim != dim {
+		return nil, DimMismatchError{KB: kbcfg.Name, Want: kbcfg.EmbedDim, Have: dim}
+	}
+	if kbcfg.EmbedDim == 0 {
+		registered, err := s.Store.SetKnowledgeBaseEmbedDim(kbID, dim)
+		if err != nil {
+			return nil, fmt.Errorf("登记库维度失败: %w", err)
+		}
+		if registered {
+			log.Printf("[kb] 库 %q 登记 embedding 维度 %d（首次索引）", kbcfg.Name, dim)
+		}
 	}
 	backend := s.backendName()
 	if backend == "qdrant" {
@@ -244,9 +273,14 @@ func (s *Service) vectorArm(ctx context.Context, kb *store.KnowledgeBase, query 
 	if minScore <= 0 {
 		minScore = kb.MinScore
 	}
-	vec, err := s.embedder().EmbedOne(ctx, query)
+	vec, err := embedClientOf(s).EmbedOne(ctx, query)
 	if err != nil {
 		return nil, err
+	}
+	// KB-20/M292：检索端维度校验——库登记维度与当前模型输出不匹配时报可懂错误（不再静默丢召回）。
+	// kb 参数为调用方快照，重取一次拿最新 EmbedDim（改连 embedding 模型后登记即时生效）。
+	if kbcfg, gerr := s.Store.GetKnowledgeBase(kb.ID); gerr == nil && kbcfg.EmbedDim > 0 && kbcfg.EmbedDim != len(vec) {
+		return nil, DimMismatchError{KB: kbcfg.Name, Want: kbcfg.EmbedDim, Have: len(vec)}
 	}
 	hits, err := s.hybridSearch(ctx, kb.ID, query, vec, topK, minScore)
 	if err != nil {

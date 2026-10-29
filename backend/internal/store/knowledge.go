@@ -32,6 +32,9 @@ type KnowledgeBase struct {
 	KGMaxChunks  int    `json:"kg_max_chunks,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// KB-20/M292：库级 embedding 维度登记（0=未登记）——首库索引时登记，写入/检索双端校验
+	// 维度漂移（换 embedding 模型即拒绝写/检索报错+重建指引；KB-O3 库级维度锁定工程侧落地）。
+	EmbedDim int `json:"embed_dim"`
 	// Official 平台官方库标注（REQ-451：api 层按 chat.PlatformKBName 判定注入，非持久化列——
 	// 前端「官方·平台知识」徽标单源；EnsurePlatformKB 按名称幂等，名称即稳定标识）。
 	Official bool `json:"official,omitempty"`
@@ -88,14 +91,14 @@ type KnowledgeChunk struct {
 	CreatedAt    string `json:"created_at"`
 }
 
-const kbCols = `id,name,description,mode,top_k,min_score,kb_vector,kb_graph,kg_conn_id,kg_prompt,kg_ontology_id,kg_max_chunks,created_at,updated_at`
+const kbCols = `id,name,description,mode,top_k,min_score,kb_vector,kb_graph,kg_conn_id,kg_prompt,kg_ontology_id,kg_max_chunks,embed_dim,created_at,updated_at`
 const kdocCols = `id,kb_id,title,status,chunk_count,dim,error,source,created_at,updated_at,wiki_hash,graphrag_json`
 const kchunkCols = `id,kb_id,doc_id,seq,content,parent_content,vector,vector_ref,store_backend,created_at`
 
 func scanKB(row interface{ Scan(...any) error }) (*KnowledgeBase, error) {
 	var k KnowledgeBase
 	var kv, kg int
-	if err := row.Scan(&k.ID, &k.Name, &k.Description, &k.Mode, &k.TopK, &k.MinScore, &kv, &kg, &k.KGConnID, &k.KGPrompt, &k.KGOntologyID, &k.KGMaxChunks, &k.CreatedAt, &k.UpdatedAt); err != nil {
+	if err := row.Scan(&k.ID, &k.Name, &k.Description, &k.Mode, &k.TopK, &k.MinScore, &kv, &kg, &k.KGConnID, &k.KGPrompt, &k.KGOntologyID, &k.KGMaxChunks, &k.EmbedDim, &k.CreatedAt, &k.UpdatedAt); err != nil {
 		return nil, err
 	}
 	k.KBVector, k.KBGraph = kv != 0, kg != 0
@@ -193,8 +196,8 @@ func (s *Store) CreateKnowledgeBase(k *KnowledgeBase) (*KnowledgeBase, error) {
 	}
 	k.Mode = normalizeKBMode(k.Mode)
 	normalizeKBCapabilities(k)
-	_, err := s.DB.Exec(`INSERT INTO knowledge_base (`+kbCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		k.ID, k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, now(), now())
+	_, err := s.DB.Exec(`INSERT INTO knowledge_base (`+kbCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		k.ID, k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, k.EmbedDim, now(), now())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict
@@ -226,8 +229,8 @@ func (s *Store) ListKBsByKGOntology(ontologyID string) ([]*KnowledgeBase, error)
 func (s *Store) UpdateKnowledgeBase(k *KnowledgeBase) (*KnowledgeBase, error) {
 	k.Mode = normalizeKBMode(k.Mode)
 	normalizeKBCapabilities(k)
-	res, err := s.DB.Exec(`UPDATE knowledge_base SET name=?,description=?,mode=?,top_k=?,min_score=?,kb_vector=?,kb_graph=?,kg_conn_id=?,kg_prompt=?,kg_ontology_id=?,kg_max_chunks=?,updated_at=? WHERE id=?`,
-		k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, now(), k.ID)
+	res, err := s.DB.Exec(`UPDATE knowledge_base SET name=?,description=?,mode=?,top_k=?,min_score=?,kb_vector=?,kb_graph=?,kg_conn_id=?,kg_prompt=?,kg_ontology_id=?,kg_max_chunks=?,embed_dim=?,updated_at=? WHERE id=?`,
+		k.Name, k.Description, k.Mode, k.TopK, k.MinScore, k.KBVector, k.KBGraph, k.KGConnID, k.KGPrompt, k.KGOntologyID, k.KGMaxChunks, k.EmbedDim, now(), k.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict
@@ -466,3 +469,17 @@ func (c *KnowledgeChunk) MarshalChunkMeta() string {
 }
 
 var _ = fmt.Sprintf
+
+// SetKnowledgeBaseEmbedDim KB-20/M292：库级 embedding 维度登记（仅 0→dim 首登记生效；
+// 已登记不覆盖——解锁走整库重建路径。返回是否发生了登记）。
+func (s *Store) SetKnowledgeBaseEmbedDim(kbID string, dim int) (bool, error) {
+	if dim <= 0 {
+		return false, nil
+	}
+	res, err := s.DB.Exec(`UPDATE knowledge_base SET embed_dim=?, updated_at=? WHERE id=? AND embed_dim=0`, dim, now(), kbID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}

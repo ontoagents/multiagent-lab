@@ -546,6 +546,12 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": mnc.Error()})
 		return
 	}
+	// KB-20/M292：embedding 维度漂移 → 400 人话（含重建指引——原 500 对「换模型后检索失败」不可解释）
+	var dme kb.DimMismatchError
+	if errors.As(err, &dme) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": dme.Error()})
+		return
+	}
 	// REQ-413③/M209：SQLite 写冲突诚实提示——busy_timeout 5s 兜底后仍锁（长写事务如
 	// 备份 VACUUM/批量导入）→ 503 人话+重试指引（原样 500 "database is locked" 对用户不可解释）
 	if isSQLiteBusy(err) {

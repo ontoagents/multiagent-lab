@@ -3,6 +3,7 @@ package kb
 import (
 	"context"
 	"encoding/binary"
+	"log"
 	"math"
 	"sort"
 
@@ -53,9 +54,16 @@ func (s SQLiteStore) Search(_ context.Context, kbID string, vec []float32, topK 
 		s float64
 	}
 	var all []scored
+	skipped := 0
 	for _, c := range chunks {
 		v := DecodeVector(c.Vector)
-		if len(v) == 0 || len(v) != len(vec) {
+		if len(v) == 0 {
+			continue
+		}
+		if len(v) != len(vec) {
+			// KB-20/M292：维度漂移 chunk——Service 层检索前置校验（库级 embed_dim）正常时到不了这里；
+			// 兜底保留但不静默（计数告警——混存/登记缺失的排障信号）。
+			skipped++
 			continue
 		}
 		sim := cosine(vec, v)
@@ -63,6 +71,9 @@ func (s SQLiteStore) Search(_ context.Context, kbID string, vec []float32, topK 
 			continue
 		}
 		all = append(all, scored{c, sim})
+	}
+	if skipped > 0 {
+		log.Printf("[kb] SQLite 检索跳过 %d 个维度不匹配 chunk（kb=%s 查询维度 %d）——库级维度校验未拦截到？检查 embed_dim 登记", skipped, kbID, len(vec))
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].s > all[j].s })
 	if topK > 0 && len(all) > topK {
