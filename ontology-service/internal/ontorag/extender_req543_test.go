@@ -66,3 +66,19 @@ func TestGenerateRefVocabWired_Req543(t *testing.T) {
 		t.Fatal("Generate 的 prompt 应携带被引词表段")
 	}
 }
+
+// 评审④：{refVocab} 最后替换——词表内容含字面 "{cq}"/"{profileDirective}" 时不吞槽位
+// （模板真占位符照常替换，注入内容残留为纯字面文本）。
+func TestRenderExtenderPromptSlotSwallow_Req543(t *testing.T) {
+	tricky := "已登记被引本体词表（含字面槽位探针 {cq} 与 {profileDirective}）"
+	p := RenderExtenderPrompt("哪些工单超期？", nil, ProfileRestriction, tricky)
+	if !strings.Contains(p, "能力问题：哪些工单超期？") {
+		t.Fatalf("模板真 {cq} 槽位应照常替换，不得被注入内容吞掉:\n%s", p)
+	}
+	if !strings.Contains(p, "限制型") {
+		t.Fatal("模板真 {profileDirective} 槽位应照常替换")
+	}
+	if strings.Contains(p, "{refVocab}") {
+		t.Fatal("注入后不得残留 {refVocab} 占位符")
+	}
+}

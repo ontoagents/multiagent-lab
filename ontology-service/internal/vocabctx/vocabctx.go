@@ -85,8 +85,10 @@ func (b *Builder) CacheStats() (hits, misses int) {
 
 // RepoList AI 辅助创建的仓内清单段（空仓/读失败返回空串——整段不进 prompt，增强非依赖，
 // llmcreate.buildFewShot 同口径）。缓存 key="repo"、fp=全仓 id@version@name 有序指纹。
-// 诚实边界：description 编辑不 bump 版本，缓存窗口内清单里的描述性内容（概念词条随版本
-// 走不滞后）之外的名称已入指纹；仅 description 文本可能滞后（身份字段 id/name/version 均在指纹内）。
+// 诚实边界（评审③修正）：渲染行只含 name/id/version+概念词条（description 从不入渲染，
+// 身份字段 id/name/version 均在指纹内不滞后）；真实未覆盖的滞后面=清单**显示排序**——
+// updated_at 不在指纹内，不 bump 版本的元数据编辑（如 description）会改最近更新序，
+// 排序滞后至任一本体版本变化才刷新（内容面零滞后）。
 func (b *Builder) RepoList() string {
 	heads, err := b.Store.ListOntologyHeads()
 	if err != nil || len(heads) == 0 {
@@ -121,8 +123,9 @@ func (b *Builder) RepoList() string {
 // RefVocab 扩展器被引词表段（ontoID 无仓内引用/全为外部 IRI 登记态/目标全不可解析 → 空串，
 // 整段不进 prompt）。pin 解析 REQ-540：同目标多登记取最低 pin（>0 中最小；全 0=浮动头）；
 // 目标本体已删（missing_ontology 孤儿登记行）与工件/快照缺失的被引目标如实跳过不虚构。
-// 缓存 key="refs:"+ontoID、fp=被引目标「解析后版本」有序指纹——head 演进（被引方升级）与
-// pin 刷新都会改指纹；同指纹回缓存=同版本不重复花费。
+// 缓存 key="refs:"+ontoID、fp=被引目标「解析后版本+登记种类集」有序指纹——head 演进
+// （被引方升级）、pin 刷新与登记种类变化（评审②）都会改指纹；同指纹回缓存=同版本
+// 不重复花费（渲染输出逐字节由指纹字段决定，命中不陈旧）。
 func (b *Builder) RefVocab(ontoID string) string {
 	refs, err := b.Store.ListExternalRefs(ontoID)
 	if err != nil || len(refs) == 0 {
@@ -157,8 +160,9 @@ func (b *Builder) RefVocab(ontoID string) string {
 			heads[h.ID] = h
 		}
 	}
-	// 解析后版本（pin>0 取 pin，否则头版本；目标不在 heads=已删，解析版本记 -1 仍入指纹——
-	// 删除/重建都会改指纹，缓存不穿帮）
+	// 解析后版本+登记种类集（pin>0 取 pin，否则头版本；目标不在 heads=已删，解析版本记
+	// -1 仍入指纹——删除/重建都会改指纹，缓存不穿帮）。kinds 入指纹（评审②）：kind 参与
+	// 渲染标签〔import/reuse〕，删登记/换 kind 不改版本也须重建，否则标签滞留旧值。
 	resolved := make(map[string]int, len(targets))
 	fps := make([]string, 0, len(targets))
 	for id, t := range targets {
@@ -171,7 +175,7 @@ func (b *Builder) RefVocab(ontoID string) string {
 			}
 		}
 		resolved[id] = v
-		fps = append(fps, fmt.Sprintf("%s@%d", id, v))
+		fps = append(fps, fmt.Sprintf("%s@%d:%s", id, v, kindTag(t.kinds)))
 	}
 	sort.Strings(fps)
 	return b.cached("refs:"+ontoID, strings.Join(fps, "|"), func() string {
@@ -288,6 +292,8 @@ type specTerms struct {
 
 // projectSpec spec_json → 词条投影（FetchSpecVocab 口径同构：label 优先、名兜底、
 // 去重保序；概念至多 capC 条、关系至多 capR 条，capR<=0 表示不取关系）。
+// 概念与关系独立去重（seenC/seenR 双映射——与 backend/internal/ontology/ontology.go
+// FetchSpecVocab 参考实现同构：与概念同名的关系词条两侧都保留，不跨类吞并）。
 // 解析失败返回零值（工件损坏不虚构词条）。
 func projectSpec(raw string, capC, capR int) specTerms {
 	if strings.TrimSpace(raw) == "" {
@@ -300,8 +306,8 @@ func projectSpec(raw string, capC, capR int) specTerms {
 	if json.Unmarshal([]byte(raw), &sp) != nil {
 		return specTerms{}
 	}
-	seen := map[string]bool{}
 	project := func(items []termItem, capN int) ([]string, int) {
+		seen := map[string]bool{} // 每类独立去重域（评审①：跨类共用会静默吞同名关系词+RelTotal 少计）
 		var all []string
 		for _, it := range items {
 			for _, v := range []string{it.Label, it.Name} {

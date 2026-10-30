@@ -106,6 +106,11 @@ func RenderExtenderPrompt(cq string, hits []Hit, profile, refVocab string) strin
 		pd = profileDirectives[ProfileStructure]
 	}
 	p := strings.Replace(extenderUser, "{elements}", b.String(), 1)
+	p = strings.Replace(p, "{cq}", cq, 1)
+	p = strings.Replace(p, "{profileDirective}", pd, 1)
+	// {refVocab} 最后替换（评审④）：词表内容为仓内 name/label 原文注入且无转义——若先于
+	// {cq}/{profileDirective} 替换，词条含字面 "{cq}" 等会吞掉对应槽位替换、模板真占位符
+	// 残留；最后替换使注入内容不再参与任何槽位匹配（残留=纯字面文本无副作用）。
 	if refVocab != "" {
 		p = strings.Replace(p, "{refVocab}", refVocab, 1)
 	} else {
@@ -113,8 +118,6 @@ func RenderExtenderPrompt(cq string, hits []Hit, profile, refVocab string) strin
 		p = strings.Replace(p, "{refVocab}\n\n", "", 1)
 		p = strings.Replace(p, "{refVocab}", "", 1)
 	}
-	p = strings.Replace(p, "{cq}", cq, 1)
-	p = strings.Replace(p, "{profileDirective}", pd, 1)
 	return p
 }
 

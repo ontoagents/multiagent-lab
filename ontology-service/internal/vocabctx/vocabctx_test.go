@@ -220,12 +220,45 @@ func TestRefVocabCacheSameVersion_Req543(t *testing.T) {
 	if h2, m2 := b.CacheStats(); h2 != 1 || m2 != 1 {
 		t.Fatalf("第二次应命中缓存，得 hits=%d misses=%d", h2, m2)
 	}
-	// 新增指向同一目标的登记（同目标取最低 pin 语义下指纹不变——词表内容不变，命中缓存正确）
+	// 新增指向同一目标的登记（reuse——登记种类集变化入指纹〔评审②〕：kind 参与渲染标签，
+	// 必须重建出 〔import/reuse〕 新标签，不得滞留旧值）
 	if _, err := st.CreateExternalRef(&repo.ExternalRef{FromOntoID: "src", FromConcept: "缺陷", ToOntoID: "dst", ToConcept: "需求", RefKind: "reuse"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, m3 := b.CacheStats(); m3 != 1 {
-		t.Fatalf("同目标同版本新增登记不应触发重建，得 misses=%d", m3)
+	third := b.RefVocab("src")
+	if !strings.Contains(third, "〔import/reuse · pin v1〕") {
+		t.Fatalf("登记种类变化应触发重建出新标签〔import/reuse · pin v1〕:\n%s", third)
+	}
+	if _, m3 := b.CacheStats(); m3 != 2 {
+		t.Fatalf("kind 变化应 miss 重建，得 misses=%d", m3)
+	}
+	// 再加一条同种类（import）登记：种类集与解析版本均不变→渲染输出不变→命中缓存正确
+	if _, err := st.CreateExternalRef(&repo.ExternalRef{FromOntoID: "src", FromConcept: "缺陷", ToOntoID: "dst", ToConcept: "需求", RefKind: "import"}); err != nil {
+		t.Fatal(err)
+	}
+	fourth := b.RefVocab("src")
+	if fourth != third {
+		t.Fatal("同种类新增登记渲染输出应不变（缓存命中）")
+	}
+	if h4, m4 := b.CacheStats(); h4 != 2 || m4 != 2 {
+		t.Fatalf("同种类新增应命中缓存，得 hits=%d misses=%d", h4, m4)
+	}
+	// 删登记回退种类集（评审②场景：DeleteExternalRef 后标签不得滞留）
+	refs, err := st.ListExternalRefs("src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range refs {
+		if r.RefKind == "reuse" {
+			if err := st.DeleteExternalRef("src", r.RefID); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+	fifth := b.RefVocab("src")
+	if strings.Contains(fifth, "/reuse") || !strings.Contains(fifth, "〔import · pin v1〕") {
+		t.Fatalf("删登记后标签应回退 〔import · pin v1〕，不得滞留 reuse:\n%s", fifth)
 	}
 }
 
@@ -259,5 +292,21 @@ func TestTotalCharCap_Req543(t *testing.T) {
 	}
 	if n := len([]rune(strings.TrimSuffix(got, "\n"+capNote))); n > MaxTotalChars {
 		t.Fatalf("截断后应 ≤%d rune，得 %d", MaxTotalChars, n)
+	}
+}
+
+// 评审①：概念与关系独立去重（seenC/seenR 双映射）——与概念同名的关系词条两侧都保留，
+// RelTotal 不跨类少计（与 backend FetchSpecVocab 参考实现同构口径）。
+func TestProjectSpecIndependentDedup_Req543(t *testing.T) {
+	raw := `{"concepts":[{"name":"属于"},{"name":"模块"}],"relations":[{"name":"属于"},{"name":"包含"}]}`
+	tm := projectSpec(raw, 12, 6)
+	if strings.Join(tm.Concepts, "、") != "属于、模块" {
+		t.Fatalf("概念投影: %v", tm.Concepts)
+	}
+	if strings.Join(tm.Relations, "、") != "属于、包含" {
+		t.Fatalf("与概念同名的关系词条应保留（独立去重域）: %v", tm.Relations)
+	}
+	if tm.RelTotal != 2 {
+		t.Fatalf("RelTotal 应=2 不跨类少计，得 %d", tm.RelTotal)
 	}
 }
