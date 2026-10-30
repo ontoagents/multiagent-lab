@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -25,6 +26,22 @@ func (s *Server) kgCommunitiesRebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box), Embed: kgEmbedFunc(s.Store, s.Box)} // KB-18/M290：embedding 臂注入 // 库级抽取连接（REQ-129① 同源）
+	// KB-8②/M288：默认异步；?sync=1 保留同步（小库即时生成形态沿 D5 缓存口径）
+	if r.URL.Query().Get("sync") != "1" && s.KB != nil {
+		job, err := s.KB.EnqueueRebuild(kbID, "communities", func(ctx context.Context) (map[string]any, error) {
+			n, method, err := sum.BuildKGCommunities(ctx, kbID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"ok": true, "communities": n, "method": method}, nil
+		})
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "kind": "communities", "status": "running"})
+		return
+	}
 	n, method, err := sum.BuildKGCommunities(r.Context(), kbID)
 	if err != nil {
 		writeErr(w, err)

@@ -483,3 +483,75 @@ func (s *Store) SetKnowledgeBaseEmbedDim(kbID string, dim int) (bool, error) {
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
+
+// KBRebuildJob 库级重建任务（KB-8②/M288：kg/communities/wiki 三端点异步化落库——
+// REQ-381 async_job 模式复用，单机基线不引入外部队列）。
+type KBRebuildJob struct {
+	ID         string `json:"id"`
+	KBID       string `json:"kb_id"`
+	Kind       string `json:"kind"` // kg | communities | wiki
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	ResultJSON string `json:"-"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// CreateKBRebuildJob 新建 running 任务。
+func (s *Store) CreateKBRebuildJob(kbID, kind string) (*KBRebuildJob, error) {
+	j := &KBRebuildJob{ID: NewID(), KBID: kbID, Kind: kind, Status: "running", CreatedAt: now().UTC().Format(time.RFC3339), UpdatedAt: now().UTC().Format(time.RFC3339)}
+	_, err := s.DB.Exec(`INSERT INTO kb_rebuild_job(id,kb_id,kind,status,error,result_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+		j.ID, j.KBID, j.Kind, j.Status, j.Error, j.ResultJSON, j.CreatedAt, j.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
+// FinishKBRebuildJob 终态落库（success/failed+结果 JSON）。
+func (s *Store) FinishKBRebuildJob(id, status, errMsg, resultJSON string) error {
+	_, err := s.DB.Exec(`UPDATE kb_rebuild_job SET status=?, error=?, result_json=?, updated_at=? WHERE id=?`,
+		status, errMsg, resultJSON, now(), id)
+	return err
+}
+
+// ListKBRebuildJobs 库内重建任务（新→旧；进度轮询面）。
+func (s *Store) ListKBRebuildJobs(kbID string, limit int) ([]*KBRebuildJob, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.DB.Query(`SELECT id,kb_id,kind,status,error,result_json,created_at,updated_at FROM kb_rebuild_job WHERE kb_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, kbID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*KBRebuildJob{}
+	for rows.Next() {
+		var j KBRebuildJob
+		if err := rows.Scan(&j.ID, &j.KBID, &j.Kind, &j.Status, &j.Error, &j.ResultJSON, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &j)
+	}
+	return out, rows.Err()
+}
+
+// GetKBRebuildJob 单任务回读（结果 JSON 供终态取回）。
+func (s *Store) GetKBRebuildJob(id string) (*KBRebuildJob, error) {
+	var j KBRebuildJob
+	err := s.DB.QueryRow(`SELECT id,kb_id,kind,status,error,result_json,created_at,updated_at FROM kb_rebuild_job WHERE id=?`, id).
+		Scan(&j.ID, &j.KBID, &j.Kind, &j.Status, &j.Error, &j.ResultJSON, &j.CreatedAt, &j.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return &j, err
+}
+
+// MarkStaleRebuildJobs 启动对账（KB-21 同门）：进程重启时 running 任务→failed（进度丢失如实明示）。
+func (s *Store) MarkStaleRebuildJobs() (int64, error) {
+	res, err := s.DB.Exec(`UPDATE kb_rebuild_job SET status='failed', error='进程重启致任务中断——请重新触发重建', updated_at=? WHERE status='running'`, now())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

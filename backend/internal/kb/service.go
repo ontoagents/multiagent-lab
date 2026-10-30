@@ -36,6 +36,9 @@ func NewService(st *store.Store, box *secrets.Box, backend, qdrantURL string) (*
 	}
 	s := &Service{Store: st, Box: box, Vector: vs}
 	s.startIndexWorker() // REQ-440：后台串行索引队列（ImportAsync/ReindexAsync 消费）
+	if n, err := st.MarkStaleRebuildJobs(); err == nil && n > 0 {
+		log.Printf("[kb] 启动对账：%d 个库级重建任务标记 failed（进程重启中断，KB-8②）", n)
+	}
 	return s, nil
 }
 
@@ -235,6 +238,16 @@ func (s *Service) DeleteDoc(ctx context.Context, kbID, docID string) error {
 	}
 	if kbcfg, kerr := s.Store.GetKnowledgeBase(kbID); kerr == nil && kbcfg.Mode == "wiki" {
 		_ = s.Store.DeleteWikiSummaryPage(kbID, doc.Title)
+	}
+	// KB-8①/M288：受影响子图增量清理——空抽取替换语义（ReplaceKGForDoc doc 级删除分支：
+	// 清该 doc 的关系/claims/chunk_entity 倒排与实体行；跨 doc 共享实体〔upsert 单行
+	// doc_id=最后写入者〕被误删时重索引留存 doc 即复原——KB-16 语义既有边界如实）。
+	// graphrag 检索面不再命中已删文档的实体/claims（原缺陷：删除后 KG 行残留）。
+	if kbcfg, kerr := s.Store.GetKnowledgeBase(kbID); kerr == nil && kbcfg.Mode == "graphrag" {
+		if err := s.Store.ReplaceKGForDoc(kbID, docID, nil, nil, nil); err != nil {
+			// 清理失败不阻塞删除（残留行无 chunk 引用；重建入口可再清）——log 留排障
+			log.Printf("[kb] warn: delete KG subgraph for doc %s: %v", docID, err)
+		}
 	}
 	return s.Store.DeleteKnowledgeDoc(kbID, docID)
 }

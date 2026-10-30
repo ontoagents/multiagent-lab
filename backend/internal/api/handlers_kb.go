@@ -404,12 +404,61 @@ func (s *Server) kgRebuild(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// KB-8②/M288：默认异步（202+job_id，进度经 rebuild-jobs 列表轮询）；?sync=1 保留同步形态
+	//（小库/调试；大库同步重建阻塞数分钟系原病灶）。
+	if r.URL.Query().Get("sync") != "1" && s.KB != nil {
+		job, err := s.KB.EnqueueRebuild(kbID, "kg", func(ctx context.Context) (map[string]any, error) {
+			info, n, err := s.OntoBuild.ChunksToKG(ctx, kbID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"kb_id": kbID, "chunks": n, "graphrag": info}, nil
+		})
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "kind": "kg", "status": "running"})
+		return
+	}
 	info, n, err := s.OntoBuild.ChunksToKG(r.Context(), kbID)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"kb_id": kbID, "chunks": n, "graphrag": info})
+}
+
+// kbRebuildJobs GET /api/kb/{id}/rebuild-jobs：库级重建任务列表（KB-8② 进度轮询面）。
+func (s *Server) kbRebuildJobs(w http.ResponseWriter, r *http.Request) {
+	kbID := r.PathValue("id")
+	jobs, err := s.Store.ListKBRebuildJobs(kbID, 20)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+}
+
+// kbRebuildJob GET /api/kb/{id}/rebuild-jobs/{jid}：单任务详情（含结果 JSON 终态取回）。
+func (s *Server) kbRebuildJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.Store.GetKBRebuildJob(r.PathValue("jid"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if job.KBID != r.PathValue("id") {
+		writeErr(w, store.ErrNotFound)
+		return
+	}
+	out := map[string]any{"id": job.ID, "kb_id": job.KBID, "kind": job.Kind, "status": job.Status, "error": job.Error, "created_at": job.CreatedAt, "updated_at": job.UpdatedAt}
+	if job.ResultJSON != "" {
+		var res any
+		if json.Unmarshal([]byte(job.ResultJSON), &res) == nil {
+			out["result"] = res
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // kgToSpecJSON POST /api/ontologies/kg-to-spec-json

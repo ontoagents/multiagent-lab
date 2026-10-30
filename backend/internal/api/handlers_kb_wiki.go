@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
@@ -39,6 +40,22 @@ func (s *Server) wikiRebuild(w http.ResponseWriter, r *http.Request) {
 		ConnID string `json:"conn_id"`
 	}
 	_ = decodeJSON(r, &in) // 空体合法（沿 publish 空体先例）
+	// KB-8②/M288：默认异步；?sync=1 保留同步（wiki 生成 hash 跳过快但新文档多时分钟级）
+	if r.URL.Query().Get("sync") != "1" {
+		job, err := s.KB.EnqueueRebuild(k.ID, "wiki", func(ctx context.Context) (map[string]any, error) {
+			info, err := s.KB.WikiBuild(ctx, k.ID, in.ConnID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"kb_id": k.ID, "result": info}, nil
+		})
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "kind": "wiki", "status": "running"})
+		return
+	}
 	info, err := s.KB.WikiBuild(r.Context(), k.ID, in.ConnID)
 	if err != nil {
 		writeErr(w, err)
