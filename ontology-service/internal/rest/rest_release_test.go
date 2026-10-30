@@ -121,12 +121,40 @@ func TestPublishEndpointFreezesRelease_Req541(t *testing.T) {
 	if !strings.Contains(string(b6), `"ontology_id":"ontest"`) || !strings.Contains(string(b6), `"dependencies":[]`) {
 		t.Fatalf("manifest 工件应为依赖账本 JSON:\n%s", b6)
 	}
-	// 404/400 口径
-	if r, _ := http.Get(srv.URL + "/api/ontologies/ontest/releases/9"); r.StatusCode != http.StatusNotFound {
-		t.Fatalf("未发布版本取快照期望 404，实际 %d", r.StatusCode)
+	// 404/400 口径（响应须检错并关 body——请求失败时断言给人话消息而非 nil panic）
+	r9, err9 := http.Get(srv.URL + "/api/ontologies/ontest/releases/9")
+	if err9 != nil {
+		t.Fatal(err9)
 	}
-	if r, _ := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/bogus"); r.StatusCode != http.StatusBadRequest {
-		t.Fatalf("未知工件名期望 400，实际 %d", r.StatusCode)
+	defer r9.Body.Close()
+	if r9.StatusCode != http.StatusNotFound {
+		t.Fatalf("未发布版本取快照期望 404，实际 %d", r9.StatusCode)
+	}
+	rb, errb := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/bogus")
+	if errb != nil {
+		t.Fatal(errb)
+	}
+	defer rb.Body.Close()
+	if rb.StatusCode != http.StatusBadRequest {
+		t.Fatalf("未知工件名期望 400，实际 %d", rb.StatusCode)
+	}
+}
+
+func TestListReleasesEmptySetShape_Req541(t *testing.T) {
+	srv, _ := newReleaseRestServer(t)
+	// 零发布快照清单形态钉桩：repo.ListReleases 以 `out := []ReleaseSummary{}` 兜底空集
+	//（release.go），若退化为 `var out []ReleaseSummary` 会静默变 JSON null——空集边界在此锁定。
+	resp, err := http.Get(srv.URL + "/api/ontologies/ontest/releases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("空集清单期望 200，实际 %d: %s", resp.StatusCode, b)
+	}
+	if !strings.Contains(string(b), `"releases":[]`) {
+		t.Fatalf("零发布快照清单应为 []（非 null）:\n%s", b)
 	}
 }
 
