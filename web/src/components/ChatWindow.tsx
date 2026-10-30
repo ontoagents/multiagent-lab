@@ -28,6 +28,7 @@ import type {
 } from '../api/types'
 import { useUI } from '../store/ui'
 import KBContentModal from './KBContentModal'
+import { COLLAB_MODE_LABEL, RUNTIME_BACKEND_LABEL } from '../lib/labels'
 // REQ-401/M197 拆分：事件注册表单源与五域辅助件（行为零变更；四份事件清单收敛 lib/eventRegistry）
 import { describeEvent, eventSource, fmtNum, injectSourceLabel, isKeyGranularity, levelGated } from '../lib/eventRegistry'
 import { applyRunEvent, toInterruptState, type ChatItem } from './chat/runApply'
@@ -1687,10 +1688,10 @@ export default function ChatWindow({
         ) : (
           <Typography.Text strong className="subject">{agent ? agent.name : '对话'}</Typography.Text>
         )}
-        {isProjectScope && project && <Tag>{project.collab_mode}</Tag>}
+        {isProjectScope && project && <Tag>{COLLAB_MODE_LABEL[project.collab_mode] ?? project.collab_mode}</Tag>}
         {!isProjectScope && agent && (
           <>
-            <Tag>{agent.runtime_backend}</Tag>
+            <Tag>{RUNTIME_BACKEND_LABEL[agent.runtime_backend] ?? agent.runtime_backend}</Tag>
             {/* REQ-336：会话伴生/检索参数/审批覆盖归位会话设置（头部⋮）；「最大迭代」静态标签已移除 */}
           </>
         )}
@@ -1881,8 +1882,8 @@ export default function ChatWindow({
               title={`开始与「${subjectName ?? '智能体'}」对话`}
               description={
                 isProjectScope
-                  ? '项目会话由成员智能体协作处理；「配置」中可维护项目成员与协作模式（M4 起生效）。'
-                  : '消息将流式返回；「配置」中可调整系统提示词、模型与采样参数（下次运行生效）。'
+                  ? '项目会话由成员智能体协作处理；成员与协作模式经左栏项目节点的 ⚙ 配置维护，对之后的运行生效。'
+                  : '消息将流式返回；系统提示词、模型与采样参数经左栏智能体节点的 ⚙ 配置调整（下次运行生效）。'
               }
             />
           </div>
