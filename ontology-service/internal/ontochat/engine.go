@@ -27,6 +27,9 @@ import (
 // Engine 多轮引导引擎（复用 llmcreate.Creator 的平台代理与校验循环）。
 type Engine struct {
 	LLM *llmcreate.Creator
+	// VocabProvider REQ-543/M350：可选仓内词表上下文供给（rest.New 注入 vocabctx.Builder.RepoList；
+	// nil=不注入——Engine 不感知仓库，D-O26 可插拔口径；同版本缓存在 Builder 侧）。
+	VocabProvider func() string
 }
 
 // TurnResult 单轮交互结果：assistant 回复 + 可选草稿（draft/refine 阶段产出）。
@@ -374,7 +377,12 @@ func (e *Engine) turnDraft(ctx context.Context, st *Store, sess *Session, onProg
 			rounds = append(rounds, func(r int, msg string) { p(r, msg) })
 		}
 	}
-	res, err := e.LLM.DraftWithCQ(ctx, sess.Context.Description, strings.Join(hints, "\n\n"), cqs, rounds...)
+	// REQ-543/M350：生成轮注入仓内清单+可复用词表提示（provider 缺省 nil=不注入）
+	vocab := ""
+	if e.VocabProvider != nil {
+		vocab = e.VocabProvider()
+	}
+	res, err := e.LLM.DraftWithVocab(ctx, sess.Context.Description, strings.Join(hints, "\n\n"), cqs, vocab, rounds...)
 	if err != nil && res == nil {
 		return nil, err
 	}

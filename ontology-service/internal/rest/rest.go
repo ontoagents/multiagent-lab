@@ -24,6 +24,7 @@ import (
 	"github.com/ontoagents/ontoagents/ontology-service/internal/pipeline"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/vocabctx"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/vocabsearch"
 )
 
@@ -40,6 +41,10 @@ type Server struct {
 	evoDB      *evolution.Store    // REQ-207/M43：进化候选（惰性初始化）
 	vocab      *vocabsearch.Client // REQ-171 P1：LOV 词表搜索（惰性初始化；LOV_API_BASE 可注入测试桩）
 
+	// vocabCtx REQ-543/M350：LLM 注入词表上下文组装器（New 时即建——构造零 I/O；
+	// RepoList=AI 创建三入口/RefVocab=CQ 扩展，注入上限/中性文案/同版本缓存护栏内聚在 Builder）。
+	vocabCtx *vocabctx.Builder
+
 	vecCache *ontorag.VectorCache // CQ 扩展元素向量缓存（84 号 A2/86 号 N3：按 spec 指纹命中，进程内）
 
 	jobCancelsMu sync.Mutex
@@ -49,7 +54,12 @@ type Server struct {
 }
 
 func New(st *repo.Store, sc *importer.Sidecar, llm *llmcreate.Creator, runtimeURL ...string) *Server {
-	s := &Server{Store: st, Sidecar: sc, LLM: llm, OntoChat: &ontochat.Engine{LLM: llm},
+	// REQ-543/M350：词表上下文组装器随 Server 装配（构造零 I/O）；OntoChat 生成轮经
+	// VocabProvider 函数注入 RepoList（Engine 不感知仓库，D-O26 可插拔口径）。
+	vb := vocabctx.New(st)
+	s := &Server{Store: st, Sidecar: sc, LLM: llm,
+		OntoChat: &ontochat.Engine{LLM: llm, VocabProvider: vb.RepoList},
+		vocabCtx: vb,
 		vecCache: ontorag.NewVectorCache(0), jobCancels: map[string]context.CancelFunc{}}
 	// REQ-382/M178：运行平面基址（cqbench 执行级对齐通道；variadic 保持既有调用零破坏）
 	if len(runtimeURL) > 0 {

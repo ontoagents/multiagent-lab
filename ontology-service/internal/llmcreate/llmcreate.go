@@ -95,7 +95,16 @@ func (c *Creator) Draft(ctx context.Context, description, extraHint string, onRo
 }
 
 // DraftWithCQ REQ-248/G2：CQ 显式传入——并入 prompt 且**回写进草案 spec.CQ**（能力问题入资产可追溯）。
+// 词表注入面见 DraftWithVocab（本入口保持零注入零破坏——OntoChat 旧调用路径经由它）。
 func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string, cqs []string, onRound ...func(round int, msg string)) (*GenerateResult, error) {
+	return c.DraftWithVocab(ctx, description, extraHint, cqs, "", onRound...)
+}
+
+// DraftWithVocab REQ-543/M350：DraftWithCQ 扩展——额外注入仓内词表上下文段（vocabctx.Builder
+// 组装：RepoList=AI 辅助创建的仓内清单+可复用词表提示；空串=整段不进 prompt，增强非依赖）。
+// prompt 拼接单源仍在本包 buildPrompt（llmcreate.go:27 静态骨架的动态注入位），本方法只透传——
+// llmcreate 不感知仓库（D-O26 可插拔：repo 感知面在 rest 装配层）。
+func (c *Creator) DraftWithVocab(ctx context.Context, description, extraHint string, cqs []string, vocab string, onRound ...func(round int, msg string)) (*GenerateResult, error) {
 	notify := func(round int, msg string) {
 		for _, f := range onRound {
 			if f != nil {
@@ -112,7 +121,7 @@ func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string
 		}
 		extraHint = b.String()
 	}
-	prompt := buildPrompt(description, extraHint, nil, cqs)
+	prompt := buildPrompt(description, extraHint, nil, cqs, vocab)
 	var usage any
 	for round := 1; round <= c.MaxRounds; round++ {
 		notify(round, fmt.Sprintf("第 %d/%d 轮：调用模型生成中", round, c.MaxRounds))
@@ -127,7 +136,7 @@ func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string
 		if err := json.Unmarshal([]byte(draftRaw), &sp); err != nil {
 			// 结构坏：把解析错误回喂
 			notify(round, fmt.Sprintf("第 %d 轮产出不是合法 spec_json，回喂重试", round))
-			prompt = buildPrompt(description, extraHint, []string{"输出不是合法 spec_json: " + err.Error() + "。请只输出 JSON 本体，不要多余文本。"}, cqs)
+			prompt = buildPrompt(description, extraHint, []string{"输出不是合法 spec_json: " + err.Error() + "。请只输出 JSON 本体，不要多余文本。"}, cqs, vocab)
 			continue
 		}
 		errs := sp.Validate()
@@ -148,7 +157,7 @@ func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string
 				}
 				fix = append(fix, "（以上为质量门禁检查，请修正后重新输出完整 spec_json）")
 				notify(round, fmt.Sprintf("第 %d 轮有 %d 处质量门禁问题，回喂重试", round, len(fix)))
-				prompt = buildPrompt(description, extraHint, fix, cqs)
+				prompt = buildPrompt(description, extraHint, fix, cqs, vocab)
 				continue
 			}
 		}
@@ -162,7 +171,7 @@ func (c *Creator) DraftWithCQ(ctx context.Context, description, extraHint string
 		for _, e := range errs {
 			msgs = append(msgs, e.Error())
 		}
-		prompt = buildPrompt(description, extraHint, msgs, cqs)
+		prompt = buildPrompt(description, extraHint, msgs, cqs, vocab)
 	}
 	return nil, fmt.Errorf("生成循环异常退出")
 }
@@ -237,7 +246,10 @@ func pickSeed(description string) string {
 	return ""
 }
 
-func buildPrompt(description, extraHint string, fixErrors []string, cqs []string) string {
+// buildPrompt 生成 prompt 单源组装（静态骨架+few-shot+词表上下文+领域描述+补充要求+回喂错误）。
+// vocab REQ-543/M350：仓内词表上下文段（vocabctx.Builder 组装传入；空串=整段缺席——增强非依赖，
+// few-shot 无命中同口径）。
+func buildPrompt(description, extraHint string, fixErrors []string, cqs []string, vocab string) string {
 	var b strings.Builder
 	b.WriteString(SpecRolePrompt)
 	b.WriteString(SpecSchemaHint)
@@ -245,6 +257,11 @@ func buildPrompt(description, extraHint string, fixErrors []string, cqs []string
 	// REQ-271⑤：few-shot 种子范例接线（M70 死代码转正——按领域关键词注入最相近种子的紧凑片段）
 	if fs := buildFewShot(description); fs != "" {
 		b.WriteString(fs)
+	}
+	// REQ-543/M350：仓内词表上下文注入位（数据段 vocabctx 组装、拼接单源在本函数）
+	if vocab != "" {
+		b.WriteString("\n\n")
+		b.WriteString(vocab)
 	}
 	b.WriteString("\n\n领域描述：\n")
 	b.WriteString(description)

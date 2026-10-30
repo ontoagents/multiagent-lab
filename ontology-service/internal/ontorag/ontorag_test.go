@@ -167,13 +167,13 @@ func TestValidateAgainstTarget(t *testing.T) {
 func TestRenderExtenderPrompt(t *testing.T) {
 	els := ElementsFromSpec("onto1", testSpec())
 	hits := []Hit{{Element: els[0], Score: 0.87}}
-	p := RenderExtenderPrompt("药物可治疗哪些疾病？", hits, ProfileRestriction)
+	p := RenderExtenderPrompt("药物可治疗哪些疾病？", hits, ProfileRestriction, "")
 	for _, want := range []string{"药物可治疗哪些疾病？", "限制型", "只读上下文", "Disease"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt 缺少 %q", want)
 		}
 	}
-	if !strings.Contains(RenderExtenderPrompt("q", nil, ""), "检索无命中") {
+	if !strings.Contains(RenderExtenderPrompt("q", nil, "", ""), "检索无命中") {
 		t.Fatalf("空命中应给无命中引导")
 	}
 }

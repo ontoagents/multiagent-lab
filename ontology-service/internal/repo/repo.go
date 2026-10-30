@@ -191,6 +191,34 @@ func (s *Store) GetOntology(id string) (*Ontology, error) {
 	return &o, nil
 }
 
+// OntologyHead 本体头信息轻量行投影（REQ-543/M350 vocabctx 版本指纹/清单渲染数据源）：
+// 单行查询零工件读——与 ListOntologies 的差异是不做 fillStats（spec 工件读），
+// 供高频读路径（词表上下文指纹计算）避免重复工件开销。
+type OntologyHead struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     int    `json:"version"`
+}
+
+// ListOntologyHeads 全部本体头信息（最近更新优先，排序同 ListOntologies）。
+func (s *Store) ListOntologyHeads() ([]OntologyHead, error) {
+	rows, err := s.db.Query(`SELECT id,name,description,version FROM ontology ORDER BY updated_at DESC, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OntologyHead{}
+	for rows.Next() {
+		var h OntologyHead
+		if err := rows.Scan(&h.ID, &h.Name, &h.Description, &h.Version); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) fillStats(o *Ontology) error {
 	raw, _, err := s.GetArtifact(o.ID, "spec_json")
 	if err != nil {

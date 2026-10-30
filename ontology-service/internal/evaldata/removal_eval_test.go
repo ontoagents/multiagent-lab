@@ -129,7 +129,7 @@ func TestRemovalEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("检索失败: %v", err)
 	}
-	gen := ontorag.Generate(ctx, llm, kept, cq, ontorag.ProfileStructure, hits, func(msg string) {
+	gen := ontorag.Generate(ctx, llm, kept, cq, ontorag.ProfileStructure, hits, "", func(msg string) {
 		t.Logf("  [生成] %s", msg)
 	})
 	if gen.Status != "ok" || gen.Fragment == nil {

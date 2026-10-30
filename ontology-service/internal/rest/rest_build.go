@@ -540,7 +540,9 @@ func (s *Server) aiDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// REQ-248/G2：CQ 显式入参（DraftWithCQ 并入 prompt 且回写 spec.CQ 入资产）
-	res, err := s.LLM.DraftWithCQ(r.Context(), req.Description, req.ExtraHint, req.CapabilityQuestions)
+	// REQ-543/M350：注入仓内清单+可复用词表提示（vocabctx.RepoList——空仓返回空串整段不进
+	// prompt；同版本缓存护栏③使重复创建不重复读工件组装）
+	res, err := s.LLM.DraftWithVocab(r.Context(), req.Description, req.ExtraHint, req.CapabilityQuestions, s.vocabCtx.RepoList())
 	if res == nil {
 		writeErr(w, err)
 		return

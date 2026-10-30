@@ -157,6 +157,9 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 		// Extender：逐 CQ 检索 top-k + 生成片段 + 两阶段校验（失败标记不静默入库）
 		buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
 			client := ontorag.NewClient(s.LLM.PlatformURL)
+			// REQ-543/M350：已登记 external_refs 被引本体词表段——每 job 构建一次逐 CQ 复用
+			//（同版本缓存护栏③；空串=无仓内引用整段不进 prompt）
+			refVocab := s.vocabCtx.RefVocab(oid)
 			fragments = make([]*ontorag.GenerateResult, 0, len(cqs))
 			used := 0
 			for i, cq := range cqs {
@@ -168,7 +171,7 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 				}
 				used += len(hits)
 				setProgress(fmt.Sprintf("CQ %d/%d：生成片段（命中 %d 元素）", i+1, len(cqs), len(hits)))
-				res := ontorag.Generate(ctx, s.LLM, target, cq, profile, hits,
+				res := ontorag.Generate(ctx, s.LLM, target, cq, profile, hits, refVocab,
 					func(msg string) { setProgress(fmt.Sprintf("CQ %d/%d：%s", i+1, len(cqs), msg)) })
 				fragments = append(fragments, res)
 			}
@@ -176,7 +179,7 @@ func (s *Server) runCQRAGDraft(job *draftJob, oid string, target *pkgspec.Spec, 
 			if okN == 0 {
 				return fmt.Sprintf("全部 %d 条 CQ 片段生成失败", failN), fmt.Errorf("全部 CQ 片段生成失败（两阶段校验未过或模型调用失败）——已如实标记，不静默入库")
 			}
-			return fmt.Sprintf("CQ %d 条：成功 %d / 失败 %d（命中元素 %d 条次）", len(cqs), okN, failN, used), nil
+			return fmt.Sprintf("CQ %d 条：成功 %d / 失败 %d（命中元素 %d 条次·被引词表注入=%t）", len(cqs), okN, failN, used, refVocab != ""), nil
 		}},
 		// Integrator：去重合并 + 质量报告预检（strict 强制在 merge/apply；此处仅预览报告）
 		buildflow.Segment{Stage: buildflow.StageGate, Run: func(_ context.Context) (string, error) {

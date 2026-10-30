@@ -46,10 +46,14 @@ const fragmentSchema = `{"type":"object","required":["concepts","relations"],"pr
 const extenderSystem = `你是本体工程师。请尽可能复用已提供目标本体中的元素；确需新建元素时保持与目标本体一致的命名风格。只输出一个 JSON 对象（spec 片段），不要 markdown 代码块或其他文本。`
 
 // extenderUser 用户提示模板（论文 USER_TMPL 要点翻译：任务声明/复用优先/只读上下文/指令/注意事项/陷阱）。
+// {refVocab} REQ-543/M350：已登记 external_refs 被引本体词表段（vocabctx.Builder.RefVocab 组装，
+// 含中性文案与「可引用名册仍限目标∪片段」边界；空串时整槽缺席）。
 const extenderUser = `任务：基于能力问题（CQ）与目标本体上下文，生成建模该 CQ 的本体片段——要求未来存在 SPARQL 查询能从该本体取出这条 CQ 的答案。
 
 目标本体已有元素（只读上下文——优先复用，不要重复声明同名元素）：
 {elements}
+
+{refVocab}
 
 能力问题：{cq}
 
@@ -86,8 +90,9 @@ var profileDirectives = map[string]string{
 }
 
 // RenderExtenderPrompt 组装生成 prompt（elements 按来源分组渲染——单目标本体场景即一组）。
-// 返回（user prompt, 命中元素的可读摘要清单）。
-func RenderExtenderPrompt(cq string, hits []Hit, profile string) string {
+// refVocab REQ-543/M350：已登记被引本体词表段（vocabctx 组装传入；空串=槽位整段缺席，
+// 不留占位符残留）。prompt 拼接单源仍在本模板（词表数据不感知仓库）。
+func RenderExtenderPrompt(cq string, hits []Hit, profile, refVocab string) string {
 	var b strings.Builder
 	if len(hits) == 0 {
 		b.WriteString("（检索无命中——目标本体中没有语义相近元素，请全部新建并保持命名风格一致）")
@@ -101,6 +106,13 @@ func RenderExtenderPrompt(cq string, hits []Hit, profile string) string {
 		pd = profileDirectives[ProfileStructure]
 	}
 	p := strings.Replace(extenderUser, "{elements}", b.String(), 1)
+	if refVocab != "" {
+		p = strings.Replace(p, "{refVocab}", refVocab, 1)
+	} else {
+		// 空段：整槽（含其后空行）摘除，不留占位符/多余空行
+		p = strings.Replace(p, "{refVocab}\n\n", "", 1)
+		p = strings.Replace(p, "{refVocab}", "", 1)
+	}
 	p = strings.Replace(p, "{cq}", cq, 1)
 	p = strings.Replace(p, "{profileDirective}", pd, 1)
 	return p
@@ -117,9 +129,11 @@ type GenerateResult struct {
 }
 
 // Generate 单条 CQ 生成+两阶段校验主循环（回喂重试 ≤2 轮；仍失败标记 failed）。
-func Generate(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, cq, profile string, hits []Hit, onProgress func(msg string)) *GenerateResult {
+// refVocab REQ-543/M350：已登记被引本体词表段（vocabctx.Builder.RefVocab 组装；调用方每 job
+// 构建一次逐 CQ 复用——同版本不重复组装=成本护栏③；回喂重试轮沿用同一 prompt 底稿）。
+func Generate(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, cq, profile string, hits []Hit, refVocab string, onProgress func(msg string)) *GenerateResult {
 	res := &GenerateResult{CQ: cq, Used: hits}
-	prompt := RenderExtenderPrompt(cq, hits, profile)
+	prompt := RenderExtenderPrompt(cq, hits, profile, refVocab)
 	const maxRounds = 2
 	for round := 1; round <= maxRounds; round++ {
 		if onProgress != nil {

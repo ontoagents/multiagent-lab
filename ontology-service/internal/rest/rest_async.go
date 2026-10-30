@@ -95,7 +95,8 @@ func (s *Server) aiDraftAsync(w http.ResponseWriter, r *http.Request) {
 			}},
 			buildflow.Segment{Stage: buildflow.StageExtract, Skip: true}, // 抽取与草稿在 llmcreate 生成-校验循环内聚
 			buildflow.Segment{Stage: buildflow.StageDraft, Run: func(ctx context.Context) (string, error) {
-				res, err := s.LLM.DraftWithCQ(ctx, desc, req.ExtraHint, req.CapabilityQuestions,
+				// REQ-543/M350：注入仓内清单+可复用词表提示（vocabctx.RepoList——空仓整段不进 prompt）
+				res, err := s.LLM.DraftWithVocab(ctx, desc, req.ExtraHint, req.CapabilityQuestions, s.vocabCtx.RepoList(),
 					func(round int, msg string) { // REQ-295③：实测轮次进度透出（「第 N/M 轮…」，永不虚构百分比）
 						draftJobsMu.Lock()
 						job.Progress = msg

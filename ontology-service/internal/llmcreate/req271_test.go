@@ -31,14 +31,14 @@ func TestTimeoutConfig(t *testing.T) {
 
 // REQ-271⑤：few-shot 种子范例接线——命中种子的领域描述其生成 prompt 含范例段。
 func TestBuildPromptFewShotWired(t *testing.T) {
-	hit := buildPrompt("医学常识本体：症状、疾病与药物的对照关系", "", nil, nil)
+	hit := buildPrompt("医学常识本体：症状、疾病与药物的对照关系", "", nil, nil, "")
 	if !strings.Contains(hit, FewShotHeaderPrompt) {
 		t.Fatal("命中种子的领域描述应注入 few-shot 范例段（M70 死代码转正）")
 	}
 	if !strings.Contains(hit, "concepts") {
 		t.Fatal("范例段应含种子概念 JSON")
 	}
-	miss := buildPrompt("陶瓷茶具的手工拉坯工艺记录", "", nil, nil)
+	miss := buildPrompt("陶瓷茶具的手工拉坯工艺记录", "", nil, nil, "")
 	if strings.Contains(miss, FewShotHeaderPrompt) {
 		t.Fatal("无命中种子时不应注入范例段")
 	}
