@@ -431,6 +431,42 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		}
 	}
 	budgetTokens := ContextBudget(ctxMode)
+	// REQ-531/M338（P12）：注入预算复检——历史裁剪在 buildRunContext（注入前），召回注入发生在
+	// 裁剪之后不受 context_mode 约束（compact 档 6k 配 graphrag+community+伴生可叠加数 k tokens
+	// 无治理）。复检：历史+注入总 tokens 超预算 → 按注入条目**尾部优先**（最早注入先删——保留
+	// 最相关末源）逐源截断整条 system 注入并 run.warning 诚实标注（沿 A2 截断标注纪律）。
+	// 已落库的 system 消息（REQ-516）不回收（续轮可见性优先——截断仅作用本轮装配内存态）。
+	totalTokens := estimateMessages(histMsgs)
+	trimRatio := 0.0
+	if totalTokens > budgetTokens && len(injections) > 0 {
+		trimRatio = 1.0 - float64(budgetTokens)/float64(totalTokens)
+		for i := 0; i < len(injections) && totalTokens > budgetTokens; i++ {
+			inj := injections[i]
+			n, _ := inj["messages"].(int)
+			if n <= 0 {
+				continue
+			}
+			start := histCount // 注入区起点（历史区之后）
+			if start+n > len(histMsgs) {
+				continue
+			}
+			removed := histMsgs[start : start+n]
+			removedTokens := estimateMessages(removed)
+			histMsgs = append(histMsgs[:start], histMsgs[start+n:]...)
+			totalTokens -= removedTokens
+			inj["trimmed"] = true
+			inj["trimmed_messages"] = n
+			s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{
+				"message": fmt.Sprintf("上下文超预算（%s 档 %d tokens）——召回注入「%s」%d 条已截断（本轮不参与装配，落库副本续轮仍可见）", contextModeLabel(ctxMode), budgetTokens, inj["source"], n),
+			}), emit)
+		}
+	}
+	injectionTokens := 0
+	for _, inj := range injections {
+		if t, ok := inj["chars"].(int); ok {
+			injectionTokens += t
+		}
+	}
 	stats := map[string]any{
 		"budget_mode":      contextModeLabel(ctxMode),
 		"budget_mode_source": ctxModeSrc,
@@ -441,6 +477,14 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		"pruned_count":     cr.PrunedCount,
 		"summarized":       cr.Summarized,
 		"injections":       injections,
+		// REQ-531/M338：注入占比（per-section 归因最小兑现——54 号开放问题 2）
+		"injection_ratio": func() float64 {
+			if budgetTokens > 0 {
+				return float64(injectionTokens) / float64(budgetTokens)
+			}
+			return 0
+		}(),
+		"trim_ratio": trimRatio,
 	}
 	s.emitAndRecord(runCtx, conv, runID, newEvent("context.stats", runID, stats), emit)
 
