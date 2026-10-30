@@ -172,6 +172,32 @@ func TestPlanMissingOntologyAccurateReason_Req540(t *testing.T) {
 	}
 }
 
+// 二轮评审修正：Missing 与 Drifted 并存合并为同方案单条 reload 动作（两条独立动作会
+// apply 两次=同方案连续两轮 Stop/Start 重复重载）。
+func TestPlanMissingAndDriftedSingleAction_Req540(t *testing.T) {
+	url := planStub(t, "["+planProfile("pA", []string{"A"}, "running", `{"A":3,"B":2}`)+"]")
+	plan, err := Plan(context.Background(), url, map[string]int{"A": 5}, nil) // A 版本漂移 + B 已删
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := plan.Profiles[0]
+	if len(st.Missing) != 1 || st.Missing[0] != "B" {
+		t.Fatalf("Missing 应为 [B]: %+v", st.Missing)
+	}
+	if len(st.Drifted) != 1 || st.Drifted[0] != "A" {
+		t.Fatalf("Drifted 应为 [A]: %v", st.Drifted)
+	}
+	if len(plan.Actions) != 1 {
+		t.Fatalf("同方案应合并为单条动作（防 apply 双轮重载）: %+v", plan.Actions)
+	}
+	if plan.Actions[0].Action != "reload" {
+		t.Fatalf("合并动作应为 reload: %+v", plan.Actions[0])
+	}
+	if !containsStr(plan.Actions[0].Reason, "已从构建平面删除") || !containsStr(plan.Actions[0].Reason, "spec 版本漂移") {
+		t.Fatalf("合并原因应同时含 Missing 与 Drifted 两段: %q", plan.Actions[0].Reason)
+	}
+}
+
 func containsStr(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {

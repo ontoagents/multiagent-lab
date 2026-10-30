@@ -61,6 +61,38 @@ func TestExpandClosure_PinCollect_Req540(t *testing.T) {
 	}
 }
 
+// 二轮评审修正：PinConflicts 从访问集全部登记收集（不限 ref_kind）——纯 alignment 目标
+// 不 import 不入闭包不装载，冲突行措辞不得断言「按最低装载」。
+func TestExpandClosure_PinConflictNotLoaded_Req540(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/ontologies/A/external-refs", refStub(
+		`[{"from_concept":"P","to_onto_id":"E","to_concept":"e1","ref_kind":"alignment","pin_version":1},
+		  {"from_concept":"Q","to_onto_id":"E","to_concept":"e2","ref_kind":"alignment","pin_version":4}]`))
+	mux.HandleFunc("/api/ontologies/E/external-refs", refStub(`[]`))
+	svc := httptest.NewServer(mux)
+	defer svc.Close()
+	m := &Manager{HTTP: &http.Client{}, BuildURL: svc.URL, LogDir: t.TempDir()}
+	rep, err := m.expandClosure([]string{"A"})
+	if err != nil {
+		t.Fatalf("expandClosure: %v", err)
+	}
+	if rep.PinConflicts["E"] != "v1/v4" {
+		t.Fatalf("E pin 冲突集期望 v1/v4，实际 %q", rep.PinConflicts["E"])
+	}
+	for _, oid := range rep.Effective {
+		if oid == "E" {
+			t.Fatalf("alignment 目标不应入装载清单: %v", rep.Effective)
+		}
+	}
+	joined := strings.Join(rep.logLines(), "\n")
+	if !strings.Contains(joined, "pin 冲突: E 多登记 pin v1/v4——目标不在本次装载清单") {
+		t.Fatalf("未装载目标的冲突行应分流措辞不断言装载:\n%s", joined)
+	}
+	if strings.Contains(joined, "按最低 v2 装载；较高") && strings.Contains(joined, "E") {
+		t.Fatalf("未装载目标不应出现「按最低装载」断言:\n%s", joined)
+	}
+}
+
 func TestFetchTTLWithCountAt_Req540(t *testing.T) {
 	var gotVersion string
 	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

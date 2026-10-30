@@ -270,13 +270,23 @@ func (r *closureReport) logLines() []string {
 	}
 	// 评审修正：多 pin 冲突显式呈现（悬空检测按各登记自身 pin 判、装载按最低取内容——
 	// 较高 pin 登记期望的概念可能不在装载内容且不被门禁拦截，不静默）。
+	// 二轮评审修正：「按最低装载」断言仅对入装载清单的目标成立——PinConflicts 从访问集
+	// 全部登记收集（不限 ref_kind），纯 alignment 目标不 import 不入闭包不装载，措辞分流。
+	effectiveSet := map[string]bool{}
+	for _, oid := range r.Effective {
+		effectiveSet[oid] = true
+	}
 	conflicts := make([]string, 0, len(r.PinConflicts))
 	for t := range r.PinConflicts {
 		conflicts = append(conflicts, t)
 	}
 	sort.Strings(conflicts)
 	for _, t := range conflicts {
-		lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] pin 冲突: %s 多登记 pin %s——按最低 v%d 装载；较高 pin 登记期望的概念可能不在装载内容（建议统一 pin）", t, r.PinConflicts[t], r.Pins[t]))
+		if effectiveSet[t] {
+			lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] pin 冲突: %s 多登记 pin %s——按最低 v%d 装载；较高 pin 登记期望的概念可能不在装载内容（建议统一 pin）", t, r.PinConflicts[t], r.Pins[t]))
+		} else {
+			lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] pin 冲突: %s 多登记 pin %s——目标不在本次装载清单（alignment 等登记仅对账依据，无内容装载；若声明装载按最低 v%d 取内容）", t, r.PinConflicts[t], r.Pins[t]))
+		}
 	}
 	return lines
 }

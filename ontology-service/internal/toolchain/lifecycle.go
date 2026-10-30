@@ -169,20 +169,24 @@ func Plan(ctx context.Context, platformURL string, currentVersions map[string]in
 					st.PinDrifts = append(st.PinDrifts, PinDrift{OntologyID: oid, PinVersion: pin, HeadVersion: st.Current[oid]})
 				}
 			}
+			// 二轮评审修正：Missing 与 Drifted 并存时合并为同方案**单条** reload 动作
+			//（running 分支至多一条动作的既有不变量；两条独立动作会 apply 两次=同方案
+			// 连续两轮 Stop/Start 重复重载）。
+			var reasonParts []string
 			if len(st.Missing) > 0 {
-				plan.Actions = append(plan.Actions, LifecycleAction{
-					ProfileID: p.ID, ProfileName: p.Name, Engine: p.Engine, Action: "reload",
-					Reason: fmt.Sprintf("本体 %s 已从构建平面删除或版本未知（装载快照仍在运行）——重装载将被装载门禁阻断，请先修复引用或摘除声明/闭包来源", strings.Join(st.Missing, "、")),
-				})
+				reasonParts = append(reasonParts, fmt.Sprintf("本体 %s 已从构建平面删除或版本未知（装载快照仍在运行）——重装载将被装载门禁阻断，请先修复引用或摘除声明/闭包来源", strings.Join(st.Missing, "、")))
 			}
 			if len(st.Drifted) > 0 {
-				reason := fmt.Sprintf("spec 版本漂移：%s（加载快照落后于当前版本）", strings.Join(st.Drifted, "、"))
+				driftReason := fmt.Sprintf("spec 版本漂移：%s（加载快照落后于当前版本）", strings.Join(st.Drifted, "、"))
 				if len(pinMismatch) > 0 {
-					reason += fmt.Sprintf("；%s 加载快照与登记 pin 版本不一致（重装载按 pin 取版本）", strings.Join(pinMismatch, "、"))
+					driftReason += fmt.Sprintf("；%s 加载快照与登记 pin 版本不一致（重装载按 pin 取版本）", strings.Join(pinMismatch, "、"))
 				}
+				reasonParts = append(reasonParts, driftReason)
+			}
+			if len(reasonParts) > 0 {
 				plan.Actions = append(plan.Actions, LifecycleAction{
 					ProfileID: p.ID, ProfileName: p.Name, Engine: p.Engine, Action: "reload",
-					Reason: reason,
+					Reason: strings.Join(reasonParts, "；"),
 				})
 			} else if st.UnknownDrift {
 				plan.Actions = append(plan.Actions, LifecycleAction{
