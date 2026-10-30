@@ -1,6 +1,10 @@
 package api
 
 import (
+	"context"
+	"strconv"
+	"time"
+
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -122,7 +126,14 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeEvent("meta", meta)
 
-	if _, err := s.Chat.Run(r.Context(), conv, agent, runID, in.Input, in.DebugLevel, in.DebugPersist, emit); err != nil {
+	// REQ-527/M334（P16）：运行 ctx 与请求 ctx 解耦——r.Context() 在客户端断连（刷新/断网/
+	// 合盖）即取消整场运行，与 C3 LongRun 主打能力直接相悖。detached ctx（Background 派生+
+	// 30min 超时护栏防泄漏）：断连后 SSE 写失效但不取消运行，事件照常落库——刷新后经
+	// GET /api/conversations/{id}/events?run_id= 回放续看（run_event 逐条落库基础设施现成）。
+	// Stop 语义不变（cancels 表显式取消）。对比模式维持请求 ctx（组级取消语义保持）。
+	runCtx, runCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer runCancel()
+	if _, err := s.Chat.Run(runCtx, conv, agent, runID, in.Input, in.DebugLevel, in.DebugPersist, emit); err != nil {
 		ev := chat.NewErrorEvent(runID, "run_failed", err.Error())
 		writeEvent(ev.Type, ev)
 	}
@@ -130,6 +141,38 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	s.Companion.OnRunComplete(conv, agent, runID)
 	// REQ-228①：召回消费追踪（本次 run 的 companion 命中实体是否在回答中出现 → companion.hit 事件）
 	s.Companion.RecordHits(conv.ID, runID)
+}
+
+// runEvents REQ-527/M334（P16 后半）：事件回放——run_id 过滤升序（run_event 逐条落库现成）。
+// 断连/刷新后按此轮询续看推进中运行（offset 增量取新事件）；配合运行 ctx 解耦构成
+// 「任务仍推进+可重挂续看」闭环（live SSE 重挂以轮询承载——单用户轮询开销可忽略）。
+func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
+	convID := r.PathValue("id")
+	q := store.EventQuery{
+		RunID: r.URL.Query().Get("run_id"),
+		Order: "asc",
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil && n >= 0 {
+			q.Offset = n
+		}
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 && n <= 500 {
+			q.Limit = n
+		}
+	}
+	if q.Offset > 0 && q.Limit == 0 {
+		q.Limit = 500 // OFFSET 须配 LIMIT 才拼接（ListEventsQ 语义）——增量轮询默认窗
+	}
+	events, total, err := s.Store.ListEventsQ(convID, q)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total})
 }
 
 // stopConversation 停止运行。

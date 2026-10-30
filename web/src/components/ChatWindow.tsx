@@ -308,6 +308,43 @@ export default function ChatWindow({
     if (!conversation) return
     Promise.all([api.listMessages(conversation.id), api.listEvents(conversation.id).catch(() => [] as never[])])
       .then(([msgs, evs]) => {
+        // REQ-527/M334：刷新重挂——运行 ctx 已与请求解耦（后端断连不取消），打开会话若
+        // phase=running（会话状态机判据）则 10s 轮询事件回放：fresh 事件按 id 去重后
+        // 逐条 applyRunEvent 追加进消息流（复用既有翻译管线；运行结束提示刷新拿最终消息）
+        api.conversationState(conversation.id).then((st) => {
+          if (!alive || st.phase !== 'running') return
+          showToast('检测到进行中的运行——已接管续看（事件实时回放）')
+          const t = setInterval(() => {
+            api.conversationState(conversation.id).then(async (s2) => {
+              const e2 = await api.listEvents(conversation.id, { order: 'desc', limit: 80 }).catch(() => [])
+              const fresh = e2.filter((e) => !seenEventsRef.current.has(e.id)).reverse()
+              fresh.forEach((e) => seenEventsRef.current.add(e.id))
+              if (alive && fresh.length > 0) {
+                let pid = ''
+                let pdata: any = {}
+                setItems((prev) => {
+                  let cur = prev
+                  for (const e of fresh) {
+                    let payload: any = {}
+                    try {
+                      payload = e.data ? JSON.parse(e.data) : {}
+                    } catch { /* 非 JSON 事件按空载荷 */ }
+                    pid = e.run_id ?? pid
+                    pdata = payload
+                    cur = applyRunEvent(cur, e.type, payload, `replay-${e.run_id ?? 'x'}`)
+                  }
+                  return cur
+                })
+                if (pid) runKeyRef.current = `replay-${pid}`
+                void pdata
+              }
+              if (s2.phase !== 'running') {
+                clearInterval(t)
+                if (alive) showToast('后台运行已结束——重新打开会话可加载最终消息')
+              }
+            }).catch(() => clearInterval(t))
+          }, 10_000)
+        }).catch(() => {})
         if (!alive) return
         seenEventsRef.current = new Set(evs.map((e) => e.id)) // REQ-281：已回放事件标记，轮询只补增量
         const timeline: { ts: string; item: ChatItem }[] = []
