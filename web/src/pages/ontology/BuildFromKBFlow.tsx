@@ -1,4 +1,5 @@
 import DoneCTA from './components/DoneCTA'
+import CqQuickScreen from './components/CqQuickScreen'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Radio, Segmented, Select, Space, Steps, Table, Tag, Tooltip, Typography, Upload } from 'antd'
 import { CheckCircleOutlined, DatabaseOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
@@ -634,6 +635,8 @@ export function StructuredFlow() {
       {createdId && (
         <div style={{ marginTop: 10 }}>
           <DoneCTA ontologyId={createdId} detail="结构化骨架本体已创建" />
+          {/* REQ-500/M308：导入应用后快筛入口前移（默认开） */}
+          <CqQuickScreen ontologyId={createdId} autoStart />
         </div>
       )}
     </Card>

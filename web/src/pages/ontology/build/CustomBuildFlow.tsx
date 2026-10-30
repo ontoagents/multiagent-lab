@@ -1,4 +1,5 @@
 import DoneCTA from '../components/DoneCTA'
+import CqQuickScreen from '../components/CqQuickScreen'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
 import {
@@ -1002,6 +1003,8 @@ function S4VisualPane({ ontologyId, spec, onPrev }: { ontologyId: string | null;
       {ontologyId && (
         <div style={{ marginTop: 10 }}>
           <DoneCTA ontologyId={ontologyId} detail="S1~S4 构建段完成" />
+          {/* REQ-500/M308：建完即可测完成仪式——CQ 覆盖快筛就地化（学习动线默认开，成本护栏三条） */}
+          <CqQuickScreen ontologyId={ontologyId} autoStart />
         </div>
       )}
     </>
