@@ -103,13 +103,19 @@ func TestPublishEndpointFreezesRelease_Req541(t *testing.T) {
 		t.Fatal("TTL 工件内容 sha256 应与冻结 digest 一致")
 	}
 	// 工件端点：spec_json + manifest
-	resp5, _ := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/spec_json")
+	resp5, err5 := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/spec_json")
+	if err5 != nil {
+		t.Fatal(err5)
+	}
 	defer resp5.Body.Close()
 	b5, _ := io.ReadAll(resp5.Body)
 	if resp5.Header.Get("X-Release-Digest") != specSum || sum256InTest(string(b5)) != specSum {
 		t.Fatal("spec_json 工件应携带且内容匹配冻结 digest")
 	}
-	resp6, _ := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/manifest")
+	resp6, err6 := http.Get(srv.URL + "/api/ontologies/ontest/releases/2/artifact/manifest")
+	if err6 != nil {
+		t.Fatal(err6)
+	}
 	defer resp6.Body.Close()
 	b6, _ := io.ReadAll(resp6.Body)
 	if !strings.Contains(string(b6), `"ontology_id":"ontest"`) || !strings.Contains(string(b6), `"dependencies":[]`) {
