@@ -35,6 +35,13 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
     // REQ-514/M321：断流可感知——client 层合成事件（流结束未收终态），非后端发出
     case 'connection.lost':
       return { text: `⚠ ${d?.message ?? '连接中断，内容可能不完整'}——回答可能不完整，可重新生成`, err: true }
+    // REQ-525/M332：长任务触达三事件（REQ-385/M181 steer 链——安全点生效的时延预期写进文案防误解为即时打断）
+    case 'steer.pushed':
+      return { text: `✋ 已受理插话「${d?.note ?? ''}」${d?.late ? '（运行已收束——插话已入会话历史，可重新发送继续）' : '（将在安全点生效）'}`, warn: !!d?.late }
+    case 'run.preempted':
+      return { text: '↻ 插话生效——当前轮在安全点终止，下一轮以全量历史接续' }
+    case 'steer.applied':
+      return { text: `✓ 插话已消费${d?.recall_in_store ? '（检索上下文已随历史可见）' : ''}` }
     case 'model.step': {
       // REQ-117/M17：模型调用链路（调试观测）
       const parts = [`🧠 模型调用 #${d?.seq ?? '?'}`]
@@ -269,6 +276,7 @@ const KEY_GRANULARITY_TYPES = new Set([
   'artifact.saved', 'approval.granted', 'approval.denied', 'hook.denied',
   'verify.completed', 'verify.failed', 'connector.degraded', 'context.stats',
   'connection.lost', // REQ-514/M321：断流卡必须跨粒度可见（状态诚实性）
+  'steer.pushed', 'steer.applied', // REQ-525/M332：插话触达跨粒度可见（run.preempted 有 run. 前缀已覆盖）
 ])
 export function isKeyGranularity(type: string): boolean {
   return KEY_GRANULARITY_PREFIXES.some((p) => type.startsWith(p)) || KEY_GRANULARITY_TYPES.has(type)

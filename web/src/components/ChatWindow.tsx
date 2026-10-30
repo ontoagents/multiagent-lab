@@ -1575,6 +1575,21 @@ export default function ChatWindow({
     api.stopConversation(conversation.id).catch(() => {})
   }
 
+  // REQ-525/M332：运行中插话（steer）——输入框提交改走 /steer（TurnLoop 抢占安全点生效）；
+  // 插话先落消息流（后端 Steer 落库）→ steer.pushed/preempted/applied 三事件经 SSE 呈现；
+  // 失败 toast 人话（无进行中 TurnLoop 运行——对比窗格多路或已收束）。
+  const steer = async (message: string) => {
+    const text = message.trim()
+    if (!text || !running) return
+    setInput('')
+    try {
+      const r = await api.steerConversation(conversation.id, text)
+      if (!r.steered) showToast('当前没有可介入的运行——消息未发送，请待运行结束后重新发送', 'err')
+    } catch (e: any) {
+      showToast(e?.message ?? '插话失败', 'err')
+    }
+  }
+
   // REQ-113①：导出对话为 Markdown 下载（events=含过程事件附录）
   const exportMarkdown = async (withEvents: boolean) => {
     try {
@@ -1602,7 +1617,9 @@ export default function ChatWindow({
   const agentApprovalLabel = agent?.tool_approval === 'danger' ? '危险工具审批' : agent?.tool_approval === 'all' ? '全部审批' : '关闭（直接执行）'
   const canSend = isProjectScope ? !!project : !!agent
   const placeholder = canSend
-    ? `给「${subjectName}」发消息…`
+    ? running
+      ? `运行中——输入将作为插话在安全点介入「${subjectName}」…`
+      : `给「${subjectName}」发消息…`
     : isProjectScope
       ? '项目尚未配置成员智能体'
       : '请先创建智能体'
@@ -1940,6 +1957,7 @@ export default function ChatWindow({
         conversationOntologyEnabled={conversation.ontology_enabled}
         patchConv={patchConv as never}
         onSend={send}
+        onSteer={steer}
         onStop={stop}
         onUploadAttachments={(f) => void uploadAttachments(f)}
       />

@@ -533,6 +533,9 @@ export const api = {
   /** REQ-208：中途引导（运行中→轮界续跑消费；已收束→直接续跑） */
   steerDelegate: (id: string, message: string) =>
     req<ConversationDelegate>(`/api/delegates/${id}/steer`, { method: 'POST', body: JSON.stringify({ message }) }),
+  /** REQ-385/M181 + REQ-525/M332：主会话运行中介入（TurnLoop 抢占式 steer——安全点生效非即时打断） */
+  steerConversation: (id: string, message: string) =>
+    req<{ steered: boolean }>(`/api/conversations/${id}/steer`, { method: 'POST', body: JSON.stringify({ message }) }),
   /** REQ-208：打断 */
   interruptDelegate: (id: string) => req<ConversationDelegate>(`/api/delegates/${id}/interrupt`, { method: 'POST' }),
   /** REQ-208：冷恢复/续跑 */

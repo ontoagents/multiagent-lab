@@ -40,6 +40,7 @@ export default function Composer({
   conversationOntologyEnabled,
   patchConv,
   onSend,
+  onSteer,
   onStop,
   onUploadAttachments,
 }: {
@@ -76,6 +77,8 @@ export default function Composer({
   conversationOntologyEnabled?: boolean
   patchConv: (patch: Record<string, unknown>) => void
   onSend: () => void
+  /** REQ-525/M332：运行中插话回调（onSteer 在位且 running 时 Sender 提交走插话而非新运行） */
+  onSteer?: (message: string) => void
   onStop: () => void
   onUploadAttachments: (files: FileList | null) => void
 }) {
@@ -180,6 +183,15 @@ export default function Composer({
           onSubmit={() => onSend()}
           onCancel={onStop}
           loading={running}
+          onKeyDown={(e) => {
+            // REQ-525/M332：运行中 Enter=插话——Sender loading 态 triggerSend 被 !loading 短路
+            //（源码 134 行），此处拦截转发 onSteer；返回 false 阻止 Sender 内部 Enter 处理
+            if (running && onSteer && e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+              e.preventDefault()
+              onSteer(input)
+              return false
+            }
+          }}
           placeholder={placeholder}
           disabled={!canSend}
           footer={

@@ -144,7 +144,8 @@ export function applyRunEvent(prev: ChatItem[], event: string, payload: any, run
         event === 'run.warning' || event === 'model.step' || event === 'approval.request' ||
         event === 'approval.granted' || event === 'approval.denied' || event === 'hook.denied' ||
         event === 'verify.completed' || event === 'verify.failed' || event === 'connector.degraded' ||
-        event === 'artifact.saved' || event === 'debug.cli' || event === 'context.stats'
+        event === 'artifact.saved' || event === 'debug.cli' || event === 'context.stats' ||
+        event === 'steer.pushed' || event === 'run.preempted' || event === 'steer.applied' // REQ-525/M332 长任务触达
       ) {
         const desc = describeEvent(event, payload)
         const next = sealReasoning([...prev])
