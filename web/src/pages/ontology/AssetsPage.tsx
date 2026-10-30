@@ -29,6 +29,7 @@ import SourceView from './components/SourceView'
 import AxiomsRawPane from './components/assets/AxiomsRawPane'
 import SpecEditorPane from './components/assets/SpecEditorPane'
 import ImpactPane from './components/assets/ImpactPane'
+import ClosurePreviewPane from './components/assets/ClosurePreviewPane'
 import CommunityPane from './components/companion/CommunityPane'
 import { ArtifactsPane, ExportPane, ValidatePane } from './components/assets/AssetPanes'
 import { RenameModal, VizTabs } from './components/assets/AssetExtras'
@@ -988,6 +989,10 @@ export default function AssetsPage() {
                         concepts={(spec?.concepts ?? []).map((c: any) => c.name)}
                         ontos={ontos.map((o) => ({ id: o.id, name: o.name }))}
                       />
+                    </div>
+                    {/* REQ-542/M349：依赖闭包预览（构建面只读三出料，与关联本体登记纵向并置） */}
+                    <div style={{ marginTop: 18 }}>
+                      <ClosurePreviewPane key={active.id} ontologyId={active.id} />
                     </div>
                     <div style={{ marginTop: 18 }}>
                       <ArtifactsPane ontologyId={active.id} />

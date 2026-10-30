@@ -71,6 +71,7 @@ import type {
   Connector,
   OverlayRow,
   ImpactReport,
+  ClosurePreview,
   QuizItem,
 } from './types'
 
@@ -839,6 +840,8 @@ export const api = {
     if (to) q.set('to', String(to))
     return req<{ report: ImpactReport }>(`/api/ontologies/${id}/impact?${q}`).then((r) => r.report)
   },
+  /** REQ-542/M349 构建面只读闭包预览（三出料=闭包图+解析后 schema+环专项报告；不回写不阻断） */
+  closurePreview: (id: string) => req<ClosurePreview>(`/api/ontologies/${id}/closure-preview`),
   restoreOntologyVersion: (id: string, version: number) =>
     req<{ restored_from: number; new_version: number; ontology: Ontology }>(`/api/ontologies/${id}/versions/${version}/restore`, { method: 'POST' }),
   /** REQ-240⑥/M66：图布局持久化 artifact（layout_json 派生数据，不写回 spec） */

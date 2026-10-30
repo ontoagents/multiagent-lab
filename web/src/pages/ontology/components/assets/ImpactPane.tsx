@@ -71,7 +71,7 @@ export default function ImpactPane({ ontology }: { ontology: Ontology }) {
         showIcon
         style={{ marginBottom: 12 }}
         title="变更影响分析（REQ-278）"
-        description="两版本结构 diff → 引用闭包波及面（悬空引用/子树波及）+ 风险分级（删除被引用概念=high）+ 疑似蕴含边检测（A→C 已有 A→B→C 二跳路径，只检测不自动删）。发布前建议先看本报告。"
+        description="两版本结构 diff → 引用闭包波及面（悬空引用/子树波及）+ 风险分级（删除被引用概念=high）+ 疑似蕴含边检测（A→C 已有 A→B→C 二跳路径，只检测不自动删）。发布前建议先看本报告；全量依赖闭包图与解析后 schema 见「引用与产物 → 依赖闭包预览」（REQ-542）。"
       />
       <Space style={{ marginBottom: 12 }} wrap>
         <Select

@@ -1257,6 +1257,50 @@ export interface ImpactReport {
   summary: { high: number; medium: number; low: number }
 }
 
+/** REQ-542/M349 构建面只读闭包预览（GET /api/ontologies/{id}/closure-preview；三出料集合） */
+export interface ClosureNode {
+  onto_id: string
+  name?: string
+  resolution: 'root' | 'head' | 'pin' | 'missing'
+  version: number
+  concepts: number
+  spec_sha256?: string
+}
+export interface ClosureEdge {
+  from_onto_id: string
+  to_onto_id: string
+  ref_kind: 'import' | 'reuse'
+  from_concept?: string
+  to_concept?: string
+  via_imports?: boolean
+  dangling?: string
+}
+export interface ClosureSchemaSection {
+  onto_id: string
+  resolution: 'root' | 'head' | 'pin'
+  version: number
+  concepts: { name: string; label?: string; definition?: string; parents?: string[]; synonyms?: string[] }[]
+  relations: { name: string; from: string; to: string; label?: string }[]
+  data_properties?: { name: string; domain?: string; range?: string }[]
+}
+export interface ClosurePreview {
+  root_id: string
+  generated_at: string
+  nodes: ClosureNode[]
+  edges: ClosureEdge[]
+  remote_skipped?: string[]
+  dangling?: { onto_id: string; ref_id: string; code: string; detail: string }[]
+  pins?: Record<string, number>
+  pin_conflicts?: Record<string, string>
+  schema: {
+    sections: ClosureSchemaSection[]
+    concept_names: string[]
+    name_conflicts?: { name: string; onto_ids: string[] }[]
+    total_concepts: number
+  }
+  cycles: string[][]
+}
+
 /** overlay 行（GET /api/ontologies/{id}/overlays；effective/missing 为服务端实时计算） */
 export interface OverlayRow {
   ontology_id: string
