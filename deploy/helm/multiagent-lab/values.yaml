@@ -12,6 +12,10 @@ ingress:
   className: nginx
   host: multiagent-lab.local
 
+# REQ-534/M341：默认 NetworkPolicy deny+白名单（同 ns 互通+DNS+HTTPS 出站+可选 ingress）
+networkPolicy:
+  enabled: true
+
 qdrant:
   enabled: false        # 知识库向量检索需要时开启（backend env 同步指向）
   image: qdrant/qdrant:latest

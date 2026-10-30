@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"os/exec"
@@ -271,12 +272,35 @@ func withStatic(next http.Handler) http.Handler {
 	})
 }
 
-// cors 允许本地前端 dev server 跨域（学习平台，本地使用）。
+// cors REQ-534/M341：CORS 白名单化（本机前端 dev server:5173 + 同源）——替换 ACAO=* 全放行
+// （任意网页跨站可读 API 响应）。技术边界如实注记：CORS 只阻跨站「读响应」，不阻「写执行」
+// （no-cors 简单请求照发）——写侧闭环靠网络收敛（compose 127.0.0.1 绑定）或 PLATFORM_TOKEN。
+// CORS_ALLOW_ORIGINS 可覆盖（逗号分隔；缺省本机 dev server 与同源）。
 func cors(next http.Handler) http.Handler {
+	allowed := map[string]bool{
+		"http://localhost:5173": true,
+		"http://127.0.0.1:5173": true,
+	}
+	if v := os.Getenv("CORS_ALLOW_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowed[o] = true
+			}
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			if o, err := url.Parse(origin); err == nil && o.Host == r.Host {
+				allowed[origin] = true // 同源请求（反代形态）放行
+			}
+		}
+		if origin != "" && allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Add("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Platform-Token")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -1,0 +1,47 @@
+{{- if .Values.networkPolicy.enabled }}
+# REQ-534/M341（P09）：默认 deny+白名单——同 namespace 内三服务互通+DNS+入站 ingress。
+# Helm/K8s 编排形态使「同机互信」假设失效（16 号 §11.4 补注口径），本策略收口横向可达面。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "multiagent-lab.name" (dict "Release" $.Release "component" "default-deny") }}
+  labels:
+    {{- include "multiagent-lab.labels" (dict "Release" $.Release "component" "default-deny") | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # 同 namespace 三服务互访（backend↔ontology-service↔runtime-manager）
+    - from:
+        - podSelector: {}
+    # ingress controller 入站（ingress.enabled 时）
+    {{- if .Values.ingress.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+    {{- end }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 同 namespace 互访
+    - to:
+        - podSelector: {}
+    # 外部 LLM/embedding API（HTTPS 出站——模型连接必需）
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

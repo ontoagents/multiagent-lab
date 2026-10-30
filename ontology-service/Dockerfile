@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=build /out/ontology-service ./ontology-service
 COPY ontology-service/migrations ./migrations
 COPY tools/rdf-sidecar/sidecar.py ./sidecar/sidecar.py
-ENV ADDR=:8091 \
+ENV ADDR=127.0.0.1:8091 \ # REQ-534/M341：同上
     DB_PATH=/app/data/ontology.db \
     MIGRATIONS_DIR=/app/migrations \
     SIDECAR_PYTHON=python3 \

@@ -25,7 +25,7 @@ COPY --from=oxigraph /usr/local/bin/oxigraph /usr/local/bin/oxigraph
 WORKDIR /app
 COPY --from=build /out/runtime-manager ./runtime-manager
 COPY runtime-manager/migrations ./migrations
-ENV ADDR=:8090 \
+ENV ADDR=127.0.0.1:8090 \ # REQ-534/M341：同上
     DB_PATH=/app/data/runtime.db \
     MIGRATIONS_DIR=/app/migrations \
     OXIGRAPH_BIN=/usr/local/bin/oxigraph \
