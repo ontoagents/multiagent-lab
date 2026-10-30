@@ -317,6 +317,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/steer", s.steerConversation) // REQ-385/M181：运行中介入（TurnLoop 抢占式 steer）
 	m.HandleFunc("GET /api/conversations/{id}/run-events", s.runEvents)    // REQ-527/M334：事件回放（run_id 过滤+offset 增量轮询续看）
 	m.HandleFunc("GET /api/search/messages", s.searchMessages)             // REQ-528/M335：会话内容检索（FTS5——跨会话按消息正文定位）
+	m.HandleFunc("POST /api/companion/ontologies/{id}/promote", s.promoteCompanion)            // REQ-529/M336：伴生图→正式本体晋升
+	m.HandleFunc("POST /api/kb/{id}/import-project-file", s.importProjectFileToKB)             // REQ-529/M336：项目产物一键入库
 	m.HandleFunc("GET /api/conversations/{id}/export", s.exportConversation) // REQ-113①：对话导出 Markdown
 	m.HandleFunc("GET /api/docs/read", s.docRead)
 	m.HandleFunc("GET /api/assistant/config", s.assistantConfigGet) // M27/REQ-166
