@@ -101,8 +101,10 @@ func TestHierarchyCycle(t *testing.T) {
 }
 
 func TestNamingStyleDominant(t *testing.T) {
+	// 1:1 并列构成：camel/snake 各一——主导判定按固定序 camel 优先（checkNamingStyle
+	// 2026-10-31 起钉死，CI ubuntu 裸环境 map 遍历扰动实锤 flaky 后的回归锚）。
 	sp := specOf([]pkgspec.Concept{
-		{Name: "DrugTarget", Definition: "x"}, // camel 主导
+		{Name: "DrugTarget", Definition: "x"}, // camel 并列
 		{Name: "drug_dose", Definition: "x"},  // snake 少数派 → 命中
 		{Name: "剂量上限", Definition: "x"},       // cjk 不参与风格判定
 	}, nil, nil)
@@ -110,6 +112,16 @@ func TestNamingStyleDominant(t *testing.T) {
 	f := findingOf(rep, "naming_style")
 	if f == nil || f.Count != 1 || !strings.Contains(f.Samples[0], "drug_dose") {
 		t.Fatalf("命名风格少数派应命中: %+v", f)
+	}
+	// 2:1 反向构成：snake 主导，camel 少数派——双向钉死主导判定确定性。
+	sp2 := specOf([]pkgspec.Concept{
+		{Name: "drug_a", Definition: "x"},
+		{Name: "drug_b", Definition: "x"},
+		{Name: "DrugTarget", Definition: "x"}, // camel 少数派 → 命中
+	}, nil, nil)
+	f2 := findingOf(Check(sp2, nil), "naming_style")
+	if f2 == nil || f2.Count != 1 || !strings.Contains(f2.Samples[0], "DrugTarget") {
+		t.Fatalf("snake 主导时应命中 camel 少数派: %+v", f2)
 	}
 }
 

@@ -414,11 +414,13 @@ func checkNamingStyle(sp *pkgspec.Spec, add func(string)) {
 	if len(counts) < 2 {
 		return
 	}
-	// 主导风格之外的全部命中（少数派风格即「不一致」）
+	// 主导风格之外的全部命中（少数派风格即「不一致」）。主导并列时按固定序 camel 优先——
+	// map 遍历序受运行时扰动（Go 故意随机化），不钉死则同一 spec 两次运行出相反主导，
+	// 质量报告不可复现（2026-10-31 CI ubuntu 裸环境实锤 flaky 后改固定序）。
 	dominant := ""
 	max := 0
-	for st, n := range counts {
-		if n > max {
+	for _, st := range []string{"latin_camel", "latin_snake"} {
+		if n := counts[st]; n > max {
 			dominant, max = st, n
 		}
 	}

@@ -1,6 +1,6 @@
 package importer
 
-// REQ-481/M281：sidecar materialize 实测（python+owlrl 在场时真跑——owlrl 缺失自动 skip，
+// REQ-481/M281：sidecar materialize 实测（python+rdflib/owlrl 在场时真跑——依赖缺失自动 skip，
 // 与对拍安全网同口径）。验证数据级闭包推断在输出、axiomatic 词汇闭包不入输出。
 
 import (
@@ -16,8 +16,11 @@ func TestSidecarMaterialize_Req481(t *testing.T) {
 		"<urn:x:a> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <urn:x:A> .\n"
 	ttl, n, err := Materialize(sc, "turtle", input)
 	if err != nil {
-		if strings.Contains(err.Error(), "owlrl 未安装") {
-			t.Skip("owlrl 未安装（物化档为环境增强项）")
+		// sidecar 依赖缺失统一 exit 3 + stderr「X 未安装：pip install X」；rdflib 为 owlrl
+		// 基座，裸环境先倒在这——skip 匹配须覆盖全部依赖名（2026-10-31 CI 实锤：只匹配
+		// 「owlrl 未安装」时「rdflib 未安装」漏网成 FAIL）。
+		if strings.Contains(err.Error(), "未安装") {
+			t.Skipf("sidecar 依赖缺失（物化档为环境增强项）: %v", err)
 		}
 		t.Fatalf("materialize: %v", err)
 	}
