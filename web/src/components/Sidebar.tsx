@@ -70,9 +70,28 @@ export default function Sidebar({
   const { currentConvId, setCurrentConv, bumpData, showToast } = useUI()
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [renaming, setRenaming] = useState<Conversation | null>(null)
-  // REQ-409/M205：跨会话搜索——标题子串过滤（前端内存过滤；内容级检索随 KB FTS 演进）
+  // REQ-409/M205：跨会话搜索——标题子串过滤（前端内存过滤）
+  // REQ-528/M335：内容级第二档——kw≥3 rune 时 FTS 检索消息正文（防抖 400ms），
+  // 命中下拉（会话名+消息摘要），点击跳转对应会话
   const [kw, setKw] = useState('')
   const kwTrim = kw.trim().toLowerCase()
+  const [contentHits, setContentHits] = useState<{ conversation_id: string; message_id: string; role: string; content: string }[] | null>(null)
+  useEffect(() => {
+    const kwRaw = kw.trim()
+    if (kwRaw.length < 3) {
+      setContentHits(null)
+      return
+    }
+    const t = setTimeout(() => {
+      api.searchMessages(kwRaw).then((r) => setContentHits(r.hits)).catch(() => setContentHits(null))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [kw])
+  const convNameById = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const c of conversations) m[c.id] = c.title
+    return m
+  }, [conversations])
 
   const nodes = useMemo<TreeNode[]>(() => {
     const byCreated = (a: Conversation, b: Conversation) => b.updated_at.localeCompare(a.updated_at) // REQ-409：最近优先
@@ -183,12 +202,30 @@ export default function Sidebar({
         <Input
           size="small"
           allowClear
-          placeholder="搜索会话/智能体"
+          placeholder="搜索会话/智能体/消息内容"
           prefix={<SearchOutlined style={{ color: 'var(--c-ink-3, #9aa1bd)' }} />}
           value={kw}
           onChange={(e) => setKw(e.target.value)}
           data-testid="conv-search"
         />
+        {contentHits && contentHits.length > 0 && (
+          <div data-testid="content-hits" style={{ margin: '6px 0 0', maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {contentHits.slice(0, 8).map((h) => (
+              <div
+                key={h.message_id}
+                style={{ padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: 'var(--c-bg-soft, #f6f7fb)', fontSize: 11 }}
+                onClick={() => {
+                  setCurrentConv(h.conversation_id)
+                  setContentHits(null)
+                  setKw('')
+                }}
+              >
+                <span style={{ color: 'var(--c-ink-3, #9aa1bd)', marginRight: 6 }}>{h.role === 'assistant' ? '结论' : '提问'} · {convNameById[h.conversation_id] ?? '会话'}</span>
+                <span style={{ color: 'var(--c-ink-2, #414a63)' }}>{h.content.slice(0, 60)}{h.content.length > 60 ? '…' : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="conv-list">

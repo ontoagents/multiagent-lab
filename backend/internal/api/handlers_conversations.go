@@ -259,3 +259,20 @@ func (s *Server) forkConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, created)
 }
+
+// searchMessages REQ-528/M335（P18）：会话内容检索——FTS5 trigram 跨会话按消息正文定位
+// （「找回上次结论」复用动线；role=assistant 过滤可选）。FTS 不可用/查询 <3 rune 返回空集
+//（前端回落标题子串过滤——两档并存）。
+func (s *Server) searchMessages(w http.ResponseWriter, r *http.Request) {
+	kw := strings.TrimSpace(r.URL.Query().Get("kw"))
+	if len([]rune(kw)) < 3 {
+		writeJSON(w, http.StatusOK, map[string]any{"hits": []any{}})
+		return
+	}
+	hits, err := s.Store.SearchMessagesFTS(kw, r.URL.Query().Get("role"), 20)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
+}

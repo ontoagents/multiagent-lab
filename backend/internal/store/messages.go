@@ -18,6 +18,7 @@ func (s *Store) InsertMessage(m *Message) (*Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.InsertMessageFTS(m) // REQ-528/M335：FTS 写穿（辅助索引失败仅告警）
 	return m, nil
 }
 
