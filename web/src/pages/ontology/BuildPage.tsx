@@ -6,6 +6,7 @@ import OntoExtendFlow from './components/OntoExtendFlow'
 import CatalogPane from './components/CatalogPane'
 import BuildLayout from './build/BuildLayout'
 import BuildPathGrid from './build/BuildPathGrid'
+import ConceptParkingFlow from './build/ConceptParkingFlow'
 import CustomBuildFlow from './build/CustomBuildFlow'
 import KgGuidePage from './build/KgGuidePage'
 import ProductionGuide from './build/ProductionGuide'
@@ -32,6 +33,8 @@ export default function BuildPage() {
     if (r?.col === 'build' && r.path) return r.path as BuildPath
     return readBuildPath()
   })
+  // REQ-508/M316：概念停车场弹窗（新手条第三起步入口；常驻挂载——骨架创建后经 customOnto/customStep 键跳 S2）
+  const [materialOpen, setMaterialOpen] = useState(false)
 
   // REQ-469：跨入口换路径（命令面板/深链）在构建栏内即时生效——沿 RuntimePage engineKey 同步先例
   useEffect(() => {
@@ -64,12 +67,21 @@ export default function BuildPage() {
     writeOntoHash({ col: 'build', path: key })
   }
 
+  // REQ-508/M316：概念停车场「一键成骨架」落点——CustomBuildFlow 按 localStorage 键恢复步骤与工作本体，
+  // 写 customOnto+customStep=1 后切 custom 路径即直达 S2（沿 doBlank/handleCreated 同键先例）
+  const handleMaterialCreated = (id: string) => {
+    localStorage.setItem('eino.onto.build.customOnto', id)
+    localStorage.setItem('eino.onto.build.customStep', '1')
+    select('custom')
+  }
+
   return (
-    <BuildLayout buildPath={buildPath} onSelect={select}>
+    <>
+      <BuildLayout buildPath={buildPath} onSelect={select}>
       {buildPath === 'home' && (
         <>
           {/* REQ-484/M283：一主一辅——首屏=新手条+六卡；生产动线（进阶语境）降级到卡片下方折叠条 */}
-          <BuildPathGrid onSelect={select} />
+          <BuildPathGrid onSelect={select} onMaterialStart={() => setMaterialOpen(true)} />
           <ProductionGuide onGoBuild={() => select('custom')} />
         </>
       )}
@@ -110,6 +122,8 @@ export default function BuildPage() {
           }}
         />
       )}
-    </BuildLayout>
+      </BuildLayout>
+      <ConceptParkingFlow open={materialOpen} onClose={() => setMaterialOpen(false)} onCreated={handleMaterialCreated} />
+    </>
   )
 }

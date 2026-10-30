@@ -24,7 +24,7 @@ const PATH_ICON: Record<string, React.ReactNode> = {
   catalog: <CloudDownloadOutlined />,
 }
 
-export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath) => void }) {
+export default function BuildPathGrid({ onSelect, onMaterialStart }: { onSelect: (key: BuildPath) => void; onMaterialStart?: () => void }) {
   const novice = PATHS.find((p) => p.novice)
   return (
     <div data-testid="build-path-grid">
@@ -38,6 +38,10 @@ export default function BuildPathGrid({ onSelect }: { onSelect: (key: BuildPath)
           <Typography.Text style={{ fontSize: 12.5 }}>推荐从「{novice.label}」开始——只需一段领域描述，访谈问答中长出本体。</Typography.Text>
           <Button size="small" type="primary" style={{ marginLeft: 'auto' }} onClick={() => onSelect(novice.key)} data-testid="build-novice-go">
             从一段描述开始
+          </Button>
+          {/* REQ-508/M316：第三种起步——从材料开始（概念停车场：粘贴/上传材料→AI 铺候选→勾选成骨架） */}
+          <Button size="small" onClick={() => onMaterialStart?.()} data-testid="build-material-go">
+            有学习材料？从材料开始
           </Button>
           {/* REQ-425①：首屏判据区直达——零模型连接场景空白手动是唯一原生构建路径（与 AI 主推并列非替代） */}
           <Button size="small" style={{ marginLeft: novice ? 0 : 'auto' }} onClick={() => { localStorage.setItem('eino.onto.s1tab', 'blank'); onSelect('custom') }} data-testid="build-blank-go">

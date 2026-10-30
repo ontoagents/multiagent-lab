@@ -734,6 +734,13 @@ export interface ImportReport {
 
 /** AI 草案结果（POST /api/ontologies/ai-draft） */
 export interface ExtractedCQ { cq: string; origin?: string }
+/** REQ-508/M316 概念停车场候选（材料→AI 铺清单；origin=材料原句引用，仅停车场呈现面不入 spec——概念级备注留痕归 REQ-510） */
+export interface ConceptCandidate {
+  name: string
+  label?: string
+  definition?: string
+  origin?: string
+}
 export interface AiDraftJobState {
   id: string
   status: 'running' | 'done' | 'failed'
@@ -741,6 +748,10 @@ export interface AiDraftJobState {
   result?: AiDraftResult
   cqs?: ExtractedCQ[]
   dedup?: number
+  /** REQ-508：概念停车场铺候选结果（ai-concept-park） */
+  concepts?: ConceptCandidate[]
+  topic?: string
+  truncated?: number
   error?: string
 }
 /** 质量门禁报告（REQ-312/M116：完整 Report 透出——三维分+Findings+Stats，qualitygate 同形） */

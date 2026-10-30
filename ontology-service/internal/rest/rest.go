@@ -102,6 +102,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("POST /api/ontologies/ai-clarify", s.aiClarify)
 	// REQ-308/M112：AI 创建 CQ 候选生成（描述+澄清轮材料→ExtractCQs→前端确认卡人工勾选）
 	m.HandleFunc("POST /api/ontologies/ai-cq-extract", s.aiCQExtract)
+	// REQ-508/M316：「从材料开始」概念停车场（材料→候选概念清单 job，前端勾选/改名→一键成骨架进 S2）
+	m.HandleFunc("POST /api/ontologies/ai-concept-park", s.aiConceptPark)
 	// REQ-340 A2：构建管线段留痕聚合口（kb-extract 等远端路径回传；REQ-328 对账单点出口）
 	m.HandleFunc("POST /api/buildflow/traces", s.buildflowTraces)
 	// REQ-207/M43 本体自进化（候选 vN-cK 状态机：诊断→补丁→配对门控→人工采纳）

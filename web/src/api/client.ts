@@ -618,6 +618,12 @@ export const api = {
     req<AiDraftJobState>(
       `/api/ai-draft-jobs/${encodeURIComponent(jobId)}`,
     ),
+  /** 概念停车场铺候选（REQ-508/M316）：材料 → 202 {job_id}，经 aiDraftJob 轮询取 concepts/topic */
+  aiConceptPark: (material: string) =>
+    req<{ job_id: string }>('/api/ontologies/ai-concept-park', {
+      method: 'POST',
+      body: JSON.stringify({ material }),
+    }),
   /** CQ 抽取候选（REQ-308） */
 
   /** 读取本体 artifact 内容（REQ-318：axioms-raw 透传公理等；原样返回存储 JSON 文本） */

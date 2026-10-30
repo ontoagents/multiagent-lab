@@ -30,6 +30,9 @@ type draftJob struct {
 	Dedup     int                    `json:"dedup,omitempty"`  // REQ-308：与既有 CQ 重复被滤除条数
 	Purify    *ontochat.PurifyStats  `json:"purify,omitempty"` // REQ-342/OC-1：净化统计（拆分/抽象率）
 	RAG       *cqragDraftResult      `json:"rag,omitempty"`    // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
+	Concepts  []ontochat.ConceptCandidate `json:"concepts,omitempty"` // REQ-508：概念停车场铺候选 job 结果（ai-concept-park）
+	Topic     string                 `json:"topic,omitempty"`                  // REQ-508：建议本体名
+	Truncated int                    `json:"truncated,omitempty"`              // REQ-508：超上限/重复被滤条数
 	Diagnose  *diagnoseResult        `json:"diagnose,omitempty"` // REQ-207 余项：进化诊断→归因→补丁候选 job 结果
 	Error     string                 `json:"error,omitempty"`
 	CreatedAt time.Time              `json:"created_at"`
@@ -180,6 +183,51 @@ func (s *Server) aiCQExtract(w http.ResponseWriter, r *http.Request) {
 		job.CQs = res.CQs
 		job.Dedup = res.Dedup
 		job.Purify = res.Purification
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
+}
+
+// aiConceptPark POST /api/ontologies/ai-concept-park → 202 {job_id}。
+// REQ-508/M316 概念停车场：学习材料 → 候选概念清单（异步 job 沿 ai-cq-extract 同型；
+// 材料上限沿 ImportFileMaxChars 口径；LLM 未配置 503 人话）。
+func (s *Server) aiConceptPark(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Material string `json:"material"`
+	}
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Material) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "material 必填"})
+		return
+	}
+	if runes := []rune(req.Material); len(runes) > ontochat.ImportFileMaxChars {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("材料过长（%d 字，上限 %d）——请分段粘贴或摘取核心段落", len(runes), ontochat.ImportFileMaxChars)})
+		return
+	}
+	if s.LLM == nil || s.OntoChat == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM 辅助创建未配置（PLATFORM_URL）"})
+		return
+	}
+	job := &draftJob{ID: fmt.Sprintf("job_%d", time.Now().UnixNano()), Status: "running", CreatedAt: time.Now()}
+	draftJobsMu.Lock()
+	draftJobs[job.ID] = job
+	draftJobsMu.Unlock()
+	go func() {
+		res, err := s.OntoChat.MaterialConcepts(context.Background(), req.Material,
+			func(_ int, msg string) {
+				draftJobsMu.Lock()
+				job.Progress = msg
+				draftJobsMu.Unlock()
+			})
+		draftJobsMu.Lock()
+		defer draftJobsMu.Unlock()
+		if err != nil {
+			job.Status = "failed"
+			job.Error = err.Error()
+			return
+		}
+		job.Status = "done"
+		job.Concepts = res.Concepts
+		job.Topic = res.Topic
+		job.Truncated = res.Truncated
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID})
 }
