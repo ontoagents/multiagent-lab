@@ -417,10 +417,29 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	switch format {
 	case "turtle":
-		// REQ-540：版本化导出分支（pin 解析）——读指定版本 spec_json 快照重导出。
-		// axioms-raw 透传还原不入本分支（artifact 为头版本级、无版本快照）——诚实边界：
-		// pin 版本导出=该版本 spec 投影+桥三元组，未投影公理余量缺失（REQ-541 发布快照落库后可解）。
+		// REQ-540：版本化导出分支（pin 解析）——已发布版本直出冻结发布快照（REQ-541），
+		// 未发布版本读 ontology_version spec_json 快照重导出。
+		// axioms-raw 透传还原不入重导出路径（artifact 为头版本级、无版本快照）——该余量缺口
+		// 在发布版本上已由发布快照解除（发布时头版本导出含拼接）；未发布版本维持缺失（诚实边界）。
 		if specVersion > 0 {
+			// REQ-541：发布快照优先——该版本已发布（tag 命中）则直出冻结 TTL（内容与 digest
+			// 不可变；REQ-540 pin 经 ?version= 解析到对应快照的联动面）。无快照（未发布版本
+			// pin）回落既有重导出路径。快照 TTL 为发布时头版本导出（含 axioms-raw 余量拼接，
+			// REQ-540 版本化导出诚实边界在发布版本上解除）。
+			if rel, rerr := s.Store.GetRelease(id, specVersion); rerr == nil {
+				w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, specVersion))
+				if rel.Triples >= 0 {
+					w.Header().Set("X-Onto-Triples", strconv.Itoa(rel.Triples))
+				}
+				w.Header().Set("X-Onto-Version", strconv.Itoa(specVersion))
+				w.Header().Set("X-Onto-Source", "release_snapshot") // 冻结发布快照直出（REQ-541，内容不可变）
+				w.Header().Set("X-Release-Digest", rel.TTLSHA256)
+				_, _ = w.Write([]byte(rel.TTL))
+				return
+			} else if !errors.Is(rerr, repo.ErrNotFound) {
+				log.Printf("[req541] 发布快照读取失败 ontology=%s v%d: %v（回落版本重导出）", id, specVersion, rerr)
+			}
 			raw, err := s.Store.GetVersionSpec(id, specVersion)
 			if err != nil {
 				writeErr(w, fmt.Errorf("本体 %s 无版本 %d 快照: %w", id, specVersion, err))
@@ -533,7 +552,95 @@ func (s *Server) listVersions(w http.ResponseWriter, r *http.Request) {
 	if vs == nil {
 		vs = []repo.VersionMeta{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "versions": vs})
+	// REQ-541：版本列表并入发布快照 tag（版本表即 tag 目录；release 缺省=该版本未发布冻结）
+	rels, err := s.Store.ListReleases(id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	relByV := map[int]*repo.ReleaseSummary{}
+	for i := range rels {
+		relByV[rels[i].Version] = &rels[i]
+	}
+	type versionRow struct {
+		repo.VersionMeta
+		Release *repo.ReleaseSummary `json:"release,omitempty"`
+	}
+	rows := make([]versionRow, 0, len(vs))
+	for _, v := range vs {
+		row := versionRow{VersionMeta: v}
+		if rel, ok := relByV[v.Version]; ok {
+			row.Release = rel
+		}
+		rows = append(rows, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "versions": rows})
+}
+
+// ---- REQ-541/M348 发布快照（不可变发布工件，版本表即 tag）----
+
+// listReleases GET /api/ontologies/{id}/releases：发布快照清单（version 正序；元信息+依赖账本
+// manifest；内容 blob 走 /releases/{version}/artifact/{part} 按需取）。
+func (s *Server) listReleases(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.Store.GetOntology(id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	rels, err := s.Store.ListReleases(id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "releases": rels})
+}
+
+// getRelease GET /api/ontologies/{id}/releases/{version}：单份发布快照元信息+依赖账本（不含内容 blob）。
+func (s *Server) getRelease(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	v, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil || v <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "版本号必须是正整数"})
+		return
+	}
+	rel, err := s.Store.GetReleaseMeta(id, v)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rel)
+}
+
+// releaseArtifact GET /api/ontologies/{id}/releases/{version}/artifact/{part}：按 tag 取发布快照
+// 工件（part=spec_json|ttl|manifest；X-Release-Digest=冻结 digest，供内容完整性校验——
+// digest 与内容同源落库、不可变）。
+func (s *Server) releaseArtifact(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	v, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil || v <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "版本号必须是正整数"})
+		return
+	}
+	rel, err := s.Store.GetRelease(id, v)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	switch r.PathValue("part") {
+	case "spec_json":
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Release-Digest", rel.SpecSHA256)
+		_, _ = w.Write([]byte(rel.SpecJSON))
+	case "ttl":
+		w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+		w.Header().Set("X-Release-Digest", rel.TTLSHA256)
+		_, _ = w.Write([]byte(rel.TTL))
+	case "manifest":
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write([]byte(rel.ManifestJSON))
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("part 须为 spec_json/ttl/manifest，得到 %q", r.PathValue("part"))})
+	}
 }
 
 // versionOriginal GET /api/ontologies/{id}/versions/{version}/original：按版本读取原始源文件（REQ-93 源码视图）。
@@ -593,12 +700,26 @@ func (s *Server) versionSpec(w http.ResponseWriter, r *http.Request) {
 
 // publishOntology POST /api/ontologies/{id}/publish {version_name?}：发布当前版本为命名快照终态。
 // 空命名默认 v{N}；历史快照回滚=对恢复后的新版本再次发布（审计友好，版本号单调）。
+// REQ-541/M348：发布即冻结不可变发布快照（spec_json+TTL+sha256 digest+依赖账本 manifest 落库，
+// 版本表即 tag）——TTL 取发布时点头版本导出（含 axioms-raw 余量拼接）；同版本重发布同内容
+// 幂等（同 digest），内容漂移 409（OBO FP-004，repo.PublishRelease）。
 func (s *Server) publishOntology(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		VersionName string `json:"version_name"`
 	}
 	_ = decodeJSON(r, &req) // 空请求体（Content-Length 0）允许：默认命名
-	o, err := s.Store.Publish(r.PathValue("id"), req.VersionName)
+	id := r.PathValue("id")
+	raw, _, err := s.Store.GetArtifact(id, "spec_json")
+	if err != nil {
+		writeErr(w, fmt.Errorf("本体 %s 无 spec_json 形态、无法冻结发布快照: %w", id, err))
+		return
+	}
+	ttl, triples, terr := s.exportSpecTTL(id, raw, true)
+	if terr != nil {
+		writeErr(w, terr)
+		return
+	}
+	o, err := s.Store.PublishRelease(id, req.VersionName, raw, ttl, triples)
 	if err != nil {
 		writeErr(w, err)
 		return

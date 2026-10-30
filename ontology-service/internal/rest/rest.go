@@ -137,6 +137,10 @@ func (s *Server) Mount(m *http.ServeMux) {
 	// REQ-239/M65 版本发布状态机（发布/撤回；回滚经 restore——重发布动作走历史快照恢复）
 	m.HandleFunc("POST /api/ontologies/{id}/publish", s.publishOntology)
 	m.HandleFunc("POST /api/ontologies/{id}/unpublish", s.unpublishOntology)
+	// REQ-541/M348 发布快照（不可变发布工件，版本表即 tag；REQ-540 pin 经 export ?version= 命中快照）
+	m.HandleFunc("GET /api/ontologies/{id}/releases", s.listReleases)
+	m.HandleFunc("GET /api/ontologies/{id}/releases/{version}", s.getRelease)
+	m.HandleFunc("GET /api/ontologies/{id}/releases/{version}/artifact/{part}", s.releaseArtifact)
 	m.HandleFunc("GET /api/ontologies/{id}/diff", s.diffVersions)
 	m.HandleFunc("GET /api/ontologies/{id}/impact", s.impactVersions) // REQ-278/M104：变更影响分析（闭包波及面+风险分级+B1 蕴含边）
 	m.HandleFunc("POST /api/ontologies/{id}/ingest-csv", s.ingestCSV)
@@ -192,6 +196,11 @@ func writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	if errors.Is(err, repo.ErrNotFound) {
 		status = http.StatusNotFound
+	}
+	// REQ-541：发布快照内容漂移拒绝（FP-004 冻结语义）——overlay 端点此前自行映射 409，
+	// 此处统一收口（既有自行映射路径行为不变）
+	if errors.Is(err, repo.ErrConflict) {
+		status = http.StatusConflict
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }

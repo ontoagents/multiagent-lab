@@ -34,6 +34,8 @@ type Ontology struct {
 	VersionName string `json:"version_name,omitempty"`
 	// REQ-255②：推理级检查档开关（owlrl OWL 2 RL 一致性入质量报告；默认关）
 	ReasoningCheck bool `json:"reasoning_check"`
+	// REQ-541/M348：发布快照元信息（仅 PublishRelease 返回值填充；列表/详情查询路径不填充零开销）
+	Release *ReleaseInfo `json:"release,omitempty"`
 	// 统计（从 spec_json 计算，仅列表/详情返回时填充）
 	NConcepts  int `json:"n_concepts,omitempty"`
 	NRelations int `json:"n_relations,omitempty"`
