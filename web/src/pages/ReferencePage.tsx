@@ -448,6 +448,9 @@ export default function ReferencePage() {
 // 加载/错误/空态三态（REQ-115）、断链随 GET 同源返回（消除 refresh→load 竞态清空）、
 // 卡选择器替代手输 id（原 placeholder 示例 id 与后端契约错位必失败）、路径结果与卡列表
 // 可点击直达（onOpenCard）、刷新 message 反馈、面板可收起（记忆 eino.kg.panel.collapsed）。
+// 阅读面修复（2026-10-30）：面板默认收起为单行工具条（显式展开过=0 才保持展开）——
+// 30+ 卡全量列表展开常态占内容列 ~300px，正文只剩 ~460px 视窗无法阅读；展开态正文
+// 42vh 封顶内滚（沿全站 max-height 惯例），头部补节点/边计数保收起态概览不丢。
 // ---------------------------------------------------------------------------
 type KGNode = { id: string; kind: string; domain: string; topic: string; desc?: string }
 type KGData = { nodes: KGNode[]; edges: { src: string; dst: string; kind: string }[]; broken?: string[]; ingestError?: string }
@@ -466,7 +469,8 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
   const [target, setTarget] = useState<string | undefined>()
   const [path, setPath] = useState<{ target: string; ids: string[] } | null>(null)
   const [pathErr, setPathErr] = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eino.kg.panel.collapsed') === '1')
+  // 默认收起：面板是学习工具非正文，全量展开挤压阅读区（2026-10-30）；显式展开（'0'）才保持展开
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('eino.kg.panel.collapsed') !== '0')
 
   const load = () => {
     setLoading(true)
@@ -525,7 +529,13 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
 
   return (
     <Card size="small" style={{ flex: 'none', margin: '0 0 8px' }} data-testid="knowledge-graph-panel"
-      title={<Space size={8}><span>知识图谱 · 前置图投影</span><Tag color="purple" style={{ margin: 0 }}>L2</Tag></Space>}
+      title={<Space size={8}><span>知识图谱 · 前置图投影</span><Tag color="purple" style={{ margin: 0 }}>L2</Tag>
+        {data && (
+          <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+            节点 {nodes.length} · 边 {edges.length}{broken.length > 0 ? ` · 断链 ${broken.length}` : ''}
+          </Typography.Text>
+        )}
+      </Space>}
       extra={<Space size={4}>
         <Button size="small" onClick={refresh} loading={refreshing}>重新摄取</Button>
         <Button size="small" type="text" icon={collapsed ? <DownOutlined /> : <UpOutlined />}
@@ -534,7 +544,8 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
       {collapsed ? null : loading ? (
         <div style={{ padding: '4px 0' }}><Spin size="small" /> <Typography.Text type="secondary" style={{ fontSize: 12 }}>图谱加载中…</Typography.Text></div>
       ) : (
-        <>
+        /* 展开态 42vh 封顶内滚：30+ 卡列表不再把正文挤出视窗（2026-10-30 阅读面修复） */
+        <div style={{ maxHeight: '42vh', overflowY: 'auto' }}>
           {loadErr && (
             <Alert type="error" showIcon style={{ marginBottom: 8 }}
               title="图谱数据加载失败"
@@ -547,7 +558,7 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
           )}
           {nodes.length > 0 && (
             <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-              节点 {nodes.length}（概念 {kindCount('concept')} · 决策 {kindCount('decision')} · 实践 {kindCount('practice')}）· 边 {edges.length}（prereq 前置）——卡为事实源、图谱为投影（每次摄取全量重建）
+              概念 {kindCount('concept')} · 决策 {kindCount('decision')} · 实践 {kindCount('practice')}，边为 prereq 前置——卡为事实源、图谱为投影（每次摄取全量重建）
             </Typography.Text>
           )}
           {broken.length > 0 && (
@@ -600,7 +611,7 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
               </div>
             )
           })}
-        </>
+        </div>
       )}
     </Card>
   )
