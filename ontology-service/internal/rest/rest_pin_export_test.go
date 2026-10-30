@@ -68,8 +68,10 @@ func TestExportVersioned_Req540(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	ttl := string(b)
-	if !strings.Contains(ttl, "urn:o:dst:concept:需求>;\n") && !strings.Contains(ttl, "urn:o:dst:concept:需求") {
-		t.Fatalf("v1 导出应含 v1 概念「需求」:\n%s", ttl)
+	// 评审修正：正/负断言都用区分性子串——「concept:需求」是「concept:需求项」的前缀子串
+	// 单独无区分力，以 IRI 收尾 `>` 锚定（「需求项」的 IRI 以「项>」收尾不匹配）。
+	if !strings.Contains(ttl, "urn:o:dst:concept:需求>") {
+		t.Fatalf("v1 导出应含 v1 概念「需求」（IRI 收尾 > 锚定，排除「需求项」前缀歧义）:\n%s", ttl)
 	}
 	if strings.Contains(ttl, "concept:需求项") {
 		t.Fatalf("v1 导出不应含头版本概念「需求项」:\n%s", ttl)
@@ -144,7 +146,8 @@ func TestUpdateExternalRefPinEndpoint_Req540(t *testing.T) {
 	if refs[0].PinVersion != 0 {
 		t.Fatalf("pin 应已清除: %d", refs[0].PinVersion)
 	}
-	// 超前版本 → 400（人话错误）
+	// 超前版本 → 确定性 400（校验错误走 400 分支，非 ErrNotFound——评审修正：不放宽到
+	// 404，防「校验错误被误分类为 not found」回归漏检）
 	req3, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/ontologies/src/external-refs/"+ref.RefID+"/pin", strings.NewReader(`{"pin_version":9}`))
 	req3.Header.Set("Content-Type", "application/json")
 	resp3, err := http.DefaultClient.Do(req3)
@@ -152,7 +155,29 @@ func TestUpdateExternalRefPinEndpoint_Req540(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp3.Body.Close()
-	if resp3.StatusCode != http.StatusNotFound && resp3.StatusCode != http.StatusBadRequest {
-		t.Fatalf("超前 pin 期望 4xx，实际 %d", resp3.StatusCode)
+	if resp3.StatusCode != http.StatusBadRequest {
+		t.Fatalf("超前 pin 期望 400（校验错误非 not found），实际 %d", resp3.StatusCode)
+	}
+}
+
+// 评审修正（REQ-540 轮）：?version= 跨格式语义一致——非 turtle 显式 400 不静默忽略。
+func TestExportVersionNonTurtleRejected_Req540(t *testing.T) {
+	srv, _ := pinRestFixture(t)
+	resp, err := http.Get(srv.URL + "/api/ontologies/dst/export?format=vowljson&version=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("非 turtle 格式带 version 期望 400，实际 %d", resp.StatusCode)
+	}
+	// 不带 version 的非 turtle 导出行为不变
+	resp2, err := http.Get(srv.URL + "/api/ontologies/dst/export?format=vowljson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("头版本 vowljson 导出应不受影响，实际 %d", resp2.StatusCode)
 	}
 }

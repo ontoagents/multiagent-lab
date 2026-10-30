@@ -44,9 +44,20 @@ func TestExpandClosure_PinCollect_Req540(t *testing.T) {
 	if _, ok := rep.Pins["D"]; ok {
 		t.Fatalf("无 pin 登记（D）不应入 pin 表: %v", rep.Pins)
 	}
+	// 评审修正：C 有 v5/v2 两条登记——冲突集显式呈现（悬空检测按各登记自身 pin 判、
+	// 装载按最低取内容，分歧面不静默）
+	if rep.PinConflicts["C"] != "v2/v5" {
+		t.Fatalf("C pin 冲突集期望 v2/v5，实际 %q", rep.PinConflicts["C"])
+	}
+	if _, ok := rep.PinConflicts["B"]; ok {
+		t.Fatalf("单版本 pin（B）不应入冲突集: %v", rep.PinConflicts)
+	}
 	joined := strings.Join(rep.logLines(), "\n")
 	if !strings.Contains(joined, "[REQ-540 pin 装载] B → v3") || !strings.Contains(joined, "[REQ-540 pin 装载] C → v2") {
 		t.Fatalf("装载日志应呈现 pin:\n%s", joined)
+	}
+	if !strings.Contains(joined, "pin 冲突: C 多登记 pin v2/v5——按最低 v2 装载") {
+		t.Fatalf("装载日志应呈现 pin 冲突:\n%s", joined)
 	}
 }
 

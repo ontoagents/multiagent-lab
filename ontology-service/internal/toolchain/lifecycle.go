@@ -68,6 +68,9 @@ type LifecycleStatus struct {
 	Pinned    map[string]int `json:"pinned,omitempty"`     // 本方案生效 pin（目标本体 → pin 版本；多登记取最低）
 	Closure   []string       `json:"closure,omitempty"`    // 闭包补全本体（装载快照含而声明集不含——缺口 3 可观测面）
 	PinDrifts []PinDrift     `json:"pin_drifts,omitempty"` // pin 落后头版本提示（advisory，不产生动作）
+	// 评审修正（REQ-540 轮）：装载快照含而构建平面已删/版本未知的本体——reload 必被装载
+	// 门禁阻断，单独归因提示（不复用「版本落后」漂移文案）。
+	Missing []string `json:"missing,omitempty"`
 }
 
 type profileDTO struct {
@@ -144,6 +147,13 @@ func Plan(ctx context.Context, platformURL string, currentVersions map[string]in
 					st.UnknownDrift = true // 无基线快照（旧运行），不误报版本漂移
 					continue
 				}
+				// 评审修正（REQ-540 轮）：对账范围扩到闭包补全本体后，装载快照里的本体若已从
+				// 构建平面删除，CurrentVersions 查不到得 0——版本对比无意义且 reload 必被装载
+				// 门禁阻断（FetchExternalRefs 404），单列准确归因不复用「版本落后」文案。
+				if st.Current[oid] == 0 && loaded > 0 {
+					st.Missing = append(st.Missing, oid)
+					continue
+				}
 				expect := st.Current[oid] // 浮动头版本（现状语义）
 				if pin := st.Pinned[oid]; pin > 0 {
 					expect = pin // pin 对账基准=登记钉住的版本（REQ-540③）
@@ -158,6 +168,12 @@ func Plan(ctx context.Context, platformURL string, currentVersions map[string]in
 				if pin := st.Pinned[oid]; pin > 0 && st.Current[oid] > pin {
 					st.PinDrifts = append(st.PinDrifts, PinDrift{OntologyID: oid, PinVersion: pin, HeadVersion: st.Current[oid]})
 				}
+			}
+			if len(st.Missing) > 0 {
+				plan.Actions = append(plan.Actions, LifecycleAction{
+					ProfileID: p.ID, ProfileName: p.Name, Engine: p.Engine, Action: "reload",
+					Reason: fmt.Sprintf("本体 %s 已从构建平面删除或版本未知（装载快照仍在运行）——重装载将被装载门禁阻断，请先修复引用或摘除声明/闭包来源", strings.Join(st.Missing, "、")),
+				})
 			}
 			if len(st.Drifted) > 0 {
 				reason := fmt.Sprintf("spec 版本漂移：%s（加载快照落后于当前版本）", strings.Join(st.Drifted, "、"))

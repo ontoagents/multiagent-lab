@@ -44,6 +44,10 @@ type closureReport struct {
 	// 对应版本导出（FetchTTLWithCountAt）；同目标多登记 pin 不一致取最低（最保守解析）。
 	// 来源=BFS 访问集内各本体登记的 pin_version>0 引用（不限 ref_kind——登记即 pin 载体）。
 	Pins map[string]int `json:"pins,omitempty"`
+	// 评审修正（REQ-540 轮）：同目标多登记 pin 不一致的可观测面（目标 → 版本升序串，
+	// 如 "v2/v5"）——悬空门禁按各登记自身 pin 判、装载按最低 pin 取内容，二者口径分歧时
+	// 较高 pin 登记期望的概念可能不在装载内容且不被门禁拦截，冲突以装载日志显式呈现。
+	PinConflicts map[string]string `json:"pin_conflicts,omitempty"`
 }
 
 // FetchExternalRefs 构建平面本体引用登记清单。404=本体不存在（闭包目标悬空/已删除，
@@ -94,6 +98,7 @@ func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
 	queue := append([]string(nil), declared...)
 	edges := map[string][]string{}
 	remoteSeen := map[string]bool{}
+	pinSeen := map[string]map[int]bool{} // 评审修正：目标 → 出现过的 pin 版本集（冲突检测）
 	for len(queue) > 0 {
 		oid := queue[0]
 		queue = queue[1:]
@@ -108,8 +113,14 @@ func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
 		}
 		for _, ref := range refs {
 			// REQ-540：pin 收集——to_onto_id 非空且 pin_version>0 的登记（不限 ref_kind，
-			// 登记即 pin 载体）；同目标多登记取最低 pin（最保守解析，与 lifecycle ListPinEdges 一致）。
+			// 登记即 pin 载体）；同目标多登记取最低 pin（最保守解析，与 lifecycle ListPinEdges 一致）；
+			// 多登记版本不一记录冲突集（评审修正：悬空检测按各登记自身 pin、装载按最低，
+			// 分歧面以日志呈现不静默）。
 			if ref.ToOntoID != "" && ref.PinVersion > 0 {
+				if pinSeen[ref.ToOntoID] == nil {
+					pinSeen[ref.ToOntoID] = map[int]bool{}
+				}
+				pinSeen[ref.ToOntoID][ref.PinVersion] = true
 				if prev, ok := rep.Pins[ref.ToOntoID]; !ok || ref.PinVersion < prev {
 					rep.Pins[ref.ToOntoID] = ref.PinVersion
 				}
@@ -140,6 +151,27 @@ func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
 	}
 	if len(rep.Pins) == 0 {
 		rep.Pins = nil
+	}
+	for t, ps := range pinSeen {
+		if len(ps) < 2 {
+			continue
+		}
+		vers := make([]int, 0, len(ps))
+		for v := range ps {
+			vers = append(vers, v)
+		}
+		sort.Ints(vers)
+		parts := make([]string, 0, len(vers))
+		for _, v := range vers {
+			parts = append(parts, "v"+strconv.Itoa(v))
+		}
+		if rep.PinConflicts == nil {
+			rep.PinConflicts = map[string]string{}
+		}
+		rep.PinConflicts[t] = strings.Join(parts, "/")
+	}
+	if len(rep.PinConflicts) == 0 {
+		rep.PinConflicts = nil
 	}
 	declaredSet := map[string]bool{}
 	for _, d := range declared {
@@ -235,6 +267,16 @@ func (r *closureReport) logLines() []string {
 	sort.Strings(targets)
 	for _, t := range targets {
 		lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] %s → v%d（登记 pin 版本；被引方头版本演进不自动跟随，显式刷新 pin 才取新版）", t, r.Pins[t]))
+	}
+	// 评审修正：多 pin 冲突显式呈现（悬空检测按各登记自身 pin 判、装载按最低取内容——
+	// 较高 pin 登记期望的概念可能不在装载内容且不被门禁拦截，不静默）。
+	conflicts := make([]string, 0, len(r.PinConflicts))
+	for t := range r.PinConflicts {
+		conflicts = append(conflicts, t)
+	}
+	sort.Strings(conflicts)
+	for _, t := range conflicts {
+		lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] pin 冲突: %s 多登记 pin %s——按最低 v%d 装载；较高 pin 登记期望的概念可能不在装载内容（建议统一 pin）", t, r.PinConflicts[t], r.Pins[t]))
 	}
 	return lines
 }

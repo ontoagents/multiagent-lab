@@ -401,6 +401,13 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("version 参数须为非负整数（0/缺省=头版本），得到 %q", vs)})
 			return
 		}
+		// 评审修正（REQ-540 轮）：version 仅在 turtle 分支有版本化形态——非 turtle 显式 400
+		//（同一 API 参数跨格式语义一致，不静默忽略回退头版本）。
+		if v > 0 && format != "turtle" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("version 参数仅支持 format=turtle 版本化导出（format=%q 无版本化形态），得到 version=%d", format, v)})
+			return
+		}
 		specVersion = v
 	}
 	o, err := s.Store.GetOntology(id)

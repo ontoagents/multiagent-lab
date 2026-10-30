@@ -383,7 +383,7 @@ func (m *Manager) FetchTTL(ontologyID string) (string, error) {
 }
 
 // FetchTTLAt REQ-540/M347：按版本 pin 拉 TTL——version>0 走构建平面 ?version=N 版本化导出
-//（ontology_version 快照重导出）；version<=0=浮动头版本（FetchTTLWithCount 现状，零迁移向后兼容）。
+// （ontology_version 快照重导出）；version<=0=浮动头版本（FetchTTLWithCount 现状，零迁移向后兼容）。
 // pin 版本快照缺失=硬失败（pin 钉死语义：解析失败显式可见，不静默回落头版本）。
 func (m *Manager) FetchTTLAt(ontologyID string, version int) (string, error) {
 	ttl, _, err := m.FetchTTLWithCountAt(ontologyID, version)
@@ -410,7 +410,9 @@ func (m *Manager) FetchTTLWithCountAt(ontologyID string, version int) (string, i
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
 		if version > 0 && resp.StatusCode == http.StatusNotFound {
-			return "", -1, fmt.Errorf("拉取本体 %s pin 版本 v%d 失败: 404（该版本快照不存在——pin 失效，请刷新 pin 或核对版本历史）", ontologyID, version)
+			// 评审修正：构建平面对「本体不存在」与「版本快照不存在」均返回 404（闭包检查
+			// 与取数间本体被删的 TOCTOU 窗口内不可区分）——消息不单归因，两种可能并列。
+			return "", -1, fmt.Errorf("拉取本体 %s pin 版本 v%d 失败: 404（本体不存在或该版本快照不存在——请核对本体在仓与版本历史后刷新 pin 或摘除登记）", ontologyID, version)
 		}
 		return "", -1, fmt.Errorf("拉取本体 %s 失败: %s %s", ontologyID, resp.Status, string(b))
 	}

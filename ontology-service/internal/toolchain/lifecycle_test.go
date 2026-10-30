@@ -147,6 +147,31 @@ func TestPlanPinMinAggregation_Req540(t *testing.T) {
 	}
 }
 
+// 评审修正场景：装载快照里的本体已从构建平面删除（CurrentVersions 查不到得 0）——
+// 不判「版本落后」漂移（反事实），单列 Missing 准确归因，reload 原因明示装载门禁将阻断。
+func TestPlanMissingOntologyAccurateReason_Req540(t *testing.T) {
+	url := planStub(t, "["+planProfile("pA", []string{"A"}, "running", `{"A":3,"B":2}`)+"]")
+	plan, err := Plan(context.Background(), url, map[string]int{"A": 3}, nil) // B 不在构建平面（已删）
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := plan.Profiles[0]
+	if len(st.Missing) != 1 || st.Missing[0] != "B" {
+		t.Fatalf("已删本体应单列 Missing: %+v", st.Missing)
+	}
+	for _, d := range st.Drifted {
+		if d == "B" {
+			t.Fatalf("已删本体不应入版本漂移清单（对比无意义）: %v", st.Drifted)
+		}
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Action != "reload" {
+		t.Fatalf("应恰一条 reload 动作: %+v", plan.Actions)
+	}
+	if !containsStr(plan.Actions[0].Reason, "已从构建平面删除") || !containsStr(plan.Actions[0].Reason, "装载门禁") {
+		t.Fatalf("原因应准确归因删除+门禁阻断预期: %q", plan.Actions[0].Reason)
+	}
+}
+
 func containsStr(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {
