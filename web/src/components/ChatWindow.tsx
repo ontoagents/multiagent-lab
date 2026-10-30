@@ -6,6 +6,7 @@ import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
 import { api, connDisplayName, extApproval, resumeConversation, runConversation } from '../api/client'
+import { notifyPending } from '../lib/notify'
 import type { ComparePaneConfig } from '../api/client'
 import ConvSettingsPanel from './chat/ConvSettingsPanel'
 import ObservePanel from './chat/ObservePanel'
@@ -1280,10 +1281,18 @@ export default function ChatWindow({
   const [iterStat, setIterStat] = useState<{ k: number; n: number | null } | null>(null)
   const handleRunEvent = ({ event, data }: { event: string; data: any }) => {
     const payload = data?.data ?? {}
-    if (event === 'run.interrupted') setInterrupt(toInterruptState(payload))
+    if (event === 'run.interrupted') {
+      setInterrupt(toInterruptState(payload))
+      // REQ-395/M191：挂起触达——页面不可见时系统通知（审批/追问挂起主动提醒）
+      notifyPending('追问挂起', conversation.title, String(payload.question ?? payload.node ?? '等待你的答复——点击回到会话'))
+    }
     // REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批——approval.request 挂起
     // 等待决议卡；run 终态（finished/error）时挂起随 run 进程结束自动失效，清卡。
-    if (event === 'approval.request') setExtApproval({ toolName: payload.tool_name ?? '', kind: payload.kind ?? '' })
+    if (event === 'approval.request') {
+      setExtApproval({ toolName: payload.tool_name ?? '', kind: payload.kind ?? '' })
+      // REQ-395/M191：工具审批挂起触达（同判定：页面不可见才通知）
+      notifyPending('审批挂起', conversation.title, `工具 ${payload.tool_name ?? ''} 等待审批——点击回到会话决议`)
+    }
     if (event === 'run.finished' || event === 'run.error') setExtApproval(null)
     if (event === 'run.started') setIterStat({ k: 0, n: typeof payload.max_iteration_effective === 'number' ? payload.max_iteration_effective : null })
     if (event === 'model.step') setIterStat((p) => ({ k: (p?.k ?? 0) + 1, n: p?.n ?? null }))
