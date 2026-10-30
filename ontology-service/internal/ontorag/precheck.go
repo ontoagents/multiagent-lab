@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 // precheckSchema 预检输出契约（逐条三 维布尔+一句话依据）。

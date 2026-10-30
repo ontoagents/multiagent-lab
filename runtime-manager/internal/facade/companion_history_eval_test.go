@@ -22,7 +22,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 var histHTTP = &http.Client{Timeout: 15 * time.Second}

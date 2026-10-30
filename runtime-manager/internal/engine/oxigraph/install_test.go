@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
 	"testing"
 )
 

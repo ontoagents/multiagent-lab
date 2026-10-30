@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MultiAgentLab",
+  "productName": "OntoAgents",
   "version": "1.0.0",
-  "identifier": "com.multiagentlab.desktop",
+  "identifier": "com.ontoagents.desktop",
   "build": {
     "frontendDist": "../frontend"
   },

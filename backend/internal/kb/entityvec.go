@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ---- KB-4②③/M287：实体「名称+描述」向量召回双入口（写侧刷新 + 读侧融合）----

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 func reasonCheckStubServer(t *testing.T) *Server {

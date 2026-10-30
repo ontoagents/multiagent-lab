@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 func newHistFacade(t *testing.T, sparqlHandler http.HandlerFunc) *Facade {

@@ -14,7 +14,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // stubApprovalModel 桩模型：首轮调用 current_time；收到工具结果后原样转述（含拒绝载荷）。

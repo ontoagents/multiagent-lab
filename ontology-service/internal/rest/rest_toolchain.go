@@ -13,9 +13,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/toolchain"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/toolchain"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // specDiff 版本/草稿对照结果（diffVersions 与 toolchain diff 共用形状）。

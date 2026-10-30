@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-19e/19f 对比模式窗格覆盖与请求解码（零依赖单测）。

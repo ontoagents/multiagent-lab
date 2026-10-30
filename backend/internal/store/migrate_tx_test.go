@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/migrate"
+	"github.com/ontoagents/ontoagents/pkg/migrate"
 )
 
 // 两段式：m002 中途失败（第二语句 INSERT 不存在的表）→ 断言 001 已提交、002 未记录且 m002

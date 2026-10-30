@@ -1,4 +1,4 @@
-module github.com/xiaoyao/multiagent-lab/deploy/windows/launcher
+module github.com/ontoagents/ontoagents/deploy/windows/launcher
 
 go 1.25.0
 

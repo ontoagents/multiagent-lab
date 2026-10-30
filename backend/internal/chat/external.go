@@ -20,9 +20,9 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // historyLimit 外部提示中携带的历史轮数上限（CLI 无服务端记忆，单次拼入）。

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // Severity 检查项严重级：error=错误级（strict 模式阻断/进修复循环）；warning=告警；info=提示。

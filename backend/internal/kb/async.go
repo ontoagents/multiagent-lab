@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // indexQueueCap 后台索引队列容量（学习尺度远够；满则如实 failed 提示重试）。

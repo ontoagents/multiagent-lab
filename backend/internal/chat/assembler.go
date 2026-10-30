@@ -23,13 +23,13 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontology"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/skill"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/ontology"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/skill"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // mcpFetchTimeout 单个 MCP server 连接+列工具的超时（§13：不做重试风暴）。

@@ -287,7 +287,7 @@ const COPY = {
     ghRepo: 'GitHub 仓库',
     previewTitle: '产品预览',
     previewDesc: '两张界面示意图带你看清核心工作面：智能体对话工作台与本体工程控制台。以下为结构示意（按真实界面布局绘制），部署后即可得到同款界面。',
-    tourTitle: '30 秒了解 AgentLab',
+    tourTitle: '30 秒了解 OntoAgents',
     scenesTitle: '使用场景',
     coresTitle: '双核心',
     modulesTitle: '功能模块',
@@ -303,7 +303,7 @@ cd multiagent-lab
     qs2Title: 'Docker Compose / Helm',
     qs2Code: `cd deploy
 docker compose up -d
-# 或 K8s：helm install agentlab deploy/helm`,
+# 或 K8s：helm install ontoagents deploy/helm/ontoagents`,
     qs2NotePre: '部署形态与远程访问凭证见仓库 ',
     qs2NoteLink: '《部署与运行》',
     qs2NotePost: '。',
@@ -321,7 +321,7 @@ docker compose up -d
     ghRepo: 'GitHub repo',
     previewTitle: 'Product preview',
     previewDesc: 'Two interface mockups show the core workspaces: the agent chat workbench and the ontology engineering console. These are structural mockups drawn from the real UI — deploy the platform and you get the same thing.',
-    tourTitle: 'AgentLab in 30 seconds',
+    tourTitle: 'OntoAgents in 30 seconds',
     scenesTitle: 'Use cases',
     coresTitle: 'Dual cores',
     modulesTitle: 'Modules',
@@ -337,7 +337,7 @@ cd multiagent-lab
     qs2Title: 'Docker Compose / Helm',
     qs2Code: `cd deploy
 docker compose up -d
-# Or K8s: helm install agentlab deploy/helm`,
+# Or K8s: helm install ontoagents deploy/helm/ontoagents`,
     qs2NotePre: 'Deployment forms and remote-access credentials: ',
     qs2NoteLink: 'Deploy & Run',
     qs2NotePost: '.',
@@ -361,7 +361,7 @@ export default function HomePage() {
             {c.heroTag}
           </Tag>
           <h1>
-            AgentLab
+            OntoAgents
             <span className="hero-sub">{c.heroSub}</span>
           </h1>
           <p className="hero-desc">

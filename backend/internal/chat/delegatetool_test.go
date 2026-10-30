@@ -15,7 +15,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // stubTool 可编程的 Invokable 工具桩。

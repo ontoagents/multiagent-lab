@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
 )
 
 func TestExportBridgeFromRefs_Req479(t *testing.T) {

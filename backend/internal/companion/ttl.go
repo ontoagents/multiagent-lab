@@ -77,7 +77,7 @@ func SPARQLBindingsToTTL(raw []byte) ([]byte, error) {
 		return nil, fmt.Errorf("SPARQL 结果解析失败: %w", err)
 	}
 	var b strings.Builder
-	b.WriteString("# 伴生子图导出（eino-multiagent-lab REQ-285）——对话生长沉淀，薄本体词表 bot:\n")
+	b.WriteString("# 伴生子图导出（OntoAgents REQ-285）——对话生长沉淀，薄本体词表 bot:\n")
 	for _, p := range prefixNS {
 		fmt.Fprintf(&b, "@prefix %s: <%s> .\n", p[0], p[1])
 	}

@@ -11,12 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/fuseki"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/facade"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/manager"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/rest"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/fuseki"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/facade"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/manager"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/rest"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 func env(k, def string) string {

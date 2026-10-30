@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/api/sse"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/api/sse"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // resolveRunTarget 解析会话的运行目标 Agent（agent 直聊 / 项目协调者），返回会话与智能体。

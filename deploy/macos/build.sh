@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MultiAgentLab macOS 桌面客户端构建（REQ-324/M127；壳技术切换轮 2026-10-15 增 Tauri 壳路径）
+# OntoAgents macOS 桌面客户端构建（REQ-324/M127；壳技术切换轮 2026-10-15 增 Tauri 壳路径）
 #
 # 用法: deploy/macos/build.sh [-Shell tauri|go] [-SkipWeb] [-SkipDmg] [-StageOnly]
 #   -Shell tauri  Tauri 2 壳（定案壳技术，对齐 build.ps1 默认）：组 apps/desktop 资源 →
@@ -8,7 +8,7 @@
 #   -Shell go     Go+AppleScriptObjC 遗留壳（REQ-324 首交付形态；client-release.yml workflow 沿用）
 #   默认 -Shell tauri；-SkipWeb 跳过前端构建；-StageOnly 只组装不打包；-SkipDmg 只出 .app
 #
-# 产物: dist/MultiAgentLab.app + dist/MultiAgentLab_<版本>.dmg（两种壳同名落位）
+# 产物: dist/OntoAgents.app + dist/OntoAgents_<版本>.dmg（两种壳同名落位）
 #
 # 工具面:
 #   go 壳   = go + node（零 Xcode CLT 依赖，正身机 CLT 损坏不影响）
@@ -104,8 +104,8 @@ if [ "$SHELL_KIND" = "go" ]; then
     (cd "$MACOS_DIR/launcher" && go build -trimpath -ldflags "-s -w -X main.ShellVersion=${VERSION_ID}" -o "$MACOS_DIR/build/bin/mlabd" .)
   fi
 
-  echo "[build] 组装 MultiAgentLab.app（go/ASOC 壳）..."
-  APP="$MACOS_DIR/dist/MultiAgentLab.app"
+  echo "[build] 组装 OntoAgents.app（go/ASOC 壳）..."
+  APP="$MACOS_DIR/dist/OntoAgents.app"
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp "$MACOS_DIR/Info.plist" "$APP/Contents/Info.plist"
@@ -116,9 +116,9 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp "$MACOS_DIR/build/bin/backend" "$MACOS_DIR/build/bin/ontologyd" \
      "$MACOS_DIR/build/bin/runtimed" "$MACOS_DIR/build/bin/mlabd" "$RES/bin/"
   [ -f "$MACOS_DIR/build/bin/oxigraph" ] && cp "$MACOS_DIR/build/bin/oxigraph" "$RES/bin/"
-  cp "$MACOS_DIR/launcher.sh" "$APP/Contents/MacOS/MultiAgentLab"
+  cp "$MACOS_DIR/launcher.sh" "$APP/Contents/MacOS/OntoAgents"
   cp "$MACOS_DIR/shell/window.applescript" "$RES/shell/window.applescript"
-  chmod +x "$APP/Contents/MacOS/MultiAgentLab" "$RES/bin/"*
+  chmod +x "$APP/Contents/MacOS/OntoAgents" "$RES/bin/"*
   cp -R "$REPO/web/dist" "$RES/web/dist"
   cp -R "$REPO/ontology-service/migrations" "$RES/migrations/ontology-service"
   cp -R "$REPO/runtime-manager/migrations" "$RES/migrations/runtime-manager"
@@ -187,12 +187,12 @@ EOF
     printf '{"version": "%s"}' "$VERSION_SEMVER" > "$VCONF"
     (cd "$REPO/apps/desktop" && npx tauri build --bundles app -c "$VCONF")
     rm -f "$VCONF"
-    BUILT="$(ls -d "$TSRC/target/release/bundle/macos/MultiAgentLab.app" 2>/dev/null || true)"
+    BUILT="$(ls -d "$TSRC/target/release/bundle/macos/OntoAgents.app" 2>/dev/null || true)"
     [ -n "$BUILT" ] || { echo "[build] 错误: tauri 产物缺失"; exit 1; }
     mkdir -p "$MACOS_DIR/dist"
-    rm -rf "$MACOS_DIR/dist/MultiAgentLab.app"
-    cp -R "$BUILT" "$MACOS_DIR/dist/MultiAgentLab.app"
-    sign_app "$MACOS_DIR/dist/MultiAgentLab.app"
+    rm -rf "$MACOS_DIR/dist/OntoAgents.app"
+    cp -R "$BUILT" "$MACOS_DIR/dist/OntoAgents.app"
+    sign_app "$MACOS_DIR/dist/OntoAgents.app"
   fi
 fi
 
@@ -200,8 +200,8 @@ fi
 # 的第三段依赖本语义〔lipo 通用二进制 → -StageOnly 重组装 + DMG → mv 注入版本号〕；
 # 勿再收窄（ff8ce92 曾误加 STAGE_ONLY 条件致 workflow mv 无 DMG 可改名，2026-10-19 修复）。
 if [ "$SKIP_DMG" != "1" ]; then
-  APP="$MACOS_DIR/dist/MultiAgentLab.app"
-  DMG_OUT="$MACOS_DIR/dist/MultiAgentLab_${VERSION_ID}.dmg"
+  APP="$MACOS_DIR/dist/OntoAgents.app"
+  DMG_OUT="$MACOS_DIR/dist/OntoAgents_${VERSION_ID}.dmg"
   LAYOUT_OK=0
   # ---- DMG 拖拽安装排版（默认）：应用图标 + /Applications 别名 + 背景引导 + 固定窗口布局。
   # 管线=hdiutil UDRW -srcfolder（copyfile 保字节名，绕开 shutil 触发 HFS+ 分解致 seal 破损的坑）
@@ -214,9 +214,9 @@ if [ "$SKIP_DMG" != "1" ]; then
     STAGE="$(mktemp -d)"
     RW="$(mktemp -d)/rw.dmg"
     MNT="$(mktemp -d)"
-    cp -R "$APP" "$STAGE/MultiAgentLab.app"
+    cp -R "$APP" "$STAGE/OntoAgents.app"
     ln -s /Applications "$STAGE/Applications"
-    hdiutil create -volname MultiAgentLab -srcfolder "$STAGE" -ov -format UDRW "$RW" >/dev/null
+    hdiutil create -volname OntoAgents -srcfolder "$STAGE" -ov -format UDRW "$RW" >/dev/null
     if hdiutil attach -nobrowse -readwrite -mountpoint "$MNT" "$RW" >/dev/null; then
       BG=""
       CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -236,9 +236,9 @@ font-family:-apple-system,'PingFang SC',sans-serif;overflow:hidden}
 .c1{top:196px;left:0}.c2{top:196px;left:380px}
 </style></head><body>
 <div class="slot s1"></div><div class="slot s2"></div>
-<div class="cap c1">MultiAgentLab</div><div class="cap c2">Applications</div>
+<div class="cap c1">OntoAgents</div><div class="cap c2">Applications</div>
 <div class="arrow">→</div>
-<div class="t1">拖动「MultiAgentLab」到右侧 Applications</div>
+<div class="t1">拖动「OntoAgents」到右侧 Applications</div>
 <div class="t2">完成永久安装（也可拖入其他位置；数据独立存放不受影响）</div>
 </body></html>
 HTMLEOF
@@ -272,12 +272,12 @@ HTMLEOF
   fi
   if [ "$LAYOUT_OK" != "1" ]; then
     echo "[build] 打 DMG（纯镜像）..."
-    hdiutil create -volname MultiAgentLab -srcfolder "$APP" -ov -format UDZO "$DMG_OUT" >/dev/null
+    hdiutil create -volname OntoAgents -srcfolder "$APP" -ov -format UDZO "$DMG_OUT" >/dev/null
   fi
   # ---- 在镜像签名校验硬闸（防跨 FS 封印破损流出到用户）：挂只读 codesign 验证，失败即构建失败
   VNT="$(mktemp -d)"
   if hdiutil attach -nobrowse -readonly -mountpoint "$VNT" "$DMG_OUT" >/dev/null; then
-    if codesign --verify --deep --strict "$VNT/MultiAgentLab.app" 2>/dev/null; then
+    if codesign --verify --deep --strict "$VNT/OntoAgents.app" 2>/dev/null; then
       echo "[build] DMG 内签名校验通过（${VERSION_ID}）"
     else
       echo "[build] 错误: DMG 内签名校验失败（seal 破损）"; hdiutil detach "$VNT" >/dev/null 2>&1 || true; exit 1
@@ -304,4 +304,4 @@ fi
 # 计数器只在构建成功后落盘（失败尝试不消耗次版本号）
 echo "$BUILD_NUM" > "$BUILD_NUM_FILE"
 echo "[build] 完成（shell=${SHELL_KIND}）:"
-du -sh "$MACOS_DIR/dist"/MultiAgentLab.app "$MACOS_DIR/dist"/*.dmg 2>/dev/null | sed 's/^/  /' || true
+du -sh "$MACOS_DIR/dist"/OntoAgents.app "$MACOS_DIR/dist"/*.dmg 2>/dev/null | sed 's/^/  /' || true

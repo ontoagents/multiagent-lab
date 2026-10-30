@@ -15,7 +15,7 @@ import (
 	"time"
 
 	einotool "github.com/cloudwego/eino/components/tool"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // Service 本体对接服务（P1 主线路径：Runtime Manager facade + 构建平面）。

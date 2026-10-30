@@ -117,11 +117,11 @@ const OPS: { icon: ReactNode; i18n: L10n<{ title: string; desc: string }> }[] = 
     i18n: {
       zh: {
         title: '版本与发布',
-        desc: '推 v* tag 自动触发 GitHub Actions 双平台构建并发版（REQ-327），产物按版本命名：MultiAgentLab_<版本>_setup.exe / _macos_universal.dmg。历史版本与更新日志见 Releases。',
+        desc: '推 v* tag 自动触发 GitHub Actions 双平台构建并发版（REQ-327），产物按版本命名：OntoAgents_<版本>_setup.exe / _macos_universal.dmg。历史版本与更新日志见 Releases。',
       },
       en: {
         title: 'Versions & releases',
-        desc: 'Pushing a v* tag triggers GitHub Actions builds for both platforms and a release (REQ-327); artifacts are named per version: MultiAgentLab_<version>_setup.exe / _macos_universal.dmg. History and changelogs in Releases.',
+        desc: 'Pushing a v* tag triggers GitHub Actions builds for both platforms and a release (REQ-327); artifacts are named per version: OntoAgents_<version>_setup.exe / _macos_universal.dmg. History and changelogs in Releases.',
       },
     },
   },

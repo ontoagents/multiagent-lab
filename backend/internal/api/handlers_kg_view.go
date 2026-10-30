@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // kgStats GET /api/kg/{kbID}/stats：统计卡（实体/关系/claims 计数、类型分布、文档覆盖）。

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/evolution"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 const diagSpecJSON = `{"name":"evo","concepts":[

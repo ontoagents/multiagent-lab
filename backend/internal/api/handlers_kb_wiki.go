@@ -6,7 +6,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // wikiPages GET /api/kb/{id}/wiki/pages：页面清单（含 content_md 全文，学习尺度直接列表回显）。

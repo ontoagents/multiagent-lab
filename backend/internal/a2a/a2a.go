@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // Task A2A 任务（进程内生命周期：submitted→working→completed|failed|canceled）。
@@ -126,11 +126,11 @@ func (s *Service) AgentCard(agent *store.Agent) map[string]any {
 			"id":          agent.ID,
 			"name":        agent.Name,
 			"description": skillDesc,
-			"tags":        []string{"eino-multiagent-lab", "agent"},
+			"tags":        []string{"ontoagents", "agent"},
 		}},
 		"preferredTransport": "JSONRPC",
 		// REQ-444/M240：provider 元数据 + 鉴权声明（PLATFORM_TOKEN 启用时 bearer——凭据要求对外可发现）
-		"provider": map[string]any{"organization": "eino-multiagent-lab", "url": s.BaseURL},
+		"provider": map[string]any{"organization": "ontoagents", "url": s.BaseURL},
 	}
 	if os.Getenv("PLATFORM_TOKEN") != "" {
 		card["securitySchemes"] = map[string]any{

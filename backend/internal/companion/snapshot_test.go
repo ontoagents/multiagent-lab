@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-216 增量轮（2026-09-30 复查）单测：快照持久化与重建回灌 / Ensure 单飞化。

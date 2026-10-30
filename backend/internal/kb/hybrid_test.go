@@ -3,7 +3,7 @@ package kb
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KB-10①：RRF 融合纯函数测试——排序、strategy 标注、topK 截断、空臂降级。

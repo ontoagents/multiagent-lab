@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/companion"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // companionBinding SPARQL SELECT JSON 单绑定（s/p/o 或 ?label）。

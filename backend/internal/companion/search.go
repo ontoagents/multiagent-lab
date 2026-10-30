@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
+	"github.com/ontoagents/ontoagents/backend/internal/kb"
 )
 
 // ErrCompanionNotBound 智能体未绑定伴生本体（按需查询无图可查）。

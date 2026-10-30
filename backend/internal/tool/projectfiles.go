@@ -15,8 +15,8 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ProjectDirDeps 项目目录工具的会话级依赖（装配期注入，项目会话才启用）。

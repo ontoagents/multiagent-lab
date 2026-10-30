@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/runtime"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/runtime"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // normalizeInferenceBackend M13 §6.16：推理后端归一（空 = eino-adk 自研默认）+ 合法性校验。

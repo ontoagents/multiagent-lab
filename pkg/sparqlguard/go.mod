@@ -1,3 +1,3 @@
-module github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard
+module github.com/ontoagents/ontoagents/pkg/sparqlguard
 
 go 1.25.0

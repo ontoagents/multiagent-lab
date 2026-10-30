@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func (s *Server) exportDiagnostics(w http.ResponseWriter, r *http.Request) {

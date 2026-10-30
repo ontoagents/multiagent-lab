@@ -12,17 +12,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
-	comedata "github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion/evaldata"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kg"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontobuild"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/ontology"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/a2a"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/companion"
+	comedata "github.com/ontoagents/ontoagents/backend/internal/companion/evaldata"
+	"github.com/ontoagents/ontoagents/backend/internal/kb"
+	"github.com/ontoagents/ontoagents/backend/internal/kg"
+	"github.com/ontoagents/ontoagents/backend/internal/ontobuild"
+	"github.com/ontoagents/ontoagents/backend/internal/ontology"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // Server 聚合依赖并持有路由。

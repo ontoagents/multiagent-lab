@@ -70,7 +70,7 @@ func spawnStdio(ctx context.Context, cfg *StdioConfig) (*mcpclient.Client, error
 	if _, err := cli.Initialize(initCtx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: "2025-03-26",
-			ClientInfo:      mcp.Implementation{Name: "eino-multiagent-lab", Version: "0.1.0"},
+			ClientInfo:      mcp.Implementation{Name: "ontoagents", Version: "0.1.0"},
 		},
 	}); err != nil {
 		_ = cli.Close()

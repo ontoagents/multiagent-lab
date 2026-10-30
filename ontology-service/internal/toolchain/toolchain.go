@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/pkg/sparqlguard"
 )
 
 // Validation validate 工具结果：结构错误 + 质量报告（复用 qualitygate 三维评分）。

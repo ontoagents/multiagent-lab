@@ -7,7 +7,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // SQLiteStore fallback 后端（§6.9：沿用 SQLiteRetriever 余弦 TopK，无外部依赖对照）。

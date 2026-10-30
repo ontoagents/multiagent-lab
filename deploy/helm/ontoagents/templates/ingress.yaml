@@ -4,7 +4,7 @@ kind: Ingress
 metadata:
   name: {{ .Release.Name }}-backend
   labels:
-    {{- include "multiagent-lab.labels" (dict "Release" .Release "component" "backend") | nindent 4 }}
+    {{- include "ontoagents.labels" (dict "Release" .Release "component" "backend") | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:

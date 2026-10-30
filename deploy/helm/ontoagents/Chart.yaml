@@ -1,5 +1,5 @@
 apiVersion: v2
-name: multiagent-lab
+name: ontoagents
 description: Eino 多智能体学习平台（backend + ontology-service + runtime-manager）
 type: application
 version: 0.1.0

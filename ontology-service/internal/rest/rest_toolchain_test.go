@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 const toolchainSpecJSON = `{"name":"医学","concepts":[

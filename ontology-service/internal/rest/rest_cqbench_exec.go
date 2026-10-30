@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/cqbench"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/cqbench"
 )
 
 // runtimeMgrURL 运行平面基址：Server.RuntimeURL（构造注入）优先，env 兜底，默认本机 :8090。

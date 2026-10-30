@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // WikiLLMFunc 结构化生成注入签名（返回 JSON 字符串；schemaJSON 为输出契约）。

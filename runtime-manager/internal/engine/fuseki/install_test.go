@@ -235,7 +235,7 @@ func TestJavaHome(t *testing.T) {
 func TestReasoningConfigWindowsPath(t *testing.T) {
 	var dbDir string
 	if runtime.GOOS == "windows" {
-		dbDir = `D:\MultiAgentLab\data\engines\rt_x\tdb` // 盘符绝对路径（filepath.Join("D:",...) 会成盘符相对路径 D:X，勿用）
+		dbDir = `D:\OntoAgents\data\engines\rt_x\tdb` // 盘符绝对路径（filepath.Join("D:",...) 会成盘符相对路径 D:X，勿用）
 	} else {
 		dbDir = filepath.Join("data", "engines", "rt_x", "tdb")
 	}
@@ -246,7 +246,7 @@ func TestReasoningConfigWindowsPath(t *testing.T) {
 	if strings.Contains(cfg, `\`) {
 		t.Fatalf("config 不应残留反斜杠:\n%s", cfg)
 	}
-	if runtime.GOOS == "windows" && !strings.Contains(cfg, `tdb:location "D:/MultiAgentLab/data/engines/rt_x/tdb"`) {
+	if runtime.GOOS == "windows" && !strings.Contains(cfg, `tdb:location "D:/OntoAgents/data/engines/rt_x/tdb"`) {
 		t.Fatalf("windows 下 tdb:location 应为正斜杠路径，得:\n%s", cfg)
 	}
 	if runtime.GOOS == "windows" {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // REQ-157/M-O15 零依赖单测：三策略合并（replace/merge-overwrite/merge）+ 冲突字段提取 + 前缀协调。

@@ -17,9 +17,9 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // AssistantDeps L0 工具的只读依赖（main.go 装配时注入；与 api 层 docRead 同源口径）。

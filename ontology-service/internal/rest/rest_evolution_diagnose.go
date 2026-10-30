@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/cqbench"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/cqbench"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/evolution"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // specExternalRatio 「spec 外比例」一等指标（REQ-376③）。

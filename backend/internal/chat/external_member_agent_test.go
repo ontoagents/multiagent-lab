@@ -14,9 +14,9 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // collectAgentEvents 收敛 adk.Agent 迭代器取末事件（适配器为单事件形态）。

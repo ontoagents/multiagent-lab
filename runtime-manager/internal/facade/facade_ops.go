@@ -31,7 +31,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // buildAPIBase 构建平面基址（BUILD_SVC_URL，默认 http://127.0.0.1:8091）——与 runtimed

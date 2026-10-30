@@ -73,7 +73,7 @@ func processImage(pid int) (name, path string) {
 
 // oursServiceName 判断占用者是否本平台服务（launcher/三服务同名 exe——回收安全）。
 func oursServiceName(o portOwner) (string, bool) {
-	for _, n := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "MultiAgentLab.exe"} {
+	for _, n := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "OntoAgents.exe"} {
 		if strings.EqualFold(o.Name, n) {
 			return n, true
 		}

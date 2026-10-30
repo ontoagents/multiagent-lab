@@ -1,4 +1,4 @@
-# multiagent-lab Helm values
+# ontoagents Helm values
 # 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 platform-knowledge/01_整体设计/16_部署与运行.md）
 # REQ-518/M325：components.enabled 旗标（缺省 true）——休眠组件置 false 即从 deployments/services/pvc 三模板过滤；
 # 服务间编址契约表见 16 号 §3.0（ONTOLOGY_MCP_URL 缺省自 RUNTIME_MGR_URL 派生 /mcp——此处显式双保险）
@@ -10,7 +10,7 @@ image:
 ingress:
   enabled: false
   className: nginx
-  host: multiagent-lab.local
+  host: ontoagents.local
 
 # REQ-534/M341：默认 NetworkPolicy deny+白名单（同 ns 互通+DNS+HTTPS 出站+可选 ingress）
 networkPolicy:
@@ -25,47 +25,47 @@ qdrant:
 components:
   - name: backend
     enabled: true
-    image: multiagent-lab/backend
+    image: ontoagents/backend
     tag: latest
     port: 8080
     storage: 2Gi
     env:
       - name: BUILD_SVC_URL
-        value: http://multiagent-lab-ontology-service:8091
+        value: http://ontoagents-ontology-service:8091
       - name: RUNTIME_MGR_URL
-        value: http://multiagent-lab-runtime-manager:8090
+        value: http://ontoagents-runtime-manager:8090
       - name: ONTOLOGY_MCP_URL
-        value: http://multiagent-lab-runtime-manager:8090/mcp
+        value: http://ontoagents-runtime-manager:8090/mcp
       # - name: KB_VECTOR_BACKEND
       #   value: qdrant
       # - name: QDRANT_URL
-      #   value: http://multiagent-lab-qdrant:6333
+      #   value: http://ontoagents-qdrant:6333
       # Docker 沙箱（进阶，默认关）：需 DinD/宿主 sock，见 16 号 §3.0
   - name: ontology-service
     enabled: true
-    image: multiagent-lab/ontology-service
+    image: ontoagents/ontology-service
     tag: latest
     port: 8091
     storage: 1Gi
     env:
       - name: PLATFORM_URL
-        value: http://multiagent-lab-backend:8080
+        value: http://ontoagents-backend:8080
   - name: runtime-manager
     enabled: true
-    image: multiagent-lab/runtime-manager
+    image: ontoagents/runtime-manager
     tag: latest
     port: 8090
     storage: 2Gi
     env:
       - name: BUILD_SVC_URL
-        value: http://multiagent-lab-ontology-service:8091
+        value: http://ontoagents-ontology-service:8091
       - name: PLATFORM_API_URL
-        value: http://multiagent-lab-backend:8080
+        value: http://ontoagents-backend:8080
   # REQ-518/M325：semantica-worker 自编排摘除（D-O15 归档休眠不再构建/分发——原裸 range
   # 默认渲染出 6~10GB 镜像 Deployment；如需恢复在下方追加组件并 enabled: true）
   # - name: semantica-worker
   #   enabled: false
-  #   image: multiagent-lab/semantica-worker
+  #   image: ontoagents/semantica-worker
   #   tag: latest
   #   port: 8093
   #   storage: 5Gi

@@ -18,9 +18,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 func TestGraphIRI(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // SearchUnified 统一检索出口：按库能力开关路由（向量[含 KB-10① 混合] / 图谱）。

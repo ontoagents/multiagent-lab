@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // JudgeResult LLM Judge 三值评分（REQ-223②）。契约（rubric/输入组装/输出解析）刻意

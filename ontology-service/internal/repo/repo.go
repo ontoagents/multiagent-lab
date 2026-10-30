@@ -14,7 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 var ErrNotFound = errors.New("not found")

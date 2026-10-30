@@ -16,10 +16,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/manager"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/pkg/sparqlguard"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/manager"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 type Facade struct {

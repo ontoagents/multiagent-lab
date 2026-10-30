@@ -18,9 +18,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 // Reconcile 启动对账（main 在路由装配前调用一次；阻塞但每方案探测有 2s 超时上限）。

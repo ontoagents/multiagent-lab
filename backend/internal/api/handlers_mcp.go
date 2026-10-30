@@ -19,8 +19,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 type mcpBearerKey struct{}
@@ -40,7 +40,7 @@ func (s *Server) mcpHandler() http.Handler {
 	if s.mcpHTTP != nil {
 		return s.mcpHTTP
 	}
-	mcpSrv := mcpserver.NewMCPServer("eino-multiagent-lab", "0.1.0")
+	mcpSrv := mcpserver.NewMCPServer("ontoagents", "0.1.0")
 	agents, err := s.Store.ListAgents()
 	if err != nil {
 		log.Printf("[mcp] list agents: %v", err)

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // ExportVOWLJSON（WebVOWL 对照视图数据源，2026-09-27 转换链重构）：

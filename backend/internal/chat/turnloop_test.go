@@ -26,8 +26,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // tlService 手工装配的最小 Service（TurnLoop 引擎直测；桩模型只实现 Generate→关流式）。

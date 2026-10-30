@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // amEmbed 桩：「阿司匹林」与「Aspirin」语义近（余弦≈0.9985），其余正交（实现 embedClient 接口）。

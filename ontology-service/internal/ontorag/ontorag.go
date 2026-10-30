@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // Element 本体元素（论文 OntologyElement 适配 spec_json 形态）。

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func newPublishTestServer(t *testing.T) (*httptest.Server, *repo.Store) {

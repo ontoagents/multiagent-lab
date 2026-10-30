@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/connector"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/a2a"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/connector"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // connectorOut 列表/详情出参（凭据脱敏）。

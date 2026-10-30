@@ -14,17 +14,17 @@ import (
 	"sync"
 	"time"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontorag"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/pipeline"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/vocabsearch"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/evolution"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontochat"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontorag"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/pipeline"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/vocabsearch"
 )
 
 type Server struct {

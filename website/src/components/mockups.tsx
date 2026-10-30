@@ -46,7 +46,7 @@ function GlobalNavMock({ active }: { active: string }) {
         <circle cx="0" cy="10" r="4" fill={BRAND} opacity="0.86" />
         <circle cx="12" cy="10" r="4" fill={BRAND} opacity="0.86" />
         <path d="M6 2 L1 9 M6 2 L11 9 M2 10 H10" stroke={BRAND} strokeWidth="1.5" fill="none" />
-        <text x="24" y="8" fontSize="13" fontWeight={800} fill={INK}>AgentLab</text>
+        <text x="24" y="8" fontSize="13" fontWeight={800} fill={INK}>OntoAgents</text>
       </g>
       {items.map((label, i) => {
         const y = 108 + i * 38

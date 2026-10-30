@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/knowledge"
+	"github.com/ontoagents/ontoagents/backend/internal/knowledge"
 )
 
 // knowledgeGraph GET /api/knowledge/graph：全量投影（节点+边；空库自动摄取一次）。

@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // autoMergeThreshold 自动合并阈值（env KG_MERGE_AUTO_THRESHOLD，默认 0.95——严于建议 0.85）。

@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // quizGenerateTimeout 出题/批改 LLM 直调超时（与 optimizeTimeout 同档）。

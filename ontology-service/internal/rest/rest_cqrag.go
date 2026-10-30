@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/buildflow"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontorag"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/buildflow"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontorag"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // cqragDraftResult job 终局载荷。

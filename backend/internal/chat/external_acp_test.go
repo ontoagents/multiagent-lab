@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/connector"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/connector"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // fakeACPBackend 捕获 RunRequest 的桩后端：onRun 非空时由 onRun 自主驱动（含权限回调），

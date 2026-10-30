@@ -8,7 +8,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // listDelegates GET /api/conversations/{id}/delegates：父会话的后台委派列表（新→旧）。

@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/skill"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/skill"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // 报告列表上限：单次导入可能上百技能，超限截断并诚实标注（计数仍完整）。

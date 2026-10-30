@@ -3,5 +3,5 @@
     "targets": ["app"],
     "icon": ["icons/icon.icns"]
   },
-  "mainBinaryName": "MultiAgentLab"
+  "mainBinaryName": "OntoAgents"
 }

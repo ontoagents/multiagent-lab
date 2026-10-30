@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/kb"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // kgReview POST /api/kg/{kbID}/review：关系/claims 人工审核（REQ-129③）。

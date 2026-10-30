@@ -137,7 +137,7 @@ export default function App() {
             <BrandMark />
           </span>
           <span className="brand-text">
-            <span className="brand-name">AgentLab</span>
+            <span className="brand-name">OntoAgents</span>
             <span className="brand-sub">{c.brandSub}</span>
           </span>
         </a>
@@ -169,7 +169,7 @@ export default function App() {
       <footer className="footer">
         <div className="footer-inner">
           <span>
-            <BrandMark size={14} /> AgentLab · {c.brandSub} — Apache License 2.0
+            <BrandMark size={14} /> OntoAgents · {c.brandSub} — Apache License 2.0
           </span>
           <span className="footer-links">
             <a href={REPO_URL} target="_blank" rel="noreferrer">

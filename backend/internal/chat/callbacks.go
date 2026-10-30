@@ -20,7 +20,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
-	platool "github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	platool "github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 const (

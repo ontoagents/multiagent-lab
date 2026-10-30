@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 // jobStaleRunning running 态超过该时长视为进程重启悬挂（自愈收敛，沿启动对账先例——

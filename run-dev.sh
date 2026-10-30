@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# eino-multiagent-lab 一键启动（Linux / macOS / 云端沙箱）
+# OntoAgents 一键启动（Linux / macOS / 云端沙箱）
 # 用法: ./run-dev.sh [PORT]
 #   默认端口 8080；前端已由 backend 静态托管，浏览器访问 http://localhost:8080
 #   同时启动本体侧后端：ontology-service(:8091) + runtime-manager(:8090)

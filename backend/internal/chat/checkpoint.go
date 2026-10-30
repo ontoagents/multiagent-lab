@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // CheckPoints 会话中断检查点存储抽象（ADK core.CheckPointStore + 可选删除）。

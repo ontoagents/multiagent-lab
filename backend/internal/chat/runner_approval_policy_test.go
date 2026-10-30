@@ -3,7 +3,7 @@ package chat
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-231④：生效审批策略解析六象限（与装配期合并同语义；run.started 透出口径）。

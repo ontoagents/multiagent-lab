@@ -1,3 +1,3 @@
-module github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec
+module github.com/ontoagents/ontoagents/pkg/ontology/spec
 
 go 1.25.0

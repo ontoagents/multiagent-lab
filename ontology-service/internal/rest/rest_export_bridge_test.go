@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 func TestExportBridgeEndpoint_Req479(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // CardMeta 卡 frontmatter 投影字段（行式 YAML 子集，与校验器 parseFrontmatter 同口径）。

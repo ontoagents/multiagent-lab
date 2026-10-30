@@ -1,7 +1,7 @@
 package kb
 
 import (
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ---- KB-4③/M287：自写 Personalized PageRank 多跳证据收集（HippoRAG 语义）----

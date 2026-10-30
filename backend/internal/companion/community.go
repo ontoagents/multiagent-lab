@@ -12,9 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kg"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/kg"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // communityEagerLimit 重建时即时生成摘要的社区数上限（超出=pending 按需；沿 KB eagerSummaryLimit）。

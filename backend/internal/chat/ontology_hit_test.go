@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // hitTestService 最小 Service+会话（recordOntologyHit 单测夹具）。

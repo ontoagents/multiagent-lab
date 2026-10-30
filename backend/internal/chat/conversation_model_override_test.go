@@ -3,7 +3,7 @@ package chat
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-291：会话级模型覆盖合并序——请求级（RunInput）> 会话级（''=跟随）> 智能体默认。

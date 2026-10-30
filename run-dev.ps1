@@ -1,4 +1,4 @@
-# eino-multiagent-lab 一键启动（Windows PowerShell）
+# OntoAgents 一键启动（Windows PowerShell）
 # 用法: .\run-dev.ps1 [-Port 8080]
 #   同时启动本体侧后端：ontology-service(:8091) + runtime-manager(:8090)
 param(

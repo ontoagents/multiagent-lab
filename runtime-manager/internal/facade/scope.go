@@ -8,7 +8,7 @@ package facade
 import (
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 // oidFromURI urn:o:{oid}:{kind}:{name} → {oid}（非该形态=空串）。

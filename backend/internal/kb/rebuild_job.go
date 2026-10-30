@@ -11,7 +11,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // RebuildTimeout 单个库级重建任务上限（沿索引队列 10min 口径）。

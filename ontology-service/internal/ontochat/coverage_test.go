@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func covSpec() *pkgspec.Spec {

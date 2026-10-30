@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
+	"github.com/ontoagents/ontoagents/backend/internal/companion"
 )
 
 const gateDims = 16

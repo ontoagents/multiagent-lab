@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/buildflow"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/cqbench"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/buildflow"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/cqbench"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // cqBenchDir 数据集目录（CQ_BENCH_DIR 可覆写；默认仓库形态相对路径）。

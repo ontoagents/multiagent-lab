@@ -7,9 +7,9 @@
 
 | 产物 | 说明 |
 | --- | --- |
-| `dist/MultiAgentLab_0.<N>-<git短id>_x64-setup.exe`（约 27~28 MB，NSIS/Tauri 壳，当前默认路径） | **版本口径（2026-10-16 定版，同 mac build.sh）**：主版本 0 固定；次版本随每次成功构建 +1（`build\.build-number` 计数器，失败尝试不消耗号；接续 mac 全局序列）；构建时 git 短提交 id 作后缀（tauri conf 注入 semver 形态 `0.<N>.0-<id>`，安装包文件名用展示名 `0.<N>-<id>`）。双击中文向导 per-user 安装；`/S` 静默〔Git Bash 下须 `cmd /c "... /S"` 传参，直呼会被 MSYS 路径转换吞参变交互向导〕。`-Shell go` 遗留路径产物仍为 `MultiAgentLab_1.0.0_setup.exe`（约 36 MB，Go 引导器 SFX/ISCC） |
-| 安装后目录（约 95 MB+） | `multiagentlab-desktop.exe`（Tauri 壳）+ `backend/ontologyd/runtimed/oxigraph.exe`（三服务+内置引擎，随包根目录）、`web-dist`、`migrations`、`docs/ + platform-knowledge/`（平台知识随包；research/ 已随 REQ-184 收尾退役，2026-10-25 Tauri 壳映射漏网顺修后不再入包）、`tools\rdf-sidecar\`、`uninstall.exe` |
-| 数据目录 | `%LOCALAPPDATA%\multiagent-lab\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 内置随包**（REQ-321 零捆绑口径 2026-10-15 反转）：壳首启把随包副本种子到 `multiagent-lab\bin`（已存在不覆盖——一键更新/手动换版本不被回滚），运行页引擎即装即用；后续版本更新仍走「一键安装」 |
+| `dist/OntoAgents_0.<N>-<git短id>_x64-setup.exe`（约 27~28 MB，NSIS/Tauri 壳，当前默认路径） | **版本口径（2026-10-16 定版，同 mac build.sh）**：主版本 0 固定；次版本随每次成功构建 +1（`build\.build-number` 计数器，失败尝试不消耗号；接续 mac 全局序列）；构建时 git 短提交 id 作后缀（tauri conf 注入 semver 形态 `0.<N>.0-<id>`，安装包文件名用展示名 `0.<N>-<id>`）。双击中文向导 per-user 安装；`/S` 静默〔Git Bash 下须 `cmd /c "... /S"` 传参，直呼会被 MSYS 路径转换吞参变交互向导〕。`-Shell go` 遗留路径产物仍为 `OntoAgents_1.0.0_setup.exe`（约 36 MB，Go 引导器 SFX/ISCC） |
+| 安装后目录（约 95 MB+） | `ontoagents-desktop.exe`（Tauri 壳）+ `backend/ontologyd/runtimed/oxigraph.exe`（三服务+内置引擎，随包根目录）、`web-dist`、`migrations`、`docs/ + platform-knowledge/`（平台知识随包；research/ 已随 REQ-184 收尾退役，2026-10-25 Tauri 壳映射漏网顺修后不再入包）、`tools\rdf-sidecar\`、`uninstall.exe` |
+| 数据目录 | `%LOCALAPPDATA%\ontoagents\`（REQ-321 定案：独立于程序目录，卸载/升级不触碰；含 SQLite 三库、项目文件、引擎数据、日志）。**oxigraph 内置随包**（REQ-321 零捆绑口径 2026-10-15 反转）：壳首启把随包副本种子到 `ontoagents\bin`（已存在不覆盖——一键更新/手动换版本不被回滚），运行页引擎即装即用；后续版本更新仍走「一键安装」 |
 
 ## 构建
 
@@ -28,21 +28,21 @@ powershell -ExecutionPolicy Bypass -File deploy/windows/build.ps1 -StageOnly # �
 
 - **安装**：双击 setup.exe（SFX：双击即装；Inno：中文向导）→ `MLAB_SILENT=1` 环境变量可静默（冒烟自动化用）。
 - **启动**：开始菜单/桌面「智能体构建平台」→ 壳自动按序拉起 ontologyd(:8191)→runtimed(:8190)→backend(:8180)（REQ-332 默认段，与终端开发栈 run-dev.sh 的 8080/8091/8090 开箱即分工、两栈可并行），就绪后打开 WebView2 窗口；关闭窗口即整树回收（Job Object）。
-- **停止**：开始菜单「停止平台服务」（= `MultiAgentLab.exe -stop`）。
+- **停止**：开始菜单「停止平台服务」（= `OntoAgents.exe -stop`）。
 - **卸载**：「应用与功能」或开始菜单卸载项 → 停服 → 删快捷方式/注册项 → 删程序文件；**`data\` 目录有意保留**（用户数据），彻底清理请手动删除安装目录。
 
 ## 启动命令
 
 ```
-MultiAgentLab.exe            # 桌面壳（WebView2 + 服务编排）
-MultiAgentLab.exe -headless  # 无窗口编排（自动化冒烟：就绪后打印 READY 并驻留）
-MultiAgentLab.exe -stop      # 停止全部平台服务
+OntoAgents.exe            # 桌面壳（WebView2 + 服务编排）
+OntoAgents.exe -headless  # 无窗口编排（自动化冒烟：就绪后打印 READY 并驻留）
+OntoAgents.exe -stop      # 停止全部平台服务
 ```
 
 ## 目录与数据
 
-- 程序：`%LOCALAPPDATA%\Programs\MultiAgentLab`；数据：`%LOCALAPPDATA%\multiagent-lab\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
-- 备份/迁移：停服后复制 `multiagent-lab\`（换机连 `multiagent-lab\.secret` 一起带走，否则模型连接密钥无法解密）。
+- 程序：`%LOCALAPPDATA%\Programs\OntoAgents`；数据：`%LOCALAPPDATA%\ontoagents\`（SQLite 三库、项目文件、引擎数据、伴生快照、日志 `logs\`、一键安装的 oxigraph `bin\`）。
+- 备份/迁移：停服后复制 `ontoagents\`（换机连 `ontoagents\.secret` 一起带走，否则模型连接密钥无法解密）。
 - 端口：默认 **8180 / 8191 / 8190**（REQ-332；oxigraph 子进程 9201+；开发栈 run-dev.sh 用 8080/8091/8090，两栈并行互不干扰——数据根本就隔离）。
   **端口被占用的出路**：Tauri 壳（默认形态）对被占端口自动顺延（+100 起逐档探测）拉起本壳自己的服务集，防串台语义不变；
   遗留 Go 壳则分级处理——平台自身残留服务自动回收，其他程序占用不误杀，弹窗透明诊断（端口/PID/进程名/路径）并给处置建议

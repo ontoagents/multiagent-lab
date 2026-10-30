@@ -18,8 +18,8 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/a2a"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // a2aMemberDeps 外部成员工具构建参数。

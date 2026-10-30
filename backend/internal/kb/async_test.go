@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // waitDocStable 轮询至文档脱离 indexing/pending（后台 worker 完成或失败）。

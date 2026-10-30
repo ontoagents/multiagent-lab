@@ -1,12 +1,12 @@
-// MultiAgentLab 桌面客户端（Tauri 2 壳，REQ-321/M123 壳技术切换交付；macOS 侧切换 2026-10-15）。
+// OntoAgents 桌面客户端（Tauri 2 壳，REQ-321/M123 壳技术切换交付；macOS 侧切换 2026-10-15）。
 //
 // 职责（对齐 10 号 §8 apps/desktop 与 18 号 REQ-321 定案）：
 //   - 窗口系统 WebView（Win=WebView2 / macOS=WKWebView）直载本实例 backend 实际地址
 //     （默认 http://127.0.0.1:8180，REQ-332；backend 托管 SPA，免 CORS）；
 //   - 三服务编排：ontologyd → runtimed → backend（env 与 run-dev.sh 同构；launcher.json 端口可配；
-//     数据根机制与 Go launcher 双向兼容：Windows=data.location→%LOCALAPPDATA%\multiagent-lab
-//     〔曾用名 eino-lab 一次性整体改名迁移，见 migrate_legacy_dir〕；
-//     macOS=data.location→MLAB_DATA_ROOT→~/Library/Application Support/multiagent-lab）；
+//     数据根机制与 Go launcher 双向兼容：Windows=data.location→%LOCALAPPDATA%\ontoagents
+//     〔曾用名 multiagent-lab/eino-lab 一次性链式改名迁移，见 migrate_legacy_dir〕；
+//     macOS=data.location→MLAB_DATA_ROOT→~/Library/Application Support/ontoagents）；
 //   - 托盘：打开主界面/服务状态/打开数据目录/退出；关窗收托盘；tooltip 实时服务状态；
 //   - 单实例（tauri-plugin-single-instance）；退出整树回收（R-X11）：
 //     Windows=Job Object（KILL_ON_JOB_CLOSE，随进程退出生效）；macOS=Setpgid 进程组 + SIGTERM→SIGKILL
@@ -90,8 +90,8 @@ fn data_root(exe_dir: &std::path::Path) -> PathBuf {
             return PathBuf::from(p);
         }
     }
-    // 数据根更名（0524fef 曾用名清理）：multiagent-lab；旧 eino-lab 存在且新目录不存在时一次性整体改名
-    //（改名失败——如目录被占用——沿用旧目录不丢数据；data.location 机制不变）
+    // 数据根更名（REQ-539 品牌统一）：ontoagents；曾用名链 multiagent-lab/eino-lab 存在且新目录
+    // 不存在时一次性整体改名（改名失败——如目录被占用——沿用旧目录不丢数据；data.location 机制不变）
     #[cfg(windows)]
     {
         if let Some(base) = std::env::var_os("LOCALAPPDATA") {
@@ -115,14 +115,17 @@ fn data_root(exe_dir: &std::path::Path) -> PathBuf {
     exe_dir.join("data")
 }
 
-// 曾用名一次性迁移：eino-lab → multiagent-lab（旧目录存在且新目录不存在时整体改名；
-// 改名失败——如目录被占用——沿用旧目录不丢数据）
+// 曾用名链一次性迁移（新→旧）：multiagent-lab、eino-lab → ontoagents（旧目录存在且新目录不存在时
+// 整体改名；改名失败——如目录被占用——沿用旧目录不丢数据）
 fn migrate_legacy_dir(base: PathBuf) -> PathBuf {
-    let cur = base.join("multiagent-lab");
-    let legacy = base.join("eino-lab");
-    if legacy.is_dir() && !cur.is_dir() {
-        if std::fs::rename(&legacy, &cur).is_err() {
-            return legacy;
+    let cur = base.join("ontoagents");
+    for name in ["multiagent-lab", "eino-lab"] {
+        let legacy = base.join(name);
+        if legacy.is_dir() && !cur.is_dir() {
+            if std::fs::rename(&legacy, &cur).is_err() {
+                return legacy;
+            }
+            break;
         }
     }
     cur
@@ -416,7 +419,7 @@ fn stop_services(exe_dir: &std::path::Path) {
         Err(_) => {
             #[cfg(windows)]
             {
-                for name in ["backend.exe", "ontologyd.exe", "runtimed.exe", "MultiAgentLab.exe"] {
+                for name in ["backend.exe", "ontologyd.exe", "runtimed.exe", "OntoAgents.exe"] {
                     let _ = Command::new("taskkill")
                         .args(["/F", "/T", "/IM", name])
                         .creation_flags(CREATE_NO_WINDOW)
@@ -830,7 +833,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building MultiAgentLab desktop")
+        .expect("error while building OntoAgents desktop")
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 SHUTTING_DOWN.store(true, Ordering::SeqCst);

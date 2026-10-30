@@ -2,7 +2,7 @@
 """DMG 拖拽安装排版（对已挂载的 RW 镜像卷写 .DS_Store + 落背景图）。
 
 用法: dmg_layout.py <mount_point> [bg_png]
-卷内文件约定: MultiAgentLab.app / Applications(symlink → /Applications)。
+卷内文件约定: OntoAgents.app / Applications(symlink → /Applications)。
 依赖: pip install --user --break-system-packages ds_store mac_alias
 （dmgbuild 一并安装即可带上；排版参数对齐 dmgbuild core.py 的 bwsp/icvp 字段集。）
 """
@@ -13,7 +13,7 @@ import sys
 from ds_store import DSStore
 from mac_alias import Alias
 
-APP_NAME = "MultiAgentLab.app"
+APP_NAME = "OntoAgents.app"
 # 图标定位（对应背景图 660x400 的两个虚线槽位）
 APP_POS = (140, 95)
 APPS_POS = (520, 95)

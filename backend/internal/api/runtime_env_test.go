@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/runtime"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/runtime"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func newRuntimeEnvFixture(t *testing.T) (*store.Store, *RuntimeEnv) {

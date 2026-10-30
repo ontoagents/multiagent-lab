@@ -8,8 +8,8 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/modelproto"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/modelproto"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // anthropicDefaultMaxTokens Anthropic Messages API 必填参数的兜底值（连接/Agent 均未配置 MaxTokens 时）。

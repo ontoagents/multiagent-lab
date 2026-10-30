@@ -6,8 +6,8 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/claude"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/modelproto"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/modelproto"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // buildChatModel 协议分支（REQ-172）：构造期不触网，验证两通道均可离线实例化且类型正确。

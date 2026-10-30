@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/procgroup"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/procgroup"
 )
 
 type Runtime struct {

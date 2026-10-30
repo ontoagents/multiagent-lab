@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
 )
 
 const autoNameSchema = `{"title":"4~12 字的对话短标题（中文优先，概括用户意图，不加引号书名号）"}`

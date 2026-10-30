@@ -1,4 +1,4 @@
-module github.com/xiaoyao/eino-multiagent-lab/backend
+module github.com/ontoagents/ontoagents/backend
 
 go 1.25.0
 

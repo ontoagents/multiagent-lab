@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func TestTTLRoundTrip(t *testing.T) {

@@ -14,8 +14,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // GenFuncs LLM 生成注入（REQ-355 R2：反转 kg→chat 正向 import——装配层闭包注入，

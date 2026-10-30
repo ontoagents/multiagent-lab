@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
 )
 
 const (

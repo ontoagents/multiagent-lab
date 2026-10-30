@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
+	"github.com/ontoagents/ontoagents/backend/internal/companion"
 )
 
 // GateTauDefault 门控地板默认值（宽平台 [0.60,0.80] 下限——宁松勿误杀，93 号 §7.2）。

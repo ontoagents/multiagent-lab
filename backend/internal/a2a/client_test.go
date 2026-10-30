@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // stubA2A 端到端桩：卡片 + message/send（立即 working）+ tasks/get（第 N 次转 completed）。

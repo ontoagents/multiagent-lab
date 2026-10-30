@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // MergeSuggestion 合并建议视图（API 层规则建议 + 本文件向量建议合并后的统一形态）。

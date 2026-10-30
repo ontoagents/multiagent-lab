@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // ttlSanitize 对齐 sidecar.py sanitize：strip 后逐字符，alnum/_-. 保留、其余替换 _。

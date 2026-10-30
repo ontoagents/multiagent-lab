@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func precheckStub(t *testing.T, respond func(call int) string) (*httptest.Server, *int) {

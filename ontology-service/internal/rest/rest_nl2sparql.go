@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/pkg/sparqlguard"
 )
 
 // ---- 只读白名单（REQ-380/M176 单源化 pkg/sparqlguard——原「facade 同口径本地实现」收口）----

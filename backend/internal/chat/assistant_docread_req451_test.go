@@ -16,7 +16,7 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 func newDocFixture(t *testing.T) AssistantDeps {

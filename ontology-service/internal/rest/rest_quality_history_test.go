@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 func newQualityHistoryServer(t *testing.T) (*httptest.Server, *repo.Store) {

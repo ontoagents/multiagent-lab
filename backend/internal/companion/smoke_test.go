@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // 真机集成冒烟（gated：本机 data/bin/oxigraph 存在时运行；独立数据目录+端口，不碰运行平面）。

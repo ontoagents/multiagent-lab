@@ -8,7 +8,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // 流水线角色固定名（幂等锚——同名存在即复用）。

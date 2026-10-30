@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
 )
 
 func TestMaterializeInferredManager(t *testing.T) {

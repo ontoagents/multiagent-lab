@@ -8,7 +8,7 @@ package chat
 import (
 	"context"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KBHit 知识库检索命中（chat 侧最小投影，字段与 kb.RetrievalHit 对应）。

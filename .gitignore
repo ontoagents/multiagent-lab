@@ -32,7 +32,7 @@ backend/internal/store/data/
 # REQ-321 Windows 桌面安装包构建产物（staging/安装包/本地编译的壳二进制不入库）
 deploy/windows/build/
 deploy/windows/dist/
-deploy/windows/launcher/MultiAgentLab.exe
+deploy/windows/launcher/OntoAgents.exe
 deploy/macos/build/
 deploy/macos/dist/
 apps/desktop/node_modules/

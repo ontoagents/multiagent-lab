@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // ---- 对象存取（按 kind 的统一四大件）----

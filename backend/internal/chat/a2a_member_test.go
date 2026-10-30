@@ -14,7 +14,7 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
+	"github.com/ontoagents/ontoagents/backend/internal/a2a"
 )
 
 // stubA2AEndpoint A2A 成员桩：可选失败模式（""=completed artifacts / "fail"=failed 终态 / "down"=端点不可达）。

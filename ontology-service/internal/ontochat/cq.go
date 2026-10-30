@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 // cqSchema CQ 抽取轮输出契约（只抽不净化——净化归净化轮，origin=抽取）。

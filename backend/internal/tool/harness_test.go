@@ -10,7 +10,7 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func callTool(t *testing.T, bt einotool.InvokableTool, args string) string {

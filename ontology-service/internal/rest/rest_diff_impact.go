@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func (s *Server) impactVersions(w http.ResponseWriter, r *http.Request) {

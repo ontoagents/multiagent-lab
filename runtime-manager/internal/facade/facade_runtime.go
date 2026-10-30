@@ -26,8 +26,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine/oxigraph"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 // runtimeInstallPollTimeout engine_install 工具内轮询上限（超出回状态续查）。

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/pipeline"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/pipeline"
 )
 
 // pipelineDB 惰性初始化（表由 migrations/004_pipeline.sql 建）。

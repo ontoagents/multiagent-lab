@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/buildflow"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/buildflow"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontochat"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 type draftJob struct {

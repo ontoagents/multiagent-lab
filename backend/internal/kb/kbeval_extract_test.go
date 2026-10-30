@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb/evaldata"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/kb/evaldata"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // extractGold 抽取质量 gold（种子语料刻意素材——与 kbeval_test.go 种子图同源口径）。

@@ -24,7 +24,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // tolerantTool 包装单个工具：执行失败→错误回喂；重复包裹透传，仅实现 BaseTool 的罕见形态原样返回。

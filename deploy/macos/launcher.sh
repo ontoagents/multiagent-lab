@@ -1,5 +1,5 @@
 #!/bin/bash
-# MultiAgentLab.app 主可执行（Contents/MacOS/MultiAgentLab，bundle 脚本形态）。
+# OntoAgents.app 主可执行（Contents/MacOS/OntoAgents，bundle 脚本形态）。
 #
 # 双击/open 时：后台拉起 mlabd（服务编排器）→ exec osascript 窗口壳（AppleScriptObjC，
 # 同一 PID 承载 NSApplication → 单 Dock 图标；mlabd 以 ppid 监视壳存活，壳死整树回收）。

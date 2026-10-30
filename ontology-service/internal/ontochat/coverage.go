@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // coverageVerdictSchema 单条 CQ 判定输出契约（P7 的 Yes/No+解释结构化）。

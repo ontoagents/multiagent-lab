@@ -320,7 +320,7 @@ function EcoGraph() {
       {/* 中心节点 */}
       <g>
         <rect x={480} y={368} width={200} height={84} rx={14} fill="#1e293b" />
-        <text x={580} y={404} textAnchor="middle" fontSize={14} fill="#fff" fontWeight={700}>eino-multiagent-lab</text>
+        <text x={580} y={404} textAnchor="middle" fontSize={14} fill="#fff" fontWeight={700}>OntoAgents</text>
         <text x={580} y={424} textAnchor="middle" fontSize={10.5} fill="#94a3b8">{locale === 'zh' ? 'Go + Eino ADK 多智能体平台' : 'A multi-agent platform on Go + Eino ADK'}</text>
         <text x={580} y={440} textAnchor="middle" fontSize={10.5} fill="#94a3b8">{locale === 'zh' ? '本体 · 知识库 · 智能体' : 'Ontology · Knowledge · Agents'}</text>
       </g>
@@ -378,7 +378,7 @@ const COPY = {
     leadB1: '60+ 个开源项目',
     leadMid1: ' 构成它的骨架、参照系与方法论来源。下面的',
     leadB2: '关联图谱',
-    leadMid2: '梳理各项目与 AgentLab 的关联点，',
+    leadMid2: '梳理各项目与 OntoAgents 的关联点，',
     leadB3: '对比表',
     leadMid3: '按七类选取许可证、技术栈、关联状态等关键特征呈现异同。完整台账（含状态流转与变更记录）见 ',
     leadLink15: 'docs/15 登记簿',
@@ -387,7 +387,7 @@ const COPY = {
     leadPost: '。',
     g1Eyebrow: '01 · Relation Graph',
     g1Title: '项目关联图谱',
-    g1Desc: '以 AgentLab 为中心，七个领域簇按主导关联方式连线：实线簇多为生产在用，虚线与灰点线簇为引导、规划与思想借鉴。',
+    g1Desc: '以 OntoAgents 为中心，七个领域簇按主导关联方式连线：实线簇多为生产在用，虚线与灰点线簇为引导、规划与思想借鉴。',
     g1Note:
       '读法：中心为当前项目；簇框颜色区分技术领域，簇内节点左侧圆点标识关联状态（实心 = 已集成，虚线空心 = 引导 / 规划，灰色 = 仅对照）。收录口径：对话中调研、评估或深度参考过的开源项目，仅收「本体构建」与「智能体工程落地」两大重点（docs/15 收录闸门）。',
     g2Eyebrow: '02 · Comparison Table',
@@ -417,7 +417,7 @@ const COPY = {
     leadB1: '60+ researched open-source projects',
     leadMid1: ' form its backbone, frames of reference and methodological sources. The ',
     leadB2: 'relation graph',
-    leadMid2: ' below maps each project’s connection to AgentLab; the ',
+    leadMid2: ' below maps each project’s connection to OntoAgents; the ',
     leadB3: 'comparison table',
     leadMid3: ' presents similarities and differences across seven categories by license, stack and relation status. The full registry (with status lifecycle and change history): ',
     leadLink15: 'docs/15',
@@ -426,7 +426,7 @@ const COPY = {
     leadPost: '.',
     g1Eyebrow: '01 · Relation Graph',
     g1Title: 'Project relation graph',
-    g1Desc: 'AgentLab at the center, seven domain clusters wired by their dominant relation type: solid clusters are mostly in production; dashed and gray-dotted clusters are guided, planned, or idea-adopted.',
+    g1Desc: 'OntoAgents at the center, seven domain clusters wired by their dominant relation type: solid clusters are mostly in production; dashed and gray-dotted clusters are guided, planned, or idea-adopted.',
     g1Note:
       'How to read: the center is this project; cluster colors mark domains, and each node’s left dot marks relation status (solid = integrated, dashed hollow = guided / planned, gray = reference only). Inclusion rule: open-source projects researched, evaluated or deeply referenced in conversations, covering only "ontology construction" and "agent engineering in practice" (the docs/15 inclusion gate).',
     g2Eyebrow: '02 · Comparison Table',

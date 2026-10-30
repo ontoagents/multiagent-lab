@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func delegateTestManager(t *testing.T) (*DelegateManager, *store.Store, *store.Conversation, *store.Agent) {

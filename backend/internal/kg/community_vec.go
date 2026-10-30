@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // EmbedOneFunc embedding 注入形态（kb.Embedder 适配；nil=零 embedding 降级）。

@@ -181,7 +181,7 @@ func fetchMCPToolsDirect(ctx context.Context, serverName, url string, headers ma
 	if _, err := cli.Initialize(cctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: "2025-03-26",
-			ClientInfo:      mcp.Implementation{Name: "eino-multiagent-lab", Version: "0.1.0"},
+			ClientInfo:      mcp.Implementation{Name: "ontoagents", Version: "0.1.0"},
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("mcp initialize: %w", err)

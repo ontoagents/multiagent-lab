@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 func TestAiCQExtract(t *testing.T) {

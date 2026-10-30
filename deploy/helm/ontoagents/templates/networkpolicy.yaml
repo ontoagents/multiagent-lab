@@ -4,9 +4,9 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "multiagent-lab.name" (dict "Release" $.Release "component" "default-deny") }}
+  name: {{ include "ontoagents.name" (dict "Release" $.Release "component" "default-deny") }}
   labels:
-    {{- include "multiagent-lab.labels" (dict "Release" $.Release "component" "default-deny") | nindent 4 }}
+    {{- include "ontoagents.labels" (dict "Release" $.Release "component" "default-deny") | nindent 4 }}
 spec:
   podSelector: {}
   policyTypes: ["Ingress", "Egress"]

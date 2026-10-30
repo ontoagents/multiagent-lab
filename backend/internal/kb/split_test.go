@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KB-10②：结构感知切分——md 标题节=父块、节内切子块、短节自父；纯文本窗口聚合父块。

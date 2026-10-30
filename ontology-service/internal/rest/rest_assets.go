@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 func (s *Server) qualityCheck(w http.ResponseWriter, r *http.Request) {

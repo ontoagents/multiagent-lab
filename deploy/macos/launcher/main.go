@@ -1,10 +1,10 @@
-// mlabd MultiAgentLab macOS 桌面客户端服务编排器（REQ-324/M127）。
+// mlabd OntoAgents macOS 桌面客户端服务编排器（REQ-324/M127）。
 //
 // 与 deploy/windows/launcher（REQ-321/M123）同构的 macOS 对称实现，职责：
 //   - 编排三服务启动：ontologyd :8191 → runtimed :8190 → backend :8180（REQ-332 默认段，
 //     与 run-dev.sh 开发栈 8080/8091/8090 开箱即分工），
 //     环境变量与 run-dev.sh / Windows launcher 一一同构（见 16_部署与运行.md §7）；
-//   - 数据根独立于程序目录：~/Library/Application Support/multiagent-lab（MLAB_DATA_ROOT 可覆盖，冒烟隔离用）；
+//   - 数据根独立于程序目录：~/Library/Application Support/ontoagents（MLAB_DATA_ROOT 可覆盖，冒烟隔离用）；
 //   - 退出回收 = 进程组 SIGTERM→SIGKILL 阶梯（Windows 为 Job Object）；并监视父进程：
 //     本进程由 .app 壳脚本派生，壳（osascript 窗口）退出后本进程 getppid() 归 1，
 //     立即回收整棵服务树——等价 Windows「关窗即整树回收」；-headless 冒烟模式关闭该监视；
@@ -78,7 +78,7 @@ func main() {
 	}
 }
 
-// appRoot 资源根：bundle 内（MultiAgentLab.app/Contents/MacOS/mlabd 落 Resources/bin 时取
+// appRoot 资源根：bundle 内（OntoAgents.app/Contents/MacOS/mlabd 落 Resources/bin 时取
 // Resources）；裸二进制（开发调试）取可执行文件所在目录。
 func appRoot() string {
 	exe, err := os.Executable()
@@ -96,9 +96,9 @@ func appRoot() string {
 	return dir
 }
 
-// dataRoot 数据根：~/Library/Application Support/multiagent-lab（对齐 Windows %LOCALAPPDATA%\multiagent-lab
+// dataRoot 数据根：~/Library/Application Support/ontoagents（对齐 Windows %LOCALAPPDATA%\ontoagents
 // 定案：独立于程序目录，删除/升级程序不触碰数据）；MLAB_DATA_ROOT 供冒烟/多实例隔离覆盖。
-// 曾用名一次性迁移：eino-lab → multiagent-lab（旧目录存在且新目录不存在时整体改名；失败沿用旧目录）。
+// 曾用名链一次性迁移（新→旧）：multiagent-lab、eino-lab → ontoagents（旧目录存在且新目录不存在时整体改名）。
 func dataRoot() string {
 	if v := os.Getenv("MLAB_DATA_ROOT"); v != "" {
 		return v
@@ -107,12 +107,14 @@ func dataRoot() string {
 	if err != nil {
 		return appRoot()
 	}
-	cur := filepath.Join(home, "Library", "Application Support", "multiagent-lab")
-	legacy := filepath.Join(home, "Library", "Application Support", "eino-lab")
-	if st, err := os.Stat(legacy); err == nil && st.IsDir() {
-		if _, err := os.Stat(cur); err != nil {
-			if err := os.Rename(legacy, cur); err == nil {
-				return cur
+	cur := filepath.Join(home, "Library", "Application Support", "ontoagents")
+	if _, err := os.Stat(cur); err != nil {
+		for _, name := range []string{"multiagent-lab", "eino-lab"} {
+			legacy := filepath.Join(home, "Library", "Application Support", name)
+			if st, err := os.Stat(legacy); err == nil && st.IsDir() {
+				if err := os.Rename(legacy, cur); err == nil {
+					break
+				}
 			}
 		}
 	}
@@ -419,9 +421,9 @@ func fileExists(p string) bool {
 }
 
 func fail(headless bool, msg string) int {
-	fmt.Fprintln(os.Stderr, "[MultiAgentLab] "+msg)
+	fmt.Fprintln(os.Stderr, "[OntoAgents] "+msg)
 	// 状态文件：窗口壳（window.applescript）就绪超时弹窗时读取示因（固定路径，个人机单实例语义）。
-	_ = os.WriteFile("/tmp/mlab-launcher-last-error.txt", []byte("[MultiAgentLab] "+msg), 0o666)
+	_ = os.WriteFile("/tmp/mlab-launcher-last-error.txt", []byte("[OntoAgents] "+msg), 0o666)
 	if !headless {
 		dialog(appName, msg)
 	}

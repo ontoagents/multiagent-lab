@@ -1,9 +1,9 @@
-# multiagent-lab 服务器单机部署（Docker Compose）
+# ontoagents 服务器单机部署（Docker Compose）
 # 用法：cd deploy && docker compose up -d --build
 #       需要知识库向量检索：docker compose --profile qdrant up -d
 # 文档：platform-knowledge/01_整体设计/16_部署与运行.md（REQ-518：指针自已退役的 docs/13 修正）
 # 服务间编址契约表见 16 号 §3.0（REQ-518/M325——compose 与代码 getenv 对账单源）
-name: multiagent-lab
+name: ontoagents
 
 services:
   backend:
@@ -22,7 +22,7 @@ services:
       # REQ-518/M325：显式补齐（代码侧已支持缺省自 RUNTIME_MGR_URL 派生 /mcp——双保险）
       ONTOLOGY_MCP_URL: http://runtime-manager:8090/mcp
       # Docker 沙箱（进阶，默认关）：需挂载 /var/run/docker.sock 并改写回连地址
-      # SANDBOX_IMAGE: multiagent-lab/agentd:latest
+      # SANDBOX_IMAGE: ontoagents/agentd:latest
       # PLATFORM_URL_EXTERNAL: http://<宿主IP>:8080
     volumes:
       - platform-data:/app/data

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/rest"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/rest"
 )
 
 func env(k, def string) string {

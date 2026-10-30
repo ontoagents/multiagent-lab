@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // stubKGEmbed 桩 embedding：文本含「量子」→ 向量 A，否则 B（正交判定）。

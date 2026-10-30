@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontochat"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 func newOntoChatP2TestServer(t *testing.T) (*httptest.Server, *repo.Store) {

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/runtime"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/runtime"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // RuntimeEnv 运行环境配置解析器：合并视图 + 沙箱后端动态装配（hash 缓存，稳态零重建）。

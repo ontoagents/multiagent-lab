@@ -11,8 +11,8 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/connector"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/connector"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func TestConnectorToolUnderApproval(t *testing.T) {

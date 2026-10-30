@@ -15,10 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
-const settingsExportFormat = "multiagent-lab-settings"
+const settingsExportFormat = "ontoagents-settings"
+
+// settingsExportFormatLegacy REQ-539 平台更名前的导出格式值：导入侧继续接受旧导出文件（读旧写新）。
+const settingsExportFormatLegacy = "multiagent-lab-settings"
 
 type settingsExport struct {
 	Format           string                   `json:"format"`
@@ -71,7 +74,7 @@ func (s *Server) exportSettings(w http.ResponseWriter, _ *http.Request) {
 	out.Counts["agents"] = len(out.Agents)
 	out.Counts["projects"] = len(out.Projects)
 	out.Counts["skills"] = len(out.Skills)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=multiagent-lab-settings-%s.json", time.Now().UTC().Format("20060102-150405")))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=ontoagents-settings-%s.json", time.Now().UTC().Format("20060102-150405")))
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -89,7 +92,7 @@ func (s *Server) importSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "导入文件解析失败: " + err.Error()})
 		return
 	}
-	if in.Format != "" && in.Format != settingsExportFormat {
+	if in.Format != "" && in.Format != settingsExportFormat && in.Format != settingsExportFormatLegacy {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("format=%q 不是 %s 导出文件", in.Format, settingsExportFormat)})
 		return
 	}

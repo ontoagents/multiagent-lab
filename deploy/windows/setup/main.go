@@ -1,4 +1,4 @@
-// MultiAgentLab Windows 安装器（REQ-321/M123）。
+// OntoAgents Windows 安装器（REQ-321/M123）。
 //
 // 结构：setup.exe = 本程序 + 尾部附加 zip（build.ps1 拼接）。
 // 双形态：
@@ -8,7 +8,7 @@
 //   - Console（-y 或 MLAB_SILENT=1，冒烟自动化）：同 install() 核心，进度走 stdout，无窗口。
 //
 // 数据根：安装器把所选安装目录下的 data\ 写入 <安装目录>\data.location，launcher 启动时读取
-// （数据随安装目录走——C 盘紧张机器可选装其他盘；未写则 launcher 兜底 %LOCALAPPDATA%\multiagent-lab）。
+// （数据随安装目录走——C 盘紧张机器可选装其他盘；未写则 launcher 兜底 %LOCALAPPDATA%\ontoagents）。
 package main
 
 import (
@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	defaultDir     = `Programs\MultiAgentLab` // 相对 %LOCALAPPDATA%
+	defaultDir     = `Programs\OntoAgents` // 相对 %LOCALAPPDATA%
 	needBytesSlack = 80 << 20                 // 解压后预留量
 )
 
@@ -262,7 +262,7 @@ func registerWizard(mux *http.ServeMux) {
 			http.Error(w, "POST only", 405)
 			return
 		}
-		exe := filepath.Join(st.appDir, "MultiAgentLab.exe")
+		exe := filepath.Join(st.appDir, "OntoAgents.exe")
 		c := exec.Command(exe)
 		c.Dir = st.appDir
 		_ = c.Start()

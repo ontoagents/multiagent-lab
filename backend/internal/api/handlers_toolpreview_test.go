@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // REQ-231⑤：装配预览四源合并（内置→技能→连接器，先到先得遮蔽）。

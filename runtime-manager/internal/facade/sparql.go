@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
+	"github.com/ontoagents/ontoagents/pkg/sparqlguard"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 const (

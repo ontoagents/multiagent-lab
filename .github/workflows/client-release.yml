@@ -1,6 +1,6 @@
 # REQ-327：客户端安装包打包自动化（GitHub Actions）
-# 产物：MultiAgentLab_<版本>_setup.exe（Windows，Inno Setup 安装向导）
-#       MultiAgentLab_<版本>_macos_universal.dmg（macOS，Apple Silicon + Intel 通用二进制，一包双跑）
+# 产物：OntoAgents_<版本>_setup.exe（Windows，Inno Setup 安装向导）
+#       OntoAgents_<版本>_macos_universal.dmg（macOS，Apple Silicon + Intel 通用二进制，一包双跑）
 # 触发：推 v* tag（双平台构建并发 GitHub Release）；手动 workflow_dispatch（仅出 artifact 试跑，不发版）
 # 发布面：public 仓（ontoagents/multiagent-lab）——工作流随 main 同步到 origin（开发主仓）时全部 job 自动跳过，防双跑；
 #         public 仓 main 同步本提交后、手动打 v* tag 即出包。
@@ -69,11 +69,11 @@ jobs:
           VER: ${{ steps.ver.outputs.version }}
         # 源名须匹配 build.ps1 tauri/NSIS 路径产物 *_x64-setup.exe（REQ-321 壳切换起，ISCC 时代 *_setup.exe 已退役）——
         # 改产物名形态前先 grep 本 workflow 依赖面（660e941 mac mv 失配同教训，勿回改此 glob 为 *_setup.exe）
-        run: mv deploy/windows/dist/MultiAgentLab_*_x64-setup.exe "deploy/windows/dist/MultiAgentLab_${VER}_setup.exe"
+        run: mv deploy/windows/dist/OntoAgents_*_x64-setup.exe "deploy/windows/dist/OntoAgents_${VER}_setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-setup
-          path: deploy/windows/dist/MultiAgentLab_*_setup.exe
+          path: deploy/windows/dist/OntoAgents_*_setup.exe
           if-no-files-found: error
 
   macos:
@@ -121,11 +121,11 @@ jobs:
             lipo -create "/tmp/thin-arm64/$b" "deploy/macos/build/bin/$b" -output "deploy/macos/build/bin/$b"
           done
           bash deploy/macos/build.sh -Shell go -StageOnly
-          mv deploy/macos/dist/MultiAgentLab_*.dmg "deploy/macos/dist/MultiAgentLab_${VER}_macos_universal.dmg"
+          mv deploy/macos/dist/OntoAgents_*.dmg "deploy/macos/dist/OntoAgents_${VER}_macos_universal.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: deploy/macos/dist/MultiAgentLab_*_macos_universal.dmg
+          path: deploy/macos/dist/OntoAgents_*_macos_universal.dmg
           if-no-files-found: error
 
   release:

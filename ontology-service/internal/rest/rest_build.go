@@ -16,16 +16,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/buildflow"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/buildflow"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontoextend"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/seed"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontoextend"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/seed"
 )
 
 func (s *Server) ontoextendListODPs(w http.ResponseWriter, r *http.Request) {

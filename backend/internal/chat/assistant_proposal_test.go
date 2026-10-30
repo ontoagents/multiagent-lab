@@ -3,7 +3,7 @@ package chat
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // M-O14 阶段三：L1 提案暂存/取用/TTL——两段式确认的存储侧契约。

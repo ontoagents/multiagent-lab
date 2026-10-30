@@ -113,7 +113,7 @@ export default function GlobalNav() {
         <BrandMark />
         {!collapsed && (
           <span className="brand-text">
-            <span className="brand-name">AgentLab</span>
+            <span className="brand-name">OntoAgents</span>
             <span className="brand-sub">智能体构建平台</span>
           </span>
         )}

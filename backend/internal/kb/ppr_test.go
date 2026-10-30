@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KB-4③/M287 PPR 单测：纯函数零网络，断言质量守恒/单调性/无向传播/收敛与降级路径。

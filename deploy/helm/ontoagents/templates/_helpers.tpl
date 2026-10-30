@@ -1,15 +1,15 @@
-{{- define "multiagent-lab.name" -}}
+{{- define "ontoagents.name" -}}
 {{- printf "%s-%s" .Release.Name .component -}}
 {{- end -}}
 
-{{- define "multiagent-lab.labels" -}}
-app.kubernetes.io/name: multiagent-lab
+{{- define "ontoagents.labels" -}}
+app.kubernetes.io/name: ontoagents
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "multiagent-lab.fullimage" -}}
+{{- define "ontoagents.fullimage" -}}
 {{- if .image.registry -}}
 {{- printf "%s/%s:%s" .image.registry .image.name .image.tag -}}
 {{- else -}}

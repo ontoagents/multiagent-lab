@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/companion"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/companion"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ---------------------------------------------------------------------------

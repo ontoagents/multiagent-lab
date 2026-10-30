@@ -780,7 +780,7 @@ function SecurityPanel() {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `multiagent-lab-settings-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `ontoagents-settings-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(a.href)
       showToast('配置已导出（模型连接 key 不含在内——导入后需重录）')

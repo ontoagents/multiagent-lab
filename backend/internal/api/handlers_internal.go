@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // manifest 沙箱配置下发载荷（§6.3，M10）。

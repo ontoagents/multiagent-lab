@@ -15,9 +15,9 @@ import (
 
 	einotool "github.com/cloudwego/eino/components/tool"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/tool"
+	"github.com/ontoagents/ontoagents/backend/internal/secrets"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // stubKubectl 记录参数并按资源分流：pods → JSON 输出；secret-resource → exit 7（非零透传用例）。

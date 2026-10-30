@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 var storeProfileFixture = store.Profile{ID: "rt_s", Name: "状态快照方案", Engine: "oxigraph", OntologyIDs: []string{"onto_a"}, Config: "{}"}

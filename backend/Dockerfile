@@ -1,6 +1,6 @@
-# eino-lab/backend —— 主平台（含前端静态托管）
+# ontoagents/backend —— 主平台（含前端静态托管）
 # 构建上下文=仓库根（go.work 工作区 + 共享 pkg + web 前端源码）：
-#   docker build -f backend/Dockerfile -t eino-lab/backend .
+#   docker build -f backend/Dockerfile -t ontoagents/backend .
 # stage1: 前端构建（npmmirror 镜像见 web/.npmrc）
 FROM node:20-alpine AS web
 WORKDIR /web

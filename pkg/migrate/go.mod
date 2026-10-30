@@ -1,3 +1,3 @@
-module github.com/xiaoyao/eino-multiagent-lab/pkg/migrate
+module github.com/ontoagents/ontoagents/pkg/migrate
 
 go 1.25.0

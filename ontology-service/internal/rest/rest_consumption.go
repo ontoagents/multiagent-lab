@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/toolchain"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/vocabsearch"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/toolchain"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/vocabsearch"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 func (s *Server) vocabSearch(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
--- MultiAgentLab macOS 桌面客户端窗口壳（REQ-324/M127）。
+-- OntoAgents macOS 桌面客户端窗口壳（REQ-324/M127）。
 --
--- AppleScriptObjC + WKWebView：由 bundle 脚本（Contents/MacOS/MultiAgentLab）exec 本脚本
+-- AppleScriptObjC + WKWebView：由 bundle 脚本（Contents/MacOS/OntoAgents）exec 本脚本
 -- （同一进程承载 NSApplication，单 Dock 图标）；服务编排由后台 mlabd 承担，本壳职责：
 --   - 等主平台就绪（轮询 /healthz，≤30s；超时弹窗示因 + 兜底 -stop）；
 --   - 建窗口（WKWebView 直载 MLAB_URL，缺省 http://127.0.0.1:8180〔REQ-332 默认段〕，与 Windows WebView2 壳同构）；
@@ -78,8 +78,8 @@ on buildMenus()
 	set mainMenu to NSMenuClass's alloc()'s init()
 	-- App 菜单（第一项；标题由系统按 CFBundleName 显示）
 	set appItem to NSMenuItemClass's alloc()'s init()
-	set appMenu to NSMenuClass's alloc()'s initWithTitle_("MultiAgentLab")
-	appMenu's addItemWithTitle_action_keyEquivalent_("退出 MultiAgentLab", selTerm, "q")
+	set appMenu to NSMenuClass's alloc()'s initWithTitle_("OntoAgents")
+	appMenu's addItemWithTitle_action_keyEquivalent_("退出 OntoAgents", selTerm, "q")
 	appItem's setSubmenu_(appMenu)
 	mainMenu's addItem_(appItem)
 	-- 编辑菜单（WKWebView 文本框快捷键依赖）

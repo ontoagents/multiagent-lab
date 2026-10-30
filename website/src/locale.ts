@@ -33,14 +33,14 @@ export function persistLocale(l: Locale): void {
 export const SITE_META: Record<Locale, { htmlLang: string; title: string; description: string }> = {
   zh: {
     htmlLang: 'zh-CN',
-    title: 'AgentLab · 智能体构建平台',
+    title: 'OntoAgents · 智能体构建平台',
     description:
-      'AgentLab——面向专业个人的工作学习助手，以本体为知识底座：知识不是一堆文档，而是可查询、可审计、可出题的结构化资产；单机自部署（Go + CloudWeGo Eino/ADK），智能体工程 + 本体工程双核心，Apache-2.0 开源。',
+      'OntoAgents——面向专业个人的工作学习助手，以本体为知识底座：知识不是一堆文档，而是可查询、可审计、可出题的结构化资产；单机自部署（Go + CloudWeGo Eino/ADK），智能体工程 + 本体工程双核心，Apache-2.0 开源。',
   },
   en: {
     htmlLang: 'en',
-    title: 'AgentLab · Agent Construction Platform',
+    title: 'OntoAgents · Agent Construction Platform',
     description:
-      'AgentLab — a personal work & learning assistant for knowledge-intensive professionals, grounded on ontologies: knowledge as a structured asset you can query, audit and quiz — not a pile of documents. Single-machine self-hosted, built on Go + CloudWeGo Eino/ADK. Dual cores: agent engineering + ontology engineering. Apache-2.0.',
+      'OntoAgents — a personal work & learning assistant for knowledge-intensive professionals, grounded on ontologies: knowledge as a structured asset you can query, audit and quiz — not a pile of documents. Single-machine self-hosted, built on Go + CloudWeGo Eino/ADK. Dual cores: agent engineering + ontology engineering. Apache-2.0.',
   },
 }

@@ -3,9 +3,9 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1                 # 全量：三服务+壳+前端+staging+setup.exe
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -SkipWeb        # 跳过前端构建（web/dist 未变时）
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -StageOnly      # 只组装 staging，不编译安装包
-# 产物：deploy/windows/dist/MultiAgentLab_0.<N>-<git短id>_x64-setup.exe（per-user 免管理员；NSIS/Tauri 路径）
+# 产物：deploy/windows/dist/OntoAgents_0.<N>-<git短id>_x64-setup.exe（per-user 免管理员；NSIS/Tauri 路径）
 #       版本引擎（2026-10-16 定版口径，同 mac build.sh）：主版本 0；次版本随成功构建 +1（build\.build-number，
-#       接续 mac 全局序列）；git 短提交 id 后缀。旧 -Shell go 路径产物名仍为 MultiAgentLab_<版本>_setup.exe
+#       接续 mac 全局序列）；git 短提交 id 后缀。旧 -Shell go 路径产物名仍为 OntoAgents_<版本>_setup.exe
 # 依赖：Go 1.25+、Node 22+、ISCC（Inno Setup 6；env ISCC 或默认安装路径自动发现）
 
 param(
@@ -43,9 +43,9 @@ Push-Location "$repo\runtime-manager";   go build -trimpath -ldflags "-s -w" -o 
 
 # ---- 2. 客户端壳（tauri=定案壳技术；go=遗留 Go+WebView2 壳）----
 if ($Shell -eq "go") {
-    Step "编译客户端壳 MultiAgentLab.exe（Go+WebView2 遗留壳）"
+    Step "编译客户端壳 OntoAgents.exe（Go+WebView2 遗留壳）"
     Push-Location "$here\launcher"
-    $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w -H windowsgui" -o "$staging\MultiAgentLab.exe" .
+    $env:GOWORK = "off"; go build -trimpath -ldflags "-s -w -H windowsgui" -o "$staging\OntoAgents.exe" .
     Remove-Item Env:\GOWORK; Pop-Location
 }
 
@@ -159,7 +159,7 @@ if ($Shell -eq "tauri") {
     $nsis = Get-ChildItem "$tsrc\target\release\bundle\nsis\*setup.exe" -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $nsis) { throw "Tauri NSIS 产物缺失（检查 tauri build 输出）" }
-    $distName = "MultiAgentLab_${verLabel}_x64-setup.exe"
+    $distName = "OntoAgents_${verLabel}_x64-setup.exe"
     Move-Item $nsis.FullName (Join-Path $dist $distName) -Force
     # 成功落地才消耗版本号（失败尝试不消耗）
     Set-Content $counterFile $verN -Encoding Ascii
@@ -228,7 +228,7 @@ if ($iscc -and (Test-Path $iscc)) {
     Compress-Archive -Path "$sfxStage\*" -DestinationPath $zip -CompressionLevel Optimal
     if (-not (Test-Path $zip)) { throw "payload.zip 打包失败" }
     Step "拼接 setup.exe = 引导器 + payload.zip"
-    $out = "$dist\MultiAgentLab_${version}_setup.exe"
+    $out = "$dist\OntoAgents_${version}_setup.exe"
     $p1 = [IO.File]::ReadAllBytes("$cache\setup-bootstrap.exe")
     $p3 = [IO.File]::ReadAllBytes($zip)
     $bytes = New-Object byte[] ($p1.Length + $p3.Length)
@@ -239,5 +239,5 @@ if ($iscc -and (Test-Path $iscc)) {
     Remove-Item -Force $zip
 }
 
-$setup = Get-ChildItem "$dist\MultiAgentLab_*_setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$setup = Get-ChildItem "$dist\OntoAgents_*_setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Step "完成：$($setup.FullName)（$([math]::Round($setup.Length/1MB,1)) MB）"

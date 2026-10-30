@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
 )
 
 // DockerBackend Docker 沙箱后端（§6.3，P1）。

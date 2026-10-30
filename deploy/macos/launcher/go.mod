@@ -1,3 +1,3 @@
-module github.com/xiaoyao/multiagent-lab/deploy/macos/launcher
+module github.com/ontoagents/ontoagents/deploy/macos/launcher
 
 go 1.25.0

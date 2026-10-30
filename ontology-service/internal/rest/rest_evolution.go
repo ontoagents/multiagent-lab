@@ -15,10 +15,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/cqbench"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/evolution"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/cqbench"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/evolution"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // evoStore 惰性初始化进化候选存储。

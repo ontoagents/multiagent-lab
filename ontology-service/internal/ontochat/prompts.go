@@ -7,7 +7,7 @@ package ontochat
 import (
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 // PromptDef 单条提示词（只读透出形态；Text 为模板骨架，{占位符} 标注运行时动态段）。

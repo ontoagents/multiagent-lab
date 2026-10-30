@@ -20,10 +20,10 @@ import (
 	"strings"
 	"time"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/sparqlguard"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	"github.com/ontoagents/ontoagents/pkg/sparqlguard"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 // 难度与题型枚举（REQ-367 双维分层；type 结构层沿 CQ4OE 保留）。

@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // AssistantDefaultPrompt 内置固定系统提示词基座（REQ-166：角色=平台使用助手；REQ-177③：

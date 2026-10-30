@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
-	importer "github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
+	importer "github.com/ontoagents/ontoagents/ontology-service/internal/importer"
 )
 
 // elementKinds 合法元素类型（与工具面四类对齐）。

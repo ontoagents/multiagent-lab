@@ -13,8 +13,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/manager"
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/manager"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 func newRuntimeFixture(t *testing.T) *Facade {

@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/engine"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
 )
 
 func realJavaBin(t *testing.T) string {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // REQ-171 P1 零依赖单测：首批 11 检查项逐项触发/配置覆盖/评分与 Pass 语义。

@@ -3,12 +3,12 @@ rem REQ-321 SFX installer main script (run by 7zSD.sfx from extraction dir %~dp0
 rem NOTE: keep first lines pure ASCII; chcp 65001 before any non-ASCII text; CRLF required (build.ps1 normalizes)
 chcp 65001 >nul
 setlocal
-set "TARGET=%LOCALAPPDATA%\Programs\MultiAgentLab"
+set "TARGET=%LOCALAPPDATA%\Programs\OntoAgents"
 set "SRC=%~dp0"
 echo [%date% %time%] installer start SRC="%SRC%" TARGET="%TARGET%" SILENT="%MLAB_SILENT%" >> "%TEMP%\mlab-install.log"
 
 echo [1/4] Stopping running platform services (upgrade/reinstall)...
-taskkill /F /T /IM MultiAgentLab.exe >nul 2>&1
+taskkill /F /T /IM OntoAgents.exe >nul 2>&1
 taskkill /F /T /IM backend.exe >nul 2>&1
 taskkill /F /T /IM ontologyd.exe >nul 2>&1
 taskkill /F /T /IM runtimed.exe >nul 2>&1
@@ -36,7 +36,7 @@ echo [%date% %time%] installer OK >> "%TEMP%\mlab-install.log"
 if /i "%MLAB_SILENT%"=="1" exit /b 0
 choice /c YN /m "Launch now"
 if errorlevel 2 exit /b 0
-start "" "%TARGET%\MultiAgentLab.exe"
+start "" "%TARGET%\OntoAgents.exe"
 exit /b 0
 
 :fail

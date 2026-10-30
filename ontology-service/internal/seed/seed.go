@@ -1,7 +1,7 @@
 // Package seed 内置示例本体（REQ-62）：最小 K8s 运维本体。
 package seed
 
-import pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+import pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
 // K8sOps 返回最小 K8s 运维本体（Pod/Node/Service 概念、belongsTo/exposes/runs 关系、实例）。
 func K8sOps() *pkgspec.Spec {

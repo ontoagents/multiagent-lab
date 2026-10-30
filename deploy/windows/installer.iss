@@ -1,24 +1,24 @@
 ; 智能体构建平台 Windows 桌面安装包（REQ-321/M123）
-; 编译：ISCC installer.iss（或运行 build.ps1）；产物 dist\MultiAgentLab_<版本>_setup.exe
-; 形态：per-user 免管理员安装（默认 %LOCALAPPDATA%\Programs\MultiAgentLab）；
+; 编译：ISCC installer.iss（或运行 build.ps1）；产物 dist\OntoAgents_<版本>_setup.exe
+; 形态：per-user 免管理员安装（默认 %LOCALAPPDATA%\Programs\OntoAgents）；
 ; 卸载保留 data\（平台数据）；随包分发三服务 + oxigraph + 前端产物 + 平台知识/docs。
 ; 语言：优先中文（build\ChineseSimplified.isl 由 build.ps1 缓存；缺失回退英文 Default.isl）。
 
 #define MyAppName "智能体构建平台"
 #define MyAppVersion "1.0.0"
-#define MyAppExe "MultiAgentLab.exe"
+#define MyAppExe "OntoAgents.exe"
 #define Staging "build\staging"
 
 [Setup]
 AppId={{7E2F5C86-4B9A-4C31-9E8D-2A5F1B6C0D43}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=multiagent-lab
-DefaultDirName={localappdata}\Programs\MultiAgentLab
+AppPublisher=ontoagents
+DefaultDirName={localappdata}\Programs\OntoAgents
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=MultiAgentLab_{#MyAppVersion}_setup
+OutputBaseFilename=OntoAgents_{#MyAppVersion}_setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -57,6 +57,6 @@ var
 begin
   if CurUninstallStep = usUninstall then
     Exec(ExpandConstant('{cmd}'),
-      '/C taskkill /F /T /IM MultiAgentLab.exe & taskkill /F /T /IM backend.exe & taskkill /F /T /IM ontologyd.exe & taskkill /F /T /IM runtimed.exe',
+      '/C taskkill /F /T /IM OntoAgents.exe & taskkill /F /T /IM backend.exe & taskkill /F /T /IM ontologyd.exe & taskkill /F /T /IM runtimed.exe',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;

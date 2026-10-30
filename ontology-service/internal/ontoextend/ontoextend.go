@@ -8,7 +8,7 @@ package ontoextend
 // 入库——冲突检测/改名策略/strict 质量门禁/版本快照全部复用，零新表零旁路。
 // ---------------------------------------------------------------------------
 
-import pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+import pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
 // ODP 精选模式（人工精选 12 个高频域；source 记出处便于学习对照）
 type ODP struct {

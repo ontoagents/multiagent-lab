@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/llmcreate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/llmcreate"
 )
 
 // cqSignal 单条 CQ 的信号（REQ-255 CQ 信号语义的 eval 落地）。

@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/importer"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/ontochat"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/repo"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/ontochat"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
 // listOntoChatSessions GET /api/ontochat/sessions[?agent_id=] → 会话列表（不含消息体）。

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="web/public/logo.svg" width="110" alt="AgentLab logo" />
+<img src="web/public/logo.svg" width="110" alt="OntoAgents logo" />
 
-# AgentLab
+# OntoAgents
 
 **Build agents. Build their ontologies. Self-hosted.**
 
@@ -17,7 +17,7 @@
 
 </div>
 
-**AgentLab** is a **personal work & learning assistant for knowledge-intensive professionals** (engineers, teachers, compliance officers, researchers, clinicians) — fully deployable on one machine. Its thesis: your knowledge should not be a pile of documents, but a **structured asset you can query, audit and quiz against** — an ontology. Built with Go (CloudWeGo Eino/ADK), React and SQLite, it is organized around two cores:
+**OntoAgents** is a **personal work & learning assistant for knowledge-intensive professionals** (engineers, teachers, compliance officers, researchers, clinicians) — fully deployable on one machine. Its thesis: your knowledge should not be a pile of documents, but a **structured asset you can query, audit and quiz against** — an ontology. Built with Go (CloudWeGo Eino/ADK), React and SQLite, it is organized around two cores:
 
 - **Agent engineering** — a conversational agent workbench with fully observable execution, multi-agent collaboration, and knowledge / skill / ontology augmentation.
 - **Ontology engineering** — a full ontology (knowledge-graph) lifecycle: build → asset management → runtime engines → consumption & audit.
@@ -181,7 +181,7 @@ The project has grown from a teaching demo into a **production-grade, single-mac
 
 ## 🙏 Appreciation
 
-AgentLab stands on the shoulders of the open-source community and academic work — direct dependencies are used under their own licenses; methodological borrowings follow the principle of **borrowing ideas, implementing ourselves**. The lists below are grouped by this project's **architecture layers** (direct use) and by **domain** (key references); the full ledger (with requirement links, evaluation notes and rejected candidates) lives in [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md).
+OntoAgents stands on the shoulders of the open-source community and academic work — direct dependencies are used under their own licenses; methodological borrowings follow the principle of **borrowing ideas, implementing ourselves**. The lists below are grouped by this project's **architecture layers** (direct use) and by **domain** (key references); the full ledger (with requirement links, evaluation notes and rejected candidates) lives in [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md).
 
 ### Directly used — by architecture layer
 

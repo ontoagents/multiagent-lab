@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/a2a"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/inference"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/a2a"
+	"github.com/ontoagents/ontoagents/backend/internal/inference"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ExternalMemberProfile 外部成员能力画像（kind=cli|a2a；其他 kind 返回 nil）。

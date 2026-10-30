@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // DelegateRunTimeout 单轮后台运行上限（沿 a2a message/send 后台执行口径）。

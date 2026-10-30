@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // 零依赖单测：游标增量定位 / 候选转换 / SPARQL 生成（REQ-170/M28 P1）。

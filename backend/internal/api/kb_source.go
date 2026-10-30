@@ -7,9 +7,9 @@ package api
 import (
 	"context"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/chat"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/chat"
+	"github.com/ontoagents/ontoagents/backend/internal/kb"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KBChatSource kb.Service 的 chat 接口适配器（cmd/backend/main.go 装配注入）。

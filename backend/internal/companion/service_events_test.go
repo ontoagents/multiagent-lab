@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // stubExtractLLM 启动 openai_compat 桩（固定抽取 JSON 响应），返回基址。

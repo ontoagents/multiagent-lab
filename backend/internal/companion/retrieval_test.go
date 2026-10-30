@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-170 P2「KG 检索源并入」零依赖单测：标签匹配 / 上下文渲染 / SPARQL 生成。

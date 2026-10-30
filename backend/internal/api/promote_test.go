@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	kbpkg "github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	kbpkg "github.com/ontoagents/ontoagents/backend/internal/kb"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 func TestImportProjectFileToKB(t *testing.T) {

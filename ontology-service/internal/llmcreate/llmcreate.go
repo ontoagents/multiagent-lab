@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/qualitygate"
-	"github.com/xiaoyao/eino-multiagent-lab/ontology-service/internal/seed"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/seed"
 )
 
 // 生成提示词静态骨架（REQ-271⑥：ontochat/prompts.go 同源透出页面只读展示，避免复制双源）。

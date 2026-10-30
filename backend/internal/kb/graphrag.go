@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // ---- GraphRAG 子模块（M14 D-KB4 建制；D-O15/REQ-110 起自研实现）----

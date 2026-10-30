@@ -1,4 +1,4 @@
-// MultiAgentLab Windows 桌面客户端壳与进程编排（REQ-321/M123）。
+// OntoAgents Windows 桌面客户端壳与进程编排（REQ-321/M123）。
 //
 // 职责（对应 10 号跨端方案 R-X3/R-X11/SC-X1 的 Windows 单平台先行实现）：
 //   - 编排三服务启动：本体两平面（ontologyd → runtimed）→ 主平台 backend，
@@ -6,7 +6,7 @@
 //   - 端口被占用时的分级处理：自身残留服务按 PID/exe 名回收 → 无法回收时透明诊断
 //     （谁占的、PID、完整路径）+ 处置建议（停实例 / 检查 WSL2 / launcher.json 换端口）；
 //   - 单实例：已有客户端窗口时聚焦唤起而非报错；
-//   - 数据根：data.location（安装器写）→ %LOCALAPPDATA%\multiagent-lab → 安装目录 data\；
+//   - 数据根：data.location（安装器写）→ %LOCALAPPDATA%\ontoagents → 安装目录 data\；
 //   - Job Object（KILL_ON_JOB_CLOSE）关窗整树回收；PID 留痕 + -stop 兜底停服；
 //   - WebView2 缺失回退默认浏览器。
 //
@@ -83,8 +83,8 @@ func exeDir() string {
 }
 
 // dataRoot 数据根：安装器把所选数据根写入 <安装目录>\data.location（数据随安装目录走——
-// C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\multiagent-lab 兜底。
-// 曾用名一次性迁移：旧版数据根 %LOCALAPPDATA%\eino-lab 存在且新目录不存在时整体改名（改名失败
+// C 盘紧张机器可整包装到其他盘）；无标记（旧版安装/手动部署）→ %LOCALAPPDATA%\ontoagents 兜底。
+// 曾用名链一次性迁移（新→旧）：multiagent-lab、eino-lab 存在且新目录不存在时整体改名（改名失败
 // ——如目录被占用——则继续用旧目录，不丢数据）。
 func dataRoot(root string) string {
 	if b, err := os.ReadFile(filepath.Join(root, "data.location")); err == nil {
@@ -93,11 +93,14 @@ func dataRoot(root string) string {
 		}
 	}
 	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		cur := filepath.Join(localAppData, "multiagent-lab")
-		legacy := filepath.Join(localAppData, "eino-lab")
-		if dirExists(legacy) && !dirExists(cur) {
-			if err := os.Rename(legacy, cur); err != nil {
-				return legacy // 占用/权限导致改名失败：沿用旧目录，不丢数据
+		cur := filepath.Join(localAppData, "ontoagents")
+		for _, name := range []string{"multiagent-lab", "eino-lab"} {
+			legacy := filepath.Join(localAppData, name)
+			if dirExists(legacy) && !dirExists(cur) {
+				if err := os.Rename(legacy, cur); err != nil {
+					return legacy // 占用/权限导致改名失败：沿用旧目录，不丢数据
+				}
+				break
 			}
 		}
 		return cur
@@ -330,7 +333,7 @@ func cleanupStale(dataDir string, headless bool) string {
 	}
 
 	// 按镜像名回收本平台服务（含 go run 开发实例——其临时 exe 基名同为 backend.exe 等）
-	for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "MultiAgentLab.exe"} {
+	for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "OntoAgents.exe"} {
 		killImage(name)
 	}
 	time.Sleep(800 * time.Millisecond) // 进程树退出 + 端口释放窗口
@@ -369,7 +372,7 @@ func stopServices(dataDir string) int {
 	pids := readPIDFile(dataDir)
 	if len(pids) == 0 {
 		// 无留痕（如手动启动）：按镜像名兜底，与本安装的固定 exe 名一一对应。
-		for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "MultiAgentLab.exe"} {
+		for _, name := range []string{"backend.exe", "ontologyd.exe", "runtimed.exe", "OntoAgents.exe"} {
 			killImage(name)
 		}
 		fmt.Println("已按进程名停止平台服务（无 PID 留痕）。")
@@ -513,7 +516,7 @@ func msgBox(title, text string) {
 }
 
 func fail(headless bool, msg string) int {
-	fmt.Fprintln(os.Stderr, "[MultiAgentLab] "+msg)
+	fmt.Fprintln(os.Stderr, "[OntoAgents] "+msg)
 	if !headless {
 		msgBox(appName, msg)
 	}

@@ -12,7 +12,7 @@ import (
 
 	"strings"
 
-	pkgspec "github.com/xiaoyao/eino-multiagent-lab/pkg/ontology/spec"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // triplesRe sidecar export stderr 的三元组计数标记（REQ-293① 装载对账数据源）。

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/runtime-manager/internal/store"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
 
 // reasoningFixture 推理方案夹具：引擎对默认图（无 GRAPH）计数查询返回 got。

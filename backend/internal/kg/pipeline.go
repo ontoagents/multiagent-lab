@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // OntoVocab 本体约束词表（只读投影：概念标签/名 + 关系名/标签）。

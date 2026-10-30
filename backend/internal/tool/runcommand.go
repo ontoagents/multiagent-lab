@@ -18,7 +18,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	utils "github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
 )
 
 // RunCommandDeps run_command 装配依赖（WorkDir=绑定目录，空=容器工作目录）。

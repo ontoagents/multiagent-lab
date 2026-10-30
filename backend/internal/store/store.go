@@ -16,7 +16,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/xiaoyao/eino-multiagent-lab/pkg/migrate"
+	"github.com/ontoagents/ontoagents/pkg/migrate"
 )
 
 //go:embed migrations/*.sql

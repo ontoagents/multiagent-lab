@@ -3,7 +3,7 @@ package kb
 import (
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // KB-4②③/M287 实体向量读侧纯函数单测（余弦 TopN/BLOB 互转/维度诚实跳过）。

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // REQ-194/M34 零依赖单测：分窗 / 对齐 / 合并召回 / 余弦 / 聚类 / 矛盾 prompt（批次一①③ + 批次二⑤⑥）。

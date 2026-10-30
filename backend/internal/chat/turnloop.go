@@ -31,7 +31,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
 // runItem TurnLoop 条目（gob 编码入 checkpoint——字段保持可 gob 基本类型）。

@@ -4,9 +4,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "multiagent-lab.name" (dict "Release" $.Release "component" .name) }}
+  name: {{ include "ontoagents.name" (dict "Release" $.Release "component" .name) }}
   labels:
-    {{- include "multiagent-lab.labels" (dict "Release" $.Release "component" .name) | nindent 4 }}
+    {{- include "ontoagents.labels" (dict "Release" $.Release "component" .name) | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -18,11 +18,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "multiagent-lab.labels" (dict "Release" $.Release "component" .name) | nindent 8 }}
+        {{- include "ontoagents.labels" (dict "Release" $.Release "component" .name) | nindent 8 }}
     spec:
       containers:
         - name: {{ .name }}
-          image: {{ include "multiagent-lab.fullimage" (dict "image" .) }}
+          image: {{ include "ontoagents.fullimage" (dict "image" .) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           ports:
             - containerPort: {{ .port }}
@@ -39,5 +39,5 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "multiagent-lab.name" (dict "Release" $.Release "component" .name) }}
+            claimName: {{ include "ontoagents.name" (dict "Release" $.Release "component" .name) }}
 {{- end }}

@@ -17,7 +17,7 @@ import (
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
-	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/fsutil"
+	"github.com/ontoagents/ontoagents/backend/internal/fsutil"
 )
 
 // grep/glob 走查上限（防大目录拖垮；如实截断并在结果中标注）。
