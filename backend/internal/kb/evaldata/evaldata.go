@@ -35,3 +35,24 @@ func Questions() ([]Question, error) {
 	}
 	return out.Questions, nil
 }
+
+// RealQuestionsJSON REQ-526/M333：真实语料 gold 题的 JSON 形态（与 Questions 同族——
+// 供 kbeval 真实语料基准消费；gold=内容子串词法可命中）。
+func RealQuestionsJSON() ([]byte, error) {
+	type q struct {
+		ID   string   `json:"id"`
+		Type string   `json:"type"`
+		Q    string   `json:"q"`
+		Gold []string `json:"gold"`
+	}
+	out := struct {
+		Note      string `json:"note"`
+		Questions []q    `json:"questions"`
+	}{
+		Note: "REQ-526/M333 真实语料基准题集：platform-knowledge 真实文档节选（README+16 号部署段）20 题 gold——词法臂 Recall@5+MRR 离线确定性；向量臂经 KB_EVAL_DB 可选（KB-22 先例）。",
+	}
+	for _, x := range RealQuestions {
+		out.Questions = append(out.Questions, q{ID: x.ID, Type: "keyword", Q: x.Q, Gold: x.Gold})
+	}
+	return json.Marshal(out)
+}

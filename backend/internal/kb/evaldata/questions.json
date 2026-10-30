@@ -1,29 +1,37 @@
 {
-  "note": "KB-14/M35 评测基准问题集：keyword=词法臂（FTS5 Recall@5）、multihop=图臂（递归 CTE 可达边）、community=全局臂（社区摘要评分命中）。gold 为内容子串或 gold_edges 边对。",
+  "note": "KB-14/M35 + REQ-526/M333 扩容（7→16 题：kw-5~13 新增——同语料变体问法测召回鲁棒性；MRR 指标随 REQ-526 接入） 评测基准问题集：keyword=词法臂（FTS5 Recall@5）、multihop=图臂（递归 CTE 可达边）、community=全局臂（社区摘要评分命中）。gold 为内容子串或 gold_edges 边对。",
   "questions": [
     {
       "id": "kw-1",
       "type": "keyword",
       "q": "BUG-1024 弱网超时的修复方案是什么",
-      "gold": ["BUG-1024"]
+      "gold": [
+        "BUG-1024"
+      ]
     },
     {
       "id": "kw-2",
       "type": "keyword",
       "q": "HNSW 索引与 cosine 相似度",
-      "gold": ["HNSW"]
+      "gold": [
+        "HNSW"
+      ]
     },
     {
       "id": "kw-3",
       "type": "keyword",
       "q": "Qdrant 客户端超时配置",
-      "gold": ["显式设置 3 秒拨号超时"]
+      "gold": [
+        "显式设置 3 秒拨号超时"
+      ]
     },
     {
       "id": "kw-4",
       "type": "keyword",
       "q": "Retriever 组件对接外部检索后端",
-      "gold": ["Retriever 组件对接外部检索后端"]
+      "gold": [
+        "Retriever 组件对接外部检索后端"
+      ]
     },
     {
       "id": "mh-1",
@@ -32,9 +40,21 @@
       "seed_entity": "Eino框架",
       "hops": 3,
       "gold_edges": [
-        ["Eino框架", "封装", "eino-ext组件"],
-        ["eino-ext组件", "连接", "Qdrant服务"],
-        ["Qdrant服务", "内置", "HNSW索引"]
+        [
+          "Eino框架",
+          "封装",
+          "eino-ext组件"
+        ],
+        [
+          "eino-ext组件",
+          "连接",
+          "Qdrant服务"
+        ],
+        [
+          "Qdrant服务",
+          "内置",
+          "HNSW索引"
+        ]
       ]
     },
     {
@@ -44,7 +64,11 @@
       "seed_entity": "BUG-1024",
       "hops": 1,
       "gold_edges": [
-        ["BUG-1024", "涉及", "Qdrant服务"]
+        [
+          "BUG-1024",
+          "涉及",
+          "Qdrant服务"
+        ]
       ]
     },
     {
@@ -52,6 +76,80 @@
       "type": "community",
       "q": "Eino 框架与 Qdrant 服务的整体介绍",
       "gold_label": "__any__"
+    },
+    {
+      "id": "kw-5",
+      "type": "keyword",
+      "q": "Eino 是哪家公司开源的 Go 框架",
+      "gold": [
+        "字节跳动"
+      ]
+    },
+    {
+      "id": "kw-6",
+      "type": "keyword",
+      "q": "Qdrant 内部使用什么索引加速相似度检索",
+      "gold": [
+        "HNSW"
+      ]
+    },
+    {
+      "id": "kw-7",
+      "type": "keyword",
+      "q": "BUG-1024 的 P99 延迟超过了多少",
+      "gold": [
+        "30 秒"
+      ]
+    },
+    {
+      "id": "kw-8",
+      "type": "keyword",
+      "q": "BUG-1024 的回归用例覆盖什么场景",
+      "gold": [
+        "弱网注入"
+      ]
+    },
+    {
+      "id": "kw-9",
+      "type": "keyword",
+      "q": "Eino 提供的两种编排形态是什么",
+      "gold": [
+        "Chain/Graph"
+      ]
+    },
+    {
+      "id": "kw-10",
+      "type": "keyword",
+      "q": "eino-ext 扩展仓库提供哪个客户端组件",
+      "gold": [
+        "Qdrant 客户端"
+      ]
+    },
+    {
+      "id": "kw-11",
+      "type": "keyword",
+      "q": "BUG-1024 修复时给 Qdrant 客户端设置了哪两种超时",
+      "gold": [
+        "3 秒拨号超时",
+        "10 秒整体超时"
+      ]
+    },
+    {
+      "id": "kw-12",
+      "type": "keyword",
+      "q": "Eino 组件面覆盖哪些节点类型",
+      "gold": [
+        "ChatModel",
+        "Lambda"
+      ]
+    },
+    {
+      "id": "kw-13",
+      "type": "keyword",
+      "q": "弱网环境 P99 延迟超 30 秒的问题编号是什么",
+      "gold": [
+        "BUG-1024"
+      ]
     }
   ]
 }
