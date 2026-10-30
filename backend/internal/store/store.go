@@ -3,20 +3,20 @@ package store
 
 import (
 	"crypto/rand"
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/hex"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/migrate"
 )
 
 //go:embed migrations/*.sql
@@ -90,68 +90,11 @@ func (s *Store) migrate() error {
 	}
 	rows.Close()
 
-	return s.runMigrations(migrationsFS, "migrations", applied)
+	// REQ-535/M342：迁移执行统一切 pkg/migrate 单实现（事务包裹/legacy 容错/版本记录单点
+	// ——三服务仅数据源差异；行为由 REQ-519 fstest 两段式测试锁定）。
+	return migrate.Run(context.Background(), s.DB, migrationsFS, migrate.Options{Dir: "migrations"})
 }
 
-// runMigrations REQ-519/M326：单文件迁移事务包裹（sql.Tx BEGIN…COMMIT）——SQLite 支持事务 DDL，
-// 中途失败全回滚、版本不记录，重启自动重放；防「部分 DDL 已生效但版本未记录→重放撞 already
-// exists→store.Open 失败服务卡死」（单用户库即全部资产且无 DBA 自修手段）。fsys 注入=中途
-// 失败回滚+修复重放可测（fstest.MapFS 两段式）。tolerance=存量库 legacy 已应用收敛（REQ-391
-// duplicate column 语义维持+REQ-519 扩 already exists——存量半套 schema 重放收敛）。
-func (s *Store) runMigrations(fsys fs.FS, dir string, applied map[string]bool) error {
-	entries, err := fs.ReadDir(fsys, dir)
-	if err != nil {
-		return err
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if applied[name] {
-			continue
-		}
-		b, err := fs.ReadFile(fsys, dir+"/"+name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
-		tx, err := s.DB.Begin()
-		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", name, err)
-		}
-		if _, err := tx.Exec(string(b)); err != nil {
-			tx.Rollback()
-			if isLegacyTolerable(err) {
-				// legacy 已应用收敛：补记版本（本文件后续语句未执行——存量收敛语义与迁移前一致）
-				if _, err := s.DB.Exec(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`, name, now()); err != nil {
-					return fmt.Errorf("record legacy migration %s: %w", name, err)
-				}
-				continue
-			}
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
-		// REQ-519/M326 顺修存量缺陷：原 version-only INSERT 因 applied_at NOT NULL 无默认
-		// 被 OR IGNORE 静默吞掉——049+ 迁移从未被记录、每次启动全量重放（dev 库实证：52 条
-		// 记录止于 048，058/069/070/071/072 均未记录，容错掩盖）。补 applied_at 后「已记录
-		// 跳过」机制首次真正生效（存量库下次启动一次性收敛补记，此后零重放）。
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)`, name, now()); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("record migration %s: %w", name, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-// isLegacyTolerable 存量库 legacy 已应用容忍（REQ-391 duplicate column 维持；REQ-519 扩
-// already exists——CREATE TABLE 无 IF NOT EXISTS 的存量库重放收敛）。
-func isLegacyTolerable(err error) bool {
-	e := err.Error()
-	return strings.Contains(e, "duplicate column name") || strings.Contains(e, "already exists")
-}
 
 // Close 关闭数据库。
 func (s *Store) Close() error { return s.DB.Close() }

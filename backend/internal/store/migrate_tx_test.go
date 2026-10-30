@@ -4,8 +4,11 @@ package store
 // already exists 存量收敛。fstest.MapFS 两段式注入（runMigrations fsys 参数化承载）。
 
 import (
+	"context"
 	"testing"
 	"testing/fstest"
+
+	"github.com/xiaoyao/eino-multiagent-lab/pkg/migrate"
 )
 
 // 两段式：m002 中途失败（第二语句 INSERT 不存在的表）→ 断言 001 已提交、002 未记录且 m002
@@ -27,7 +30,7 @@ func TestMigrateTxRollbackAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st2.Close()
-	if err := st2.runMigrations(failing, "migrations", map[string]bool{}); err == nil {
+	if err := migrate.Run(context.Background(), st2.DB, failing, migrate.Options{}); err == nil {
 		t.Fatal("m002 中途失败应返回错误")
 	}
 
@@ -51,7 +54,7 @@ func TestMigrateTxRollbackAndReplay(t *testing.T) {
 		"migrations/001_ok.sql":     &fstest.MapFile{Data: []byte("CREATE TABLE IF NOT EXISTS tx_probe_a (id TEXT PRIMARY KEY);\n")},
 		"migrations/002_broken.sql": &fstest.MapFile{Data: []byte("CREATE TABLE IF NOT EXISTS tx_probe_b (id TEXT PRIMARY KEY);\nINSERT INTO tx_probe_b VALUES ('b1');\n")},
 	}
-	if err := st2.runMigrations(fixed, "migrations", map[string]bool{}); err != nil {
+	if err := migrate.Run(context.Background(), st2.DB, fixed, migrate.Options{}); err != nil {
 		t.Fatalf("修复版重放应成功: %v", err)
 	}
 	if err := st2.DB.QueryRow(`SELECT COUNT(*) FROM tx_probe_b`).Scan(&n); err != nil || n != 1 {
@@ -77,7 +80,7 @@ func TestMigrateAlreadyExistsTolerance(t *testing.T) {
 	legacy := fstest.MapFS{
 		"migrations/900_legacy.sql": &fstest.MapFile{Data: []byte("CREATE TABLE tx_probe_legacy (id TEXT PRIMARY KEY);\n")},
 	}
-	if err := st.runMigrations(legacy, "migrations", map[string]bool{}); err != nil {
+	if err := migrate.Run(context.Background(), st.DB, legacy, migrate.Options{}); err != nil {
 		t.Fatalf("already exists 应收敛为 legacy 已应用: %v", err)
 	}
 	var applied int
