@@ -1,7 +1,7 @@
 import DoneCTA from '../components/DoneCTA'
 import CqQuickScreen from '../components/CqQuickScreen'
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
+import { Popconfirm, Alert, Button, Card, Checkbox, Empty, Input, Segmented, Space, Steps, Table, Tabs, Tag, Typography, Upload } from 'antd'
 import {
   CheckCircleOutlined,
   DatabaseOutlined,
@@ -18,6 +18,8 @@ import SpecGraph from '../components/SpecGraph'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
+import JsonEditor from '../components/JsonEditor'
+import { RollbackOutlined } from '@ant-design/icons'
 import { invalidateOntos, useOntologies } from '../shared/useOntoList'
 
 // ---------------------------------------------------------------------------
@@ -843,15 +845,40 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
 
 function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId: string; spec: Spec | null; onSaved: () => void; onPrev: () => void; onNext: () => void }) {
   const { showToast } = useUI()
-  const [specText, setSpecText] = useState('')
+  // REQ-532/M339（P10①②③）：①JsonEditor（CodeMirror+jsonParseLinter 行内错误标记）替换裸
+  // TextArea——parse 失败就地定位；②specText 接 draftStore（custom-spec-draft:{oid}）——刷新
+  // 不丢未保存编辑；③「回滚到上一保存版本」接 restoreOntologyVersion（既有 API/UI 能力，
+  // 指定版本恢复为新版本语义如实标注）。
+  const draftKey = `custom-spec-draft:${ontologyId}`
+  const [specText, setSpecText] = useState(() => loadDraft<string>(draftKey) ?? '')
   const [saving, setSaving] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
   const [ontoName, setOntoName] = useState('')
+  const [ontoVersion, setOntoVersion] = useState<number | null>(null)
 
   useEffect(() => {
-    setSpecText(spec ? JSON.stringify(spec, null, 2) : '')
+    // 刷新恢复优先（draftStore 未保存草稿），无草稿回落服务端 spec
+    const draft = loadDraft<string>(draftKey)
+    if (draft) {
+      setSpecText(draft)
+    } else {
+      setSpecText(spec ? JSON.stringify(spec, null, 2) : '')
+    }
     setValidationErrors([])
   }, [spec, ontologyId])
+
+  useEffect(() => {
+    api
+      .getOntology(ontologyId)
+      .then((o) => { setOntoName(o.name); setOntoVersion(o.version ?? null) })
+      .catch(() => setOntoName(ontologyId))
+  }, [ontologyId])
+
+  const updateSpecText = (v: string) => {
+    setSpecText(v)
+    saveDraft(draftKey, v)
+  }
 
   useEffect(() => {
     api
@@ -872,6 +899,8 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
     setValidationErrors([])
     try {
       const r = await api.saveSpec(ontologyId, parsed)
+      clearDraft(draftKey)
+      setOntoVersion(r.version)
       showToast(`Spec 已保存（version ${r.version}）`)
       onSaved()
     } catch (e: any) {
@@ -904,14 +933,36 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
           下一步：校验 <RightOutlined />
         </Button>
       </div>
-      <Input.TextArea
-        className="onto-spec-editor"
-        value={specText}
-        onChange={(e) => setSpecText(e.target.value)}
-        autoSize={{ minRows: 16, maxRows: 40 }}
-        spellCheck={false}
-        placeholder='{ "name": "…", "concepts": [], "relations": [], "instances": [] }'
-      />
+      <JsonEditor value={specText} onChange={updateSpecText} height="520px" />
+      {ontoVersion != null && ontoVersion > 0 && (
+        <Popconfirm
+          title={`回滚到上一保存版本（v${ontoVersion}）？`}
+          description="指定版本内容将恢复为新版本保存（当前未保存编辑将丢失）"
+          okText="回滚"
+          cancelText="取消"
+          onConfirm={async () => {
+            setRollingBack(true)
+            try {
+              await api.restoreOntologyVersion(ontologyId, ontoVersion)
+              showToast(`已从 v${ontoVersion} 恢复为新版本`)
+              const fresh = await api.getSpec(ontologyId)
+              updateSpecText(JSON.stringify(fresh, null, 2))
+              const o = await api.getOntology(ontologyId)
+              setOntoVersion(o.version ?? null)
+              setValidationErrors([])
+              onSaved()
+            } catch (e: any) {
+              showToast(e?.message ?? '回滚失败', 'err')
+            } finally {
+              setRollingBack(false)
+            }
+          }}
+        >
+          <Button size="small" loading={rollingBack} icon={<RollbackOutlined />}>
+            回滚到上一保存版本（v{ontoVersion}）
+          </Button>
+        </Popconfirm>
+      )}
       {validationErrors.length > 0 && (
         <>
           <Alert type="error" showIcon style={{ marginTop: 12 }} title={`校验未通过（${validationErrors.length} 项）`} />
