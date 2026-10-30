@@ -238,6 +238,14 @@ export const api = {
     }),
   deleteConversation: (id: string) => req<{ deleted: string }>(`/api/conversations/${id}`, { method: 'DELETE' }),
   listMessages: (id: string) => req<Message[]>(`/api/conversations/${id}/messages`),
+  /** REQ-413/M209 分页端点（REQ-533/M340 前端接线——长会话默认只拉最近一页；响应裸数组+X-Total-Count 头） */
+  listMessagesPaged: async (id: string, page = 1, pageSize = 200): Promise<{ messages: Message[]; total: number }> => {
+    const res = await fetch(`/api/conversations/${id}/messages/paged?page=${page}&page_size=${pageSize}`)
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status)
+    const messages = (await res.json()) as Message[]
+    const total = Number(res.headers.get('X-Total-Count') ?? messages.length)
+    return { messages, total }
+  },
   /** REQ-478③：派生会话——拷贝当前配置与全量落库消息成新会话（过程事件留原会话） */
   forkConversation: (id: string, title?: string) =>
     req<Conversation>(`/api/conversations/${id}/fork`, { method: 'POST', body: JSON.stringify(title ? { title } : {}) }),

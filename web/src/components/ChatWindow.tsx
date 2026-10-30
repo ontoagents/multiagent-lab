@@ -307,7 +307,13 @@ export default function ChatWindow({
     setItems([])
     setCapsuleEvents([]) // REQ-330②：胶囊随会话切换重置（历史沉淀靠回放摘要行+TraceDrawer 承接）
     if (!conversation) return
-    Promise.all([api.listMessages(conversation.id), api.listEvents(conversation.id).catch(() => [] as never[])])
+    // REQ-533/M340（P25）：打开链路切 /messages/paged——最近一页（200 条）优先，
+    // 长会话不再全量拉取（REQ-413 端点交付后前端零接线的收口）；total>页大=有更早页
+    //（向上翻页留后续轮——本件收口「打开只拉最近窗」的主诉求）
+    Promise.all([
+      api.listMessagesPaged(conversation.id, 1, 200).then((r) => r.messages).catch(() => api.listMessages(conversation.id)),
+      api.listEvents(conversation.id).catch(() => [] as never[]),
+    ])
       .then(([msgs, evs]) => {
         // REQ-527/M334：刷新重挂——运行 ctx 已与请求解耦（后端断连不取消），打开会话若
         // phase=running（会话状态机判据）则 10s 轮询事件回放：fresh 事件按 id 去重后
