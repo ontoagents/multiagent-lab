@@ -88,8 +88,14 @@ func TestExpandClosure_PinConflictNotLoaded_Req540(t *testing.T) {
 	if !strings.Contains(joined, "pin 冲突: E 多登记 pin v1/v4——目标不在本次装载清单") {
 		t.Fatalf("未装载目标的冲突行应分流措辞不断言装载:\n%s", joined)
 	}
-	if strings.Contains(joined, "按最低 v2 装载；较高") && strings.Contains(joined, "E") {
-		t.Fatalf("未装载目标不应出现「按最低装载」断言:\n%s", joined)
+	// 三轮评审销账：原守卫查「按最低 v2 装载；较高」而本夹具最低 pin 为 v1——分流即使
+	// 回归到装载分支措辞也只会输出「按最低 v1 装载」，守卫恒不命中（且 Contains(joined,"E")
+	// 恒真）为死断言。改锚定本夹具真实会出现的装载分支措辞「按最低 v1 装载」，并限定在
+	// E 自己的冲突行内判定，使守卫可真失败（拦截分流措辞回归）。
+	for _, line := range rep.logLines() {
+		if strings.Contains(line, "pin 冲突: E 多登记") && strings.Contains(line, "按最低 v1 装载") {
+			t.Fatalf("未装载目标的冲突行不应出现「按最低装载」断言: %s", line)
+		}
 	}
 }
 
