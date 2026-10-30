@@ -1,0 +1,80 @@
+# REQ-538/M345：最小 CI 门禁（自 90 号 E3 拆出与 E1 并线——外部 PR 出现前的裸奔窗口收口）。
+# 触发：push main + PR；跑三平面 Go 测试 + web tsc/build。
+# 边界：headless 冒烟不纳入（runner 成本——评估后决定，见 01 §3.17 REQ-538 行）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: backend build + vet + test
+        working-directory: backend
+        run: |
+          go build ./...
+          go vet ./internal/...
+          go test -count=1 ./internal/store/ ./internal/doccheck/ ./internal/api/ ./internal/chat/
+
+  ontology-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: ontology-service build + vet + test
+        working-directory: ontology-service
+        run: |
+          go build ./...
+          go vet ./...
+          go test -count=1 ./...
+
+  runtime-manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: runtime-manager build + vet + test
+        working-directory: runtime-manager
+        run: |
+          go build ./...
+          go vet ./...
+          go test -count=1 ./...
+
+  pkg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: pkg modules build + vet + test
+        working-directory: pkg/migrate
+        run: |
+          go build ./...
+          go vet ./...
+          go test -count=1 ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: web tsc + build
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
