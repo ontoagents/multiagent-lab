@@ -125,6 +125,16 @@ func (s *Store) BuildClosurePreview(ontoID string) (*ClosurePreview, error) {
 		}
 		visited[oid] = true
 		order = append(order, oid)
+		// 已删目标（评审修正①）：入图（missing）但不读其遗留孤儿引用、不沿其外扩——
+		// external_refs 无 FK 级联（049 迁移），本体删除后登记行存活；与运行面 expandClosure
+		// 取清单 404 硬失败、REQ-541 buildReleaseManifest missing 即 continue 的跳过语义同构。
+		if oid != ontoID {
+			if _, gerr := s.GetOntology(oid); errors.Is(gerr, ErrNotFound) {
+				continue
+			} else if gerr != nil {
+				return nil, gerr
+			}
+		}
 		refs, rerr := s.ListExternalRefs(oid)
 		if rerr != nil {
 			return nil, fmt.Errorf("闭包预览失败（本体 %s 引用清单读取）: %w", oid, rerr)
@@ -174,10 +184,26 @@ func (s *Store) BuildClosurePreview(ontoID string) (*ClosurePreview, error) {
 					queue = append(queue, ref.ToOntoID)
 				}
 			case ref.ToOntoID == "" && ref.RefKind == "import" && ref.FromConcept == OntologyLevelRef:
-				// owl:imports 装载侧哨兵登记（REQ-262）：to_concept=urn:o:{id}: 形态解析仓内目标
+				// owl:imports 装载侧哨兵登记（REQ-262）：to_concept=urn:o:{id}: 形态解析仓内目标。
+				// 评审修正②：哨兵目标已删时 AnnotateDangling 跳过（ToOntoID=""）不报悬空——运行面
+				// 门禁（closure.go:93-94 情形② BFS 取清单 404）明确阻断此类，预览悬空清单同面呈现。
 				if tgt := urnOntoIDOf(ref.ToConcept); tgt != "" {
+					dang := ""
+					if _, gerr := s.GetOntology(tgt); errors.Is(gerr, ErrNotFound) {
+						dang = "missing_ontology"
+					} else if gerr != nil {
+						return nil, gerr
+					}
 					prev.Edges = append(prev.Edges, ClosureEdge{FromOntoID: oid, ToOntoID: tgt,
-						RefKind: "import", FromConcept: ref.FromConcept, ToConcept: ref.ToConcept, ViaImports: true})
+						RefKind: "import", FromConcept: ref.FromConcept, ToConcept: ref.ToConcept,
+						ViaImports: true, Dangling: dang})
+					if dang != "" {
+						prev.Dangling = append(prev.Dangling, ClosureDangling{
+							OntoID: oid, RefID: ref.RefID, Code: dang,
+							Detail: fmt.Sprintf("%s(owl:imports 哨兵) →urn:o:%s: 目标本体已删除（预览不阻断；装载由运行面门禁拦截）",
+								ref.FromConcept, tgt),
+						})
+					}
 					edges[oid] = append(edges[oid], tgt)
 					if !visited[tgt] {
 						queue = append(queue, tgt)

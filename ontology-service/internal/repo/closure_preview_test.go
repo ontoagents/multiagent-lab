@@ -204,12 +204,22 @@ func TestClosurePreview_DanglingMissingNotBlocking_Req542(t *testing.T) {
 	if _, err := st.CreateExternalRef(&ExternalRef{FromOntoID: "A", FromConcept: "缺陷", ToOntoID: "C", ToConcept: "NoSuchConcept", RefKind: "reuse"}); err != nil {
 		t.Fatal(err)
 	}
-	// B→D（先建 D 登记、后删 D→missing_ontology；B 不沿孤儿引用再外扩）
+	// B→D（先建 D 登记、后删 D→missing_ontology）；D→E 出边登记在删除前落库（external_refs
+	// 无 FK 级联，孤儿登记行存活）——「B 不沿孤儿引用再外扩」由此真实断言（评审修正④）
 	seedOntology(t, st, "D", `{"name":"D","concepts":[{"name":"临时"}]}`)
+	seedOntology(t, st, "E", `{"name":"E","concepts":[{"name":"下游"}]}`)
 	if _, err := st.CreateExternalRef(&ExternalRef{FromOntoID: "B", FromConcept: OntologyLevelRef, ToOntoID: "D", ToConcept: "临时", RefKind: "import"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.CreateExternalRef(&ExternalRef{FromOntoID: "D", FromConcept: OntologyLevelRef, ToOntoID: "E", ToConcept: "下游", RefKind: "import"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.DeleteOntology("D"); err != nil {
+		t.Fatal(err)
+	}
+	// A 哨兵 imports 指向已删本体形态（评审修正②）：ToOntoID="" 哨兵、to_concept=urn:o:ghost:
+	//（ghost 从未存在=同款阻断面；AnnotateDangling 跳过 ToOntoID 空——预览须自带 missing_ontology）
+	if _, err := st.CreateExternalRef(&ExternalRef{FromOntoID: "A", FromConcept: OntologyLevelRef, ToConcept: "urn:o:ghost:", RefKind: "import", Justification: "import_statement"}); err != nil {
 		t.Fatal(err)
 	}
 	prev, err := st.BuildClosurePreview("A")
@@ -220,17 +230,27 @@ func TestClosurePreview_DanglingMissingNotBlocking_Req542(t *testing.T) {
 	for _, n := range prev.Nodes {
 		byNode[n.OntoID] = n
 	}
-	// D 已删：节点 missing、无内容、B 不沿孤儿引用再外扩（无内容可解析）
+	// D 已删：节点 missing、无内容；不沿 D 的孤儿引用外扩——E 不得入图（评审修正①④对账面）
 	if d := byNode["D"]; d.Resolution != "missing" || d.Version != 0 || d.SpecSHA256 != "" {
 		t.Fatalf("已删目标应 missing/v0/无指纹，实际 %+v", d)
+	}
+	if e, ok := byNode["E"]; ok {
+		t.Fatalf("missing 节点的孤儿引用不得外扩：E 不应入图，实际 %+v", e)
+	}
+	if len(prev.Nodes) != 5 {
+		t.Fatalf("节点应恰 A/B/C/D/ghost（E 不沿 missing 外扩），实际 %+v", prev.Nodes)
+	}
+	// ghost 哨兵：直接被指目标入图 missing（与 B→D 的 D 同款语义=边端点可指），但不再沿其外扩
+	if g := byNode["ghost"]; g.Resolution != "missing" || g.Version != 0 {
+		t.Fatalf("哨兵指不存在本体应 missing 节点（边端点可指），实际 %+v", g)
 	}
 	// missing_concept：目标本体存在，节点仍 head 可解析
 	if c := byNode["C"]; c.Resolution != "head" || c.Concepts != 1 {
 		t.Fatalf("概念悬空但本体存在应 head 可解析，实际 %+v", c)
 	}
-	// 悬空专项报告：两条（B→D missing_ontology + A→C missing_concept）
-	if len(prev.Dangling) != 2 {
-		t.Fatalf("悬空报告应 2 条，实际 %+v", prev.Dangling)
+	// 悬空专项报告：三条（B→D missing_ontology + A→C missing_concept + A 哨兵→ghost missing_ontology）
+	if len(prev.Dangling) != 3 {
+		t.Fatalf("悬空报告应 3 条，实际 %+v", prev.Dangling)
 	}
 	codes := map[string]int{}
 	for _, d := range prev.Dangling {
@@ -239,12 +259,25 @@ func TestClosurePreview_DanglingMissingNotBlocking_Req542(t *testing.T) {
 			t.Fatalf("悬空条目应带人话明细，实际 %+v", d)
 		}
 	}
-	if codes["missing_ontology"] != 1 || codes["missing_concept"] != 1 {
-		t.Fatalf("悬空码应各 1 条，实际 %v", codes)
+	if codes["missing_ontology"] != 2 || codes["missing_concept"] != 1 {
+		t.Fatalf("悬空码应 missing_ontology×2/missing_concept×1，实际 %v", codes)
+	}
+	// 哨兵悬空边：ViaImports 标注+Dangling=missing_ontology（评审修正②⑤——边表不得显示「正常」）
+	sentinelDangling := false
+	for _, e := range prev.Edges {
+		if e.ViaImports && e.ToOntoID == "ghost" {
+			if e.Dangling != "missing_ontology" {
+				t.Fatalf("哨兵指向不存在本体的边应带 missing_ontology，实际 %+v", e)
+			}
+			sentinelDangling = true
+		}
+	}
+	if !sentinelDangling {
+		t.Fatalf("哨兵悬空边应入边集，实际 %+v", prev.Edges)
 	}
 	// missing 节点无 schema 分节；内容节恰 A/B/C
 	if len(prev.Schema.Sections) != 3 {
-		t.Fatalf("schema 分节应恰 3（D missing 无节），实际 %+v", prev.Schema.Sections)
+		t.Fatalf("schema 分节应恰 3（D missing 无节、ghost 无实体），实际 %+v", prev.Schema.Sections)
 	}
 }
 
