@@ -58,7 +58,7 @@ func (s *Service) KGVectorMergeSuggestions(ctx context.Context, kbID string, top
 		}
 		texts = append(texts, t)
 	}
-	vecs, err := s.embedder().EmbedTexts(ctx, texts)
+	vecs, err := embedClientOf(s).EmbedTexts(ctx, texts)
 	if err != nil {
 		return nil, fmt.Errorf("embedding 不可用（实体消歧向量建议降级）: %w", err)
 	}

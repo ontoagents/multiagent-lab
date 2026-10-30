@@ -99,6 +99,37 @@ func (s *Server) kgQuality(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, q)
 }
 
+// kgMergeAuto POST /api/kg/{kbID}/merge/auto：KB-19/M291 高置信自动合并（sim≥自动阈值
+// 且类型相同；操作记录含撤销快照落 kg_decision 审计链）。
+func (s *Server) kgMergeAuto(w http.ResponseWriter, r *http.Request) {
+	kbID := r.PathValue("kbID")
+	records, err := s.KB.AutoMergeHighConfidence(r.Context(), kbID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "merged": len(records), "records": records,
+		"hint": "每条记录可经 POST /api/kg/{kbID}/merge/undo {decision_id} 快照撤销"})
+}
+
+// kgMergeUndo POST /api/kg/{kbID}/merge/undo {decision_id}：KB-19 一键撤销（快照重放）。
+func (s *Server) kgMergeUndo(w http.ResponseWriter, r *http.Request) {
+	kbID := r.PathValue("kbID")
+	var in struct {
+		DecisionID string `json:"decision_id"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	d, err := s.KB.UndoAutoMerge(r.Context(), kbID, in.DecisionID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "undone": d.Title})
+}
+
 // kgMergeSuggestions GET /api/kg/{kbID}/merge-suggestions：合并建议（M36/KB-7 起为
 // 规则〔名称包含〕+ 向量〔名+描述 embedding 相似〕双臂；向量臂 embedding 不可用时降级并标
 // vector_degraded；双嵌入防误并：类型不同附 type_warning「慎并」，人工确认后才执行合并）。

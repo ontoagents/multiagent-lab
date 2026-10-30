@@ -451,6 +451,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/kg/{kbID}/merge", s.kgMerge)
 	m.HandleFunc("GET /api/kg/{kbID}/quality", s.kgQuality)
 	m.HandleFunc("GET /api/kg/{kbID}/merge-suggestions", s.kgMergeSuggestions)
+	m.HandleFunc("POST /api/kg/{kbID}/merge/auto", s.kgMergeAuto)   // KB-19/M291：高置信自动合并（带撤销快照）
+	m.HandleFunc("POST /api/kg/{kbID}/merge/undo", s.kgMergeUndo)   // KB-19/M291：一键撤销（快照重放）
 	m.HandleFunc("PUT /api/kg/{kbID}/entity-alias", s.kgEntityAlias)                // M36/KB-7②：别名人工标注
 	m.HandleFunc("POST /api/kg/{kbID}/communities/rebuild", s.kgCommunitiesRebuild) // M16/REQ-130：社区重建
 	m.HandleFunc("GET /api/kg/{kbID}/communities", s.kgCommunities)

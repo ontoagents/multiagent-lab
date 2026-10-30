@@ -1076,3 +1076,85 @@ func (s *Store) ListKGCommunityVecs(kbID string) (map[string][]byte, int, error)
 	}
 	return out, dim, rows.Err()
 }
+
+// MergeUndoView KB-19/M291 撤销快照（store 层独立结构——kb 包 JSON 快照转此入参）。
+type MergeUndoView struct {
+	Merge     string
+	Entity    *KGEntity
+	FromAlias string
+	Relations []*KGRelationship
+	ClaimIDs  []string
+}
+
+// KGRelationsInvolving source/target 命中实体名的全部关系（合并前置快照用）。
+func (s *Store) KGRelationsInvolving(kbID, name string) ([]*KGRelationship, error) {
+	rows, err := s.DB.Query(`SELECT `+kgRelCols+` FROM kg_relationship WHERE kb_id=? AND (source=? OR target=?)`, kbID, name, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*KGRelationship{}
+	for rows.Next() {
+		var r KGRelationship
+		if err := rows.Scan(&r.ID, &r.KBID, &r.DocID, &r.Source, &r.Target, &r.Type, &r.Status, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+// KGClaimIDsBySubject subject 命中实体名的 claim id 清单（快照用）。
+func (s *Store) KGClaimIDsBySubject(kbID, subject string) ([]string, error) {
+	rows, err := s.DB.Query(`SELECT id FROM kg_claim WHERE kb_id=? AND subject=?`, kbID, subject)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// UndoMergeSnapshot KB-19 撤销重放（尽力恢复语义）：keep 别名摘除 merge 名（回到 FromAlias）
+// → 重插 merge 实体原行 → 关系原值重插（不查重——合并期自环清理的边补回，重复关系对检索
+// 语义无害）→ claims subject 恢复（id 清单逐条改回）。
+func (s *Store) UndoMergeSnapshot(kbID, keep string, v *MergeUndoView) error {
+	if v == nil || v.Entity == nil || v.Merge == "" {
+		return &HTTPError{Status: 400, Msg: "撤销快照不完整"}
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// ①别名摘除（FromAlias 为合并前 alias——直接回写即摘除 merge 名与并入的原别名段）
+	if _, err := tx.Exec(`UPDATE kg_entity SET alias=? WHERE kb_id=? AND name=?`, v.FromAlias, kbID, keep); err != nil {
+		return err
+	}
+	// ②重插 merge 实体原行（INSERT OR REPLACE——undo 后再 merge 同名场景幂等）
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kg_entity(id,kb_id,doc_id,name,type,description,alias,uid,created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		v.Entity.ID, v.Entity.KBID, v.Entity.DocID, v.Entity.Name, v.Entity.Type, v.Entity.Description, v.Entity.Alias, v.Entity.UID, v.Entity.CreatedAt); err != nil {
+		return err
+	}
+	// ③关系原值重插
+	for _, r := range v.Relations {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO kg_relationship(id,kb_id,doc_id,source,target,rel_type,status,created_at) VALUES (?,?,?,?,?,?,?,?)`,
+			r.ID, r.KBID, r.DocID, r.Source, r.Target, r.Type, r.Status, r.CreatedAt); err != nil {
+			return err
+		}
+	}
+	// ④claims subject 恢复
+	for _, id := range v.ClaimIDs {
+		if _, err := tx.Exec(`UPDATE kg_claim SET subject=? WHERE id=? AND kb_id=?`, v.Merge, id, kbID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
