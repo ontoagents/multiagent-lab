@@ -28,8 +28,20 @@ type ExternalRef struct {
 	CreatedBy     string  `json:"created_by"`
 	CreatedAt     string  `json:"created_at"`
 	Note          string  `json:"note"`
+	// REQ-540/M347：版本 pin（登记级粒度，103 号 §6.5 步骤一）。0/空=浮动头版本
+	//（OWL 2 系列 IRI/version IRI 双轨语义）；>0=钉住目标本体该 spec 版本号
+	//（ontology_version 快照）。被引方升级后引用方重装载仍取 pin 版本，显式刷新才漂移。
+	PinVersion int `json:"pin_version,omitempty"`
 	// 悬空检测结果（读侧填充；qualitygate 同源逻辑）
 	Dangling string `json:"dangling,omitempty"` // ""|missing_ontology|missing_concept
+}
+
+// PinEdge 引用 pin 边投影（from_onto_id → to_onto_id 的有效 pin 版本，REQ-540
+// lifecycle plan pin 对账数据源；同 (from,to) 多登记时取最低 pin=最保守解析）。
+type PinEdge struct {
+	FromOntoID string `json:"from_onto_id"`
+	ToOntoID   string `json:"to_onto_id"`
+	PinVersion int    `json:"pin_version"`
 }
 
 var validRefKinds = map[string]bool{"import": true, "alignment": true, "reuse": true}
@@ -85,14 +97,27 @@ func (s *Store) CreateExternalRef(r *ExternalRef) (*ExternalRef, error) {
 			return nil, fmt.Errorf("目标本体 %s 不存在（外部词表场景请留空 to_onto_id、to_concept 填 IRI）", r.ToOntoID)
 		}
 	}
+	// REQ-540：pin 校验——外部 IRI 登记态无版本可钉（远端拉取不做，D-O27）；pin 版本
+	// 快照必须存在（ontology_version；钉住不存在的版本会让解析点无处取内容）。
+	if r.PinVersion < 0 {
+		return nil, fmt.Errorf("pin_version 须为 0（浮动头版本）或正整数版本号，得到 %d", r.PinVersion)
+	}
+	if r.PinVersion > 0 {
+		if r.ToOntoID == "" {
+			return nil, errors.New("pin_version 仅支持仓内引用（to_onto_id 非空）——外部 IRI 登记态无版本可钉")
+		}
+		if _, err := s.GetVersionSpec(r.ToOntoID, r.PinVersion); err != nil {
+			return nil, fmt.Errorf("pin_version %d 在本体 %s 无版本快照（版本历史见资产页版本列表）", r.PinVersion, r.ToOntoID)
+		}
+	}
 	if r.RefID == "" {
 		r.RefID = NewRefID()
 	}
 	if r.CreatedAt == "" {
 		r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	_, err = s.db.Exec(`INSERT INTO external_refs (ref_id,from_onto_id,from_concept,to_onto_id,to_concept,ref_kind,predicate,confidence,justification,created_by,created_at,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.RefID, r.FromOntoID, r.FromConcept, r.ToOntoID, r.ToConcept, r.RefKind, r.Predicate, r.Confidence, r.Justification, r.CreatedBy, r.CreatedAt, r.Note)
+	_, err = s.db.Exec(`INSERT INTO external_refs (ref_id,from_onto_id,from_concept,to_onto_id,to_concept,ref_kind,predicate,confidence,justification,created_by,created_at,note,pin_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.RefID, r.FromOntoID, r.FromConcept, r.ToOntoID, r.ToConcept, r.RefKind, r.Predicate, r.Confidence, r.Justification, r.CreatedBy, r.CreatedAt, r.Note, r.PinVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +126,7 @@ func (s *Store) CreateExternalRef(r *ExternalRef) (*ExternalRef, error) {
 
 // ListExternalRefs 本体的外引清单（默认按创建时间）。
 func (s *Store) ListExternalRefs(ontoID string) ([]*ExternalRef, error) {
-	rows, err := s.db.Query(`SELECT ref_id,from_onto_id,from_concept,to_onto_id,to_concept,ref_kind,predicate,confidence,justification,created_by,created_at,note FROM external_refs WHERE from_onto_id=? ORDER BY created_at,ref_id`, ontoID)
+	rows, err := s.db.Query(`SELECT ref_id,from_onto_id,from_concept,to_onto_id,to_concept,ref_kind,predicate,confidence,justification,created_by,created_at,note,IFNULL(pin_version,0) FROM external_refs WHERE from_onto_id=? ORDER BY created_at,ref_id`, ontoID)
 	if err != nil {
 		return nil, err
 	}
@@ -109,10 +134,69 @@ func (s *Store) ListExternalRefs(ontoID string) ([]*ExternalRef, error) {
 	var out []*ExternalRef
 	for rows.Next() {
 		r := &ExternalRef{}
-		if err := rows.Scan(&r.RefID, &r.FromOntoID, &r.FromConcept, &r.ToOntoID, &r.ToConcept, &r.RefKind, &r.Predicate, &r.Confidence, &r.Justification, &r.CreatedBy, &r.CreatedAt, &r.Note); err != nil {
+		if err := rows.Scan(&r.RefID, &r.FromOntoID, &r.FromConcept, &r.ToOntoID, &r.ToConcept, &r.RefKind, &r.Predicate, &r.Confidence, &r.Justification, &r.CreatedBy, &r.CreatedAt, &r.Note, &r.PinVersion); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SetExternalRefPin REQ-540：显式刷新/清除一条登记的版本 pin（0=回浮动头版本）。
+// 「B 升级后 A 的方案重装载仍取 pin 版本，显式刷新才漂移」验收锚点的刷新 affordance。
+// 校验口径与登记一致（仓内引用且 pin 版本快照存在）。
+func (s *Store) SetExternalRefPin(ontoID, refID string, pin int) (*ExternalRef, error) {
+	if pin < 0 {
+		return nil, fmt.Errorf("pin_version 须为 0（浮动头版本）或正整数版本号，得到 %d", pin)
+	}
+	r, err := s.getExternalRef(ontoID, refID)
+	if err != nil {
+		return nil, err
+	}
+	if pin > 0 {
+		if r.ToOntoID == "" {
+			return nil, errors.New("pin_version 仅支持仓内引用（to_onto_id 非空）——外部 IRI 登记态无版本可钉")
+		}
+		if _, err := s.GetVersionSpec(r.ToOntoID, pin); err != nil {
+			return nil, fmt.Errorf("pin_version %d 在本体 %s 无版本快照（版本历史见资产页版本列表）", pin, r.ToOntoID)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE external_refs SET pin_version=? WHERE ref_id=? AND from_onto_id=?`, pin, refID, ontoID); err != nil {
+		return nil, err
+	}
+	r.PinVersion = pin
+	return r, nil
+}
+
+// getExternalRef 单条登记读取（pin 刷新前置校验用）。
+func (s *Store) getExternalRef(ontoID, refID string) (*ExternalRef, error) {
+	r := &ExternalRef{}
+	err := s.db.QueryRow(`SELECT ref_id,from_onto_id,from_concept,to_onto_id,to_concept,ref_kind,IFNULL(pin_version,0) FROM external_refs WHERE ref_id=? AND from_onto_id=?`, refID, ontoID).
+		Scan(&r.RefID, &r.FromOntoID, &r.FromConcept, &r.ToOntoID, &r.ToConcept, &r.RefKind, &r.PinVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// ListPinEdges REQ-540：全仓 pin 边投影（lifecycle plan pin 对账数据源）——
+// 同 (from,to) 多登记取最低 pin（最保守解析，与运行面 expandClosure 收敛口径一致）。
+func (s *Store) ListPinEdges() ([]PinEdge, error) {
+	rows, err := s.db.Query(`SELECT from_onto_id,to_onto_id,MIN(pin_version) FROM external_refs WHERE to_onto_id<>'' AND pin_version>0 GROUP BY from_onto_id,to_onto_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PinEdge
+	for rows.Next() {
+		var e PinEdge
+		if err := rows.Scan(&e.FromOntoID, &e.ToOntoID, &e.PinVersion); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }
@@ -144,7 +228,11 @@ func (s *Store) DetectDanglingRefs(ontoID string) ([]string, error) {
 		case "missing_ontology":
 			msgs = append(msgs, fmt.Sprintf("%s:%s →%s（目标本体已删除）", r.FromConcept, r.RefKind, r.ToOntoID))
 		case "missing_concept":
-			msgs = append(msgs, fmt.Sprintf("%s:%s →%s:%s（目标概念不存在）", r.FromConcept, r.RefKind, r.ToOntoID, r.ToConcept))
+			at := ""
+			if r.PinVersion > 0 {
+				at = fmt.Sprintf("〔pin v%d 快照内不存在〕", r.PinVersion)
+			}
+			msgs = append(msgs, fmt.Sprintf("%s:%s →%s:%s（目标概念不存在%s）", r.FromConcept, r.RefKind, r.ToOntoID, r.ToConcept, at))
 		}
 	}
 	return msgs, nil
@@ -153,6 +241,8 @@ func (s *Store) DetectDanglingRefs(ontoID string) ([]string, error) {
 // AnnotateDangling 逐条填充 refs 的 Dangling 字段（REQ-480/M280 装载门禁消费——
 // 运行平面闭包装载沿结构化字段阻断，不再解析 DetectDanglingRefs 的消息字符串）。
 // 只判 to_onto_id 非空的仓内引用；外部 IRI 登记态天然悬空但按设计不标注。
+// REQ-540：概念存在性按 pin 解析——pin>0 判目标本体 pin 版本快照（被引方头版本演进
+// 不再触发悬空误报；pin 快照里本就缺失的概念仍如实报告），pin=0 维持头版本。
 func (s *Store) AnnotateDangling(refs []*ExternalRef) {
 	for _, r := range refs {
 		if r.ToOntoID == "" {
@@ -162,25 +252,47 @@ func (s *Store) AnnotateDangling(refs []*ExternalRef) {
 			r.Dangling = "missing_ontology"
 			continue
 		}
-		if !s.ConceptExists(r.ToOntoID, r.ToConcept) {
+		if !s.ConceptExistsAt(r.ToOntoID, r.ToConcept, r.PinVersion) {
 			r.Dangling = "missing_concept"
 		}
 	}
 }
 
-// ConceptExists 概念名存在性（spec_json.Concepts 裸名匹配；spec 原文经 artifact 层解析，
-// 解析失败视为不存在——登记端前置校验用）。
+// ConceptExists 概念名存在性（头版本 spec_json.Concepts 裸名匹配；spec 原文经 artifact
+// 层解析，解析失败视为不存在——登记端前置校验源概念用）。
 func (s *Store) ConceptExists(ontoID, concept string) bool {
-	raw, _, err := s.GetArtifact(ontoID, "spec_json")
-	if err != nil {
-		return false
+	return s.ConceptExistsAt(ontoID, concept, 0)
+}
+
+// ConceptExistsAt REQ-540：概念名存在性（version>0 判指定版本 ontology_version 快照的
+// spec_json——引用解析点按 pin 解析；version=0 判头版本 artifact）。快照缺失/解析失败
+// 视为不存在（钉住不可解析的 pin 如实报告悬空）。
+func (s *Store) ConceptExistsAt(ontoID, concept string, version int) bool {
+	var raw string
+	if version > 0 {
+		spec, err := s.GetVersionSpec(ontoID, version)
+		if err != nil {
+			return false
+		}
+		raw = spec
+	} else {
+		var err error
+		raw, _, err = s.GetArtifact(ontoID, "spec_json")
+		if err != nil {
+			return false
+		}
 	}
+	return specHasConcept(raw, concept)
+}
+
+// specHasConcept spec_json 裸名概念匹配（ConceptExistsAt/ConceptExists 共用）。
+func specHasConcept(specJSON, concept string) bool {
 	var sp struct {
 		Concepts []struct {
 			Name string `json:"name"`
 		} `json:"concepts"`
 	}
-	if json.Unmarshal([]byte(raw), &sp) != nil {
+	if json.Unmarshal([]byte(specJSON), &sp) != nil {
 		return false
 	}
 	for _, c := range sp.Concepts {

@@ -6,9 +6,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
+
+// PinEdge 引用 pin 边（REQ-540③ pin 对账数据源；与 repo.PinEdge 同构投影——
+// toolchain 包不依赖 repo，REST 层转换注入）。
+type PinEdge struct {
+	FromOntoID string
+	ToOntoID   string
+	PinVersion int
+}
 
 // ---------------------------------------------------------------------------
 // REQ-155/M-O15 阶段二：本体方案生命周期（Terraform 式 plan/apply，monitor=plan 的只读形态）。
@@ -26,6 +35,14 @@ type LifecycleAction struct {
 	Engine      string `json:"engine,omitempty"`
 	Action      string `json:"action"` // start | reload
 	Reason      string `json:"reason"` // 人类可读原因（ drifted: spec vX → vY 等）
+}
+
+// PinDrift REQ-540③：「pin 版本 vs 头版本」漂移提示（advisory——不产生动作；处置=
+// 资产页刷新 pin（PUT external-refs/{refId}/pin）或保持 pin，刷新后重装载才取新版本）。
+type PinDrift struct {
+	OntologyID  string `json:"ontology_id"`
+	PinVersion  int    `json:"pin_version"`
+	HeadVersion int    `json:"head_version"`
 }
 
 // LifecyclePlan 生命周期计划。
@@ -47,6 +64,10 @@ type LifecycleStatus struct {
 	Drifted      []string       `json:"drifted,omitempty"` // 漂移本体名（版本超前）
 	UnknownDrift bool           `json:"unknown_drift"`     // 运行中但无快照（旧数据，建议 reload 建立基线）
 	LastError    string         `json:"last_error,omitempty"`
+	// REQ-540③④：pin 对账与闭包补全可见性。
+	Pinned    map[string]int `json:"pinned,omitempty"`     // 本方案生效 pin（目标本体 → pin 版本；多登记取最低）
+	Closure   []string       `json:"closure,omitempty"`    // 闭包补全本体（装载快照含而声明集不含——缺口 3 可观测面）
+	PinDrifts []PinDrift     `json:"pin_drifts,omitempty"` // pin 落后头版本提示（advisory，不产生动作）
 }
 
 type profileDTO struct {
@@ -60,7 +81,10 @@ type profileDTO struct {
 }
 
 // Plan 拉取运行平面方案清单并与当前 spec 版本对比，产出计划（HTTP 只读）。
-func Plan(ctx context.Context, platformURL string, currentVersions map[string]int) (*LifecyclePlan, error) {
+// REQ-540/M347 扩面：①pinEdges 注入 pin 对账——漂移基准按 pin（登记钉住的版本）而非
+// 头版本，pin 落后头版本出 advisory 提示（可刷新或保持，不产生动作）；②对账范围扩为
+// 声明集 ∪ loaded_versions 键（闭包补全本体进漂移对比，修运行面缺口 3 后半）。
+func Plan(ctx context.Context, platformURL string, currentVersions map[string]int, pinEdges []PinEdge) (*LifecyclePlan, error) {
 	profiles, err := fetchProfiles(ctx, platformURL)
 	if err != nil {
 		return nil, err
@@ -70,30 +94,79 @@ func Plan(ctx context.Context, platformURL string, currentVersions map[string]in
 		st := LifecycleStatus{
 			ProfileID: p.ID, ProfileName: p.Name, Engine: p.Engine, Status: p.Status,
 			Ontologies: p.OntologyIDs, Current: map[string]int{}, Loaded: map[string]int{},
+			Pinned:    map[string]int{},
 			LastError: p.LastError,
-		}
-		for _, oid := range p.OntologyIDs {
-			st.Current[oid] = currentVersions[oid]
 		}
 		if p.LoadedVersions != "" {
 			_ = json.Unmarshal([]byte(p.LoadedVersions), &st.Loaded)
 		}
+		// 对账范围=声明集 ∪ 装载快照键（REQ-540④：闭包补全本体进漂移对比）
+		declaredSet := map[string]bool{}
+		for _, oid := range p.OntologyIDs {
+			declaredSet[oid] = true
+		}
+		reconcile := append([]string(nil), p.OntologyIDs...)
+		loadedOnly := map[string]bool{}
+		for oid := range st.Loaded {
+			if !declaredSet[oid] {
+				loadedOnly[oid] = true
+				reconcile = append(reconcile, oid)
+			}
+		}
+		sort.Strings(reconcile[len(p.OntologyIDs):]) // 闭包补全部分确定性序
+		for oid := range loadedOnly {
+			st.Closure = append(st.Closure, oid)
+		}
+		sort.Strings(st.Closure)
+		for _, oid := range reconcile {
+			st.Current[oid] = currentVersions[oid]
+		}
+		// 本方案生效 pin（REQ-540③）：pin 边 from 端在本方案对账集内才生效（引用方在装载
+		// 组里，其 pin 才约束本次装载）；同目标多边取最低=最保守（与运行面 expandClosure 一致）。
+		inSet := map[string]bool{}
+		for _, oid := range reconcile {
+			inSet[oid] = true
+		}
+		for _, e := range pinEdges {
+			if e.PinVersion <= 0 || !inSet[e.FromOntoID] || !inSet[e.ToOntoID] {
+				continue
+			}
+			if prev, ok := st.Pinned[e.ToOntoID]; !ok || e.PinVersion < prev {
+				st.Pinned[e.ToOntoID] = e.PinVersion
+			}
+		}
 		switch p.Status {
 		case "running":
-			for _, oid := range p.OntologyIDs {
+			var pinMismatch []string
+			for _, oid := range reconcile {
 				loaded, ok := st.Loaded[oid]
 				if !ok {
 					st.UnknownDrift = true // 无基线快照（旧运行），不误报版本漂移
 					continue
 				}
-				if cur := st.Current[oid]; cur != loaded {
+				expect := st.Current[oid] // 浮动头版本（现状语义）
+				if pin := st.Pinned[oid]; pin > 0 {
+					expect = pin // pin 对账基准=登记钉住的版本（REQ-540③）
+				}
+				if loaded != expect {
 					st.Drifted = append(st.Drifted, oid)
+					if pin := st.Pinned[oid]; pin > 0 {
+						pinMismatch = append(pinMismatch, oid)
+					}
+				}
+				// pin 落后头版本 → advisory 提示（不产生动作：重装载仍取 pin，刷新 pin 才漂移）
+				if pin := st.Pinned[oid]; pin > 0 && st.Current[oid] > pin {
+					st.PinDrifts = append(st.PinDrifts, PinDrift{OntologyID: oid, PinVersion: pin, HeadVersion: st.Current[oid]})
 				}
 			}
 			if len(st.Drifted) > 0 {
+				reason := fmt.Sprintf("spec 版本漂移：%s（加载快照落后于当前版本）", strings.Join(st.Drifted, "、"))
+				if len(pinMismatch) > 0 {
+					reason += fmt.Sprintf("；%s 加载快照与登记 pin 版本不一致（重装载按 pin 取版本）", strings.Join(pinMismatch, "、"))
+				}
 				plan.Actions = append(plan.Actions, LifecycleAction{
 					ProfileID: p.ID, ProfileName: p.Name, Engine: p.Engine, Action: "reload",
-					Reason: fmt.Sprintf("spec 版本漂移：%s（加载快照落后于当前版本）", strings.Join(st.Drifted, "、")),
+					Reason: reason,
 				})
 			} else if st.UnknownDrift {
 				plan.Actions = append(plan.Actions, LifecycleAction{

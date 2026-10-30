@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -157,7 +158,16 @@ func (s *Server) lifecyclePlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	plan, err := toolchain.Plan(r.Context(), s.LLM.PlatformURL, versions)
+	// REQ-540/M347：pin 边注入 pin 对账（external_refs.pin_version>0 的登记投影）
+	var edges []toolchain.PinEdge
+	if pinedges, perr := s.Store.ListPinEdges(); perr != nil {
+		log.Printf("[req540] pin 边读取失败: %v（降级为无 pin 对账）", perr)
+	} else {
+		for _, e := range pinedges {
+			edges = append(edges, toolchain.PinEdge{FromOntoID: e.FromOntoID, ToOntoID: e.ToOntoID, PinVersion: e.PinVersion})
+		}
+	}
+	plan, err := toolchain.Plan(r.Context(), s.LLM.PlatformURL, versions, edges)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return

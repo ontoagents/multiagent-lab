@@ -112,6 +112,7 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontologies/{id}/external-refs", s.listExternalRefs)
 	m.HandleFunc("POST /api/ontologies/{id}/external-refs", s.registerExternalRef)
 	m.HandleFunc("DELETE /api/ontologies/{id}/external-refs/{refId}", s.deleteExternalRef)
+	m.HandleFunc("PUT /api/ontologies/{id}/external-refs/{refId}/pin", s.updateExternalRefPin) // REQ-540：显式刷新/清除 pin
 	m.HandleFunc("POST /api/ontologies/{id}/cq-sparql", s.cqSparql)
 	m.HandleFunc("PUT /api/ontologies/{id}/cq-test-report", s.saveCQTestReport) // REQ-342/OC-2：双轨报告持久化
 	m.HandleFunc("POST /api/ontology/toolchain/{tool}", s.toolchain)

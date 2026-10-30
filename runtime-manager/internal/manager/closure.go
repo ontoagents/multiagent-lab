@@ -29,6 +29,7 @@ type extRef struct {
 	ToOntoID    string `json:"to_onto_id"`
 	ToConcept   string `json:"to_concept"`
 	RefKind     string `json:"ref_kind"`
+	PinVersion  int    `json:"pin_version"` // REQ-540：>0=钉住目标本体该 spec 版本（0=浮动头版本）
 	Dangling    string `json:"dangling"`
 }
 
@@ -39,6 +40,10 @@ type closureReport struct {
 	Added         []string   `json:"added"`     // 闭包补全（不在声明集内的部分）
 	Cycles        [][]string `json:"cycles,omitempty"`
 	RemoteSkipped []string   `json:"remote_skipped,omitempty"`
+	// REQ-540/M347：pin 解析结果（目标本体 → 有效 pin 版本）——Start 装载链按此取
+	// 对应版本导出（FetchTTLWithCountAt）；同目标多登记 pin 不一致取最低（最保守解析）。
+	// 来源=BFS 访问集内各本体登记的 pin_version>0 引用（不限 ref_kind——登记即 pin 载体）。
+	Pins map[string]int `json:"pins,omitempty"`
 }
 
 // FetchExternalRefs 构建平面本体引用登记清单。404=本体不存在（闭包目标悬空/已删除，
@@ -84,7 +89,7 @@ func urnOntoOf(iri string) string {
 // 悬空阻断条件（REQ-480②）：①仓内登记（to_onto_id 非空）dangling 非空；
 // ②owl:imports 哨兵登记指向 urn:o:{x}: 而本体 x 不存在（BFS 取清单 404）。
 func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
-	rep := &closureReport{Declared: append([]string(nil), declared...)}
+	rep := &closureReport{Declared: append([]string(nil), declared...), Pins: map[string]int{}}
 	visited := map[string]bool{}
 	queue := append([]string(nil), declared...)
 	edges := map[string][]string{}
@@ -102,6 +107,13 @@ func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
 			return nil, fmt.Errorf("闭包扩展失败（本体 %s）: %w", oid, err)
 		}
 		for _, ref := range refs {
+			// REQ-540：pin 收集——to_onto_id 非空且 pin_version>0 的登记（不限 ref_kind，
+			// 登记即 pin 载体）；同目标多登记取最低 pin（最保守解析，与 lifecycle ListPinEdges 一致）。
+			if ref.ToOntoID != "" && ref.PinVersion > 0 {
+				if prev, ok := rep.Pins[ref.ToOntoID]; !ok || ref.PinVersion < prev {
+					rep.Pins[ref.ToOntoID] = ref.PinVersion
+				}
+			}
 			switch {
 			case ref.ToOntoID != "" && (ref.RefKind == "import" || ref.RefKind == "reuse"):
 				if ref.Dangling != "" {
@@ -125,6 +137,9 @@ func (m *Manager) expandClosure(declared []string) (*closureReport, error) {
 				}
 			}
 		}
+	}
+	if len(rep.Pins) == 0 {
+		rep.Pins = nil
 	}
 	declaredSet := map[string]bool{}
 	for _, d := range declared {
@@ -211,6 +226,15 @@ func (r *closureReport) logLines() []string {
 	}
 	for _, iri := range r.RemoteSkipped {
 		lines = append(lines, fmt.Sprintf("[REQ-480 闭包装载] 远端 IRI 跳过（不拉取，D-O27）: %s", iri))
+	}
+	// REQ-540：pin 装载呈现（确定性序——目标本体字典序）
+	targets := make([]string, 0, len(r.Pins))
+	for t := range r.Pins {
+		targets = append(targets, t)
+	}
+	sort.Strings(targets)
+	for _, t := range targets {
+		lines = append(lines, fmt.Sprintf("[REQ-540 pin 装载] %s → v%d（登记 pin 版本；被引方头版本演进不自动跟随，显式刷新 pin 才取新版）", t, r.Pins[t]))
 	}
 	return lines
 }

@@ -260,11 +260,32 @@ func (s *Store) Delete(id string) error {
 	return nil
 }
 
+// LoadedOntologySet 方案实际装载本体匹配集（REQ-540④）：声明集 ∪ loaded_versions 键
+//（闭包补全本体在启动成功后已入 loaded_versions 快照——修复运行面缺口 3「经 imports/
+// external_refs 自动装入的本体不可按自身 id 路由」）。无快照（旧数据/未启动）退化声明集，
+// 行为向后兼容。
+func LoadedOntologySet(p *Profile) map[string]bool {
+	set := map[string]bool{}
+	for _, oid := range p.OntologyIDs {
+		set[oid] = true
+	}
+	if p.LoadedVersions != "" {
+		var loaded map[string]int
+		if json.Unmarshal([]byte(p.LoadedVersions), &loaded) == nil {
+			for oid := range loaded {
+				set[oid] = true
+			}
+		}
+	}
+	return set
+}
+
 // RunningByOntology 返回加载了指定本体且处于 running 状态的方案（facade 路由用）。
 // REQ-236②/M63：同本体多方案时取**最早创建**（created_at 升序，并列按 id 字典序）——
 // 消除「取第一个匹配」的任意性，路由结果确定可复现。
 // REQ-384/M180：多方案命中同一本体时不再静默——歧义告警日志（路由仍按既定确定序，
 // 提示停用多余方案或等待显式优先级语义）；观测面见 RouteAmbiguities。
+// REQ-540④：匹配集=声明 ∪ loaded_versions 键（闭包补全本体可路由，缺口 3 修复）。
 func (s *Store) RunningByOntology(ontologyID string) (*Profile, error) {
 	rows, err := s.db.Query(`SELECT ` + profileCols + ` FROM runtime_profile WHERE status='running' ORDER BY created_at ASC, id ASC`)
 	if err != nil {
@@ -278,15 +299,13 @@ func (s *Store) RunningByOntology(ontologyID string) (*Profile, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, oid := range p.OntologyIDs {
-			if oid != ontologyID {
-				continue
-			}
-			hits++
-			if first == nil {
-				cp := *p
-				first = &cp
-			}
+		if !LoadedOntologySet(p)[ontologyID] {
+			continue
+		}
+		hits++
+		if first == nil {
+			cp := *p
+			first = &cp
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -314,6 +333,7 @@ type ProfileRef struct {
 }
 
 // RouteAmbiguities 扫描全部 running 方案，返回多方案命中的本体清单（无歧义返回空表）。
+// REQ-540④：命中集与 RunningByOntology 同口径（声明 ∪ loaded_versions 键）。
 func (s *Store) RouteAmbiguities() ([]RouteAmbiguity, error) {
 	rows, err := s.db.Query(`SELECT ` + profileCols + ` FROM runtime_profile WHERE status='running' ORDER BY created_at ASC, id ASC`)
 	if err != nil {
@@ -328,11 +348,27 @@ func (s *Store) RouteAmbiguities() ([]RouteAmbiguity, error) {
 			return nil, err
 		}
 		ref := ProfileRef{ID: p.ID, Name: p.Name, CreatedAt: p.CreatedAt}
+		seenInProfile := map[string]bool{}
 		for _, oid := range p.OntologyIDs {
+			seenInProfile[oid] = true
 			if _, seen := byOnto[oid]; !seen {
 				order = append(order, oid)
 			}
 			byOnto[oid] = append(byOnto[oid], ref)
+		}
+		if p.LoadedVersions != "" {
+			var loaded map[string]int
+			if json.Unmarshal([]byte(p.LoadedVersions), &loaded) == nil {
+				for oid := range loaded {
+					if seenInProfile[oid] {
+						continue // 声明集已计（同方案去重，防双计假歧义）
+					}
+					if _, seen := byOnto[oid]; !seen {
+						order = append(order, oid)
+					}
+					byOnto[oid] = append(byOnto[oid], ref)
+				}
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

@@ -382,16 +382,36 @@ func (m *Manager) FetchTTL(ontologyID string) (string, error) {
 	return ttl, err
 }
 
+// FetchTTLAt REQ-540/M347：按版本 pin 拉 TTL——version>0 走构建平面 ?version=N 版本化导出
+//（ontology_version 快照重导出）；version<=0=浮动头版本（FetchTTLWithCount 现状，零迁移向后兼容）。
+// pin 版本快照缺失=硬失败（pin 钉死语义：解析失败显式可见，不静默回落头版本）。
+func (m *Manager) FetchTTLAt(ontologyID string, version int) (string, error) {
+	ttl, _, err := m.FetchTTLWithCountAt(ontologyID, version)
+	return ttl, err
+}
+
 // FetchTTLWithCount 同 FetchTTL，另回响应头 X-Onto-Triples（REQ-293①：构建平面 sidecar 精确计数；
 // 头缺失（original turtle / 旧构建平面）返回 -1=未知，调用方跳过计数硬闸并如实标注 gate=skipped）。
 func (m *Manager) FetchTTLWithCount(ontologyID string) (string, int, error) {
-	resp, err := m.HTTP.Get(fmt.Sprintf("%s/api/ontologies/%s/export?format=turtle", m.BuildURL, ontologyID))
+	return m.FetchTTLWithCountAt(ontologyID, 0)
+}
+
+// FetchTTLWithCountAt 同 FetchTTLWithCount 的版本化形态（REQ-540：version>0 按 pin 解析）。
+func (m *Manager) FetchTTLWithCountAt(ontologyID string, version int) (string, int, error) {
+	url := fmt.Sprintf("%s/api/ontologies/%s/export?format=turtle", m.BuildURL, ontologyID)
+	if version > 0 {
+		url += fmt.Sprintf("&version=%d", version)
+	}
+	resp, err := m.HTTP.Get(url)
 	if err != nil {
 		return "", -1, fmt.Errorf("构建平面不可达: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		if version > 0 && resp.StatusCode == http.StatusNotFound {
+			return "", -1, fmt.Errorf("拉取本体 %s pin 版本 v%d 失败: 404（该版本快照不存在——pin 失效，请刷新 pin 或核对版本历史）", ontologyID, version)
+		}
 		return "", -1, fmt.Errorf("拉取本体 %s 失败: %s %s", ontologyID, resp.Status, string(b))
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
@@ -557,7 +577,11 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	loadedStatus := map[string]map[string]any{} // REQ-239/M65 → REQ-293③ v2：{oid:{status,version_name,generation,triple_count,source_triple_count,gate,loaded_at}}
 	sourceTriples := map[string]int{}           // REQ-293①：构建平面精确计数（-1=未知，跳过硬闸）
 	for _, oid := range effective {
-		ttl, srcCount, err := m.FetchTTLWithCount(oid)
+		// REQ-540/M347：pin 解析——闭包报告收集的登记 pin（>0=钉住该版本；0=浮动头版本）。
+		// FetchTTLWithCountAt 有 pin 走构建平面版本化导出（快照缺失硬失败，钉死语义显式可见）；
+		// 加载版本快照按实际装载版本记录（pin 版本而非头版本）——lifecycle 对账基准。
+		pin := cloRep.Pins[oid]
+		ttl, srcCount, err := m.FetchTTLWithCountAt(oid, pin)
 		if err != nil {
 			_ = m.Store.SetStatus(id, "error", err.Error(), "")
 			return err
@@ -565,8 +589,16 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		ttls[oid] = ttl
 		sourceTriples[oid] = srcCount
 		if v, st, vn, merr := m.FetchMeta(oid); merr == nil {
+			if pin > 0 {
+				v = pin // pin 装载：快照记 pin 版本（head 版本非本次装载事实）
+			}
 			loadedVersions[oid] = v // 尽力而为：版本快照失败不阻断启动
 			loadedStatus[oid] = map[string]any{"status": st, "version_name": vn}
+			if pin > 0 {
+				loadedStatus[oid]["pinned_version"] = pin // pin 装载观测面（头版本 status/version_name 仍如实并存）
+			}
+		} else if pin > 0 {
+			loadedVersions[oid] = pin // meta 获取失败但 pin 已知——快照仍按实际装载版本记录
 		}
 	}
 	port := p.Port

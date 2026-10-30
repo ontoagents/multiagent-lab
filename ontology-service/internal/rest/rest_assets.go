@@ -339,6 +339,49 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 
 // ---- 导入 / 导出 ----
 
+// exportSpecTTL spec_json → TTL 导出公共体（REQ-540 抽取自 exportOntology 头版本分支，
+// 头版本与版本化导出共用）：桥投影（REQ-479）+ ExportTTLCount + 未投影公理透传（REQ-318）。
+// includeRawAxioms=false（版本化导出）跳过 axioms-raw 拼接——该 artifact 为头版本级内容，
+// 无版本快照，拼进历史版本导出会混入异版本内容（诚实边界，REQ-541 发布快照落库后可解）。
+func (s *Server) exportSpecTTL(id, rawSpec string, includeRawAxioms bool) (string, int, error) {
+	var sp pkgspec.Spec
+	if err := json.Unmarshal([]byte(rawSpec), &sp); err != nil {
+		return "", 0, err
+	}
+	// REQ-479/M279：external_refs 旁挂表 → 导出桥投影（读失败降级无桥导出，不阻断导出主链）。
+	var bridges []importer.ExtRefBridge
+	if refs, rerr := s.Store.ListExternalRefs(id); rerr != nil {
+		log.Printf("[req479] external_refs 读取失败 ontology=%s: %v（降级无桥导出）", id, rerr)
+	} else {
+		for _, ref := range refs {
+			bridges = append(bridges, importer.ExtRefBridge{
+				FromConcept: ref.FromConcept, ToOntoID: ref.ToOntoID, ToConcept: ref.ToConcept,
+				RefKind: ref.RefKind, Predicate: ref.Predicate,
+			})
+		}
+	}
+	ttl, triples, err := importer.ExportTTLCount(id, &sp, bridges...)
+	if err != nil {
+		return "", 0, err
+	}
+	// REQ-318/M120：未投影公理透传还原——axioms-raw artifact 片段原样拼接（77 号 §6）。
+	// 拼接后精确计数未知：移除 X-Onto-Triples 头（运行平面装载对账 gate=skipped 诚实口径，
+	// 防「头计数 < 实际行数」硬闸误中止）；片段引用被改名/删除的 IRI 时原样保留可能悬空（一期边界）。
+	if includeRawAxioms {
+		if raw_ax, _, axerr := s.Store.GetArtifact(id, "axioms-raw"); axerr == nil && raw_ax != "" {
+			var envelope struct {
+				Fragments []string `json:"fragments"`
+			}
+			if json.Unmarshal([]byte(raw_ax), &envelope) == nil && len(envelope.Fragments) > 0 {
+				ttl += "\n\n# —— 未投影公理透传（REQ-318：导入时无法投影的公理原样还原；引用对象被改名/删除时可能悬空）——\n" +
+					strings.Join(envelope.Fragments, "\n")
+				triples = -1
+			}
+		}
+	}
+	return ttl, triples, nil
+}
+
 // lifecyclePlan REQ-155 阶段二：生命周期计划（期望=方案声明全部运行；实际=运行平面状态+加载版本快照；漂移=spec 版本超前）。
 
 func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
@@ -347,6 +390,19 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "turtle"
 	}
+	// REQ-540/M347：版本化导出——?version=N 取 ontology_version 该版本 spec_json 快照导出
+	//（运行面 FetchTTL 有 pin 按 pin 解析的数据源；缺省/0=头版本，行为不变零迁移向后兼容）。
+	// 快照不存在（含版本号超前）→ 404（pin 钉死语义：解析失败显式可见，不静默回落头版本）。
+	specVersion := 0
+	if vs := strings.TrimSpace(r.URL.Query().Get("version")); vs != "" {
+		v, perr := strconv.Atoi(vs)
+		if perr != nil || v < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("version 参数须为非负整数（0/缺省=头版本），得到 %q", vs)})
+			return
+		}
+		specVersion = v
+	}
 	o, err := s.Store.GetOntology(id)
 	if err != nil {
 		writeErr(w, err)
@@ -354,6 +410,30 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	switch format {
 	case "turtle":
+		// REQ-540：版本化导出分支（pin 解析）——读指定版本 spec_json 快照重导出。
+		// axioms-raw 透传还原不入本分支（artifact 为头版本级、无版本快照）——诚实边界：
+		// pin 版本导出=该版本 spec 投影+桥三元组，未投影公理余量缺失（REQ-541 发布快照落库后可解）。
+		if specVersion > 0 {
+			raw, err := s.Store.GetVersionSpec(id, specVersion)
+			if err != nil {
+				writeErr(w, fmt.Errorf("本体 %s 无版本 %d 快照: %w", id, specVersion, err))
+				return
+			}
+			ttl, triples, terr := s.exportSpecTTL(id, raw, false)
+			if terr != nil {
+				writeErr(w, terr)
+				return
+			}
+			w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, specVersion))
+			if triples >= 0 {
+				w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
+			}
+			w.Header().Set("X-Onto-Version", strconv.Itoa(specVersion))
+			w.Header().Set("X-Onto-Source", "spec_export") // 版本快照重导出（非头版本 original 直挂）
+			_, _ = w.Write([]byte(ttl))
+			return
+		}
 		// REQ-328/C 运行装载双源——未编辑直挂分支：导入源本体且导入后零编辑（version=1，
 		// 任何内容变更动线都 bump 版本）→ original 全图 canonical Turtle 直出（rdflib 图同构
 		// 100% 无损），X-Onto-Triples=原图精确计数（REQ-293① 硬闸照常）；直挂失败回落 spec 重导出。
@@ -373,6 +453,7 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, o.Version))
 				w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
 				w.Header().Set("X-Onto-Source", "original") // REQ-328/C：数据源诚实标注（未编辑=100% 导入源）
+				w.Header().Set("X-Onto-Version", strconv.Itoa(o.Version))
 				_, _ = w.Write([]byte(ttl))
 				return
 			}
@@ -382,40 +463,10 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, err)
 			return
 		}
-		var sp pkgspec.Spec
-		if err := json.Unmarshal([]byte(raw), &sp); err != nil {
-			writeErr(w, err)
+		ttl, triples, terr := s.exportSpecTTL(id, raw, true)
+		if terr != nil {
+			writeErr(w, terr)
 			return
-		}
-		// REQ-479/M279：external_refs 旁挂表 → 导出桥投影（读失败降级无桥导出，不阻断导出主链）。
-		var bridges []importer.ExtRefBridge
-		if refs, rerr := s.Store.ListExternalRefs(id); rerr != nil {
-			log.Printf("[req479] external_refs 读取失败 ontology=%s: %v（降级无桥导出）", id, rerr)
-		} else {
-			for _, ref := range refs {
-				bridges = append(bridges, importer.ExtRefBridge{
-					FromConcept: ref.FromConcept, ToOntoID: ref.ToOntoID, ToConcept: ref.ToConcept,
-					RefKind: ref.RefKind, Predicate: ref.Predicate,
-				})
-			}
-		}
-		ttl, triples, err := importer.ExportTTLCount(id, &sp, bridges...)
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		// REQ-318/M120：未投影公理透传还原——axioms-raw artifact 片段原样拼接（77 号 §6）。
-		// 拼接后精确计数未知：移除 X-Onto-Triples 头（运行平面装载对账 gate=skipped 诚实口径，
-		// 防「头计数 < 实际行数」硬闸误中止）；片段引用被改名/删除的 IRI 时原样保留可能悬空（一期边界）。
-		if raw_ax, _, axerr := s.Store.GetArtifact(id, "axioms-raw"); axerr == nil && raw_ax != "" {
-			var envelope struct {
-				Fragments []string `json:"fragments"`
-			}
-			if json.Unmarshal([]byte(raw_ax), &envelope) == nil && len(envelope.Fragments) > 0 {
-				ttl += "\n\n# —— 未投影公理透传（REQ-318：导入时无法投影的公理原样还原；引用对象被改名/删除时可能悬空）——\n" +
-					strings.Join(envelope.Fragments, "\n")
-				triples = -1
-			}
 		}
 		w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d.ttl", o.ID, o.Version))
@@ -423,6 +474,7 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 		if triples >= 0 {
 			w.Header().Set("X-Onto-Triples", strconv.Itoa(triples))
 		}
+		w.Header().Set("X-Onto-Version", strconv.Itoa(o.Version))
 		w.Header().Set("X-Onto-Source", "spec_export") // REQ-328/C：数据源诚实标注（编辑后=投影+余量还原）
 		_, _ = w.Write([]byte(ttl))
 	case "vowljson":

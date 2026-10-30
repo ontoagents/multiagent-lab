@@ -6,6 +6,7 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -56,4 +57,28 @@ func (s *Server) deleteExternalRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": r.PathValue("refId")})
+}
+
+// updateExternalRefPin PUT /api/ontologies/{id}/external-refs/{refId}/pin
+// REQ-540：显式刷新/清除一条登记的版本 pin（body {pin_version: N}；0=回浮动头版本）。
+// lifecycle plan「pin 落后头版本」提示的处置动线——刷新后重装载才取新版本（显式刷新才漂移）。
+func (s *Server) updateExternalRefPin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PinVersion int `json:"pin_version"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, fmt.Errorf("body 解析失败: %w", err))
+		return
+	}
+	ref, err := s.Store.SetExternalRefPin(r.PathValue("id"), r.PathValue("refId"), body.PinVersion)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			writeErr(w, err) // 登记不存在 → 404
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest) // pin 校验错误（负数/外部 IRI/快照缺失）→ 400（沿登记端点先例）
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ref)
 }
