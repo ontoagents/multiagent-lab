@@ -87,7 +87,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	if err := comp.MigrateAgentGraphsToOntology(context.Background()); err != nil {
 		log.Printf("[companion] REQ-216 迁移未完成（不影响启动）: %v", err)
 	}
-	chatSvc.Community = &kg.Summarizer{Store: st, Box: box, GenFuncs: ChatGenFuncs(st, box)} // KB-5③：全局问答社区摘要源（connID 按库经接口参数传入；REQ-355 R2 生成注入）
+	chatSvc.Community = &kg.Summarizer{Store: st, Box: box, GenFuncs: ChatGenFuncs(st, box), Embed: kgEmbedFunc(st, box)} // KB-18/M290：社区检索 embedding 臂注入 // KB-5③：全局问答社区摘要源（connID 按库经接口参数传入；REQ-355 R2 生成注入）
 	ontoBuildSvc := ontobuild.NewService(st, box, kbSvc)
 	ontoBuildSvc.BuildPlaneURL = onto.BuildURL                 // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
 	ontoBuildSvc.OnStage = buildflowTracePoster(onto.BuildURL) // REQ-340 A2：kb-extract 段留痕聚合到构建平面（fire-and-forget）
@@ -315,6 +315,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/runs", s.runConversation)
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)
 	m.HandleFunc("POST /api/conversations/{id}/steer", s.steerConversation) // REQ-385/M181：运行中介入（TurnLoop 抢占式 steer）
+	m.HandleFunc("GET /api/conversations/{id}/run-events", s.runEvents)    // REQ-527/M334：事件回放（run_id 过滤+offset 增量轮询续看）
 	m.HandleFunc("GET /api/conversations/{id}/export", s.exportConversation) // REQ-113①：对话导出 Markdown
 	m.HandleFunc("GET /api/docs/read", s.docRead)
 	m.HandleFunc("GET /api/assistant/config", s.assistantConfigGet) // M27/REQ-166

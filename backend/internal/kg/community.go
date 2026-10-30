@@ -199,6 +199,9 @@ type Summarizer struct {
 	Box      *secrets.Box
 	ConnID   string // 库级抽取连接（REQ-129① 同源）；空 = 默认 chat
 	GenFuncs        // REQ-355 R2：LLM 生成注入（摘要主路径 + 全局问答）
+	// Embed KB-18/M290：社区检索 embedding 臂注入（kb.Embedder 适配；nil=零 embedding
+	// 降级纯词面臂——词面臂恒保留为回退，KB-18 口径）。
+	Embed EmbedOneFunc
 }
 
 // communitySumSchema 摘要 JSON 契约（复用 REQ-98 能力代理）。

@@ -1021,3 +1021,58 @@ type KGChunkEntityRef struct {
 	Name    string `json:"name"`
 	ChunkID string `json:"chunk_id,omitempty"`
 }
+
+// KGCommunityVec 社区摘要向量缓存（KB-18/M290 embedding 臂；label 对齐 kg_community.label）。
+type KGCommunityVec struct {
+	KBID      string
+	Label     string
+	Vec       []byte
+	Dim       int
+	UpdatedAt string
+}
+
+// UpsertKGCommunityVecs 批量写社区向量缓存（重建/惰性补嵌共用）。
+func (s *Store) UpsertKGCommunityVecs(kbID string, items map[string][]byte, dim int) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT INTO kg_community_vec(kb_id,label,vec,dim,updated_at) VALUES (?,?,?,?,?)
+		ON CONFLICT(kb_id,label) DO UPDATE SET vec=excluded.vec, dim=excluded.dim, updated_at=excluded.updated_at`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	ts := now()
+	for label, vec := range items {
+		if _, err := stmt.Exec(kbID, label, vec, dim, ts); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListKGCommunityVecs 库内社区向量缓存（检索期融合臂读取；空 map=缓存缺失纯词面回退）。
+func (s *Store) ListKGCommunityVecs(kbID string) (map[string][]byte, int, error) {
+	rows, err := s.DB.Query(`SELECT label, vec, dim FROM kg_community_vec WHERE kb_id = ?`, kbID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := map[string][]byte{}
+	dim := 0
+	for rows.Next() {
+		var label string
+		var vec []byte
+		var d int
+		if err := rows.Scan(&label, &vec, &d); err != nil {
+			return nil, 0, err
+		}
+		out[label] = vec
+		if dim == 0 {
+			dim = d
+		}
+	}
+	return out, dim, rows.Err()
+}

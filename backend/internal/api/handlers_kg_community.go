@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kb"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/kg"
+	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/secrets"
 	"github.com/xiaoyao/eino-multiagent-lab/backend/internal/store"
 )
 
@@ -22,7 +24,7 @@ func (s *Server) kgCommunitiesRebuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅 graphrag 模式库支持社区摘要"})
 		return
 	}
-	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box)} // 库级抽取连接（REQ-129① 同源）
+	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box), Embed: kgEmbedFunc(s.Store, s.Box)} // KB-18/M290：embedding 臂注入 // 库级抽取连接（REQ-129① 同源）
 	n, method, err := sum.BuildKGCommunities(r.Context(), kbID)
 	if err != nil {
 		writeErr(w, err)
@@ -82,7 +84,7 @@ func (s *Server) kgGlobalSearch(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box)}
+	sum := &kg.Summarizer{Store: s.Store, Box: s.Box, ConnID: k.KGConnID, GenFuncs: ChatGenFuncs(s.Store, s.Box), Embed: kgEmbedFunc(s.Store, s.Box)} // KB-18/M290：embedding 臂注入
 	answer, hits, ok := sum.GlobalAnswer(r.Context(), k.ID, k.KGConnID, in.Query, comms)
 	resp := map[string]any{"kb_id": k.ID, "degraded": !ok, "hits": hits}
 	if ok {
@@ -91,4 +93,11 @@ func (s *Server) kgGlobalSearch(w http.ResponseWriter, r *http.Request) {
 		resp["message"] = "未命中可用的社区摘要（可先重建社区，或换用图谱/向量检索）"
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// kgEmbedFunc KB-18/M290：社区检索 embedding 臂适配（kb.Embedder→kg.EmbedOneFunc；
+// nil 连接时 Embedder 返回错误——kg 侧词面回退，行为与零注入一致）。
+func kgEmbedFunc(st *store.Store, box *secrets.Box) kg.EmbedOneFunc {
+	emb := &kb.Embedder{Store: st, Box: box}
+	return emb.EmbedOne
 }

@@ -34,13 +34,17 @@ func (x *Summarizer) ensureSummary(ctx context.Context, kbID, connID string, c *
 	}
 }
 
-// topCommunities 2-gram 评分取 TopN 相关社区（复用 GlobalSearch 评分面；摘要缺失时按成员名匹配仍可命中）。
-func topCommunities(query string, comms []*store.KGCommunity, n int) []GlobalSearchHit {
-	hits := GlobalSearch("", query, comms)
-	if len(hits) > n {
-		hits = hits[:n]
+// topCommunities 双臂 TopN（KB-18/M290）：词面 2-gram + embedding 余弦融合（Embed 注入时）；
+// Embed nil/失败纯词面回退（历史口径）。GlobalAnswer/CommunityContext 经 x 接收 kbID。
+func (x *Summarizer) topCommunities(ctx context.Context, kbID, query string, comms []*store.KGCommunity, n int) []GlobalSearchHit {
+	if x == nil || x.Embed == nil {
+		hits := GlobalSearch("", query, comms)
+		if len(hits) > n {
+			hits = hits[:n]
+		}
+		return hits
 	}
-	return hits
+	return x.topCommunitiesHybrid(ctx, kbID, query, comms, n)
 }
 
 // GlobalAnswer 全局问答（KB-5②）：TopN 相关社区摘要 map-reduce 进 LLM 上下文生成回答。
@@ -50,7 +54,7 @@ func (x *Summarizer) GlobalAnswer(ctx context.Context, kbID, connID, query strin
 	if strings.TrimSpace(query) == "" || len(comms) == 0 {
 		return "", nil, false
 	}
-	top := topCommunities(query, comms, globalTopN)
+	top := x.topCommunities(ctx, kbID, query, comms, globalTopN)
 	if len(top) == 0 {
 		return "", nil, false
 	}
@@ -100,7 +104,7 @@ func (x *Summarizer) CommunityContext(ctx context.Context, kbID, connID, query s
 	if err != nil || len(comms) == 0 {
 		return "", nil, false
 	}
-	top := topCommunities(query, comms, communityTopN)
+	top := x.topCommunities(ctx, kbID, query, comms, communityTopN)
 	if len(top) == 0 {
 		return "", nil, false
 	}
