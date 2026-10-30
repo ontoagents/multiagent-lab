@@ -102,6 +102,9 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 		}
 		comp.OnRunComplete(conv, agent, runID)
 		comp.RecordHits(conv.ID, runID)
+		if res != nil {
+			chatSvc.RecordOntologyCited(conv.ID, runID, res.AssistantMessageID) // REQ-530/M337：cited 归因（委派链同权）
+		}
 		if res.Error != "" {
 			return "", errors.New(res.Error)
 		}

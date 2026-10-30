@@ -1480,6 +1480,26 @@ func contextModeLabel(mode string) string {
 	}
 }
 
+// RecordOntologyCited REQ-530/M337（P13①）：本体消费 cited 归因收尾——最终 assistant 消息
+// 对该 run 的 ontology_hit 逐条 containment 判定（companion.RecordHits 同族口径），
+// 「调用了工具」深化为「答案用了该结果」；白挂载（零调用）经 OntologyRunGroups/审计面可见。
+// SSE handler 与 A2A.RunFunc 收尾旁路调用（落库失败静默——度量旁路不阻断主链）。
+func (s *Service) RecordOntologyCited(convID, runID, assistantMessageID string) {
+	if s == nil || s.Store == nil || assistantMessageID == "" {
+		return
+	}
+	msgs, err := s.Store.ListMessages(convID)
+	if err != nil {
+		return
+	}
+	for _, m := range msgs {
+		if m.ID == assistantMessageID {
+			s.Store.UpdateOntologyHitsCited(convID, runID, m.Content)
+			return
+		}
+	}
+}
+
 // recordOntologyHit REQ-224 H10（60 号搭车件）：本体消费贡献度量——onto_* facade 工具
 // tool.result 到达时，从配对 tool.call 入参抽取 ontology_id 与目标（概念/实例名/SPARQL 首段），
 // 落 ontology_hit 表 + 发 ontology.hit 事件（companion.hit 先例推广；最小消费信号非深度归因）。

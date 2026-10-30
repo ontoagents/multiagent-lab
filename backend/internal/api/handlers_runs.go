@@ -133,9 +133,13 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	// Stop 语义不变（cancels 表显式取消）。对比模式维持请求 ctx（组级取消语义保持）。
 	runCtx, runCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer runCancel()
-	if _, err := s.Chat.Run(runCtx, conv, agent, runID, in.Input, in.DebugLevel, in.DebugPersist, emit); err != nil {
-		ev := chat.NewErrorEvent(runID, "run_failed", err.Error())
+	res, runErr := s.Chat.Run(runCtx, conv, agent, runID, in.Input, in.DebugLevel, in.DebugPersist, emit)
+	if runErr != nil {
+		ev := chat.NewErrorEvent(runID, "run_failed", runErr.Error())
 		writeEvent(ev.Type, ev)
+	}
+	if res != nil {
+		s.Chat.RecordOntologyCited(conv.ID, runID, res.AssistantMessageID) // REQ-530/M337：cited 归因收尾
 	}
 	// REQ-170/M28：伴生本体收尾触发（旁路 goroutine；开关关/未绑定 Agent 静默返回，不影响 SSE 收尾）
 	s.Companion.OnRunComplete(conv, agent, runID)

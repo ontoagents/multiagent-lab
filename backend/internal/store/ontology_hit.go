@@ -19,7 +19,9 @@ type OntologyHit struct {
 	Tool           string `json:"tool"`
 	Target         string `json:"target,omitempty"` // 概念/实例名或 SPARQL 首行（截断）
 	OK             bool   `json:"ok"`
-	CreatedAt      string `json:"created_at"`
+	// REQ-530/M337：cited 归因——最终回答 containment 命中该 target（0=未引用=白调用）
+	Cited      int    `json:"cited"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // InsertOntologyHit 落一次命中（失败仅日志——度量旁路不阻断对话主链）。
@@ -199,4 +201,45 @@ func (s *Store) ontologyHitRecent(where, arg string, limit int) ([]OntologyHit, 
 		out = append(out, h)
 	}
 	return out, rows.Err()
+}
+
+// UpdateOntologyHitsCited REQ-530/M337（P13）：cited 归因——最终回答（空白归一化 containment，
+// companion.RecordHits 同族口径）逐 hit 判定引用并批量 UPDATE cited。归因自「调用了工具」深化到
+// 「答案是否用了该结果」；调用时机=Run 收尾（assistant 消息落库后）。返回 (hit 数, cited 数)。
+func (s *Store) UpdateOntologyHitsCited(convID, runID, answer string) (int, int) {
+	rows, err := s.DB.Query(`SELECT id, target FROM ontology_hit WHERE conversation_id=? AND run_id=?`, convID, runID)
+	if err != nil {
+		return 0, 0
+	}
+	type idTarget struct {
+		id     string
+		target string
+	}
+	var hits []idTarget
+	for rows.Next() {
+		var h idTarget
+		if err := rows.Scan(&h.id, &h.target); err != nil {
+			rows.Close()
+			return 0, 0
+		}
+		hits = append(hits, h)
+	}
+	rows.Close()
+	if len(hits) == 0 || strings.TrimSpace(answer) == "" {
+		return len(hits), 0
+	}
+	compact := func(t string) string { return strings.Join(strings.Fields(t), "") }
+	answerCompact := strings.ToLower(compact(answer))
+	cited := 0
+	for _, h := range hits {
+		v := 0
+		if h.target != "" && strings.Contains(answerCompact, strings.ToLower(compact(h.target))) {
+			v = 1
+			cited++
+		}
+		if _, err := s.DB.Exec(`UPDATE ontology_hit SET cited=? WHERE id=?`, v, h.id); err != nil {
+			return len(hits), cited
+		}
+	}
+	return len(hits), cited
 }
