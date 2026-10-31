@@ -647,7 +647,8 @@ export const api = {
   createMemory: (workspaceId: string, content: string) => req<MemoryRec>(`/api/workspaces/${encodeURIComponent(workspaceId)}/memories`, { method: 'POST', body: JSON.stringify({ content }) }),
   decideMemory: (id: string, accept: boolean) => req<{ changed: boolean; memory: MemoryRec }>(`/api/memories/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ accept }) }),
   deleteMemory: (id: string) => req<{ ok: string }>(`/api/memories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  listNotebooks: () => req<Notebook[]>('/api/notebooks'),
+  /** REQ-495②段尾项：workspaceId 过滤（绑定 UI 与「存笔记本」按工作区解析绑定清单；空=全量） */
+  listNotebooks: (workspaceId?: string) => req<Notebook[]>(`/api/notebooks${workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : ''}`),
   createNotebook: (n: Partial<Notebook>) => req<Notebook>('/api/notebooks', { method: 'POST', body: JSON.stringify(n) }),
   getNotebook: (id: string) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`),
   updateNotebook: (id: string, n: Partial<Notebook>) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(n) }),

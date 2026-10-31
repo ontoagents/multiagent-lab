@@ -27,6 +27,12 @@ export default function ProjectsPage() {
     setTab(t)
     try { localStorage.setItem(PROJ_TAB_KEY, t) } catch { /* 配额满静默（沿 REQ-509 本地存档口径） */ }
   }
+  // REQ-495②段尾项：「保存到笔记本」未绑定引导的「前往绑定」直达（SaveToNotebookModal 派发）
+  useEffect(() => {
+    const goto = () => selectTab('workspace')
+    window.addEventListener('eino:goto.projtab', goto)
+    return () => window.removeEventListener('eino:goto.projtab', goto)
+  }, [])
   return (
     <div className="module-shell">
       <div className="module-tabs" role="tablist" aria-label="项目模块导航" data-testid="proj-module-tabs">

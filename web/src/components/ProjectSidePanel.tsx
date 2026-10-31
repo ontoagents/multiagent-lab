@@ -19,6 +19,7 @@ import { api } from '../api/client'
 import { projectFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
 import CollabTopology from './CollabTopology'
 import AIOptimizeButton from './AIOptimizeButton'
+import SaveToNotebookModal from './SaveToNotebookModal'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry, Workspace } from '../api/types'
 import DirCheckResult from './DirCheckResult'
 import { useUI } from '../store/ui'
@@ -273,6 +274,8 @@ function FilesView({ project, onOpenConfig }: { project: Project; onOpenConfig: 
   const [preview, setPreview] = useState<{ path: string; content: string } | null>(null)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // REQ-495②段尾项：「保存到笔记本」去向动作宿主（待保存文件 → SaveToNotebookModal 解析目标）
+  const [saveTarget, setSaveTarget] = useState<{ name: string; path: string; size?: number } | null>(null)
 
   const load = (sub: string) => {
     setLoading(true)
@@ -396,22 +399,44 @@ function FilesView({ project, onOpenConfig }: { project: Project; onOpenConfig: 
       ) : (
         <ul className="proj-entries">
           {sorted.length === 0 && <li className="proj-entry-empty">（空目录）</li>}
-          {sorted.map((e) => (
-            <li
-              key={e.name}
-              className="proj-entry"
-              onClick={() => (e.is_dir ? load(path ? `${path}/${e.name}` : e.name) : openFile(e))}
-            >
-              <span className="proj-entry-icon">{e.is_dir ? <FolderOpenOutlined /> : <FileOutlined />}</span>
-              <span className="proj-entry-name" title={e.name}>
-                {e.name}
-              </span>
-              {gitStatusTag(e.git_status)}
-              {!e.is_dir && <span className="proj-entry-size">{fmtSize(e.size)}</span>}
-            </li>
-          ))}
+          {sorted.map((e) => {
+            const rel = path ? `${path}/${e.name}` : e.name
+            return (
+              <li
+                key={e.name}
+                className="proj-entry"
+                onClick={() => (e.is_dir ? load(rel) : openFile(e))}
+              >
+                <span className="proj-entry-icon">{e.is_dir ? <FolderOpenOutlined /> : <FileOutlined />}</span>
+                <span className="proj-entry-name" title={e.name}>
+                  {e.name}
+                </span>
+                {gitStatusTag(e.git_status)}
+                {!e.is_dir && <span className="proj-entry-size">{fmtSize(e.size)}</span>}
+                {/* REQ-495②段尾项：「存笔记本」去向动作（灰字静音口径；归属工作区+绑定笔记本后写入 note_page） */}
+                {!e.is_dir && (
+                  <Tooltip title="保存到笔记本（写入当前项目归属工作区绑定的笔记本）" placement="top">
+                    <Button
+                      size="small"
+                      type="text"
+                      style={{ marginLeft: 2, color: 'var(--c-ink-3)', fontSize: 11 }}
+                      aria-label={`存笔记本 ${e.name}`}
+                      data-testid={`save-notebook-${e.name}`}
+                      onClick={(ev) => {
+                        ev.stopPropagation()
+                        setSaveTarget({ name: e.name, path: rel, size: e.size })
+                      }}
+                    >
+                      存笔记本
+                    </Button>
+                  </Tooltip>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
+      {saveTarget && <SaveToNotebookModal project={project} file={saveTarget} onClose={() => setSaveTarget(null)} />}
     </div>
   )
 }
