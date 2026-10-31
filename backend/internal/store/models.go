@@ -144,7 +144,7 @@ type Project struct {
 	Name         string   `json:"name"`
 	Description  string   `json:"description"`
 	CollabMode   string   `json:"collab_mode"`   // single | agent_as_tool | transfer
-	WorkflowMode string   `json:"workflow_mode"` // free | sequential | parallel | loop (P1)
+	WorkflowMode string   `json:"workflow_mode"` // free | sequential | parallel | loop | plan_execute（冻结——演进终点被 dag 取代 REQ-567）| dag（REQ-567/M374 计划生成随 REQ-552）
 	Constraints  string   `json:"constraints"`   // 项目级统一约束（P1）
 	LocalDir     string   `json:"local_dir"`     // 绑定的本地目录绝对路径（REQ-101 v0.17；空=未绑定）
 	// WorkspaceID REQ-550/M357 可选归属工作区（NULL=未归属存量行为不变；REFERENCES SET NULL——

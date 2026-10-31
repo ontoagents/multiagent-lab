@@ -53,7 +53,8 @@ const WORKFLOW_OPTIONS = [
   { value: 'sequential', label: 'sequential（顺序）' },
   { value: 'parallel', label: 'parallel（并行）' },
   { value: 'loop', label: 'loop（循环）' },
-  { value: 'plan_execute', label: 'plan_execute（计划执行）' },
+  { value: 'plan_execute', label: 'plan_execute（计划执行·已冻结）' }, // REQ-567：演进终点被 dag 取代
+  { value: 'dag', label: 'dag（DAG 计划·随 REQ-552 交付）' }, // REQ-567/M374：第 6 值
 ]
 
 /** 单文件预览体积上限（与后端 dir-file ≤1MB 对齐） */

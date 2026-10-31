@@ -345,10 +345,19 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 	//（确定性编排，成员即节点；free=自由协作按 collab_mode 分发）
 	// REQ-455/M251：plan_execute=计划执行工作流模板（adk prebuilt planexecute）——
 	// 协调者=计划器/重规划器，首个成员=执行器（模型+工具面生效）
-	if p.WorkflowMode != "" && p.WorkflowMode != "free" && p.WorkflowMode != "sequential" && p.WorkflowMode != "parallel" && p.WorkflowMode != "loop" && p.WorkflowMode != "plan_execute" {
+	// REQ-567/M374：dag=第 6 值入白名单（动态工作流编排批 WF-⑥——plan_execute 演进终点被 dag 取代）
+	if p.WorkflowMode != "" && p.WorkflowMode != "free" && p.WorkflowMode != "sequential" && p.WorkflowMode != "parallel" && p.WorkflowMode != "loop" && p.WorkflowMode != "plan_execute" && p.WorkflowMode != "dag" {
 		warns = append(warns, fmt.Sprintf("未知工作流模式 %q，按自由协作处理", p.WorkflowMode))
 	}
+	if p.WorkflowMode == "dag" {
+		// WF-⑥ v1：dag 计划生成随 REQ-552/M377+（规划者产计划 JSON→WF-① 校验+WF-② Runner 执行，
+		// 113 号归一路线 A）——当前装配诚实降级 free 并告警（沿未知值降级先例 :348-350）
+		warns = append(warns, "dag 模式的执行计划生成随 REQ-552 交付（M377+）——本次运行按自由协作处理")
+	}
 	if p.WorkflowMode == "plan_execute" {
+		// REQ-567/M374（79 号 product#6 顺手件）：plan_execute 冻结标注——演进终点被 dag 取代
+		//（先双轨存量零迁移——拍板项⑥；官方口径=NOT RECOMMENDED for new projects）
+		warns = append(warns, "plan_execute 已冻结（演进终点被 dag 取代）——存量可用，新项目建议 free/sequential 或待 dag（REQ-552）")
 		// 节点序沿工作流约定：协调者首个 + 其余按成员名稳定序；执行器=首个成员
 		var execNode *store.Agent
 		rest := make([]*store.Agent, 0, len(members))
@@ -1177,6 +1186,7 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 	a.stepOntologyTools(ctx, ag, sc, tb)
 	a.stepFileTools(ctx, ag, sc, tb)
 	a.stepConflictTools(ctx, ag, sc, tb)
+	a.stepPlatformCLITool(ctx, ag, tb)
 	a.stepHookWrap(ag, tb)
 	if err := a.stepApprovalWrap(ctx, ag, sc, tb); err != nil {
 		return nil, err
@@ -1543,6 +1553,22 @@ func (a *Assembler) stepConflictTools(ctx context.Context, ag *store.Agent, sc a
 	if _, dup := tb.SourceOf["submit_review"]; !dup {
 		tb.Tools = append(tb.Tools, sr)
 		tb.SourceOf["submit_review"] = "builtin"
+	}
+}
+
+// step 5.6) platform_cli 管理面 CLI（REQ-561/M368；111 号——系统操作代理）：全agent 注册不进
+// 默认集（内置平台助手经 assistantRequiredTools 并集自愈持有）；rw 审批由 stepApprovalWrap
+// 外层按 danger 判定接管？——否：platform_cli 内部按 manifest 分级自挂起（rw 命令 StatefulInterrupt），
+// 外层 approvalTool 对其豁免（grade 双闸之一在 CLI 侧）。二进制缺失不装配（诚实降级——HelpTool
+// 缺失时助手自然回落 L0/L1 面）。
+func (a *Assembler) stepPlatformCLITool(ctx context.Context, ag *store.Agent, tb *toolBundle) {
+	pct, serr := tool.NewPlatformCLITool()
+	if serr != nil {
+		return // 二进制不可达——诚实不装配不告警（内置行 tools 列仍含名，Compose 未知名告警在 stepBuiltinTools 既有面）
+	}
+	if _, dup := tb.SourceOf["platform_cli"]; !dup {
+		tb.Tools = append(tb.Tools, pct)
+		tb.SourceOf["platform_cli"] = "builtin"
 	}
 }
 

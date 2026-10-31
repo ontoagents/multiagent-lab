@@ -187,7 +187,8 @@ export default function ProjectModal({
                   { value: 'sequential', label: 'sequential（顺序）' },
                   { value: 'parallel', label: 'parallel（并行）' },
                   { value: 'loop', label: 'loop（循环）' },
-                  { value: 'plan_execute', label: 'plan_execute（计划执行）' },
+                  { value: 'plan_execute', label: 'plan_execute（计划执行·已冻结）' }, // REQ-567
+                  { value: 'dag', label: 'dag（DAG 计划·随 REQ-552 交付）' }, // REQ-567/M374：第 6 值
                 ]}
               />
             </Form.Item>
