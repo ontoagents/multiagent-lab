@@ -79,12 +79,16 @@
 
 /* ---- 技能：卡片栅格 ---- */
 .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+/* REQ-492：卡去 hover 位移阴影（静置悬停同态，边界由底色区分） */
 .skill-card {
   border: 1px solid var(--c-line); border-radius: 12px; background: var(--c-panel);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
-  transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+  transition: background .18s ease;
 }
-.skill-card:hover { box-shadow: 0 6px 20px rgba(28, 33, 48, .07); border-color: var(--c-border); transform: translateY(-1px); }
+.skill-card:hover { background: var(--c-hover-soft, #eceef5); }
+/* REQ-492：卡操作 hover 灰图标行（msg-actions 口径——常驻隐、卡悬停现） */
+.skill-card-ops { opacity: 0; transition: opacity .15s ease; }
+.skill-card:hover .skill-card-ops, .skill-card-ops:focus-within { opacity: 1; }
 .skill-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .skill-card-icon {
   width: 24px; height: 24px; border-radius: 7px; flex: none;

@@ -9,7 +9,6 @@ import {
   Modal,
   Popconfirm,
   Popover,
-  Result,
   Segmented,
   Select,
   Space,
@@ -23,6 +22,8 @@ import {
   AppstoreOutlined,
   DownOutlined,
   EllipsisOutlined,
+  DeleteOutlined,
+  EditOutlined,
   EyeOutlined,
   MinusCircleOutlined,
   PlusOutlined,
@@ -30,6 +31,7 @@ import {
   ThunderboltOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
+
 import { api } from '../api/client'
 import EmptyGuide from '../components/EmptyGuide'
 import type { Agent, Skill, SkillImportReport, ToolInfo } from '../api/types'
@@ -211,10 +213,11 @@ export default function SkillsPage() {
           <Segmented
             value={filter}
             onChange={(v) => setFilter(v as FilterKey)}
+            // REQ-492：计数裸数字化
             options={[
-              { value: 'all', label: <Space size={6}>全部<Tag style={{ margin: 0 }}>{counts.all}</Tag></Space> },
-              { value: 'mounted', label: <Space size={6}>已挂载<Tag color="green" style={{ margin: 0 }}>{counts.mounted}</Tag></Space> },
-              { value: 'unmounted', label: <Space size={6}>未挂载<Tag style={{ margin: 0 }}>{counts.unmounted}</Tag></Space> },
+              { value: 'all', label: `全部 ${counts.all}` },
+              { value: 'mounted', label: `已挂载 ${counts.mounted}` },
+              { value: 'unmounted', label: `未挂载 ${counts.unmounted}` },
             ]}
           />
           <Input
@@ -234,9 +237,7 @@ export default function SkillsPage() {
             title={
               <Space size={6}>
                 预留区
-                <Tag color="purple" style={{ margin: 0 }}>
-                  规划中
-                </Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>规划中</Typography.Text>
               </Space>
             }
             content={
@@ -255,13 +256,12 @@ export default function SkillsPage() {
         </div>
 
           {loadErr ? (
-            <div className="work-empty">
-              <Result
-                status="warning"
-                title="技能后端未就绪"
-                subTitle={`${loadErr}（M7 后端另行部署）`}
-                extra={<Button onClick={reload}>重试</Button>}
-              />
+            // REQ-492：Result 盒退役——一行警示文+重试文字钮
+            <div className="work-empty" style={{ padding: '40px 32px', textAlign: 'left' }}>
+              <Typography.Text type="warning" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                技能后端未就绪：{loadErr}（M7 后端另行部署）
+              </Typography.Text>
+              <Button size="small" onClick={reload}>重试</Button>
             </div>
           ) : filtered.length === 0 ? (
             <div className="work-empty">
@@ -294,26 +294,15 @@ export default function SkillsPage() {
                     <span className="skill-card-name" title={s.name}>
                       {s.name}
                     </span>
-                    {isColl && (
-                      <Tag color="purple" style={{ margin: 0 }} data-testid="skill-kind-tag">
-                        集合
-                      </Tag>
-                    )}
-                    {s.builtin && (
-                      <Tag color="gold" style={{ margin: 0 }}>
-                        内置
-                      </Tag>
-                    )}
-                    <Tag color={s.enabled ? 'blue' : 'default'} style={{ margin: 0 }}>
-                      {s.enabled ? '启用' : '停用'}
-                    </Tag>
-                    {mountedIds.has(s.id) ? (
-                      <Tag color="green" style={{ margin: 0 }}>
-                        已挂载
-                      </Tag>
-                    ) : (
-                      <Tag style={{ margin: 0 }}>未挂载</Tag>
-                    )}
+                    {/* REQ-492：每卡标注合一灰字（≤1 灰字/卡） */}
+                    <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }} data-testid={isColl ? 'skill-kind-tag' : undefined}>
+                      {[
+                        isColl && '集合',
+                        s.builtin && '内置',
+                        mountedIds.has(s.id) ? '已挂载' : '未挂载',
+                        !s.enabled && '已停用',
+                      ].filter(Boolean).join(' · ')}
+                    </Typography.Text>
                   </div>
                   <p className="skill-card-desc">
                     {s.description || '未填写描述'}
@@ -329,18 +318,17 @@ export default function SkillsPage() {
                     <span>资源 {s.resources?.length ?? 0}</span>
                   </div>
                   <div className="skill-card-ops">
-                    <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openPreview(s)}>
-                      {isColl ? '展开预览' : '注入预览'}
-                    </Button>
-                    <Button type="link" size="small" onClick={() => setModal(s)}>
-                      编辑
-                    </Button>
+                    {/* REQ-492：操作钮灰图标化（Tooltip 承载语义；hover 显隐见 CSS） */}
+                    <Tooltip title={isColl ? '展开预览' : '注入预览'}>
+                      <Button type="text" size="small" aria-label="注入预览" icon={<EyeOutlined />} onClick={() => openPreview(s)} />
+                    </Tooltip>
+                    <Tooltip title="编辑">
+                      <Button type="text" size="small" aria-label="编辑" icon={<EditOutlined />} onClick={() => setModal(s)} />
+                    </Tooltip>
                     {s.builtin ? (
                       <Tooltip title="内置技能不可删除">
                         <span>
-                          <Button type="link" size="small" danger disabled>
-                            删除
-                          </Button>
+                          <Button type="text" size="small" danger disabled aria-label="删除（内置不可删）" icon={<DeleteOutlined />} />
                         </span>
                       </Tooltip>
                     ) : (
@@ -352,9 +340,9 @@ export default function SkillsPage() {
                         cancelText="取消"
                         onConfirm={() => remove(s)}
                       >
-                        <Button type="link" size="small" danger>
-                          删除
-                        </Button>
+                        <Tooltip title="删除">
+                          <Button type="text" size="small" danger aria-label="删除" icon={<DeleteOutlined />} />
+                        </Tooltip>
                       </Popconfirm>
                     )}
                   </div>
