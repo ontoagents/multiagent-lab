@@ -8,6 +8,9 @@ import type {
   OntoContributionSummaryRow,
   OntoRunGroup,
   AiDraftJobState,
+  Notebook,
+  NotePage,
+  Workspace,
   AiDraftResult,
   BuildQualitySummary,
   QualityScoreRow,
@@ -624,6 +627,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ material }),
     }),
+  // ---- REQ-495/M304 笔记本 Notes（自产成果文档资产层；KB 回流=引用语义+触碰同步） ----
+  listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
+  listNotebooks: () => req<Notebook[]>('/api/notebooks'),
+  createNotebook: (n: Partial<Notebook>) => req<Notebook>('/api/notebooks', { method: 'POST', body: JSON.stringify(n) }),
+  getNotebook: (id: string) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`),
+  updateNotebook: (id: string, n: Partial<Notebook>) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(n) }),
+  deleteNotebook: (id: string) => req<{ ok: string }>(`/api/notebooks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  listNotePages: (id: string) => req<NotePage[]>(`/api/notebooks/${encodeURIComponent(id)}/pages`),
+  createNotePage: (id: string, p: Partial<NotePage>) => req<NotePage>(`/api/notebooks/${encodeURIComponent(id)}/pages`, { method: 'POST', body: JSON.stringify(p) }),
+  getNotePage: (id: string) => req<NotePage>(`/api/notebook-pages/${encodeURIComponent(id)}`),
+  updateNotePage: (id: string, p: Partial<NotePage>) => req<NotePage>(`/api/notebook-pages/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(p) }),
+  deleteNotePage: (id: string) => req<{ ok: string }>(`/api/notebook-pages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  syncNotebook: (id: string, q: { path: string; kind: 'local' | 'git' }) =>
+    req<{ added: number; updated: number; skipped: number; removed: number }>(`/api/notebooks/${encodeURIComponent(id)}/sync`, { method: 'POST', body: JSON.stringify(q) }),
+  listNotebookSources: (id: string) => req<{ id: string; kb_id: string; notebook_id: string }[]>(`/api/notebooks/${encodeURIComponent(id)}/kb-sources`),
+  createNotebookSource: (id: string, kbId: string) =>
+    req<{ id: string }>(`/api/notebooks/${encodeURIComponent(id)}/kb-sources`, { method: 'POST', body: JSON.stringify({ kb_id: kbId }) }),
+  deleteNotebookSource: (id: string, kbId: string) =>
+    req<{ ok: string }>(`/api/notebooks/${encodeURIComponent(id)}/kb-sources?kb_id=${encodeURIComponent(kbId)}`, { method: 'DELETE' }),
   /** CQ 抽取候选（REQ-308） */
 
   /** 读取本体 artifact 内容（REQ-318：axioms-raw 透传公理等；原样返回存储 JSON 文本） */

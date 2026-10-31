@@ -734,6 +734,41 @@ export interface ImportReport {
 
 /** AI 草案结果（POST /api/ontologies/ai-draft） */
 export interface ExtractedCQ { cq: string; origin?: string }
+/** REQ-548/M355 工作区领域容器（Q-24 实体反转——前端绑定选择器消费） */
+export interface Workspace {
+  id: string
+  name: string
+  description: string
+  default_kb_id: string
+  default_profile_id: string
+  default_agent_id: string
+  created_at: string
+  updated_at: string
+}
+
+/** REQ-495/M304 笔记本（自产成果文档资产层；workspace_id 绑定 REQ-548 workspace 实体一对多） */
+export interface Notebook {
+  id: string
+  name: string
+  description: string
+  workspace_id?: string
+  created_at: string
+  updated_at: string
+}
+/** 笔记本页面（两级树第二级；source=manual|local|git，触碰同步=mtime 基线） */
+export interface NotePage {
+  id: string
+  notebook_id: string
+  title: string
+  content_md: string
+  source: string
+  source_ref: string
+  source_mtime: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
 /** REQ-508/M316 概念停车场候选（材料→AI 铺清单；origin=材料原句引用，仅停车场呈现面不入 spec——概念级备注留痕归 REQ-510） */
 export interface ConceptCandidate {
   name: string

@@ -8,6 +8,7 @@ import { modeOf, type KBMode } from './knowledge/shared'
 import RagPage from './knowledge/RagPage'
 import GraphRagPage from './knowledge/GraphRagPage'
 import WikiPage from './knowledge/WikiPage'
+import NotesPage from './knowledge/NotesPage'
 
 // ---------------------------------------------------------------------------
 // 知识库模块壳（REQ-258，开发者指令「三种类型改为类似本体模块的左侧边栏标题形式，
@@ -18,19 +19,21 @@ import WikiPage from './knowledge/WikiPage'
 // 仅承载形态演进；一句话描述收 Tooltip；「新建库」上移页签行右端。
 // ---------------------------------------------------------------------------
 
-type KbView = KBMode
+type KbView = KBMode | 'notes' // REQ-495：笔记本姊妹页签并入（notes 非后端 KB mode——独立 Notes 页）
 
 const NAV: { key: KbView; label: string; icon: React.ReactNode; desc: string }[] = [
   { key: 'rag', label: 'RAG 检索', icon: <FileSearchOutlined />, desc: '向量检索 · 文档接入 · 召回试运行' },
   { key: 'graphrag', label: 'GraphRAG', icon: <ApartmentOutlined />, desc: '自研 KG 抽取 · 图谱 · 全局问答' },
   { key: 'wiki', label: 'LLM Wiki', icon: <BookOutlined />, desc: 'LLM 写时合成互链页面 · 零 embedding' },
+  // REQ-495/M304：笔记本=KB 姊妹页签（三拍板①外源/自产对仗；升格独立模块沿 REQ-180 先例留触发）
+  { key: 'notes', label: '笔记本', icon: <BookOutlined />, desc: '笔记本 Notes——自产成果沉淀层 · 两源同步 · 引用回流 KB' },
 ]
 
 const VIEW_KEY = 'eino.kb.view'
 
 function readView(): KbView {
   const v = localStorage.getItem(VIEW_KEY)
-  return v === 'graphrag' || v === 'wiki' ? v : 'rag'
+  return v === 'graphrag' || v === 'wiki' || v === 'notes' ? v : 'rag'
 }
 
 /** 新建知识库：name / description / mode / store_backend（后端无状态字段，索引状态在文档级） */
@@ -217,9 +220,11 @@ export default function KnowledgePage() {
           </Tooltip>
         ))}
         <span className="module-tabs-spacer" />
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          新建库
-        </Button>
+        {view !== 'notes' && (
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            新建库
+          </Button>
+        )}
       </div>
       <div className="module-body">
         {loadErr && !kbs.length ? (
@@ -235,13 +240,15 @@ export default function KnowledgePage() {
           <GraphRagPage {...pageProps} />
         ) : view === 'wiki' ? (
           <WikiPage {...pageProps} />
+        ) : view === 'notes' ? (
+          <NotesPage />
         ) : (
           <RagPage {...pageProps} />
         )}
 
         {createOpen && (
           <CreateKBModal
-            defaultMode={view}
+            defaultMode={view === 'notes' ? 'rag' : view}
             onClose={() => setCreateOpen(false)}
             onCreated={(kb) => {
               setCreateOpen(false)

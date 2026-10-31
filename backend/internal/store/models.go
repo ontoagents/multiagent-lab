@@ -167,6 +167,40 @@ type Workspace struct {
 	UpdatedAt        string `json:"updated_at"`
 }
 
+// Notebook 笔记本（REQ-495/M304：自产成果文档资产层容器——Q-23 定位「自产成果（沉淀）」载体）。
+// workspace_id 绑定新 workspace 实体一对多（Q-24 实体反转宿主端；SET NULL=删工作区回落个人资产）。
+type Notebook struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	WorkspaceID *string `json:"workspace_id"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+// NotePage 笔记本页面（两级树第二级；markdown 单源）。
+// source=manual|local|git（MVP 两源=本地目录+git 本地克隆路径；触碰同步=mtime 基线）。
+type NotePage struct {
+	ID         string `json:"id"`
+	NotebookID string `json:"notebook_id"`
+	Title      string `json:"title"`
+	ContentMD  string `json:"content_md"`
+	Source     string `json:"source"`
+	SourceRef  string `json:"source_ref"`
+	SourceMtime string `json:"source_mtime"`
+	Position   int    `json:"position"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// KBNotebookSource KB 回流引用登记（三拍板③：引用语义+触碰同步——笔记本单源不拷贝）。
+type KBNotebookSource struct {
+	ID         string `json:"id"`
+	KBID       string `json:"kb_id"`
+	NotebookID string `json:"notebook_id"`
+	CreatedAt  string `json:"created_at"`
+}
+
 // Conversation 对话（scope=agent 直聊 / scope=project 项目对话）。
 // WorkspaceID 工作区归属（REQ-548/M355：NULL=无归属存量行为不变；REFERENCES workspace SET NULL；
 // 与 ProjectID 互斥——store 层应用校验补位，scope CHECK 不动 SQLite 无法 ALTER）。
