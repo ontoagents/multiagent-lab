@@ -13,7 +13,8 @@ import (
 )
 
 // 连接器类型（阶段一 mcp；阶段二 kubernetes/ssh；REQ-416 起 a2a——外部 A2A 智能体成员；
-// REQ-426/M222 起 cli——外部 CLI 智能体成员；REQ-433/M229 起 stdio——本地 npx/node MCP server 桥接）。
+// REQ-426/M222 起 cli——外部 CLI 智能体成员；REQ-433/M229 起 stdio——本地 npx/node MCP server 桥接；
+// REQ-554/M361 起 devops——研发数据源托管插件（git 只读/gh issues/ci/test_report_parse）。
 const (
 	ConnectorKindMCP        = "mcp"
 	ConnectorKindKubernetes = "kubernetes"
@@ -21,10 +22,11 @@ const (
 	ConnectorKindA2A        = "a2a"
 	ConnectorKindCLI        = "cli"
 	ConnectorKindStdio      = "stdio"
+	ConnectorKindDevops     = "devops"
 )
 
 // ConnectorKinds 合法类型白名单。
-var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH, ConnectorKindA2A, ConnectorKindCLI, ConnectorKindStdio}
+var ConnectorKinds = []string{ConnectorKindMCP, ConnectorKindKubernetes, ConnectorKindSSH, ConnectorKindA2A, ConnectorKindCLI, ConnectorKindStdio, ConnectorKindDevops}
 
 func scanConnector(row interface{ Scan(...any) error }) (*Connector, error) {
 	var c Connector

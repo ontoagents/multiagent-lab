@@ -218,6 +218,8 @@ func (s *Server) routes() {
 
 	// Agents
 	// REQ-131/M18：Agent 对外 MCP 服务化——/mcp Streamable HTTP + 管理端点
+	// REQ-554/M361：KB 对外 MCP 提供方（/mcp/kb——鉴权沿 mcpAuth 同口径；平台既消费也提供）
+	m.Handle("/mcp/kb", s.mcpAuth(s.kbMcpHandler()))
 	m.Handle("/mcp", s.mcpAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 懒重建：mcp_serve 变更后 invalidateMCP() 生效，工具表按最新 enabled Agent 组装
 		s.mcpHandler().ServeHTTP(w, r)

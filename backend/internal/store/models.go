@@ -109,7 +109,7 @@ type MCPServer struct {
 // 凭据服务端绑定（CredentialsEncrypted），不进 LLM 上下文不进工具参数。
 type Connector struct {
 	ID                   string         `json:"id"`
-	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh | a2a
+	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh | a2a | cli | stdio | devops（REQ-554/M361）——白名单 store.ConnectorKinds 单源
 	Name                 string         `json:"name"` // 实例名（装配前缀槽位 {name}__{tool}）
 	Description          string         `json:"description"`
 	Config               map[string]any `json:"config"`          // kind 专属非敏感配置

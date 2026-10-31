@@ -83,6 +83,11 @@ func (p *PluginService) handlerOf(id string) (http.Handler, error) {
 		if err := p.addSSHTools(srv, c); err != nil {
 			return nil, err
 		}
+	case store.ConnectorKindDevops:
+		// REQ-554/M361：研发数据源托管插件（git 只读/gh issues/ci/test_report_parse——datasource 细分工具组）
+		if err := p.addDevopsTools(srv, c); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("kind %q 不由插件服务承载（mcp 连接器走直通）", c.Kind)
 	}
