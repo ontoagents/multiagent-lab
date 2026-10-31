@@ -155,6 +155,8 @@ export interface Project {
   coordinator: string
   /** REQ-101：绑定的本地目录（绝对路径；空串 = 未绑定） */
   local_dir: string
+  /** REQ-550/M357 可选归属工作区（空 = 未归属；新会话经项目层转发工作区默认值） */
+  workspace_id?: string | null
   created_at: string
   updated_at: string
 }

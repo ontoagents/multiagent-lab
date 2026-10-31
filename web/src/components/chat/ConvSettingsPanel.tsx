@@ -29,7 +29,7 @@ export default function ConvSettingsPanel({
   agent: Agent | null
   companionOntos: { id: string; name: string }[]
   isProjectScope: boolean
-  project: { name: string } | null
+  project: { name: string; workspace_id?: string | null } | null
   subjectName?: string
   onToggleSidePanel?: () => void
   onClose: () => void
@@ -91,6 +91,12 @@ export default function ConvSettingsPanel({
           {conversation.context_mode || '跟随'}
           {!conversation.context_mode && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>（智能体档）</span>}
         </div>
+        {/* REQ-550/M357：项目归属工作区时透出默认值来源（写时复制——行内值已固化，与手动新建无异） */}
+        {isProjectScope && project?.workspace_id && (
+          <div>
+            知识库/本体默认值：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>创建时继承自工作区（写时复制）</span>
+          </div>
+        )}
       </div>
       <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
       <Segmented

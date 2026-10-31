@@ -147,10 +147,13 @@ type Project struct {
 	WorkflowMode string   `json:"workflow_mode"` // free | sequential | parallel | loop (P1)
 	Constraints  string   `json:"constraints"`   // 项目级统一约束（P1）
 	LocalDir     string   `json:"local_dir"`     // 绑定的本地目录绝对路径（REQ-101 v0.17；空=未绑定）
-	AgentIDs     []string `json:"agent_ids"`     // 成员 Agent
-	Coordinator  string   `json:"coordinator"`   // 主 Agent（role=coordinator）
-	CreatedAt    string   `json:"created_at"`
-	UpdatedAt    string   `json:"updated_at"`
+	// WorkspaceID REQ-550/M357 可选归属工作区（NULL=未归属存量行为不变；REFERENCES SET NULL——
+	// 删工作区项目脱钩；会话创建时经 ResolveConvDefaults 项目层转发工作区默认值，项目无独立覆盖面）
+	WorkspaceID string   `json:"workspace_id"`
+	AgentIDs    []string `json:"agent_ids"`   // 成员 Agent
+	Coordinator string   `json:"coordinator"` // 主 Agent（role=coordinator）
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
 }
 
 // Workspace 工作区领域容器（REQ-548/M355，Q-24 实体反转——项目之上的新领域实体，项目保留执行层）。

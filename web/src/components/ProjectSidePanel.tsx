@@ -19,7 +19,7 @@ import { api } from '../api/client'
 import { projectFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
 import CollabTopology from './CollabTopology'
 import AIOptimizeButton from './AIOptimizeButton'
-import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry } from '../api/types'
+import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry, Workspace } from '../api/types'
 import DirCheckResult from './DirCheckResult'
 import { useUI } from '../store/ui'
 
@@ -700,6 +700,25 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
   const [dirCheck, setDirCheck] = useState<DirValidation | null>(null)
   const [checking, setChecking] = useState(false)
 
+  // REQ-550/M357：归属工作区下拉数据源 + 即时保存（解除归属低风险不设确认）
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [wsLoading, setWsLoading] = useState(false)
+  useEffect(() => {
+    setWsLoading(true)
+    api.listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([])).finally(() => setWsLoading(false))
+  }, [])
+  const { showToast: showWsToast, bumpData: wsBump } = useUI()
+  const changeWorkspace = async (wsId: string) => {
+    try {
+      await api.setProjectWorkspace(project.id, wsId)
+      showWsToast(wsId ? '已归属工作区（新会话起继承默认值）' : '已解除归属（已建会话不受影响）')
+      wsBump()
+      onChanged?.()
+    } catch (e: any) {
+      showWsToast(e.message, 'err')
+    }
+  }
+
   useEffect(() => {
     form.setFieldsValue({
       name: project.name,
@@ -830,6 +849,24 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         <Form.Item name="constraints" label={<Space size={6}>项目级约束（统一注入成员提示词，P1）<AIOptimizeButton kind="project_constraints" value={constraintsValue} onApply={(v) => form.setFieldValue('constraints', v)} /></Space>}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
         </Form.Item>
+
+        {/* REQ-550/M357：可选归属工作区（M2——归属是显式动作走专属端点即时保存，
+            不并入整行 PUT；UpdateProject SQL 不写 workspace_id 列防整行保存误清归属） */}
+        <Section>归属工作区（可选）</Section>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+          归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；已建会话不受影响。
+        </Typography.Text>
+        <Select
+          size="small"
+          allowClear
+          placeholder="未归属——项目独立运行"
+          value={project.workspace_id || undefined}
+          loading={wsLoading}
+          style={{ width: '100%' }}
+          data-testid="proj-workspace-select"
+          options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+          onChange={(v) => changeWorkspace(v ?? '')}
+        />
       </Form>
 
       <div className="proj-view-actions">

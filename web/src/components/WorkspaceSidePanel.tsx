@@ -5,12 +5,13 @@ import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
   SettingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
-import type { Agent, KnowledgeBase, Notebook, RuntimeProfile, Workspace } from '../api/types'
+import type { Agent, KnowledgeBase, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 
-export type WorkspacePanelView = 'config'
+export type WorkspacePanelView = 'config' | 'projects'
 
 /** 侧边栏小节标题（与 ProjectSidePanel 同语言） */
 function Section({ children, first }: { children: React.ReactNode; first?: boolean }) {
@@ -115,6 +116,19 @@ export default function WorkspaceSidePanel({
             <SettingOutlined />
           </button>
         </Tooltip>
+        {/* REQ-550/M357：归属项目管理（M2 projects 视图） */}
+        <Tooltip title="归属项目" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'projects' && !collapsed ? ' active' : ''}`}
+            aria-label="归属项目"
+            aria-selected={view === 'projects' && !collapsed}
+            role="tab"
+            onClick={() => switchView('projects')}
+          >
+            <TeamOutlined />
+          </button>
+        </Tooltip>
         <span className="proj-bar-spacer" />
         <Tooltip title={collapsed ? '展开侧边栏' : '收起为竖条'} placement="left">
           <button
@@ -138,6 +152,7 @@ export default function WorkspaceSidePanel({
       {!collapsed && (
         <div className="proj-panel-view">
           {view === 'config' && <ConfigView workspace={workspace} agents={agents} onChanged={onChanged} />}
+          {view === 'projects' && <ProjectsView workspace={workspace} onChanged={onChanged} />}
         </div>
       )}
     </aside>
@@ -311,6 +326,116 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
           </Button>
         </Popconfirm>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 归属项目视图（REQ-550/M357 M2）：归属/解除 + 「应用到现有会话」幂等批量
+// ---------------------------------------------------------------------------
+
+function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChanged?: () => void }) {
+  const { showToast, bumpData } = useUI()
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState('')
+
+  const load = () => {
+    setLoading(true)
+    api.listProjects().then(setProjects).catch(() => setProjects([])).finally(() => setLoading(false))
+  }
+  useEffect(load, [workspace.id])
+
+  const assign = async (p: Project) => {
+    setBusy(p.id)
+    try {
+      await api.setProjectWorkspace(p.id, workspace.id)
+      showToast(`项目「${p.name}」已归属本工作区（新会话起继承默认值）`)
+      bumpData()
+      onChanged?.()
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setBusy('')
+    }
+  }
+  const unassign = async (p: Project) => {
+    setBusy(p.id)
+    try {
+      await api.setProjectWorkspace(p.id, '')
+      showToast(`项目「${p.name}」已解除归属（已建会话不受影响）`)
+      bumpData()
+      onChanged?.()
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setBusy('')
+    }
+  }
+  // 幂等补齐：updated_at 必 bump——开着的会话窗下一次 patchConv 409 为预期行为（106 号 obj-7，
+  // 前端 toast 刷新兜底），提示语如实告知
+  const apply = async (p: Project) => {
+    setBusy(p.id)
+    try {
+      const r = await api.applyProjectWorkspace(p.id)
+      showToast(r.updated > 0 ? `已为 ${r.updated} 个会话补齐默认值（打开中的会话窗请刷新后继续编辑）` : '所有会话均已是最新，无需变更')
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const assignedHere = projects.filter((p) => p.workspace_id === workspace.id)
+  const others = projects.filter((p) => p.workspace_id !== workspace.id)
+
+  return (
+    <div className="proj-view-body">
+      <Section first>已归属项目（{assignedHere.length}）</Section>
+      {loading ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text>
+      ) : assignedHere.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+          暂无归属项目——从下方列表归属；归属后项目新会话自动继承本工作区默认知识库与本体方案。
+        </Typography.Text>
+      ) : (
+        <ul className="proj-entries" style={{ margin: 0 }}>
+          {assignedHere.map((p) => (
+            <li key={p.id} className="proj-entry">
+              <span className="proj-entry-name" title={p.name}>{p.name}</span>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                <Tooltip title="把当前工作区默认值补齐到项目既有会话（幂等：只补空缺，不覆盖显式选择；会话更新时间会刷新，打开中的会话窗需刷新后继续编辑）">
+                  <Button size="small" type="text" loading={busy === p.id} aria-label={`应用到现有会话 ${p.name}`} onClick={() => apply(p)}>
+                    应用到现有会话
+                  </Button>
+                </Tooltip>
+                <Button size="small" type="text" loading={busy === p.id} aria-label={`解除归属 ${p.name}`} onClick={() => unassign(p)}>
+                  解除归属
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Section>未归属项目（{others.length}）</Section>
+      {others.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>全部项目均已归属。</Typography.Text>
+      ) : (
+        <ul className="proj-entries" style={{ margin: 0 }}>
+          {others.map((p) => (
+            <li key={p.id} className="proj-entry">
+              <span className="proj-entry-name" title={p.name}>{p.name}</span>
+              <Button size="small" type="text" style={{ marginLeft: 'auto' }} loading={busy === p.id} aria-label={`归属 ${p.name}`} onClick={() => assign(p)}>
+                归属本工作区
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

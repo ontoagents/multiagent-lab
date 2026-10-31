@@ -350,6 +350,17 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	}
 	// REQ-393/M189：会话级上下文预算档生效值透出（run.started——治「配了看不出」同 P-H2 语义）
 	startData["context_mode"] = map[string]any{"mode": ctxMode, "source": ctxModeSrc}
+	// REQ-550/M357：项目归属工作区时透出创建时继承来源（写时复制行内值已固化，来源=归属工作区；
+	// 沿 effectiveApprovalPolicy 先例——仅归属项目的会话携带，对 audit 语义）
+	if conv.Scope == "project" && conv.ProjectID != nil && *conv.ProjectID != "" {
+		if p, perr := s.Store.GetProject(*conv.ProjectID); perr == nil && p.WorkspaceID != "" {
+			wsData := map[string]any{"workspace_id": p.WorkspaceID}
+			if ws, werr := s.Store.GetWorkspace(p.WorkspaceID); werr == nil {
+				wsData["workspace_name"] = ws.Name
+			}
+			startData["workspace_defaults"] = wsData
+		}
+	}
 	// REQ-291：运行配置审计——当轮生效的推理参数恒落（未设置不臆造数值，缺省=跟随后端协议默认，
 	// anthropic 通道温度钳 [0,1] 与 max_tokens 兜底见 modelbuild；协议级整形不在本键还原范围）
 	if agent.Temperature != nil {

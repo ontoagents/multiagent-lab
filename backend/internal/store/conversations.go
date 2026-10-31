@@ -170,16 +170,17 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 		if werr != nil {
 			return nil, &HTTPError{Status: 400, Msg: "workspace not found"}
 		}
-		if c.KBID == nil && ws.DefaultKBID != "" {
-			if _, kerr := s.GetKnowledgeBase(ws.DefaultKBID); kerr == nil {
-				c.KBID = &ws.DefaultKBID
-				c.EnableKB = true // 默认库继承即启用召回（否则默认库无意义）；建后 chip 关闭走 patchConv 正常关闭
+		s.inheritWorkspaceDefaults(c, ws)
+	}
+	// REQ-550/M357：项目层继承转发（M2——项目无独立覆盖面，仅转发其归属工作区的默认值）。
+	// 合并序维持「会话>智能体>全局」零改动（106 号 §三：工作区不插运行期合并链）；
+	// 未归属项目（workspace_id 空）此段短路=存量路径逐字节不变。
+	if c.Scope == "project" && c.ProjectID != nil && *c.ProjectID != "" {
+		if p, perr := s.GetProject(*c.ProjectID); perr == nil && p.WorkspaceID != "" {
+			if ws, werr := s.GetWorkspace(p.WorkspaceID); werr == nil {
+				s.inheritWorkspaceDefaults(c, ws)
 			}
-			// 默认库已删（config 列无 FK）：静默回落零值——与手动新建无异（106 号降级口径）
-		}
-		if c.RuntimeProfileID == nil && ws.DefaultProfileID != "" {
-			c.RuntimeProfileID = &ws.DefaultProfileID
-			c.OntologyEnabled = true
+			// 归属工作区已删（SET NULL 竞态窗口）：静默回落零值——与未归属无异
 		}
 	}
 	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -299,4 +300,21 @@ func (s *Store) SetConversationTitle(id, title string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// inheritWorkspaceDefaults REQ-548/M355+REQ-550/M357：创建时继承工作区默认值（写时复制）——
+// KBID/RuntimeProfileID 为 nil 时由工作区默认填充（默认库本地存在性校验，失效静默回落零值；
+// 方案存在性不在 store 层校验，失效走 ontology.unavailable 降级）。显式参数优先。
+func (s *Store) inheritWorkspaceDefaults(c *Conversation, ws *Workspace) {
+	if c.KBID == nil && ws.DefaultKBID != "" {
+		if _, kerr := s.GetKnowledgeBase(ws.DefaultKBID); kerr == nil {
+			c.KBID = &ws.DefaultKBID
+			c.EnableKB = true // 默认库继承即启用召回（否则默认库无意义）；建后 chip 关闭走 patchConv 正常关闭
+		}
+		// 默认库已删（config 列无 FK）：静默回落零值——与手动新建无异（106 号降级口径）
+	}
+	if c.RuntimeProfileID == nil && ws.DefaultProfileID != "" {
+		c.RuntimeProfileID = &ws.DefaultProfileID
+		c.OntologyEnabled = true
+	}
 }

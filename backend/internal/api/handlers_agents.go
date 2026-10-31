@@ -266,6 +266,19 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 // ---- Projects ----
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	// REQ-550/M357：workspace_id 过滤参（工作区侧板 projects 视图按归属列项目；缺省=全量不变）
+	if wsID := r.URL.Query().Get("workspace_id"); wsID != "" {
+		ps, err := s.Store.ListProjectsByWorkspace(wsID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if ps == nil {
+			ps = []*store.Project{}
+		}
+		writeJSON(w, http.StatusOK, ps)
+		return
+	}
 	ps, err := s.Store.ListProjects()
 	if err != nil {
 		writeErr(w, err)
@@ -335,6 +348,37 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// setProjectWorkspace REQ-550/M357：归属/解除项目到工作区（PUT /api/projects/{id}/workspace，
+// body {workspace_id}，空=解除）。归属变更是显式动作，不并入整行 PUT（UpdateProject SQL 不写
+// workspace_id 列——防整行保存误清归属）。
+func (s *Server) setProjectWorkspace(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, err)
+		return
+	}
+	updated, err := s.Store.SetProjectWorkspace(r.PathValue("id"), body.WorkspaceID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// applyProjectWorkspace REQ-550/M357：「应用到现有会话」幂等批量（POST /api/projects/{id}/workspace/apply）。
+// 返回补齐会话数；updated_at 必 bump——开着的会话窗下一次 patchConv 409 为预期行为（106 号 obj-7 注记，
+// 前端 toast 刷新兜底），冒烟不当 bug 抓。
+func (s *Server) applyProjectWorkspace(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Store.ApplyWorkspaceDefaultsToProject(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"updated": n})
 }
 
 func (s *Server) setProjectAgents(w http.ResponseWriter, r *http.Request) {

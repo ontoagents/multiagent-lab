@@ -181,7 +181,7 @@ export const api = {
   resetAgentMcpToken: (id: string) => req<{ token_mask: string }>(`/api/agents/${id}/mcp-serve/reset`, { method: 'POST' }),
 
   // projects
-  listProjects: () => req<Project[]>('/api/projects'),
+  listProjects: (q: { workspace_id?: string } = {}) => req<Project[]>(`/api/projects${q.workspace_id ? `?workspace_id=${encodeURIComponent(q.workspace_id)}` : ''}`),
   createProject: (p: Partial<Project>) => req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(p) }),
   updateProject: (id: string, p: Partial<Project>, ifMatch?: string) =>
     req<Project>(`/api/projects/${id}`, {
@@ -635,6 +635,9 @@ export const api = {
   getWorkspace: (id: string) => req<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`),
   updateWorkspace: (id: string, w: Partial<Workspace>) => req<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(w) }),
   deleteWorkspace: (id: string) => req<{ ok: string }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // ---- REQ-550/M357 项目归属与继承 M2（Q-24 分层批③；归属/解除+应用到现有会话幂等批量） ----
+  setProjectWorkspace: (id: string, workspaceId: string) => req<Project>(`/api/projects/${encodeURIComponent(id)}/workspace`, { method: 'PUT', body: JSON.stringify({ workspace_id: workspaceId }) }),
+  applyProjectWorkspace: (id: string) => req<{ updated: number }>(`/api/projects/${encodeURIComponent(id)}/workspace/apply`, { method: 'POST' }),
   listNotebooks: () => req<Notebook[]>('/api/notebooks'),
   createNotebook: (n: Partial<Notebook>) => req<Notebook>('/api/notebooks', { method: 'POST', body: JSON.stringify(n) }),
   getNotebook: (id: string) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`),
