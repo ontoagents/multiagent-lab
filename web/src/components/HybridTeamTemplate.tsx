@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Checkbox, Input, Modal, Select, Space, Tag, Typography, message } from 'antd'
 import { ThunderboltOutlined, CopyOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -45,7 +45,7 @@ function dedupeName(name: string, existing: Agent[]): string {
   return `${name}-${Date.now()}`
 }
 
-export default function HybridTeamTemplate({ agents, onCreated }: { agents: Agent[]; onCreated: (projectId: string) => void }) {
+export default function HybridTeamTemplate({ agents, onCreated, onReady }: { agents: Agent[]; onCreated: (projectId: string) => void; onReady?: (open: () => void) => void }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [backend, setBackend] = useState('claude-code')
@@ -123,15 +123,21 @@ export default function HybridTeamTemplate({ agents, onCreated }: { agents: Agen
     if (projectId) onCreated(projectId)
   }
 
+  // REQ-489：入口宿主化——onReady 暴露 open 供外部菜单触发（空态模板收菜单），默认钮在宿主模式退役
+  useEffect(() => {
+    onReady?.(() => setOpen(true))
+  }, [onReady])
   return (
     <>
-      <Button
-        icon={<ThunderboltOutlined />}
-        data-testid="hybrid-team-open"
-        onClick={() => setOpen(true)}
-      >
-        混合编排模板（本地+CLI+外部）
-      </Button>
+      {!onReady && (
+        <Button
+          icon={<ThunderboltOutlined />}
+          data-testid="hybrid-team-open"
+          onClick={() => setOpen(true)}
+        >
+          混合编排模板（本地+CLI+外部）
+        </Button>
+      )}
       <Modal
         open={open}
         title={done ? '混合编排模板已创建——演示动线' : '混合编排模板（REQ-431：本地规划者 + CLI 编码者 + 外部审查者）'}

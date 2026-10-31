@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Button, Result, Space, Splitter } from 'antd'
-import { FolderOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Dropdown, Splitter, Typography } from 'antd'
+import { DownOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, Conversation, Project } from '../api/types'
 import { useUI } from '../store/ui'
@@ -28,6 +28,9 @@ export default function ProjectsPage() {
   // REQ-102/103：右侧侧边栏（文件 / Git / 配置）开合与当前视图
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
   const [panelView, setPanelView] = useState<PanelView>('files')
+  // REQ-489：模板弹窗入口句柄（空态菜单触发用）
+  const devTplOpen = useRef<(() => void) | null>(null)
+  const hybTplOpen = useRef<(() => void) | null>(null)
 
   const reload = () => {
     // REQ-515/M322 三态收口：主列表失败进错误态（LoadErrorAlert），不再吞成空列表
@@ -119,25 +122,35 @@ export default function ProjectsPage() {
                 onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
               />
             ) : (
-              <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Result
-                  icon={null}
-                  title="选择左侧项目，与其开始对话"
-                  subTitle="会话界面与智能体视图一致；项目对话由成员智能体协作处理（M4 起生效）。"
-                  extra={
-                    <Space>
-                      <Button type="primary" disabled={!activeProject} onClick={() => activeProject && newConversation(activeProject.id)}>
-                        ＋ 为「{activeProject?.name ?? '当前项目'}」新建对话
+              // REQ-489：空态一钮+模板收菜单（Result 盒与四钮群退役；对齐 REQ-488 空态灰字语言；
+              // 项目配置入口由常驻侧板竖条承载〔REQ-237〕，此处不再重复）
+              <div className="page" style={{ padding: '48px 40px' }}>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }} data-testid="projects-empty-quiet">
+                  在左侧选择项目，与其开始对话；会话界面与智能体视图一致。
+                </Typography.Text>
+                {activeProject && (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Button type="primary" size="small" onClick={() => newConversation(activeProject.id)}>
+                      ＋ 新建对话
+                    </Button>
+                    <Dropdown
+                      menu={{
+                        items: [
+                          { key: 'dev', label: '协作研发模板（规划/编码/审查）' },
+                          { key: 'hybrid', label: '混合编排模板（本地+CLI+外部）' },
+                        ],
+                        onClick: ({ key }) => (key === 'dev' ? devTplOpen.current : hybTplOpen.current)?.(),
+                      }}
+                    >
+                      <Button size="small">
+                        协作模板 <DownOutlined />
                       </Button>
-                      <Button disabled={!activeProject} icon={<FolderOutlined />} onClick={() => { setSidePanelOpen(true); setPanelView('config') }}>
-                        项目配置 / 侧边栏
-                      </Button>
-                      {/* REQ-417/M213：协作研发模板一键创建（三角色+种子任务）；REQ-431/M227：混合编排模板（本地+CLI+外部三色） */}
-                      <DevTeamTemplate agents={agents} onCreated={(pid) => { reload(); setActiveProjectId(pid) }} />
-                      <HybridTeamTemplate agents={agents} onCreated={(pid) => { reload(); setActiveProjectId(pid) }} />
-                    </Space>
-                  }
-                />
+                    </Dropdown>
+                  </div>
+                )}
+                {/* REQ-417/M213+REQ-431/M227：模板弹窗宿主（入口由上方菜单触发——onReady 暴露 open） */}
+                {activeProject && <DevTeamTemplate agents={agents} onCreated={(pid) => { reload(); setActiveProjectId(pid) }} onReady={(o) => { devTplOpen.current = o }} />}
+                {activeProject && <HybridTeamTemplate agents={agents} onCreated={(pid) => { reload(); setActiveProjectId(pid) }} onReady={(o) => { hybTplOpen.current = o }} />}
               </div>
             )}
           </div>

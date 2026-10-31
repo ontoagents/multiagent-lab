@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Checkbox, Modal, Space, Tag, Typography, message } from 'antd'
 import { CopyOutlined, RocketOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -64,7 +64,7 @@ function dedupeName(name: string, existing: Agent[]): string {
   return `${name}-${Date.now()}`
 }
 
-export default function DevTeamTemplate({ agents, onCreated }: { agents: Agent[]; onCreated: (projectId: string) => void }) {
+export default function DevTeamTemplate({ agents, onCreated, onReady }: { agents: Agent[]; onCreated: (projectId: string) => void; onReady?: (open: () => void) => void }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [seeds, setSeeds] = useState<string[]>(['a'])
@@ -120,15 +120,21 @@ export default function DevTeamTemplate({ agents, onCreated }: { agents: Agent[]
     if (projectId) onCreated(projectId)
   }
 
+  // REQ-489：入口宿主化——onReady 暴露 open 供外部菜单触发（空态模板收菜单），默认钮在宿主模式退役
+  useEffect(() => {
+    onReady?.(() => setOpen(true))
+  }, [onReady])
   return (
     <>
-      <Button
-        icon={<RocketOutlined />}
-        data-testid="devteam-open"
-        onClick={() => setOpen(true)}
-      >
-        协作研发模板（规划/编码/审查）
-      </Button>
+      {!onReady && (
+        <Button
+          icon={<RocketOutlined />}
+          data-testid="devteam-open"
+          onClick={() => setOpen(true)}
+        >
+          协作研发模板（规划/编码/审查）
+        </Button>
+      )}
       <Modal
         open={open}
         title={done ? '模板已创建——演示动线' : '协作研发项目模板（REQ-417）'}

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Button, Checkbox, Divider, Empty, Form, Input, Popconfirm, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { Button, Checkbox, Divider, Empty, Form, Input, Popconfirm, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import {
   BranchesOutlined,
+  DiffOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
   FileOutlined,
@@ -72,25 +73,29 @@ function fmtSize(n?: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** git 状态 → 彩色 Tag（兼容 porcelain 单字母与语义词） */
+/** git 状态标注（REQ-489：彩色 Tag 灰字化——常规状态中性灰字，仅冲突/错误留色；兼容 porcelain 单字母与语义词） */
 function gitStatusTag(s?: string | null) {
   if (!s) return null
   const k = s.toLowerCase()
-  const map: Record<string, { color: string; text: string }> = {
-    modified: { color: 'orange', text: '修改' },
-    m: { color: 'orange', text: '修改' },
-    added: { color: 'green', text: '新增' },
-    a: { color: 'green', text: '新增' },
-    untracked: { color: 'default', text: '未跟踪' },
-    '??': { color: 'default', text: '未跟踪' },
-    deleted: { color: 'red', text: '删除' },
-    d: { color: 'red', text: '删除' },
+  const map: Record<string, { text: string; danger?: boolean }> = {
+    modified: { text: '修改' },
+    m: { text: '修改' },
+    added: { text: '新增' },
+    a: { text: '新增' },
+    untracked: { text: '未跟踪' },
+    '??': { text: '未跟踪' },
+    deleted: { text: '删除' },
+    d: { text: '删除' },
+    conflict: { text: '冲突', danger: true },
+    both: { text: '冲突', danger: true },
   }
-  const hit = map[k] ?? { color: 'default', text: s }
-  return (
-    <Tag color={hit.color} style={{ margin: 0 }}>
+  const hit = map[k] ?? { text: s }
+  return hit.danger ? (
+    <Tag color="red" style={{ margin: 0 }}>
       {hit.text}
     </Tag>
+  ) : (
+    <span style={{ fontSize: 11, color: 'var(--c-ink-3)' }}>{hit.text}</span>
   )
 }
 
@@ -363,7 +368,8 @@ function FilesView({ project, onOpenConfig }: { project: Project; onOpenConfig: 
       </div>
 
       {err ? (
-        <Alert type="warning" showIcon title="目录读取失败" description={err} />
+        // REQ-489：Alert 盒降盒——错误一行警示文（REQ-483 视觉语言）
+        <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', padding: '6px 0' }}>目录读取失败：{err}</Typography.Text>
       ) : previewLoading ? (
         <Spin size="small" />
       ) : previewErr ? (
@@ -373,7 +379,7 @@ function FilesView({ project, onOpenConfig }: { project: Project; onOpenConfig: 
               返回
             </Button>
           </div>
-          <Alert type="info" showIcon title="无法预览" description={previewErr} />
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', padding: '6px 0' }}>无法预览：{previewErr}</Typography.Text>
         </>
       ) : preview ? (
         <>
@@ -545,7 +551,8 @@ function GitView({ project }: { project: Project }) {
   if (err) {
     return (
       <div className="proj-view-body">
-        <Alert type="warning" showIcon title="Git 信息读取失败" description={err} />
+        {/* REQ-489：Alert 盒降盒——错误一行警示文 */}
+        <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', padding: '6px 0' }}>Git 信息读取失败：{err}</Typography.Text>
       </div>
     )
   }
@@ -576,7 +583,7 @@ function GitView({ project }: { project: Project }) {
             {patch?.path || '提交完整 diff'}
           </span>
         </div>
-        {patchLoading ? <Spin size="small" /> : patchErr ? <Alert type="info" showIcon title="无法查看 diff" description={patchErr} /> : <pre className="proj-preview">{patch?.text || '（空 diff）'}</pre>}
+        {patchLoading ? <Spin size="small" /> : patchErr ? <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', padding: '6px 0' }}>无法查看 diff：{patchErr}</Typography.Text> : <pre className="proj-preview">{patch?.text || '（空 diff）'}</pre>}
       </div>
     )
   }
@@ -663,9 +670,10 @@ function GitView({ project }: { project: Project }) {
                       ))}
                     </ul>
                   )}
-                  <Button size="small" type="link" onClick={() => openPatch(c)}>
-                    查看完整 diff
-                  </Button>
+                  {/* REQ-489：diff 入口灰图标化（hover 提示） */}
+                  <Tooltip title="查看完整 diff">
+                    <Button size="small" type="text" aria-label="查看完整 diff" icon={<DiffOutlined />} onClick={() => openPatch(c)} />
+                  </Tooltip>
                 </div>
               )}
             </li>
@@ -786,13 +794,10 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         </Form.Item>
 
         <Section>本地目录（可选）</Section>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 8 }}
-          title="绑定即授权"
-          description="绑定后项目智能体获得该目录内的文件读写权限（越界强制防护，调用可审计）；请仅绑定可信目录。"
-        />
+        {/* REQ-489：Alert 盒降盒——字段下灰字一行 */}
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+          绑定即授权：绑定后项目智能体获得该目录内文件读写权限（越界强制防护、调用可审计）——请仅绑定可信目录。
+        </Typography.Text>
         <Form.Item
           label="本地目录"
           className="item-inline"
@@ -897,23 +902,19 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
           <Select value={collabMode} options={COLLAB_OPTIONS} onChange={setCollabMode} />
         </Form.Item>
         {collabMode === 'transfer' && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 8, fontSize: 12 }}
-            title="transfer 为官方 NOT RECOMMENDED 路线（REQ-208 定案保留对照）：控制权转移后协调者失去编排权，委派韧性（错误降级/超时/可继续）仅 agent_as_tool 承载——新项目建议 agent_as_tool。"
-          />
+          // REQ-489：Alert 盒降盒——警示一行文（保留警示色）
+          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+            transfer 为官方 NOT RECOMMENDED 路线（REQ-208 定案保留对照）：控制权转移后协调者失去编排权，委派韧性（错误降级/超时/可继续）仅 agent_as_tool 承载——新项目建议 agent_as_tool。
+          </Typography.Text>
         )}
         <Form.Item label="工作流模式" className="item-inline">
           <Select value={workflowMode} options={WORKFLOW_OPTIONS} onChange={setWorkflowMode} />
         </Form.Item>
         {workflowMode && workflowMode !== 'free' && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 8, fontSize: 12 }}
-            title={`${{ sequential: '顺序', parallel: '并行', loop: '循环', plan_execute: '计划执行' }[workflowMode] ?? workflowMode}工作流已兑现（REQ-205/M40，Eino ADK 工作流原语）：成员即节点（主智能体首个，余按名称序）、确定性拓扑无 LLM 路由；官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——推荐默认仍为 free + agent_as_tool。loop 迭代上限固定 3。`}
-          />
+          // REQ-489：Alert 盒降盒——说明灰字一行
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+            {`${{ sequential: '顺序', parallel: '并行', loop: '循环', plan_execute: '计划执行' }[workflowMode] ?? workflowMode}工作流已兑现（REQ-205/M40，Eino ADK 工作流原语）：成员即节点（主智能体首个，余按名称序）、确定性拓扑无 LLM 路由；官方注记 NOT RECOMMENDED（transfer 全上下文共享，经验上未证优于 AgentTool 组合）——推荐默认仍为 free + agent_as_tool。loop 迭代上限固定 3。`}
+          </Typography.Text>
         )}
       </Form>
       <div className="member-hint" style={{ marginBottom: 8 }}>
