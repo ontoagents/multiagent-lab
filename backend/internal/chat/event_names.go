@@ -43,6 +43,8 @@ const (
 	EventStateChanged    = "state.changed"     // REQ-557/M364 补录缺口：会话状态族变更（interrupt/resume/abandon）
 	EventRunPaused       = "run.paused"       // REQ-558/M365：pause 安全点挂起（对称 interrupted）
 	EventWFNodeStarted   = "wf.node.started"   // REQ-563/M370：WF 一等节点事件族（node_id/status/phase/attempt——113 号归一轮单源口径）
+	EventDagPlanCreated  = "dag.plan.created"  // REQ-552/M377：DAG 计划层事件（113 号归一轮口径——仅计划层两事件，node 级以 wf.node.* 为基准）
+	EventDagPlanFinished = "dag.plan.finished" // REQ-552/M377
 	EventWFNodeCompleted = "wf.node.completed" // REQ-563/M370
 	EventWFNodeFailed    = "wf.node.failed"    // REQ-563/M370
 	EventWFNodeSkipped   = "wf.node.skipped"   // REQ-563/M370：条件边不满足/上游失败传播
