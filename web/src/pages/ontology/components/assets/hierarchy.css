@@ -119,20 +119,12 @@
 }
 
 /* REQ-448/M244：树上编辑快捷操作钮——hover 显隐（触屏/键盘经 tab 聚焦兜底） */
+/* REQ-502：树上操作钮常显（原 hover 显隐退役——可发现性优先） */
 .onto-hier-ops {
   display: inline-flex;
   gap: 2px;
   margin-left: 6px;
-  opacity: 0;
-  visibility: hidden; /* opacity:0 仍命中点击——visibility:hidden 保隐形区域不可误点 */
-  transition: opacity 0.15s ease;
   vertical-align: middle;
-}
-
-.onto-hier-title:hover .onto-hier-ops,
-.onto-hier-ops:focus-within {
-  opacity: 1;
-  visibility: visible;
 }
 
 .onto-hier-op {

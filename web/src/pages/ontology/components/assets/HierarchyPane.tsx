@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AutoComplete, Button, Empty, Form, Input, Modal, Popconfirm, Segmented, Select, Splitter, Tag, Tooltip, Tree, Typography, message } from 'antd'
+import { AutoComplete, Button, Empty, Form, Input, Modal, Popconfirm, Popover, Segmented, Select, Space, Splitter, Table, Tag, Tooltip, Tree, Typography, message } from 'antd'
 import type { DataNode } from 'antd/es/tree'
-import { PlusOutlined } from '@ant-design/icons'
-import type { Ontology, Spec, SpecConcept, SpecDataProperty, SpecInstance, SpecRelation } from '../../../../api/types'
+import { PlusOutlined, RollbackOutlined } from '@ant-design/icons'
+import type { Ontology, Spec, SpecConcept, SpecDataProperty, SpecInstance, SpecRelation, ValidationError } from '../../../../api/types'
 import { api } from '../../../../api/client'
 import './hierarchy.css'
 import RestrictionsEditor from './RestrictionsEditor'
 import { RenameButton } from './RenameButton'
 import InstanceEditPanel from './InstanceEditPanel'
+import { useQualityDigest } from './qualityDigest'
+import { ERR_COLUMNS } from '../../shared'
 
 // ---------------------------------------------------------------------------
 // REQ-363/M163 本体内容层级浏览（Protégé 式树形导航与实体详情）——资产详情「层级浏览」分区。
@@ -665,10 +667,26 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
   const [elemModal, setElemModal] = useState<{ mode: 'create' | 'attach'; parent?: string; concept?: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [form] = Form.useForm()
+  // REQ-502/M310：常驻诊断条（save=false 快评）+元素操作失败结构化明细+回滚入口（快照栈接线）
+  const [digestTick, setDigestTick] = useState(0)
+  const digest = useQualityDigest(ontology.id, digestTick)
+  const [elemErrors, setElemErrors] = useState<ValidationError[] | null>(null)
+  const [ontoVersion, setOntoVersion] = useState<number | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
 
   const propTree = useMemo(() => (spec ? buildPropTree(spec) : { data: [], index: new Map<string, NodeMeta>() }), [spec])
 
   // ---- REQ-448：元素级操作（Validate+版本门禁服务端单源；400 校验明细如实回喂）----
+  const fetchVersion = () => {
+    api
+      .getOntology(ontology.id)
+      .then((o) => setOntoVersion(o.version ?? null))
+      .catch(() => {})
+  }
+  useEffect(() => {
+    fetchVersion()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ontology.id])
   const runElem = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true)
     try {
@@ -676,9 +694,18 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
       message.success(ok)
       setElemModal(null)
       form.resetFields()
+      setElemErrors(null)
+      setDigestTick((t) => t + 1) // REQ-502：保存后自动刷新诊断
+      fetchVersion()
       onSaved?.()
     } catch (e: any) {
-      message.error(e?.message ?? '操作失败（校验明细见响应）')
+      // REQ-502：runElem 失败从一行 toast 改 path+message 结构化明细表（对齐 SpecEditorPane 规格）
+      if (e instanceof Object && 'validationErrors' in e && Array.isArray((e as { validationErrors: unknown }).validationErrors) && (e as { validationErrors: ValidationError[] }).validationErrors.length) {
+        setElemErrors((e as { validationErrors: ValidationError[] }).validationErrors)
+      } else {
+        setElemErrors([{ path: '-', message: e?.message ?? '操作失败' }])
+      }
+      message.error('操作失败——结构化明细见下方表')
     } finally {
       setBusy(false)
     }
@@ -882,6 +909,69 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
           ]}
           data-testid="hierarchy-segment"
         />
+        {/* REQ-502：常驻诊断条——save=false 快评摘要（保存后自动刷新），下钻 Findings */}
+        {digest && (
+          <Popover
+            trigger="click"
+            placement="bottomLeft"
+            title={`质量快评（未保存诊断 · 不落 artifact）——综合 ${digest.score?.overall?.toFixed(1) ?? '—'}`}
+            content={
+              <div style={{ maxWidth: 420 }}>
+                {(digest.findings ?? []).length === 0 ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>无 Findings——全部检查通过。</Typography.Text>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
+                    {(digest.findings ?? []).map((f, i) => (
+                      <div key={i} style={{ fontSize: 12, lineHeight: 1.6 }}>
+                        <Tag color={f.severity === 'error' ? 'red' : f.severity === 'warning' ? 'orange' : 'default'} style={{ margin: 0, fontSize: 10 }}>
+                          {f.severity}
+                        </Tag>
+                        {f.title}{f.count > 1 ? `（×${f.count}）` : ''}
+                        {f.samples && f.samples.length > 0 && (
+                          <Typography.Text type="secondary" style={{ fontSize: 11 }}> — {f.samples.slice(0, 3).join('、')}</Typography.Text>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            }
+          >
+            <span data-testid="hier-quality-digest" style={{ cursor: 'pointer' }}>
+              {digest.error_count > 0 && <Tag color="red" style={{ margin: 0, fontSize: 11 }}>错误 {digest.error_count}</Tag>}
+              {digest.warning_count > 0 && <Tag color="orange" style={{ margin: 0, fontSize: 11 }}>警告 {digest.warning_count}</Tag>}
+              {digest.error_count === 0 && digest.warning_count === 0 && <Tag style={{ margin: 0, fontSize: 11 }}>诊断通过</Tag>}
+            </span>
+          </Popover>
+        )}
+        {/* REQ-502：回滚到上一保存版本（快照栈接线——不新做命令级 undo） */}
+        {ontoVersion != null && ontoVersion > 0 && (
+          <Popconfirm
+            title={`回滚到上一保存版本（v${ontoVersion}）？`}
+            description="指定版本内容将恢复为新版本保存。"
+            okText="回滚"
+            cancelText="取消"
+            onConfirm={async () => {
+              setRollingBack(true)
+              try {
+                await api.restoreOntologyVersion(ontology.id, ontoVersion)
+                message.success(`已从 v${ontoVersion} 恢复为新版本`)
+                setElemErrors(null)
+                setDigestTick((t) => t + 1)
+                fetchVersion()
+                onSaved?.()
+              } catch (e: any) {
+                message.error(e?.message ?? '回滚失败')
+              } finally {
+                setRollingBack(false)
+              }
+            }}
+          >
+            <Tooltip title="回滚到上一保存版本（快照栈）">
+              <Button size="small" type="text" aria-label="回滚到上一保存版本" icon={<RollbackOutlined />} loading={rollingBack} />
+            </Tooltip>
+          </Popconfirm>
+        )}
         {mode === 'prop' && (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
             按 Domain 分组呈现——spec_json 无 subPropertyOf，此为分组形态非语义属性层级（真属性层级 P2）
@@ -949,6 +1039,22 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
           )}
         </Splitter.Panel>
       </Splitter>
+      {/* REQ-502：元素操作失败结构化明细表（path+message——对齐 SpecEditorPane 规格） */}
+      {elemErrors && elemErrors.length > 0 && (
+        <div style={{ marginTop: 10 }} data-testid="hier-elem-errors">
+          <Space size={6} style={{ marginBottom: 4 }}>
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>元素操作失败（{elemErrors.length} 项）</Typography.Text>
+            <Button size="small" type="text" onClick={() => setElemErrors(null)}>收起</Button>
+          </Space>
+          <Table<ValidationError>
+            rowKey={(_, i) => `${i}`}
+            columns={ERR_COLUMNS}
+            dataSource={elemErrors}
+            pagination={false}
+            size="small"
+          />
+        </div>
+      )}
       {/* REQ-448：新建（挂选定父/根）与挂父 Modal——走元素端点 kind=concept（presence 语义只传 parents 即改父集） */}
       <Modal
         open={!!elemModal}
