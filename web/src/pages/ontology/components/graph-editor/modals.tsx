@@ -1,5 +1,5 @@
-import { Form, Input, InputNumber, Modal, Radio, Select, Switch, DatePicker, Tag, Typography } from 'antd'
-import { useMemo } from 'react'
+import { Button, Form, Input, InputNumber, Modal, Radio, Select, Switch, DatePicker, Tag, Typography } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormInstance } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { Spec, SpecConcept, SpecDataProperty } from '../../../../api/types'
@@ -76,6 +76,15 @@ export function ConnectModal({
   /** REQ-460/M260：已声明关系类型清单——连线/实例断言关系名受控枚举（防绕过声明层产生声明外关系名）。 */
   declaredRelations: string[]
 }) {
+  // REQ-506/M314：就地声明模式——declaredRelations 为空时默认开启（消跨分区两次表单）；
+  // 非空时经「就地声明新关系」次级链接切换。声明即连线（applyConnect 落 relations+saveSpec 同管线）。
+  const [inlineDeclare, setInlineDeclare] = useState(declaredRelations.length === 0)
+  const inlineActive = inlineDeclare || declaredRelations.length === 0
+  // 每次新连线打开时按当前声明态重置（组件常驻挂载——useState 初始值不随重开刷新）
+  useEffect(() => {
+    if (connDraft) setInlineDeclare(declaredRelations.length === 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- connDraft 起止变化即重置
+  }, [connDraft?.source, connDraft?.target])
   return (
     <Modal
       title={
@@ -111,23 +120,37 @@ export function ConnectModal({
         {connDraft?.kind === 'relation' && (
           <>
             {/* REQ-460/M260：关系名枚举已声明关系类型（声明为空引导先去「关系与属性」声明） */}
-            <Form.Item name="relName" label="关系名（已声明关系类型）" rules={[{ required: true, message: '请选择已声明的关系类型' }]}>
-              {declaredRelations.length > 0 ? (
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="选择已声明的关系类型"
-                  options={declaredRelations.map((r) => ({ value: r, label: r }))}
-                />
-              ) : (
-                <Select
-                  placeholder="暂无已声明关系类型——请先到「关系与属性」声明"
-                  options={[]}
-                  open={false}
-                  suffixIcon={<Typography.Text type="secondary" style={{ fontSize: 12 }}>先声明</Typography.Text>}
-                />
-              )}
-            </Form.Item>
+            {inlineActive ? (
+              <>
+                {/* REQ-506/M314：就地声明（关系名+域+值域——域/值域即连线起止节点，声明成功回连线流不丢） */}
+                <Form.Item name="relName" label="新关系名（就地声明——连线即声明，域/值域取起止节点）" rules={[{ required: true, message: '请输入关系名' }]}>
+                  <Input placeholder="如 下单人" data-testid="connect-inline-relname" />
+                </Form.Item>
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                  域 = {connDraft?.source} · 值域 = {connDraft?.target}（同一 Spec.Validate 管线，保存时校验）
+                </Typography.Text>
+                {declaredRelations.length > 0 && (
+                  <Button size="small" type="link" style={{ padding: 0, marginBottom: 6 }} onClick={() => setInlineDeclare(false)}>
+                    改从已声明关系类型选择
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Form.Item name="relName" label="关系名（已声明关系类型）" rules={[{ required: true, message: '请选择关系类型' }]}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="选择已声明的关系类型"
+                    options={declaredRelations.map((r) => ({ value: r, label: r }))}
+                  />
+                </Form.Item>
+                {/* REQ-506/M314：「去关系与属性分区」降为次要链接——就地声明为主路径 */}
+                <Button size="small" type="link" style={{ padding: 0, marginBottom: 6 }} data-testid="connect-inline-toggle" onClick={() => { setInlineDeclare(true); form.setFieldValue('relName', undefined) }}>
+                  就地声明新关系类型
+                </Button>
+              </>
+            )}
             <Form.Item name="relLabel" label="显示名（可选）">
               <Input placeholder="如 引用" />
             </Form.Item>
@@ -144,8 +167,7 @@ export function ConnectModal({
               实例间关系（记录在 {instNameOf(connDraft.source)} 的 relations 上，指向 {instNameOf(connDraft.target)}）。
             </Typography.Text>
             {/* REQ-460/M260：实例关系断言关系名同样受控（枚举已声明关系类型） */}
-            <Form.Item name="relName" label="关系名（对应概念层已声明关系）" rules={[{ required: true, message: '请选择已声明的关系类型' }]}>
-              {declaredRelations.length > 0 ? (
+              {declaredRelations.length > 0 && !inlineActive ? (
                 <Select
                   showSearch
                   optionFilterProp="label"
@@ -153,14 +175,11 @@ export function ConnectModal({
                   options={declaredRelations.map((r) => ({ value: r, label: r }))}
                 />
               ) : (
-                <Select
-                  placeholder="暂无已声明关系类型——请先声明概念层关系"
-                  options={[]}
-                  open={false}
-                  suffixIcon={<Typography.Text type="secondary" style={{ fontSize: 12 }}>先声明</Typography.Text>}
+                <Input
+                  placeholder="暂无已声明关系类型——可直接输入新关系名（就地声明）"
+                  data-testid="connect-inline-relname-inst"
                 />
               )}
-            </Form.Item>
           </>
         )}
       </Form>
