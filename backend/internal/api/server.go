@@ -306,6 +306,12 @@ func (s *Server) routes() {
 	// Conversations
 	m.HandleFunc("GET /api/conversations", s.listConversations)
 	m.HandleFunc("POST /api/conversations", s.createConversation)
+	// REQ-548/M355：工作区领域容器（Q-24 分层批①——创建时默认值实体；对话归属 workspace_id 互斥 project_id）
+	m.HandleFunc("GET /api/workspaces", s.listWorkspaces)
+	m.HandleFunc("POST /api/workspaces", s.createWorkspace)
+	m.HandleFunc("GET /api/workspaces/{id}", s.getWorkspace)
+	m.HandleFunc("PUT /api/workspaces/{id}", s.updateWorkspace)
+	m.HandleFunc("DELETE /api/workspaces/{id}", s.deleteWorkspace)
 	m.HandleFunc("GET /api/conversations/{id}", s.getConversation)
 	m.HandleFunc("PUT /api/conversations/{id}", s.updateConversation)
 	m.HandleFunc("DELETE /api/conversations/{id}", s.deleteConversation)

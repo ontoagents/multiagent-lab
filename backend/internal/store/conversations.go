@@ -7,11 +7,11 @@ import (
 
 func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error) {
 	var c Conversation
-	var agentID, projectID, kbID, profileID sql.NullString
+	var agentID, projectID, workspaceID, kbID, profileID sql.NullString
 	var enableKB, ontoEnabled, enableSkills int
 	var toolApproval, modelConnID sql.NullString
 	var compOntologyID, contextMode string
-	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode)
+	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &workspaceID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode)
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +34,9 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	if projectID.Valid {
 		c.ProjectID = &projectID.String
 	}
+	if workspaceID.Valid {
+		c.WorkspaceID = &workspaceID.String
+	}
 	if kbID.Valid {
 		c.KBID = &kbID.String
 	}
@@ -47,13 +50,14 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	return &c, nil
 }
 
-const convCols = `id,scope,agent_id,project_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode`
+const convCols = `id,scope,agent_id,project_id,workspace_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode`
 
 // ConversationFilter 会话列表过滤。
 type ConversationFilter struct {
-	Scope     string
-	AgentID   string
-	ProjectID string
+	Scope       string
+	AgentID     string
+	ProjectID   string
+	WorkspaceID string // REQ-548/M355：工作区归属过滤（工作区树按归属列会话）
 }
 
 // ListConversations 按过滤条件列出对话。
@@ -71,6 +75,10 @@ func (s *Store) ListConversations(f ConversationFilter) ([]*Conversation, error)
 	if f.ProjectID != "" {
 		q += ` AND project_id = ?`
 		args = append(args, f.ProjectID)
+	}
+	if f.WorkspaceID != "" {
+		q += ` AND workspace_id = ?`
+		args = append(args, f.WorkspaceID)
 	}
 	q += ` ORDER BY updated_at DESC, id`
 	rows, err := s.DB.Query(q, args...)
@@ -113,6 +121,11 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 	if c.Scope == "project" && (c.ProjectID == nil || *c.ProjectID == "") {
 		return nil, &HTTPError{Status: 400, Msg: "project_id required for scope=project"}
 	}
+	// REQ-548/M355：project_id/workspace_id 互斥校验（应用层补位——scope CHECK 不动 SQLite 无法
+	// ALTER 实测坐实；本函数为唯一写入口，单点守卫覆盖）
+	if c.ProjectID != nil && *c.ProjectID != "" && c.WorkspaceID != nil && *c.WorkspaceID != "" {
+		return nil, &HTTPError{Status: 400, Msg: "project_id and workspace_id are mutually exclusive"}
+	}
 	if c.Title == "" {
 		c.Title = "新对话"
 	}
@@ -147,8 +160,30 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 		compOID = &empty
 	}
 	c.CompanionOntologyID = compOID
-	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Scope, c.AgentID, c.ProjectID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride)
+	// REQ-548/M355：工作区归属与创建时继承（写时复制——106 号 §三）。互斥通过后：
+	// 工作区不存在→400（FK 也会拒绝，显式人话）；KB/方案默认值在默认值填充段一次写入会话行，
+	// 运行期装配链/recallKB 单库门禁/retrieval 事件契约零改动。优先级：请求显式参数 > 工作区默认 > 零值
+	// （前端建会话从不带 kb_id/profile——显式位为前向兼容，106 号 obj-6 如实标注）。
+	// 方案存在性不在 store 层校验（runtime-manager 独立库）——失效走既有 ontology.unavailable 单次降级。
+	if c.WorkspaceID != nil && *c.WorkspaceID != "" {
+		ws, werr := s.GetWorkspace(*c.WorkspaceID)
+		if werr != nil {
+			return nil, &HTTPError{Status: 400, Msg: "workspace not found"}
+		}
+		if c.KBID == nil && ws.DefaultKBID != "" {
+			if _, kerr := s.GetKnowledgeBase(ws.DefaultKBID); kerr == nil {
+				c.KBID = &ws.DefaultKBID
+				c.EnableKB = true // 默认库继承即启用召回（否则默认库无意义）；建后 chip 关闭走 patchConv 正常关闭
+			}
+			// 默认库已删（config 列无 FK）：静默回落零值——与手动新建无异（106 号降级口径）
+		}
+		if c.RuntimeProfileID == nil && ws.DefaultProfileID != "" {
+			c.RuntimeProfileID = &ws.DefaultProfileID
+			c.OntologyEnabled = true
+		}
+	}
+	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Scope, c.AgentID, c.ProjectID, c.WorkspaceID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride)
 	if err != nil {
 		return nil, err
 	}

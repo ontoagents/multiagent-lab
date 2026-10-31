@@ -14,9 +14,10 @@ import (
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	convs, err := s.Store.ListConversations(store.ConversationFilter{
-		Scope:     q.Get("scope"),
-		AgentID:   q.Get("agent_id"),
-		ProjectID: q.Get("project_id"),
+		Scope:       q.Get("scope"),
+		AgentID:     q.Get("agent_id"),
+		ProjectID:   q.Get("project_id"),
+		WorkspaceID: q.Get("workspace_id"),
 	})
 	if err != nil {
 		writeErr(w, err)

@@ -153,12 +153,29 @@ type Project struct {
 	UpdatedAt    string   `json:"updated_at"`
 }
 
+// Workspace 工作区领域容器（REQ-548/M355，Q-24 实体反转——项目之上的新领域实体，项目保留执行层）。
+// config 引用列（default_kb_id/default_profile_id/default_agent_id）裸 TEXT 无 FK（106 号 mustFix-4：
+// 失效兜底=ResolveConvDefaults 求值校验，方案走 ontology.unavailable 降级路径）。
+type Workspace struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	DefaultKBID      string `json:"default_kb_id"`
+	DefaultProfileID string `json:"default_profile_id"`
+	DefaultAgentID   string `json:"default_agent_id"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
 // Conversation 对话（scope=agent 直聊 / scope=project 项目对话）。
+// WorkspaceID 工作区归属（REQ-548/M355：NULL=无归属存量行为不变；REFERENCES workspace SET NULL；
+// 与 ProjectID 互斥——store 层应用校验补位，scope CHECK 不动 SQLite 无法 ALTER）。
 type Conversation struct {
 	ID               string  `json:"id"`
 	Scope            string  `json:"scope"`
 	AgentID          *string `json:"agent_id"`
 	ProjectID        *string `json:"project_id"`
+	WorkspaceID      *string `json:"workspace_id"`
 	Title            string  `json:"title"`
 	KBID             *string `json:"kb_id"`
 	EnableKB         bool    `json:"enable_kb"`
