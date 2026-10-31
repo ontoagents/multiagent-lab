@@ -632,6 +632,8 @@ export interface SpecConcept {
   name: string
   label?: string
   definition?: string
+  /** REQ-510/M318：建模备注（skos:note 导出） */
+  note?: string
   parents?: string[]
   /** REQ-419/M215：同义词（TBox 一等公民——SKOS altLabel 导入捕获回写/手动编辑；check_answerable 命中面） */
   synonyms?: string[]
@@ -651,6 +653,8 @@ export interface SpecRelation {
   characteristics?: string[]
   /** REQ-473/M273：逆属性（引用 relations.name；TTL 导出 owl:inverseOf） */
   inverse_of?: string
+  /** REQ-510/M318：建模备注（skos:note 导出） */
+  note?: string
 }
 
 /** Spec 实例关系 */

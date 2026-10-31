@@ -357,6 +357,9 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		if synonymsPresent {
 			target.Synonyms = synonyms // REQ-419：同义词（TBox 一等公民）
 		}
+		if note, hasNote := body.str("note"); hasNote {
+			target.Note = note // REQ-510/M318：建模备注（skos:note 导出）
+		}
 		if restrictionsPresent {
 			target.Restrictions = restrictions // REQ-472/M272：限制公理整组替换（编辑面承载）
 		}
@@ -403,6 +406,9 @@ func applyElementUpsert(kind string, body elementBody, name string, sp *pkgspec.
 		}
 		if hasDefinition {
 			target.Definition = definition
+		}
+		if note, hasNote := body.str("note"); hasNote {
+			target.Note = note // REQ-510/M318：建模备注（skos:note 导出）
 		}
 		if hasEvidence {
 			target.Evidence = evidence

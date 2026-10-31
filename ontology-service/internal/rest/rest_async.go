@@ -22,20 +22,20 @@ import (
 )
 
 type draftJob struct {
-	ID        string                 `json:"id"`
-	Status    string                 `json:"status"`             // running | done | failed
-	Progress  string                 `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
-	Result    *draftResult           `json:"result,omitempty"`
-	CQs       []ontochat.ExtractedCQ `json:"cqs,omitempty"`    // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
-	Dedup     int                    `json:"dedup,omitempty"`  // REQ-308：与既有 CQ 重复被滤除条数
-	Purify    *ontochat.PurifyStats  `json:"purify,omitempty"` // REQ-342/OC-1：净化统计（拆分/抽象率）
-	RAG       *cqragDraftResult      `json:"rag,omitempty"`    // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
-	Concepts  []ontochat.ConceptCandidate `json:"concepts,omitempty"` // REQ-508：概念停车场铺候选 job 结果（ai-concept-park）
-	Topic     string                 `json:"topic,omitempty"`                  // REQ-508：建议本体名
-	Truncated int                    `json:"truncated,omitempty"`              // REQ-508：超上限/重复被滤条数
-	Diagnose  *diagnoseResult        `json:"diagnose,omitempty"` // REQ-207 余项：进化诊断→归因→补丁候选 job 结果
-	Error     string                 `json:"error,omitempty"`
-	CreatedAt time.Time              `json:"created_at"`
+	ID        string                      `json:"id"`
+	Status    string                      `json:"status"`             // running | done | failed
+	Progress  string                      `json:"progress,omitempty"` // REQ-295③（A4）：服务端实测计数进度（轮次/问题数，永不虚构百分比与 ETA）
+	Result    *draftResult                `json:"result,omitempty"`
+	CQs       []ontochat.ExtractedCQ      `json:"cqs,omitempty"`       // REQ-308：CQ 抽取 job 结果（ai-cq-extract）
+	Dedup     int                         `json:"dedup,omitempty"`     // REQ-308：与既有 CQ 重复被滤除条数
+	Purify    *ontochat.PurifyStats       `json:"purify,omitempty"`    // REQ-342/OC-1：净化统计（拆分/抽象率）
+	RAG       *cqragDraftResult           `json:"rag,omitempty"`       // REQ-343：CQ 驱动扩展 job 结果（cqrag/draft）
+	Concepts  []ontochat.ConceptCandidate `json:"concepts,omitempty"`  // REQ-508：概念停车场铺候选 job 结果（ai-concept-park）
+	Topic     string                      `json:"topic,omitempty"`     // REQ-508：建议本体名
+	Truncated int                         `json:"truncated,omitempty"` // REQ-508：超上限/重复被滤条数
+	Diagnose  *diagnoseResult             `json:"diagnose,omitempty"`  // REQ-207 余项：进化诊断→归因→补丁候选 job 结果
+	Error     string                      `json:"error,omitempty"`
+	CreatedAt time.Time                   `json:"created_at"`
 }
 
 type draftResult struct {

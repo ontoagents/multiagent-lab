@@ -214,6 +214,13 @@ def parse(format: str) -> int:
         comment = definition_of(g, c)
         if comment:
             concept["definition"] = comment
+        # REQ-510/M318：skos:note 捕获回写（建模备注 round-trip 读侧对偶——导出端 note→skos:note）
+        note = None
+        for n in g.objects(c, SKOS.note):
+            note = str(n).strip()
+            break
+        if note:
+            concept["note"] = note
         for cm_pred in (RDFS.comment, SKOS.definition):
             for cm in g.objects(c, cm_pred):
                 mark((c, cm_pred, cm))
@@ -695,8 +702,11 @@ def export(argv) -> int:
     L.append('@prefix owl: <http://www.w3.org/2002/07/owl#> .')
     # REQ-479：skos 前缀条件性扩容（同义词或 alignment 桥存在时引入，与 Go 口径一致——
     # 无同义词无桥的存量输出零变化）
+    # REQ-510/M318：note 建模备注也触发 skos 前缀（skos:note 导出承载）
     if any((c.get("synonyms") or []) for c in (spec.get("concepts") or [])) or any(
-            r.get("ref_kind") == "alignment" for r in xrefs):
+            r.get("ref_kind") == "alignment" for r in xrefs) or any(
+            (c.get("note") or "") for c in (spec.get("concepts") or [])) or any(
+            (r.get("note") or "") for r in (spec.get("relations") or [])):
         L.append('@prefix skos: <http://www.w3.org/2004/02/skos/core#> .')
     L.append('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .')
     L.append('')
@@ -716,6 +726,9 @@ def export(argv) -> int:
         L.append(f'<{u}> rdf:type owl:Class ; rdfs:label "{esc(c["name"])}"')
         if c.get("definition"):
             L[-1] += f' ;\n    rdfs:comment "{esc(c["definition"])}"'
+        # REQ-510/M318：建模备注导出 skos:note（与导入捕获 round-trip）
+        if c.get("note"):
+            L[-1] += f' ;\n    skos:note "{esc(c["note"])}"'
         # REQ-474/M274：展示名 rdfs:label 导出（同值不重复出——与 Go 导出器对拍口径一致）
         if c.get("label") and c["label"] != c["name"]:
             L[-1] += f' ;\n    rdfs:label "{esc(c["label"])}"'
@@ -730,6 +743,9 @@ def export(argv) -> int:
         L.append(f'<{u}> rdf:type owl:ObjectProperty ; rdfs:label "{esc(r["name"])}"')
         if r.get("definition"):
             L[-1] += f' ;\n    rdfs:comment "{esc(r["definition"])}"'
+        # REQ-510/M318：建模备注导出 skos:note
+        if r.get("note"):
+            L[-1] += f' ;\n    skos:note "{esc(r["note"])}"'
         if r.get("label") and r["label"] != r["name"]:
             L[-1] += f' ;\n    rdfs:label "{esc(r["label"])}"'
         if r.get("from"):

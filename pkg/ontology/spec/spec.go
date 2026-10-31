@@ -22,6 +22,9 @@ type Concept struct {
 	// 命中；来源=SKOS altLabel 导入捕获回写/手动编辑/spec_concept_upsert；消费=check_answerable
 	// 预检匹配〔沿 altLabel 经 TTL 导出进引擎〕）。dtype 保持轻：纯词表无元属性。
 	Synonyms []string `json:"synonyms,omitempty"`
+	// Note 建模备注（REQ-510/M318：元素级建模决策记录——随 spec_json 版本留痕；
+	// TTL 导出为 skos:note〔sidecar 承载〕；LLM 生成面不扩——人工编辑承载）。
+	Note string `json:"note,omitempty"`
 	// Restrictions 匿名限制公理承载（REQ-376①/M172 详设拍板子集五型）——自「丢弃入余量账本
 	// +warning」升档为建模面保留层。承载路径=人工 spec 编辑+TTL 导入导出 round-trip（Go 读入端
 	// REQ-378 对偶）；LLM 生成面不扩（SpecRulesPrompt/SchemaHint 不含 restrictions——77 号
@@ -58,6 +61,8 @@ type Relation struct {
 	To             string   `json:"to"`   // 值域概念名
 	Evidence       string   `json:"evidence,omitempty"`
 	Characteristics []string `json:"characteristics,omitempty"`
+	// Note 建模备注（REQ-510/M318：同 Concept.Note——skos:note 导出）
+	Note string `json:"note,omitempty"`
 	InverseOf      string   `json:"inverse_of,omitempty"`
 }
 

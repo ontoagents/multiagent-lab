@@ -287,3 +287,40 @@ func TestTTLRelationCharacteristicsRoundTrip_Req473(t *testing.T) {
 		t.Fatalf("同驻特性/逆属性还原不符: %+v", cohost)
 	}
 }
+
+// REQ-510/M318：建模备注 round-trip——spec.Note 导出 skos:note、读入 noteT 捕获回写
+//（概念+关系双侧；sidecar.py 导出层同口径已接）。
+func TestTTLNoteRoundTrip_Req510(t *testing.T) {
+	sp := &pkgspec.Spec{
+		Name:      "note",
+		Concepts:  []pkgspec.Concept{{Name: "订单", Note: "订单状态机待评审——决策记录 2026-10"}},
+		Relations: []pkgspec.Relation{{Name: "下单人", From: "订单", To: "客户", Note: "查询主体判据命中——由属性升格关系"}},
+	}
+	ttl, _, err := TTLGoExport("o1", sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ttl, `skos:note "订单状态机待评审`) || !strings.Contains(ttl, `skos:note "查询主体判据命中`) {
+		t.Fatalf("导出应含 skos:note: %s", ttl)
+	}
+	res, err := ReadTurtleSpec(ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 客户 系关系值域引用被导入器合成为裸概念（标准行为）——概念数 2
+	if len(res.Spec.Concepts) != 2 || len(res.Spec.Relations) != 1 {
+		t.Fatalf("元素数不符: %d/%d", len(res.Spec.Concepts), len(res.Spec.Relations))
+	}
+	var ord pkgspec.Concept
+	for _, c := range res.Spec.Concepts {
+		if c.Name == "订单" {
+			ord = c
+		}
+	}
+	if ord.Note != sp.Concepts[0].Note {
+		t.Fatalf("概念备注回写不符: %q", ord.Note)
+	}
+	if res.Spec.Relations[0].Note != sp.Relations[0].Note {
+		t.Fatalf("关系备注回写不符: %q", res.Spec.Relations[0].Note)
+	}
+}

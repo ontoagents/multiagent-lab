@@ -5,11 +5,11 @@ package rest
 import (
 	"context"
 	"encoding/csv"
-	"log"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -233,7 +233,7 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[external-refs] imports 自动登记跳过 %s: %v", iri, er)
 		}
 	}
-	pv.ImportReport = imp                     // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
+	pv.ImportReport = imp // REQ-235/H5：应用后报告随结果透出（lossy 补录动线入口）
 	writeJSON(w, http.StatusOK, map[string]any{"applied": true, "version": v, "preview": pv,
 		"overlays_applied": applied, "overlays_skipped": skipped, "notes": notes})
 }
@@ -1199,7 +1199,6 @@ func (s *Server) buildflowTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // importsOf 导入报告的外引 imports 清单（nil 安全——spec 直传形态无导入报告）。
 func importsOf(imp *importer.Report) []string {

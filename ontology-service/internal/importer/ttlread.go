@@ -605,6 +605,7 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 	prefLabelT := ttlTerm{Kind: "iri", Value: nsSKOS + "prefLabel"}
 	altLabelT := ttlTerm{Kind: "iri", Value: nsSKOS + "altLabel"}
 	definitionT := ttlTerm{Kind: "iri", Value: nsSKOS + "definition"}
+	noteT := ttlTerm{Kind: "iri", Value: nsSKOS + "note"} // REQ-510/M318：建模备注读侧捕获
 	domainT := ttlTerm{Kind: "iri", Value: nsRDFS + "domain"}
 	rangeT := ttlTerm{Kind: "iri", Value: nsRDFS + "range"}
 	broaderT := ttlTerm{Kind: "iri", Value: nsSKOS + "broader"}
@@ -737,6 +738,15 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		if d := defOf(t); d != "" {
 			c.Definition = d
 		}
+		// REQ-510/M318：skos:note 捕获回写（建模备注 round-trip 读侧对偶）
+		for _, o := range objs(t, noteT) {
+			if o.Kind == "literal" {
+				if v := strings.TrimSpace(o.Value); v != "" {
+					c.Note = v
+					break
+				}
+			}
+		}
 		concepts = append(concepts, c)
 	}
 	// 第二轮：parents（subClassOf + skos:broader / narrower 反向；仅注册内目标）
@@ -809,6 +819,15 @@ func ReadTurtleSpec(src string) (*TTLReadResult, error) {
 		rel := pkgspec.Relation{Name: name, Evidence: "declared"}
 		if d := defOf(t); d != "" {
 			rel.Definition = d
+		}
+		// REQ-510/M318：关系 skos:note 捕获（建模备注 round-trip）
+		for _, o := range objs(t, noteT) {
+			if o.Kind == "literal" {
+				if v := strings.TrimSpace(o.Value); v != "" {
+					rel.Note = v
+					break
+				}
+			}
 		}
 		doms := objs(t, domainT)
 		rngs := objs(t, rangeT)

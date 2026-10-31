@@ -10,6 +10,7 @@ import { RenameButton } from './RenameButton'
 import InstanceEditPanel from './InstanceEditPanel'
 import NameSuggestInput, { type VocabPick } from '../NameSuggestInput'
 import WhyHint from '../WhyHint'
+import NoteEditField from '../NoteEditField'
 import { useQualityDigest } from './qualityDigest'
 import { ERR_COLUMNS } from '../../shared'
 
@@ -410,6 +411,25 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
         <>
           {secTitle('定义')}
           <p className={`onto-hier-def${c.definition ? '' : ' muted'}`}>{c.definition || '未填写定义'}</p>
+          {onChanged && (
+            <>
+              {/* REQ-510/M318：建模备注（元素级决策记录——随 spec_json 版本留痕+skos:note 导出） */}
+              {secTitle('建模备注')}
+              <NoteEditField
+                initialValue={c.note ?? ''}
+                onSave={(text) => {
+                  api
+                    .elementUpsert(ontology.id, 'concept', { name: c.name, note: text })
+                    .then(() => {
+                      message.success(`建模备注已保存（${c.name}）`)
+                      onChanged?.()
+                    })
+                    .catch((e: any) => message.error(e?.message ?? '备注保存失败'))
+                }}
+                testid={`hier-note-${c.name}`}
+              />
+            </>
+          )}
           <div className="onto-hier-row">
             <span className="onto-hier-label">父概念</span>
             <span>

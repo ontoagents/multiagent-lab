@@ -238,10 +238,18 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (str
 	// REQ-419：skos 前缀条件性——仅存在同义词时引入（TTLGoExport 与 sidecar 字节级对拍锁，
 	// 无同义词的存量 spec 输出必须零变化）。REQ-479：alignment 桥存在时同条件引入。
 	hasSynonyms := false
+	hasNote := false // REQ-510/M318：建模备注 skos:note 导出（sidecar 口径对偶）
 	for _, c := range sp.Concepts {
 		if len(c.Synonyms) > 0 {
 			hasSynonyms = true
-			break
+		}
+		if c.Note != "" {
+			hasNote = true
+		}
+	}
+	for _, r := range sp.Relations {
+		if r.Note != "" {
+			hasNote = true
 		}
 	}
 	L := make([]string, 0, 16+len(sp.Concepts)+len(sp.Relations)+len(sp.DataProperties)+len(sp.Axioms)+len(sp.Instances))
@@ -251,7 +259,7 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (str
 		"@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
 		"@prefix owl: <http://www.w3.org/2002/07/owl#> .",
 	}
-	if hasSynonyms || bridge.hasAlign {
+	if hasSynonyms || hasNote || bridge.hasAlign {
 		prefixes = append(prefixes, "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .")
 	}
 	prefixes = append(prefixes, "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .", "")
@@ -303,6 +311,11 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (str
 			line += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(c.Definition))
 			n++
 		}
+		// REQ-510/M318：建模备注 skos:note 写出（round-trip 写出端——读入端 noteT 捕获对偶）
+		if c.Note != "" {
+			line += fmt.Sprintf(" ;\n    skos:note \"%s\"", esc(c.Note))
+			n++
+		}
 		for _, p := range c.Parents {
 			line += fmt.Sprintf(" ;\n    rdfs:subClassOf <%s>", w.concept(p))
 			n++
@@ -348,6 +361,11 @@ func TTLGoExport(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (str
 		n += 2 // 头部 = rdf:type + rdfs:label 两条
 		if r.Definition != "" {
 			line += fmt.Sprintf(" ;\n    rdfs:comment \"%s\"", esc(r.Definition))
+			n++
+		}
+		// REQ-510/M318：建模备注 skos:note 写出（读入端 noteT 捕获对偶）
+		if r.Note != "" {
+			line += fmt.Sprintf(" ;\n    skos:note \"%s\"", esc(r.Note))
 			n++
 		}
 		// REQ-474/M274：关系展示名 rdfs:label 导出（同值不重复出）
