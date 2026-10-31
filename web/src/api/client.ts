@@ -586,6 +586,9 @@ export const api = {
     req<MergePreview>(`/api/ontologies/${id}/merge/preview`, { method: 'POST', body: JSON.stringify(body) }),
   mergeApply: (id: string, body: MergeIngest) =>
     req<{ applied: boolean; version: number; preview: MergePreview }>(`/api/ontologies/${id}/merge/apply`, { method: 'POST', body: JSON.stringify(body) }),
+  // REQ-511/M319 导入向导「引用」复用语义——owl:imports 目标登记 external_refs（不改原文件）
+  registerExternalRefsFromImport: (id: string, body: { filename: string; content: string }) =>
+    req<{ registered: number; skipped: number; iris: string[]; skipped_iris: string[]; note?: string }>(`/api/ontologies/${id}/external-refs/from-import`, { method: 'POST', body: JSON.stringify(body) }),
   // ---- REQ-155/M-O15 阶段二：方案生命周期 ----
   lifecyclePlan: () => req<LifecyclePlan>('/api/ontology/lifecycle/plan'),
   lifecycleApply: (actions: LifecycleAction[]) =>

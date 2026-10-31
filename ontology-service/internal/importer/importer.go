@@ -3,12 +3,12 @@
 package importer
 
 import (
-	"regexp"
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os/exec"
+	"regexp"
 
 	"strings"
 
@@ -479,8 +479,8 @@ func CanonicalTTL(sc *Sidecar, format, content string) (string, int, error) {
 }
 
 // Materialize REQ-481/M281 装载期跨本体推理物化：stdin TTL 全集并置 → sidecar materialize
-//（owlrl OWL 2 RL 数据级闭包，axiomatic 词汇不入输出）→ 仅推断三元组 Turtle + TRIPLES 精确计数
-//（owlrl 未安装 exit 3 → 显式错误，运行平面降级跳过不阻断装载）。
+// （owlrl OWL 2 RL 数据级闭包，axiomatic 词汇不入输出）→ 仅推断三元组 Turtle + TRIPLES 精确计数
+// （owlrl 未安装 exit 3 → 显式错误，运行平面降级跳过不阻断装载）。
 func Materialize(sc *Sidecar, format, content string) (string, int, error) {
 	if sc == nil || sc.Python == "" || sc.Script == "" {
 		return "", -1, fmt.Errorf("sidecar 未配置（SIDECAR_PYTHON / SIDECAR_SCRIPT）")
@@ -521,11 +521,16 @@ func ExportTTLCount(ontologyID string, sp *pkgspec.Spec, refs ...ExtRefBridge) (
 
 func (r *Report) warn(s string) { r.Warnings = append(r.Warnings, s) }
 
-
 // detectExternalImports 文本级提取 owl:imports 目标（REQ-262/M256 装载侧解析登记源）：
 // Turtle 形态 `owl:imports <IRI>`（含 `a owl:Ontology` 头部声明）与 RDF/XML 形态
 // `owl:imports` 元素 rdf:resource 属性；纯文本正则零 sidecar 改动（误报面=注释行，可接受——
 // 登记态可手动摘除）。去重保序。
+// DetectExternalImports REQ-511/M319：导出包装（导入向导「引用」复用语义端点消费——
+// 上传文件文本级提取 owl:imports 目标 IRI；与 mergeApply 装载侧自动登记同源）。
+func DetectExternalImports(content string) []string {
+	return detectExternalImports(content)
+}
+
 func detectExternalImports(content string) []string {
 	var out []string
 	seen := map[string]bool{}

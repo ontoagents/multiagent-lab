@@ -6,12 +6,16 @@ import { api } from '../../../../api/client'
 import type { MergePreview } from '../../../../api/client'
 
 // ---------------------------------------------------------------------------
-// REQ-157/M-O15 导入审查向导（OrionBelt 模式）：外部本体文件并入既有本体的受控流程——
-//   ① 选择文件与合并策略（replace=导入版整体替换冲突实体 / merge-overwrite=字段级覆盖 /
+// REQ-157/M-O15 导入审查向导（OrionBelt 模式）：外部本体文件接入既有本体的受控流程——
+//   ① 复用语义二选一（REQ-511/M319）：「并入」（吸收进本本体，走下方三策略）vs
+//      「引用」（owl:imports/external_refs 登记，不改原文件——吃 REQ-479~482 装载闭包/
+//      查询归因下游收益，登记态复用 ExternalRefsPane）；并入路径再选合并策略
+//      （replace=导入版整体替换冲突实体 / merge-overwrite=字段级覆盖 /
 //      merge=保留现行+导入实体前缀重命名并入【增量消歧】）→ 冲突预览；
 //   ② 字段级冲突报告 + 新增清单 + 现行 vs 合并结果全文 diff（react-diff-viewer-continued 复用 M22 A3）；
-//   ③ 应用（结构校验 + strict 门禁，M-O15）→ 版本快照 vN+1。
-// 复杂语义合并明确不做（26 号方案 §8-3）。
+//      引用路径跳过冲突审查直达登记结果；
+//   ③ 应用（结构校验 + strict 门禁，M-O15）→ 版本快照 vN+1；引用路径零版本快照（spec 零变更）。
+// 复杂语义合并明确不做（26 号方案 §8-3）；引用语义与「并入」互斥二选一（REQ-511）。
 // ---------------------------------------------------------------------------
 
 const STRATEGY_META: Record<string, { label: string; desc: string }> = {
@@ -40,6 +44,9 @@ export default function ImportMergeWizard({
   const [step, setStep] = useState(0)
   const [filename, setFilename] = useState('')
   const [content, setContent] = useState('')
+  // REQ-511/M319：复用语义（引用=登记 external_refs 不改原文件；并入=既有合并流程，默认维持存量行为）
+  const [reuseSem, setReuseSem] = useState<'merge' | 'reference'>('merge')
+  const [refResult, setRefResult] = useState<{ registered: number; skipped: number; iris: string[]; skipped_iris: string[]; note?: string } | null>(null)
   const [strategy, setStrategy] = useState<string>('merge-overwrite')
   const [prefix, setPrefix] = useState('ext')
   const [preview, setPreview] = useState<MergePreview | null>(null)
@@ -51,6 +58,8 @@ export default function ImportMergeWizard({
     setStep(0)
     setFilename('')
     setContent('')
+    setReuseSem('merge')
+    setRefResult(null)
     setPreview(null)
     setErr(null)
     setAppliedVersion(null)
@@ -80,6 +89,24 @@ export default function ImportMergeWizard({
         setStep(1)
       })
       .catch((e: any) => setErr(e?.message ?? '冲突预览失败'))
+      .finally(() => setBusy(false))
+  }
+
+  // REQ-511/M319：引用语义登记——owl:imports 目标落 external_refs（幂等；零版本快照）
+  const doRegisterRef = () => {
+    if (!content.trim()) {
+      setErr('请先选择外部本体文件')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    api
+      .registerExternalRefsFromImport(ontologyId, { filename, content })
+      .then((r) => {
+        setRefResult(r)
+        setStep(2)
+      })
+      .catch((e: any) => setErr(e?.message ?? '引用登记失败'))
       .finally(() => setBusy(false))
   }
 
@@ -139,7 +166,7 @@ export default function ImportMergeWizard({
         size="small"
         current={step}
         style={{ marginBottom: 14 }}
-        items={[{ title: '文件与策略' }, { title: '冲突审查' }, { title: '应用' }]}
+        items={reuseSem === 'reference' ? [{ title: '文件与引用' }, { title: '登记结果' }] : [{ title: '文件与策略' }, { title: '冲突审查' }, { title: '应用' }]}
       />
       {err && <Alert type="error" showIcon style={{ marginBottom: 10 }} title="操作失败" description={err} closable onClose={() => setErr(null)} />}
 
@@ -171,30 +198,60 @@ export default function ImportMergeWizard({
               />
               {filename && <Tag color="blue" style={{ margin: 0 }}>{filename}</Tag>}
             </Space>
+            {/* REQ-511/M319：复用语义二选一（先于合并策略——引用不触合并面） */}
             <div>
-              <Typography.Text strong style={{ fontSize: 12 }}>合并策略</Typography.Text>
+              <Typography.Text strong style={{ fontSize: 12 }}>复用语义</Typography.Text>
               <div style={{ marginTop: 6 }}>
                 <Segmented
-                  value={strategy}
-                  onChange={(v) => setStrategy(v as string)}
-                  options={Object.entries(STRATEGY_META).map(([k, m]) => ({ value: k, label: m.label }))}
+                  value={reuseSem}
+                  onChange={(v) => setReuseSem(v as 'merge' | 'reference')}
+                  options={[
+                    { value: 'merge', label: '并入' },
+                    { value: 'reference', label: '引用' },
+                  ]}
+                  data-testid="import-reuse-sem"
                 />
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                  {STRATEGY_META[strategy]?.desc}
+                  {reuseSem === 'merge'
+                    ? '吸收进本本体：实体入 spec 并生成版本快照（可回退）'
+                    : '不改原文件：提取文件中的 owl:imports 目标登记为外部引用（幂等，登记态见资产页「外部引用」分区；后续装载/查询吃引用闭包与归因收益）'}
                 </Typography.Paragraph>
               </div>
             </div>
-            {strategy === 'merge' && (
-              <Space size={6}>
-                <Typography.Text style={{ fontSize: 12 }}>冲突实体重命名前缀：</Typography.Text>
-                <Input size="small" style={{ width: 160 }} value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ext" />
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>与现行实体撞名时自动追加序号避让</Typography.Text>
-              </Space>
+            {reuseSem === 'merge' && (
+              <>
+                <div>
+                  <Typography.Text strong style={{ fontSize: 12 }}>合并策略</Typography.Text>
+                  <div style={{ marginTop: 6 }}>
+                    <Segmented
+                      value={strategy}
+                      onChange={(v) => setStrategy(v as string)}
+                      options={Object.entries(STRATEGY_META).map(([k, m]) => ({ value: k, label: m.label }))}
+                    />
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+                      {STRATEGY_META[strategy]?.desc}
+                    </Typography.Paragraph>
+                  </div>
+                </div>
+                {strategy === 'merge' && (
+                  <Space size={6}>
+                    <Typography.Text style={{ fontSize: 12 }}>冲突实体重命名前缀：</Typography.Text>
+                    <Input size="small" style={{ width: 160 }} value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ext" />
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>与现行实体撞名时自动追加序号避让</Typography.Text>
+                  </Space>
+                )}
+              </>
             )}
             <Space>
-              <Button type="primary" loading={busy} onClick={doPreview}>
-                冲突预览
-              </Button>
+              {reuseSem === 'merge' ? (
+                <Button type="primary" loading={busy} onClick={doPreview}>
+                  冲突预览
+                </Button>
+              ) : (
+                <Button type="primary" loading={busy} onClick={doRegisterRef} data-testid="import-register-ref">
+                  登记引用
+                </Button>
+              )}
               <Button onClick={close}>取消</Button>
             </Space>
           </Space>
@@ -310,7 +367,42 @@ export default function ImportMergeWizard({
         </>
       )}
 
-      {step === 2 && (
+      {step === 2 && reuseSem === 'reference' && refResult && (
+        <div style={{ padding: '16px 0' }}>
+          <Alert
+            type={refResult.registered > 0 ? 'success' : 'info'}
+            showIcon
+            title={refResult.registered > 0 ? `引用登记完成：新增 ${refResult.registered} 条外部引用` : '未探测到 owl:imports 目标'}
+            description={
+              <>
+                {refResult.iris.length > 0 && (
+                  <p style={{ margin: '4px 0' }}>
+                    {refResult.iris.map((iri) => (
+                      <Tag key={iri} style={{ margin: 2 }} color="blue">{iri}</Tag>
+                    ))}
+                  </p>
+                )}
+                {refResult.skipped_iris.length > 0 && (
+                  <p style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #888)' }}>
+                    已登记跳过 {refResult.skipped_iris.length} 条（幂等不重复登记）
+                  </p>
+                )}
+                {refResult.note && <p style={{ fontSize: 12, color: '#d46b08' }}>{refResult.note}</p>}
+                <p style={{ fontSize: 12, color: 'var(--ant-color-text-tertiary, #888)' }}>
+                  本体 spec 未变更（引用语义不改原文件）；登记态与悬空检测见资产页「外部引用」分区，运行装载按引用闭包取数。
+                </p>
+              </>
+            }
+            data-testid="import-ref-result"
+          />
+          <Space style={{ marginTop: 12 }}>
+            <Button onClick={() => { setStep(0); setRefResult(null) }}>上一步</Button>
+            <Button type="primary" onClick={close}>完成</Button>
+          </Space>
+        </div>
+      )}
+
+      {step === 2 && reuseSem === 'merge' && (
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <Alert
             type="success"

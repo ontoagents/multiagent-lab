@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 )
 
@@ -29,6 +30,65 @@ func (s *Server) registerExternalRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ref)
+}
+
+// registerImportRefs REQ-511/M319 登记核（可测）：已登记 IRI（kind=import 同目标）跳过（幂等），
+// 新 IRI 落本体级哨兵登记（形态同 mergeApply 装载侧自动登记链）。
+func (s *Server) registerImportRefs(ontoID string, iris []string) (registered, skipped []string, err error) {
+	existing, err := s.Store.ListExternalRefs(ontoID)
+	if err != nil {
+		return nil, nil, err
+	}
+	have := map[string]bool{}
+	for _, ref := range existing {
+		if ref.RefKind == "import" {
+			have[ref.ToConcept] = true
+		}
+	}
+	registered, skipped = []string{}, []string{}
+	for _, iri := range iris {
+		if have[iri] {
+			skipped = append(skipped, iri)
+			continue
+		}
+		if _, er := s.Store.CreateExternalRef(&repo.ExternalRef{
+			FromOntoID: ontoID, FromConcept: repo.OntologyLevelRef, ToConcept: iri,
+			RefKind: "import", Justification: "import_statement",
+			Note: "导入向导引用语义登记（REQ-511；不改原文件，闭包装载侧消费）",
+		}); er != nil {
+			return nil, nil, fmt.Errorf("登记 %s 失败: %w", iri, er)
+		}
+		registered = append(registered, iri)
+	}
+	return registered, skipped, nil
+}
+
+// registerExternalRefsFromImport REQ-511/M319：导入向导「引用」复用语义端点——上传文件文本级
+// 提取 owl:imports 目标（复用 importer.DetectExternalImports，与 mergeApply 装载侧自动登记同源），
+// 登记为 external_refs kind=import 本体级哨兵（from_concept=(ontology)，形态同 mergeApply 链）。
+// 幂等：已登记 IRI（kind=import 同目标）跳过不重复登记；**不落版本快照**——引用语义=不改原文件
+// （本本体 spec 零变更，吃 REQ-479~482 装载闭包/查询归因下游收益）；复杂语义合并边界不动（26 号 §8-3）。
+func (s *Server) registerExternalRefsFromImport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, fmt.Errorf("body 解析失败: %w", err))
+		return
+	}
+	iris := importer.DetectExternalImports(body.Content)
+	registered, skipped, err := s.registerImportRefs(id, iris)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"registered": len(registered), "skipped": len(skipped),
+		"iris": registered, "skipped_iris": skipped,
+		"note": map[bool]string{true: "文件未探测到 owl:imports 目标——引用语义无登记对象，可改走「并入」路径", false: ""}[len(iris) == 0],
+	})
 }
 
 // listExternalRefs GET /api/ontologies/{id}/external-refs（附悬空检测结果）
