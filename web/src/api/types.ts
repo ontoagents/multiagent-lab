@@ -705,6 +705,8 @@ export interface Spec {
   instances: SpecInstance[]
   /** REQ-248/G2：能力问题（仅 spec 层，不入 TTL/校验） */
   cq?: string[]
+  /** REQ-544/M351 决策层（spec 层 v1 不入 TTL——判断的结构化资产；与 pkgspec.Decision 同名透传） */
+  decisions?: { id: string; decision_question: string; required_slots?: { slot: string; source: string; missing_action?: string }[]; reject_routes?: { route: string; reason: string }[]; proof_scope?: string }[]
 }
 
 /** 校验错误（PUT spec 400 / POST validate） */

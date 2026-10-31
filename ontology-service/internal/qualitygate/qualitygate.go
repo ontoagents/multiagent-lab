@@ -82,6 +82,7 @@ type Stats struct {
 	Instances      int `json:"instances"`
 	DataProperties int `json:"data_properties,omitempty"` // REQ-268/M77
 	Axioms         int `json:"axioms,omitempty"`          // REQ-269/M78
+	Decisions      int `json:"decisions,omitempty"`       // REQ-544/M351 决策层条数
 }
 
 const maxSamples = 20
@@ -118,6 +119,28 @@ func defaultChecks() []checkDef {
 		{id: "restriction_cardinality", title: "实例断言违反基数限制（min/max/cardinality）", dimension: DimConsistency, sev: SevError, run: checkRestrictionCardinality},
 		// REQ-473/M273：函数性特性配套检查——functional/inverse_functional 关系上实例多目标断言
 		{id: "functional_relation_multiplicity", title: "函数性关系实例断言多值（functional/inverse_functional 应唯一）", dimension: DimConsistency, sev: SevWarning, run: checkFunctionalMultiplicity},
+		// REQ-544/M351：决策层完备性 warning 检查（无必答槽/无拒绝路径——软提示不阻断，
+		// 硬校验在 spec.Validate：id 唯一/问题非空/source 引用存在）
+		{id: "decision_no_slots", title: "决策无必答证据槽（required_slots 空——判断依据未结构化）", dimension: DimCompleteness, sev: SevWarning, run: checkDecisionNoSlots},
+		{id: "decision_no_routes", title: "决策无拒绝路径（reject_routes 空——何时不适用未声明）", dimension: DimCompleteness, sev: SevWarning, run: checkDecisionNoRoutes},
+	}
+}
+
+// checkDecisionNoSlots REQ-544/M351：决策缺必答槽 warning（判断依据未结构化——槽位可放行但质量弱）。
+func checkDecisionNoSlots(sp *pkgspec.Spec, add func(path string)) {
+	for i, d := range sp.Decisions {
+		if len(d.RequiredSlots) == 0 {
+			add(fmt.Sprintf("decisions[%d]", i))
+		}
+	}
+}
+
+// checkDecisionNoRoutes REQ-544/M351：决策缺拒绝路径 warning（何时不适用未声明——决策可审计性弱化）。
+func checkDecisionNoRoutes(sp *pkgspec.Spec, add func(path string)) {
+	for i, d := range sp.Decisions {
+		if len(d.RejectRoutes) == 0 {
+			add(fmt.Sprintf("decisions[%d]", i))
+		}
 	}
 }
 
@@ -222,7 +245,7 @@ func Check(sp *pkgspec.Spec, cfg Config) *Report {
 	}
 	rep := &Report{Strict: false, Findings: []Finding{}, Stats: Stats{
 		Concepts: len(sp.Concepts), Relations: len(sp.Relations), Instances: len(sp.Instances),
-		DataProperties: len(sp.DataProperties), Axioms: len(sp.Axioms),
+		DataProperties: len(sp.DataProperties), Axioms: len(sp.Axioms), Decisions: len(sp.Decisions),
 	}}
 	byID := map[string]checkDef{}
 	for _, d := range defaultChecks() {
@@ -617,6 +640,8 @@ func checkDuplicateName(sp *pkgspec.Spec, add func(string)) {
 // Remediations 检查项修复指引（REQ-331②：每条 finding 附「怎么改」人话指引——
 // 机器产报告人做决策，只给动线不代改；check_id→指引，未登记项前端降级纯展示）。
 var Remediations = map[string]string{
+	"decision_no_slots":             "为决策补 required_slots（slot+source，source 用 relation:名称 / concept:名称 引用本体元素）——把判断依据结构化为可审计证据。",
+	"decision_no_routes":            "为决策补 reject_routes（route+reason）——声明「什么情况下不做/打回」，提升决策可审计性。",
 	"orphan_concept":                "为该概念挂到父概念（层级）或建立至少一条关系/实例引用，消除孤立；若确属冗余概念可删除。",
 	"missing_definition":            "补 definition：一句话说清「这是什么、边界在哪」——可参考学习中心方法论「概念定义」卡（七阶段·概念化）。",
 	"missing_label":                 "补 label（展示名）——图形编辑或 JSON 编辑的 label 字段，用于可视化与列表展示。",

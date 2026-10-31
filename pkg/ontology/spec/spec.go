@@ -54,16 +54,16 @@ var RestrictionTypes = map[string]bool{
 // transitive | symmetric | functional | inverse_functional；TTL 导出为附加 rdf:type 行；
 // InverseOf 逆属性（引用 relations.name，可空）导出 owl:inverseOf。存量零迁移。
 type Relation struct {
-	Name           string   `json:"name"`
-	Label          string   `json:"label,omitempty"`
-	Definition     string   `json:"definition,omitempty"`
-	From           string   `json:"from"` // 定义域概念名
-	To             string   `json:"to"`   // 值域概念名
-	Evidence       string   `json:"evidence,omitempty"`
+	Name            string   `json:"name"`
+	Label           string   `json:"label,omitempty"`
+	Definition      string   `json:"definition,omitempty"`
+	From            string   `json:"from"` // 定义域概念名
+	To              string   `json:"to"`   // 值域概念名
+	Evidence        string   `json:"evidence,omitempty"`
 	Characteristics []string `json:"characteristics,omitempty"`
 	// Note 建模备注（REQ-510/M318：同 Concept.Note——skos:note 导出）
-	Note string `json:"note,omitempty"`
-	InverseOf      string   `json:"inverse_of,omitempty"`
+	Note      string `json:"note,omitempty"`
+	InverseOf string `json:"inverse_of,omitempty"`
 }
 
 // RelationCharacteristics 合法关系特性（Protégé ObjectProperty characteristics 子集；
@@ -136,12 +136,39 @@ type Spec struct {
 	Description string `json:"description,omitempty"`
 	// CQ 能力问题（REQ-90/REQ-248）：「本体要回答什么问题」的建模锚点——仅 spec 层
 	// （不入 TTL 导出/vowljson/不参与结构校验），三 LLM 构建路径回写、手工路径可录。
-	CQ             []string       `json:"cq,omitempty"`
+	CQ []string `json:"cq,omitempty"`
+	// Decisions 决策/规则一等公民（REQ-544/M351，105 号 P0-1）——「判断」成为可检索可审计资产
+	// （喂饱出题/审计/检索三条既有链）；无可执行语义，不做解释器（105 号明确不做清单）。
+	// 仅 spec 层不入 TTL 导出（沿 CQ 先例），全 omitempty 存量零迁移；不进对象 overlay 体系
+	// （实现轮拍板：决策为 spec 级注记层非四类对象，随 spec 版本快照留痕）。
+	Decisions      []Decision     `json:"decisions,omitempty"`
 	Concepts       []Concept      `json:"concepts"`
 	Relations      []Relation     `json:"relations"`
 	DataProperties []DataProperty `json:"data_properties,omitempty"` // REQ-268/M77：可选声明层，存量资产零迁移
 	Axioms         []Axiom        `json:"axioms,omitempty"`          // REQ-269/M78：可选公理保留层，存量资产零迁移
 	Instances      []Instance     `json:"instances"`
+}
+
+// Decision 决策/规则条目（REQ-544/M351）：一条建模/治理判断的问题-槽位-拒绝路径结构化描述。
+type Decision struct {
+	ID               string          `json:"id"`                       // 决策 id（spec 内唯一）
+	DecisionQuestion string          `json:"decision_question"`        // 判断问题（这条决策回答什么）
+	RequiredSlots    []DecisionSlot  `json:"required_slots,omitempty"` // 做判断前必须就位的证据槽
+	RejectRoutes     []DecisionRoute `json:"reject_routes,omitempty"`  // 拒绝路径（什么情况下不做/打回）
+	ProofScope       string          `json:"proof_scope,omitempty"`    // 证明范围（该决策在何处生效，自由文本）
+}
+
+// DecisionSlot 必答证据槽：source 引用本体元素（relation:NAME / concept:NAME）。
+type DecisionSlot struct {
+	Slot          string `json:"slot"`                     // 槽位名
+	Source        string `json:"source"`                   // relation:NAME | concept:NAME（引用校验）
+	MissingAction string `json:"missing_action,omitempty"` // 缺槽处置（如「先补关系」）
+}
+
+// DecisionRoute 拒绝路径：route 描述情形，reason 说明为何拒绝。
+type DecisionRoute struct {
+	Route  string `json:"route"`
+	Reason string `json:"reason"`
 }
 
 // ValidationError 单条校验错误（结构化，供 LLM 修正循环回喂）。
@@ -350,6 +377,49 @@ func (s *Spec) Validate() []ValidationError {
 			add(fmt.Sprintf("concepts[%d]", ci), "概念与实例同名: "+name+"（请改名其一——名称跨概念/实例全域唯一）")
 		}
 	}
+
+	// ---- decisions：REQ-544/M351 决策层校验（沿 restrictions 引用校验模式）——
+	// id 必填唯一 / decision_question 非空 / slot·route·reason 非空 / source 前缀形态+引用存在。
+	// 引用校验按 source 前缀分派：relation:NAME 查 Relations、concept:NAME 查 Concepts。
+	decIDs := map[string]int{}
+	for i, d := range s.Decisions {
+		p := fmt.Sprintf("decisions[%d]", i)
+		if strings.TrimSpace(d.ID) == "" {
+			add(p+".id", "决策 id 不能为空")
+			continue
+		}
+		if _, dup := decIDs[d.ID]; dup {
+			add(p+".id", "决策 id 重复: "+d.ID)
+			continue
+		}
+		decIDs[d.ID] = i
+		if strings.TrimSpace(d.DecisionQuestion) == "" {
+			add(p+".decision_question", "决策问题（decision_question）不能为空")
+		}
+		for j, sl := range d.RequiredSlots {
+			sp := fmt.Sprintf("%s.required_slots[%d]", p, j)
+			if strings.TrimSpace(sl.Slot) == "" {
+				add(sp+".slot", "证据槽名不能为空")
+			}
+			if strings.TrimSpace(sl.Source) == "" {
+				add(sp+".source", "证据槽 source 不能为空")
+				continue
+			}
+			refErr := checkDecisionSource(sp+".source", sl.Source, cn, s.Relations)
+			if refErr != "" {
+				add(sp+".source", refErr)
+			}
+		}
+		for j, rt := range d.RejectRoutes {
+			rp := fmt.Sprintf("%s.reject_routes[%d]", p, j)
+			if strings.TrimSpace(rt.Route) == "" {
+				add(rp+".route", "拒绝路径 route 不能为空")
+			}
+			if strings.TrimSpace(rt.Reason) == "" {
+				add(rp+".reason", "拒绝路径 reason 不能为空")
+			}
+		}
+	}
 	return errs
 }
 
@@ -430,4 +500,30 @@ func ObjectLogicalID(kind, conceptName, name string) string {
 		return LogicalID(kind, name)
 	}
 	return ""
+}
+
+// checkDecisionSource REQ-544/M351：决策证据槽 source 引用校验——前缀形态 relation:NAME|concept:NAME，
+// NAME 必须已在本 spec 声明（沿 restrictions 悬空引用校验同构；其他前缀=形态错误）。
+func checkDecisionSource(path, source string, concepts map[string]int, relations []Relation) string {
+	parts := strings.SplitN(source, ":", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+		return "source 须为 relation:NAME 或 concept:NAME 形态: " + source
+	}
+	kind, name := parts[0], strings.TrimSpace(parts[1])
+	switch kind {
+	case "relation":
+		for _, r := range relations {
+			if r.Name == name {
+				return ""
+			}
+		}
+		return "source 引用的关系未在本 spec 声明: " + source
+	case "concept":
+		if _, ok := concepts[name]; ok {
+			return ""
+		}
+		return "source 引用的概念未在本 spec 声明: " + source
+	default:
+		return "source 须为 relation:NAME 或 concept:NAME 形态: " + source
+	}
 }

@@ -47,6 +47,7 @@ import DataPropertiesPane from './components/assets/DataPropertiesPane'
 import AssetListPage, { AssetSearchBox, orderedGroups } from './components/assets/AssetList'
 import QualityCardPane from './components/assets/QualityCardPane'
 import ImportMergeWizard from './components/assets/ImportMergeWizard'
+import DecisionsPane from './components/assets/DecisionsPane'
 import ReferencesPane from './components/assets/ReferencesPane'
 import ExternalRefsPane from './components/assets/ExternalRefsPane'
 import HierarchyPane, { type OntoSelection } from './components/assets/HierarchyPane'
@@ -106,6 +107,8 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
         // REQ-458：Spec 公理 + 透传公理 →「公理」，内部分段切换
         { key: 'axioms', label: '公理' },
         { key: 'ingest', label: 'CSV 灌装' },
+        // REQ-544/M351：决策只读分区（decisions[] spec 层 v1——判断成为可检索可审计资产）
+        { key: 'decisions', label: '决策' },
       ],
     },
     {
@@ -1128,6 +1131,8 @@ export default function AssetsPage() {
                 {secKey === 'ingest' && (
                   <CsvIngestPane ontologyId={active.id} spec={spec} onIngested={() => refreshAfterSave()} />
                 )}
+                {/* REQ-544/M351：决策只读分区（decisions[] spec 层——id/判断问题/证据槽/拒绝路径/证明范围） */}
+                {secKey === 'decisions' && <DecisionsPane spec={spec} />}
               </div>
             </div>
           </Card>

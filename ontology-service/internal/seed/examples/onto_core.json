@@ -1,0 +1,91 @@
+{
+  "id": "onto_core",
+  "name": "本体工程域（dogfooding）",
+  "description": "本体工程自身的治理判断 dogfooding 种子（REQ-544/M351）：以「管理本体的本体」示范 decisions[] 决策层——何时补同义词、何时跑 CQ 快筛、伴生实体何时晋升、何时拆新本体、口语词直改概念名的拒绝路径。学习读者可对照学习 decisions 三要素（判断问题/证据槽/拒绝路径）。",
+  "cq": [
+    "什么时候应该为一个概念补同义词？",
+    "单资产概念规模到多少应该拆分新本体？",
+    "伴生图里的候选实体满足什么条件才晋升为正式概念？"
+  ],
+  "decisions": [
+    {
+      "id": "dec_add_synonyms",
+      "decision_question": "什么时候为概念补 synonyms 同义词？",
+      "required_slots": [
+        { "slot": "既有同义覆盖", "source": "concept:概念", "missing_action": "先建概念再登记同义词" },
+        { "slot": "别名证据", "source": "relation:提及", "missing_action": "先补一条「提及」关系承接来源语料" }
+      ],
+      "reject_routes": [
+        { "route": "仅为拼写变体且不影响检索召回", "reason": "拼写容错交给检索侧归一，同义词登记留给真实多叫法" },
+        { "route": "无来源语料佐证的新造叫法", "reason": "同义词须有出处（语料/词表），防口语膨胀稀释精确匹配" }
+      ],
+      "proof_scope": "KB 构建抽取与 onto_* 查询召回"
+    },
+    {
+      "id": "dec_run_cq_screen",
+      "decision_question": "什么时候跑 CQ 覆盖快筛（CqQuickScreen）？",
+      "required_slots": [
+        { "slot": "已录入 CQ", "source": "concept:能力问题", "missing_action": "先录入 ≥3 条 CQ 再跑快筛" }
+      ],
+      "reject_routes": [
+        { "route": "spec 尚无概念（空壳本体）", "reason": "无模型可对照，快筛必然全红——先建模再筛" },
+        { "route": "发布前例行体检已覆盖", "reason": "同一版本重复快筛成本无增益（同版本缓存语义）" }
+      ],
+      "proof_scope": "构建完成态与发布前体检"
+    },
+    {
+      "id": "dec_companion_promote",
+      "decision_question": "伴生图候选实体何时晋升为正式概念？",
+      "required_slots": [
+        { "slot": "跨会话出现频次", "source": "concept:实体", "missing_action": "继续观察，晋升延后" },
+        { "slot": "与既有概念的对齐状态", "source": "relation:对齐", "missing_action": "先跑对齐再判定新造/沿用" }
+      ],
+      "reject_routes": [
+        { "route": "仅出现一次的孤例", "reason": "单次出现不构成建模证据（伴生噪声过滤）" },
+        { "route": "与既有概念 exactMatch 对齐", "reason": "沿用既有概念，晋升产生重复建模" }
+      ],
+      "proof_scope": "伴生实体晋升确认流"
+    },
+    {
+      "id": "dec_split_ontology",
+      "decision_question": "单本体概念规模到什么程度应该拆分新本体？",
+      "required_slots": [
+        { "slot": "当前概念规模", "source": "concept:本体", "missing_action": "先盘点资产规模统计" }
+      ],
+      "reject_routes": [
+        { "route": "概念数 ≤300 且查询延迟正常", "reason": "单资产仍可维护（300 阈值线——超出才触发拆分评估）" },
+        { "route": "拆分仅为目录美观", "reason": "拆分引入引用管理成本（external_refs/闭包），无维护收益不做" }
+      ],
+      "proof_scope": "资产管理与运行方案装载规模"
+    },
+    {
+      "id": "dec_rename_via_chat",
+      "decision_question": "口语词能否直接改概念名？",
+      "required_slots": [
+        { "slot": "概念既有引用面", "source": "concept:概念", "missing_action": "先盘点引用再决定改名路径" }
+      ],
+      "reject_routes": [
+        { "route": "口语词与既有概念语义有偏差", "reason": "语义漂移走 synonyms 登记而非改名（改名破坏既有引用与 gold 对齐）" },
+        { "route": "概念已被运行方案装载", "reason": "运行中改名造成装载漂移——冻结期不改名" }
+      ],
+      "proof_scope": "概念命名治理（NamingView/同义词登记）"
+    }
+  ],
+  "concepts": [
+    { "name": "本体", "label": "Ontology", "definition": "一个领域语义资产的容器：概念、关系与实例的结构化集合。" },
+    { "name": "概念", "label": "Concept", "definition": "领域内的类型化实体类别（class），本体建模的基本单元。", "parents": ["本体要素"] },
+    { "name": "关系", "label": "Relation", "definition": "概念之间的有向语义联系（对象属性）。", "parents": ["本体要素"] },
+    { "name": "本体要素", "label": "OntologyElement", "definition": "构成本体的构件抽象：概念、关系、数据属性与实例。" },
+    { "name": "能力问题", "label": "CompetencyQuestion", "definition": "本体要回答的问题（CQ）——问题驱动建模的锚点。", "parents": ["本体要素"] },
+    { "name": "同义词", "label": "Synonym", "definition": "概念的替称呼登记，服务检索召回与抽取对齐。", "parents": ["本体要素"] },
+    { "name": "实体", "label": "Entity", "definition": "语料或伴生图中的候选对象，尚未晋升为正式概念的原始形态。" },
+    { "name": "运行方案", "label": "RuntimeProfile", "definition": "本体在运行平面的部署视图：引擎+装载的本体集合。", "parents": ["本体要素"] },
+    { "name": "对齐", "label": "Alignment", "definition": "两个语义元素间的等价/相近关系（exactMatch/closeMatch 等）。" },
+    { "name": "提及", "label": "Mention", "definition": "语料片段对语义元素的引用关系（证据承接）。" }
+  ],
+  "relations": [
+    { "name": "提及", "from": "实体", "to": "概念", "definition": "实体在语料中提及某概念（证据链入口）。" },
+    { "name": "对齐", "from": "概念", "to": "概念", "definition": "概念间跨本体的对齐关系（词表复用与归并判定依据）。" },
+    { "name": "装载", "from": "运行方案", "to": "本体", "definition": "运行方案装载某本体的当前版本（REQ-87 解耦语义）。" }
+  ]
+}
