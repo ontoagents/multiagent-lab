@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
-import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
+import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography, Upload} from 'antd'
+import { ReloadOutlined, RollbackOutlined, DownloadOutlined} from '@ant-design/icons'
 import { api } from '../api/client'
+import { useUI } from '../store/ui'
 import type { RunEventDTO } from '../api/types'
 import { describeEvent, levelGated, TRACE_GROUPS } from '../lib/eventRegistry'
 import DelegatesPanel from './DelegatesPanel'
@@ -59,6 +60,7 @@ export default function TraceDrawer({
   focusGroup?: string // REQ-406②/M202：打开时预选过滤组（如 companion——回放摘要行直达）
   onFocusGroupConsumed?: () => void
 }) {
+  const { showToast } = useUI()
   const [events, setEvents] = useState<RunEventDTO[]>([])
   // REQ-406②/M202：外部直达（伴生摘要行点击）——打开时预选过滤组，一次性消费
   useEffect(() => {
@@ -74,6 +76,9 @@ export default function TraceDrawer({
   const [keyword, setKeyword] = useState('')
   const [expandAll, setExpandAll] = useState(false)
   const [replayRun, setReplayRun] = useState<string | null>(null)
+  // REQ-555/M362：离线回放数据源（导入回放文件——纯本地渲染零 API 请求；不写本地库）
+  const [offlineEvents, setOfflineEvents] = useState<RunEventDTO[] | null>(null)
+  const [offlineTitle, setOfflineTitle] = useState<string>('')
   // REQ-284②：时序条开关（默认开）
   const [showTimeline, setShowTimeline] = useState(true)
   // 界面优化批：运行块分页（最近置顶）——每页默认 5 条，可切 10/20
@@ -96,6 +101,38 @@ export default function TraceDrawer({
     if (open) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, conversationId])
+
+  // REQ-555：导出此运行（终态 run 回放文件——浏览器附件下载；进行中 409 人话由后端返回）
+  const exportRun = (runId: string) => {
+    window.open(`/api/conversations/${conversationId}/events/export?run_id=${encodeURIComponent(runId)}`, '_blank')
+  }
+
+  // REQ-555：导入回放文件（beforeUpload 校验 envelope——format/format_version/events 齐备；
+  // 超前大版本拒绝并提示而非崩溃；纯本地喂 Drawer 零 API 请求）
+  const importReplay = async (file: File): Promise<boolean> => {
+    try {
+      const text = await file.text()
+      const env = JSON.parse(text)
+      if (env?.format !== 'ontoagents-replay' || typeof env?.format_version !== 'number') {
+        throw new Error('不是 ontoagents 回放文件（缺 format 标识）')
+      }
+      if (env.format_version > 1) {
+        throw new Error(`回放文件版本超前（v${env.format_version} > 本端 v1）——请升级平台后导入`)
+      }
+      if (!Array.isArray(env.events) || env.events.length === 0) {
+        throw new Error('回放文件无事件（events 为空）')
+      }
+      const fid = env.fidelity ?? {}
+      const t = `离线回放 · ${env.source?.title ?? '（无标题）'} · ${env.events.length} 事件`
+      setOfflineTitle(t)
+      setOfflineEvents(env.events as RunEventDTO[])
+      setReplayRun('__none__')
+      showToast(`${t}${fid.message_delta === false ? '（未记录调试细节）' : ''}`)
+    } catch (e: any) {
+      showToast(e?.message ?? '回放文件解析失败', 'err')
+    }
+    return false // 阻断 antd Upload 自动上传
+  }
 
   // 按运行分组（created_at 升序；run_id 空的散事件归「未分组」段）
   const runs = useMemo(() => {
@@ -156,6 +193,10 @@ export default function TraceDrawer({
             时序条 <Switch size="small" checked={showTimeline} onChange={setShowTimeline} />
           </span>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>刷新</Button>
+          {/* REQ-555/M362：导入回放文件（离线回放——纯本地渲染零 API 请求，不写本地库） */}
+          <Upload accept=".json,application/json" showUploadList={false} beforeUpload={importReplay}>
+            <Button size="small">导入回放</Button>
+          </Upload>
         </Space>
       }
     >
@@ -221,7 +262,8 @@ export default function TraceDrawer({
           <>
             {page.map((r, i) => (
               <RunBlock key={r.runId} run={r} index={totalRendered - 1 - (start + i)} showRaw={showRaw} expandAll={expandAll} showTimeline={showTimeline}
-                onReplay={() => setReplayRun(r.runId)} />
+                onReplay={() => { setOfflineEvents(null); setReplayRun(r.runId) }}
+                onExport={() => exportRun(r.runId)} />
             ))}
             {ordered.length > 0 && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -244,11 +286,12 @@ export default function TraceDrawer({
       {replayRun !== null && (
         <EventReplayDrawer
           conversationId={conversationId}
-          title={title}
+          title={offlineEvents ? offlineTitle || `${title}（离线回放）` : title}
           level={debugLevel}
-          runId={replayRun === '__none__' ? undefined : replayRun}
+          runId={offlineEvents ? undefined : replayRun === '__none__' ? undefined : replayRun}
+          offlineEvents={offlineEvents ?? undefined}
           open
-          onClose={() => setReplayRun(null)}
+          onClose={() => { setReplayRun(null); setOfflineEvents(null) }}
         />
       )}
     </Drawer>
@@ -490,7 +533,7 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
 }
 
 function RunBlock({
-  run, index, showRaw, expandAll, showTimeline, onReplay,
+  run, index, showRaw, expandAll, showTimeline, onReplay, onExport,
 }: {
   run: { runId: string; events: RunEventDTO[]; allEvents: RunEventDTO[]; startedAt: string; finished?: RunEventDTO }
   index: number
@@ -498,6 +541,7 @@ function RunBlock({
   expandAll: boolean
   showTimeline: boolean
   onReplay: () => void
+  onExport: (runId: string) => void
 }) {
   const [openId, setOpenId] = useState<Record<string, boolean>>({})
   const [openSeg, setOpenSeg] = useState<Record<string, boolean>>({})
@@ -592,9 +636,12 @@ function RunBlock({
           </Tooltip>
         )}
         <span style={{ flex: 1 }} />
-        {/* REQ-488：重放操作灰图标化（hover 提示） */}
+        {/* REQ-488：重放操作灰图标化（hover 提示）；REQ-555 导出灰图标（终态 run 回放文件） */}
         <Tooltip title="重放此运行">
           <Button size="small" type="text" aria-label="重放此运行" icon={<RollbackOutlined />} onClick={onReplay} />
+        </Tooltip>
+        <Tooltip title="导出此运行（回放文件）">
+          <Button size="small" type="text" aria-label="导出此运行" icon={<DownloadOutlined />} onClick={() => onExport(run.runId)} />
         </Tooltip>
       </div>
       {showTimeline && <TimelineStrip events={run.allEvents} />}

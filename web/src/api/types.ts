@@ -340,6 +340,8 @@ export interface RunEventDTO {
   type: string
   data?: string
   created_at: string
+  /** REQ-224/M52：事件契约版本（后端本就返回；REQ-555 导出文件同形状零变换） */
+  schema_version?: number
 }
 
 // ---- M6 知识库（02 文档 §5.1/§6.9/§8） ----

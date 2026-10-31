@@ -355,6 +355,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)
 	m.HandleFunc("POST /api/conversations/{id}/steer", s.steerConversation) // REQ-385/M181：运行中介入（TurnLoop 抢占式 steer）
 	m.HandleFunc("GET /api/conversations/{id}/run-events", s.runEvents)    // REQ-527/M334：事件回放（run_id 过滤+offset 增量轮询续看）
+	m.HandleFunc("GET /api/conversations/{id}/events/export", s.exportRunEvents) // REQ-555/M362：终态 run 回放文件导出（envelope+fidelity 自声明；零迁移）
 	m.HandleFunc("GET /api/search/messages", s.searchMessages)             // REQ-528/M335：会话内容检索（FTS5——跨会话按消息正文定位）
 	m.HandleFunc("POST /api/companion/ontologies/{id}/promote", s.promoteCompanion)            // REQ-529/M336→REQ-546/M353：伴生图→正式本体晋升（改产 pending 提案）
 	m.HandleFunc("GET /api/companion/promotion-proposals", s.listPromotionProposals)           // REQ-546/M353：learning proposal 暂存区清单（裁决卡+审计回看）
