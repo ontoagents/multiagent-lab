@@ -18,6 +18,8 @@ import SpecGraph from '../components/SpecGraph'
 import HierarchyPane, { type OntoSelection } from '../components/assets/HierarchyPane'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
+import DraftTrimPanel from '../components/DraftTrimPanel'
+import FindingProposalCards from '../components/FindingProposalCards'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
 import JsonEditor from '../components/JsonEditor'
 import { RollbackOutlined } from '@ant-design/icons'
@@ -214,6 +216,11 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
   // REQ-312/M116：质量报告卡——完整 Report 结构化渲染+新旧对照+报告驱动优化；REQ-314 渐进披露状态条
   const [aiPrevQuality, setAiPrevQuality] = useState<QualityReport | null>(null)
   const [aiShowResult, setAiShowResult] = useState(false)
+  // REQ-503/M311：小步提案化——裁剪工作副本（DraftTrimPanel/FindingProposalCards 消费；
+  // saveAiDraft 优先取副本）+job_id 持久化（超时「取回上次任务」）+超时态
+  const [aiTrimmed, setAiTrimmed] = useState<Spec | null>(null)
+  const [aiJobId, setAiJobId] = useState<string | null>(() => loadDraft<string>('custom-ai-job'))
+  const [aiTimedOut, setAiTimedOut] = useState(false)
 
   const [sampleBusy, setSampleBusy] = useState(false)
 
@@ -362,19 +369,34 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
       // REQ-312 A2：extraHintOverride=报告 findings 文本（按报告优化时由 QualityReportCard 回调传入）
       const mergedHint = [[aiHint.trim(), ...clarifyHints].filter(Boolean).join('\n\n'), extraHintOverride].filter(Boolean).join('\n\n')
       const { job_id } = await api.aiDraftOntologyAsync(aiDesc.trim(), mergedHint || undefined, cqs.length ? cqs : undefined)
+      // REQ-503/M311③：job_id 存 state+draftStore——超时后「取回上次任务」入口消费
+      setAiJobId(job_id)
+      saveDraft('custom-ai-job', job_id)
       showToast('已提交生成任务，生成中…')
       let r: AiDraftResult | undefined
       for (let i = 0; i < 160; i++) {
         await new Promise((res) => setTimeout(res, 1500))
-        const j = await api.aiDraftJob(job_id)
-        if (j.progress) setAiProgress(j.progress) // REQ-295③：实测轮次进度透出
-        if (j.status === 'done') {
-          r = j.result
-          break
+        // REQ-503③：轮询逐 tick try/catch（OntoChatFlow startJobPoll 先例——瞬时失败下次重试，不再中断整个等待）
+        try {
+          const j = await api.aiDraftJob(job_id)
+          if (j.progress) setAiProgress(j.progress) // REQ-295③：实测轮次进度透出
+          if (j.status === 'done') {
+            r = j.result
+            break
+          }
+          if (j.status === 'failed') throw new Error(j.error || 'AI 草案生成失败')
+        } catch (e: any) {
+          if (e?.message?.includes('失败')) throw e // failed 终态上抛；网络抖动继续重试
         }
-        if (j.status === 'failed') throw new Error(j.error || 'AI 草案生成失败')
       }
-      if (!r) throw new Error('生成超时（>240s）——任务仍在后台执行，可稍后重试')
+      if (!r) {
+        // REQ-503③：超时不丢 job_id——置超时态，入口见 ai-reclaim-job
+        setAiTimedOut(true)
+        throw new Error('生成超时（>240s）——任务仍在后台执行，可点「取回上次任务」继续等待')
+      }
+      setAiJobId(null)
+      saveDraft('custom-ai-job', null)
+      setAiTimedOut(false)
       setAiResult(r)
       // REQ-247/G4：草案质量分展示（此前 REST 丢弃 quality——用户看不到生成质量）
       if (r.quality?.score) {
@@ -391,9 +413,53 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     }
   }
 
+  // REQ-503/M311③：取回上次任务——超时/中断后凭持久化 job_id 重入轮询（240s 窗口重启）
+  const reclaimAiJob = async () => {
+    if (!aiJobId) {
+      showToast('无可取回的任务', 'err')
+      return
+    }
+    setAiBusy(true)
+    setAiShowResult(false)
+    let r: AiDraftResult | undefined
+    try {
+      for (let i = 0; i < 160; i++) {
+        await new Promise((res) => setTimeout(res, 1500))
+        try {
+          const j = await api.aiDraftJob(aiJobId)
+          if (j.progress) setAiProgress(j.progress)
+          if (j.status === 'done') {
+            r = j.result
+            break
+          }
+          if (j.status === 'failed') throw new Error(j.error || 'AI 草案生成失败')
+        } catch (e: any) {
+          if (e?.message?.includes('失败')) throw e
+        }
+      }
+      if (!r) {
+        setAiTimedOut(true)
+        throw new Error('再次超时（>240s）——任务仍在后台执行，可稍后再取回')
+      }
+      setAiJobId(null)
+      saveDraft('custom-ai-job', null)
+      setAiTimedOut(false)
+      setAiResult(r)
+      setAiName(r.spec?.name ?? '')
+      showToast('已取回上次任务结果，请确认后创建')
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setAiBusy(false)
+      setAiProgress('')
+    }
+  }
+
   const saveAiDraft = async () => {
     if (!aiResult) return
-    const nm = aiName.trim() || aiResult.spec?.name || ''
+    // REQ-503①：优先消费裁剪工作副本（分组勾选/提案采纳后）
+    const effectiveSpec = aiTrimmed ?? aiResult.spec
+    const nm = aiName.trim() || effectiveSpec.name || ''
     if (!nm) {
       showToast('请输入本体名称', 'err')
       return
@@ -401,7 +467,7 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
     setAiBusy(true)
     try {
       const created = await api.createOntology({ name: nm, description: aiResult.spec?.description ?? aiDesc })
-      await api.saveSpec(created.id, { ...aiResult.spec, name: nm })
+      await api.saveSpec(created.id, { ...effectiveSpec, name: nm })
       invalidateOntos() // REQ-467：单源清单失效广播
       showToast('AI 草案已创建并保存')
       setAiResult(null)
@@ -767,7 +833,27 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
                       </Button>
                     </Space>
                     {aiResult.warning && <Alert type="warning" showIcon style={{ marginBottom: 8 }} title={aiResult.warning} />}
-                    {/* REQ-312/M116：完整质量报告卡（三维分+Findings 分组+新旧对照+按报告优化） */}
+                    {/* REQ-503/M311②：逐 Finding 提案卡（小步修正主路径——整稿重生成降级为报告卡内次级入口） */}
+                    {aiResult.quality && (aiResult.quality.findings ?? []).length > 0 && (
+                      <FindingProposalCards
+                        report={aiResult.quality}
+                        spec={aiTrimmed ?? aiResult.spec}
+                        onApply={(next) => {
+                          setAiTrimmed(next)
+                          showToast('提案已采纳——草案工作副本已更新')
+                        }}
+                      />
+                    )}
+                    {/* REQ-503/M311①：草案确认分组勾选（裁剪工作副本） */}
+                    {(aiTrimmed ?? aiResult.spec) && (
+                      <div style={{ marginBottom: 10 }}>
+                        <DraftTrimPanel
+                          spec={aiTrimmed ?? aiResult.spec}
+                          onChange={(next) => setAiTrimmed(next)}
+                        />
+                      </div>
+                    )}
+                    {/* REQ-312/M116：完整质量报告卡（三维分+Findings 分组+新旧对照；按报告优化已上移提案卡） */}
                     {aiResult.quality ? (
                       <QualityReportCard
                         report={aiResult.quality}
@@ -800,7 +886,20 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
                     </Space>
                   </div>
                 )}
-                {!aiResult && !clarifyReply && !cqCandidates && (
+                {/* REQ-503③：超时「取回上次任务」入口（job_id 持久化——超时不丢任务） */}
+                {!aiResult && aiTimedOut && aiJobId && (
+                  <div style={{ marginBottom: 10 }} data-testid="ai-reclaim-job">
+                    <Space size={8} align="center">
+                      <Typography.Text type="warning" style={{ fontSize: 12.5 }}>
+                        上次生成任务仍在后台执行（已超 240s 等待窗口）——可取回继续等待或稍后再试。
+                      </Typography.Text>
+                      <Button size="small" type="primary" loading={aiBusy} onClick={reclaimAiJob}>
+                        取回上次任务
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+                {!aiResult && !clarifyReply && !cqCandidates && !aiTimedOut && (
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     填写左列材料后点「生成草案」——生成结果、质量报告与预览将在此处呈现（REQ-312/314）。
                   </Typography.Text>
