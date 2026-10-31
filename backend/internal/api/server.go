@@ -544,6 +544,7 @@ func (s *Server) routes() {
 		m.Handle("/api/pipelines", s.Ontology.BuildProxy())
 		m.Handle("/api/pipelines/", s.Ontology.BuildProxy())
 		m.Handle("/api/runtime-profiles", s.Ontology.RuntimeProxy()) // → 运行平面 RUNTIME_MGR_URL(:8090)
+		m.Handle("/api/check-answerable", s.Ontology.RuntimeProxy()) // REQ-545/M352：预检程序化口代理
 		m.Handle("/api/runtime-profiles/", s.Ontology.RuntimeProxy())
 		// REQ-179/M-O16：全局运行配置（执行方式）——运行平面单行配置表
 		m.Handle("/api/runtime-config", s.Ontology.RuntimeProxy())

@@ -14,7 +14,7 @@ import { api } from '../../../api/client'
 
 const SCREEN_CQ_CAP = 10
 
-type Verdict = { cq: string; verdict: string; explanation: string }
+type Verdict = { cq: string; verdict: string; explanation: string; missing?: string[] }
 type ScreenReport = { version: string; verdicts: Verdict[]; passed: number; total: number }
 
 function cacheKey(oid: string) { return `eino.cqscreen.${oid}` }
@@ -165,8 +165,14 @@ export default function CqQuickScreen({ ontologyId, autoStart = false }: { ontol
               {v.explanation && (
                 <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginLeft: 52 }}>{v.explanation}</Typography.Text>
               )}
-              {v.verdict === 'No' && (
-                <Space size={4} style={{ marginLeft: 52, marginTop: 2 }}>
+              {/* REQ-545/M352：存疑/不可答态渲染结构化缺口清单 + go() 直达钮（原仅 No 态有钮——存疑态同权） */}
+              {v.verdict !== 'Yes' && (
+                <Space size={4} style={{ marginLeft: 52, marginTop: 2 }} data-testid={`cq-screen-gaps-${i}`}>
+                  {(v.missing?.length ?? 0) > 0 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      缺口：{v.missing!.slice(0, 5).join('、')}{v.missing!.length > 5 ? '…' : ''}
+                    </Typography.Text>
+                  )}
                   <Button size="small" type="link" style={{ padding: 0 }} onClick={() => go('hierarchy')}>去补概念</Button>
                   <Button size="small" type="link" style={{ padding: 0 }} onClick={() => go('decl')}>加同义词</Button>
                 </Space>

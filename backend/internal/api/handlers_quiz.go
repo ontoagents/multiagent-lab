@@ -8,10 +8,13 @@ package api
 // 最小直调面（与平台助手同族，非对话链路）。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ontoagents/ontoagents/backend/internal/chat"
@@ -114,7 +117,39 @@ func (s *Server) quizGenerate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "出题输出无有效题目——请重试"})
 		return
 	}
+	// REQ-545/M352：check_answerable 出题预检接线——逐题确定性预检（运行平面 REST 口），
+	// 裁决落 quiz_item.coverage_verdict（answerable|not_answerable；失败/无运行方案=留空「未预检」
+	// 如实不冒充）。异步非阻塞：出题响应即刻返回，预检结果前端刷新可见。
+	go s.quizCoveragePreset(ontologyID, out)
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// quizCoveragePreset REQ-545/M352：逐题预检裁决回写（best-effort——任何失败静默留空）。
+func (s *Server) quizCoveragePreset(ontologyID string, items []*store.QuizItem) {
+	rtURL := os.Getenv("RUNTIME_MGR_URL")
+	if rtURL == "" {
+		rtURL = "http://127.0.0.1:8090"
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	for _, it := range items {
+		body, _ := json.Marshal(map[string]string{"ontology_id": ontologyID, "question": it.Question})
+		resp, err := client.Post(strings.TrimRight(rtURL, "/")+"/api/check-answerable", "application/json", bytes.NewReader(body))
+		if err != nil {
+			return // 运行平面不可达：整批留空（未预检如实态）
+		}
+		var out struct {
+			Answerable bool `json:"answerable"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		verdict := "not_answerable"
+		if out.Answerable {
+			verdict = "answerable"
+		}
+		if err := s.Store.UpdateQuizCoverage(it.ID, verdict); err != nil {
+			return
+		}
+	}
 }
 
 // quizSubmit POST /api/quiz/{ontology_id}/items/{qid}/submit：{answer, conn_id?}

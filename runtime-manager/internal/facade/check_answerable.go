@@ -16,6 +16,125 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// labelQueries REQ-545/M352 分域标签查询（rdf:type 分类命中——concepts=owl:Class、
+// relations=owl:ObjectProperty、synonyms=skos:altLabel 全域）。
+func labelQueries() map[string]string {
+	base := `PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>`
+	return map[string]string{
+		"concepts": base + `
+SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class . { ?c rdfs:label ?label } UNION { ?c skos:prefLabel ?label } UNION { ?c skos:altLabel ?label } }`,
+		"relations": base + `
+SELECT DISTINCT ?label WHERE { ?p rdf:type owl:ObjectProperty . { ?p rdfs:label ?label } UNION { ?p skos:prefLabel ?label } }`,
+		"synonyms": base + `
+SELECT DISTINCT ?label WHERE { ?c skos:altLabel ?label }`,
+	}
+}
+
+// fetchDomainLabels 拉取分域标签集（查询失败域=整体报错回收——不虚报命中）。
+func (f *Facade) fetchDomainLabels(ctx context.Context, tool, oid, profileID, endpoint string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for domain, q := range labelQueries() {
+		bindings, err := f.exec(ctx, tool, oid, profileID, endpoint, q)
+		if err != nil {
+			return nil, fmt.Errorf("%s 标签拉取失败: %w", domain, err)
+		}
+		for _, b := range bindings {
+			if l, ok := b["label"].(map[string]any); ok {
+				if v, ok2 := l["value"].(string); ok2 && strings.TrimSpace(v) != "" {
+					out[domain] = append(out[domain], v)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// missingByDomain REQ-545/M352 分域零命中清单纯函数：问题词在对应域标签集上零命中者逐域收集
+// （concepts/relations/synonyms 三域独立判定——出题/检索预检可据此指认「缺哪类证据」）。
+// 判定口径与主匹配一致：标签含问题词（标签⊃词）或问题含完整标签（长标签短语）。
+func missingByDomain(words []string, domainLabels map[string][]string) map[string][]string {
+	missing := map[string][]string{}
+	for domain, labels := range domainLabels {
+		missing[domain] = []string{}
+		for _, w := range words {
+			if len([]rune(w)) < 2 {
+				continue // 与主匹配同口径：单字符词不参与
+			}
+			hit := false
+			for _, lab := range labels {
+				// 缺失判定仅用「标签含词」方向（label⊃word）——「问题含完整标签」是标签级命中信号，
+				// 不应使其它词免检（否则单标签入题即全词豁免，缺口清单失真）
+				if strings.Contains(lab, w) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				missing[domain] = append(missing[domain], w)
+			}
+		}
+	}
+	return missing
+}
+
+// CheckAnswerableCore 程序化调用核（MCP 工具与 REST 端点共用——REQ-545② REST 口与工具同源零漂移）。
+func (f *Facade) CheckAnswerableCore(ctx context.Context, oid, question string) (map[string]any, error) {
+	p, ep, errRes := f.route(oid)
+	if errRes != nil {
+		return nil, fmt.Errorf("本体路由失败（未装载或不存在）")
+	}
+	domains, err := f.fetchDomainLabels(ctx, "check_answerable", oid, p.ID, ep)
+	if err != nil {
+		return nil, err
+	}
+	labels := domains["concepts"]
+	if len(labels) == 0 {
+		return map[string]any{
+			"answerable": false, "matched_concepts": []string{},
+			"coverage": 0, "label_count": 0,
+			"missing":    missingByDomain(questionWords(question), domains),
+			"suggestion": "本体无概念标签（空本体或未装载）——先完成构建/装载再提问",
+		}, nil
+	}
+	words := questionWords(question)
+	matched := map[string]bool{}
+	hits := 0
+	for _, lab := range labels {
+		for _, w := range words {
+			if len([]rune(w)) >= 2 && strings.Contains(lab, w) {
+				if !matched[lab] {
+					matched[lab] = true
+					hits++
+				}
+				break
+			}
+			if !matched[lab] && len([]rune(lab)) >= 2 && strings.Contains(question, lab) {
+				matched[lab] = true
+				hits++
+			}
+		}
+	}
+	coverage := float64(hits) / float64(len(labels))
+	// answerable 阈值：≥10% 标签命中问题词（确定性保守口径——宁可 false 让 agent 换问法）
+	answerable := hits > 0 && coverage >= 0.10
+	sort.Strings(matchedKeys(matched))
+	suggestion := "建议调用序：list_concepts 定位 → get_concept 看定义 → neighbors/sparql_query 取数据" +
+		fmt.Sprintf("（本次匹配 %d/%d 标签，覆盖度 %.0f%%）", hits, len(labels), coverage*100)
+	if !answerable {
+		suggestion = "覆盖度低——问题可能超出本体域；建议换问法或确认本体是否覆盖该领域。" + suggestion
+	}
+	mc := matchedKeys(matched)
+	return map[string]any{
+		"answerable": answerable, "matched_concepts": mc,
+		"coverage": coverage, "label_count": len(labels), "question_words": words,
+		"missing":    missingByDomain(words, domains), // REQ-545/M352：分域零命中清单（既有键全保留向后兼容）
+		"suggestion": suggestion,
+		"scope":      scopeBlock(p), // REQ-482/M282：组作用域透出
+	}, nil
+}
+
 func (f *Facade) handleCheckAnswerable() server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
@@ -24,69 +143,11 @@ func (f *Facade) handleCheckAnswerable() server.ToolHandlerFunc {
 		if oid == "" || strings.TrimSpace(question) == "" {
 			return mcp.NewToolResultErrorf("ontology_id 与 question 必填"), nil
 		}
-		p, ep, errRes := f.route(oid)
-		if errRes != nil {
-			return errRes, nil
-		}
-		q := `PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX owl: <http://www.w3.org/2002/07/owl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?label WHERE { ?c rdf:type owl:Class . { ?c rdfs:label ?label } UNION { ?c skos:prefLabel ?label } UNION { ?c skos:altLabel ?label } }`
-		bindings, err := f.exec(ctx, "check_answerable", oid, p.ID, ep, q)
+		out, err := f.CheckAnswerableCore(ctx, oid, question)
 		if err != nil {
-			return mcp.NewToolResultErrorf("概念标签拉取失败: %v", err), nil
+			return mcp.NewToolResultErrorf("%v", err), nil
 		}
-		labels := []string{}
-		for _, b := range bindings {
-			if l, ok := b["label"].(map[string]any); ok {
-				if v, ok2 := l["value"].(string); ok2 && strings.TrimSpace(v) != "" {
-					labels = append(labels, v)
-				}
-			}
-		}
-		if len(labels) == 0 {
-			return jsonResult(map[string]any{
-				"answerable": false, "matched_concepts": []string{},
-				"coverage": 0, "label_count": 0,
-				"suggestion": "本体无概念标签（空本体或未装载）——先完成构建/装载再提问",
-			}), nil
-		}
-		// 问题词抽取：显式分隔切词 + CJK bigram（中文无空格分词的确定性近似）
-		words := questionWords(question)
-		// 双向匹配：标签含问题词（标签⊃词）为主；问题含完整标签（长标签短语）为辅
-		matched := map[string]bool{}
-		hits := 0
-		for _, lab := range labels {
-			for _, w := range words {
-				if len([]rune(w)) >= 2 && strings.Contains(lab, w) {
-					if !matched[lab] {
-						matched[lab] = true
-						hits++
-					}
-					break
-				}
-			}
-			if !matched[lab] && len([]rune(lab)) >= 2 && strings.Contains(question, lab) {
-				matched[lab] = true
-				hits++
-			}
-		}
-		coverage := float64(hits) / float64(len(labels))
-		// answerable 阈值：≥10% 标签命中问题词（确定性保守口径——宁可 false 让 agent 换问法）
-		answerable := hits > 0 && coverage >= 0.10
-		sort.Strings(matchedKeys(matched))
-		suggestion := "建议调用序：list_concepts 定位 → get_concept 看定义 → neighbors/sparql_query 取数据" +
-			fmt.Sprintf("（本次匹配 %d/%d 标签，覆盖度 %.0f%%）", hits, len(labels), coverage*100)
-		if !answerable {
-			suggestion = "覆盖度低——问题可能超出本体域；建议换问法或确认本体是否覆盖该领域。" + suggestion
-		}
-		mc := matchedKeys(matched)
-		return jsonResult(map[string]any{
-			"answerable": answerable, "matched_concepts": mc,
-			"coverage": coverage, "label_count": len(labels), "question_words": words,
-			"suggestion": suggestion,
-			"scope":      scopeBlock(p), // REQ-482/M282：概念覆盖跨本体转正（label 拉取本无命名空间过滤）+组作用域透出
-		}), nil
+		return jsonResult(out), nil
 	}
 }
 

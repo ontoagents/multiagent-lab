@@ -125,7 +125,7 @@ func (f *Facade) addTools(s *server.MCPServer) {
 	// question 分词与概念标签 containment 匹配，覆盖度→{answerable, matched_concepts, suggestion}。
 	// 治「agent 盲跑后才发现本体不含该域」；check_readiness 不另立（healthz/loaded_status 已对位）。
 	s.AddTool(mcp.NewTool("check_answerable",
-		mcp.WithDescription("预检本体能否回答某问题（确定性关键词/标签匹配，零 LLM）：返回 answerable、matched_concepts（命中概念）与 suggestion（建议调用序）。提问前先调用可避免盲跑。"),
+		mcp.WithDescription("预检本体能否回答某问题（确定性关键词/标签匹配，零 LLM）：返回 answerable、matched_concepts（命中概念）、missing（分域零命中清单——concepts/relations/synonyms 各域缺失的提问词，REQ-545）与 suggestion（建议调用序）。提问前先调用可避免盲跑。"),
 		oid("ontology_id", "本体仓库 id"),
 		oid("question", "用户问题原文"),
 	), f.handleCheckAnswerable())

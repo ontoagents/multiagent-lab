@@ -19,6 +19,8 @@ interface QuizItem {
   question: string
   answer: string
   difficulty: string
+  /** REQ-545/M352 出题预检裁决（''=未预检 | answerable | not_answerable——check_answerable 确定性预检） */
+  coverage_verdict?: string
 }
 
 interface MasteryLevel {
@@ -162,7 +164,19 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
       {(items ?? []).map((q) => {
         const g = grades[q.id]
         return (
-          <Card key={q.id} size="small" style={{ marginBottom: 10 }} title={<span>{q.question}</span>}>
+          <Card
+            key={q.id}
+            size="small"
+            style={{ marginBottom: 10 }}
+            title={
+              <span>
+                {/* REQ-545/M352：预检徽标（可答=绿/存疑=金/未预检不显——运行平面不可达时如实无标） */}
+                {q.coverage_verdict === 'answerable' && <Tag color="green" style={{ marginInlineEnd: 6, fontSize: 11 }}>可答</Tag>}
+                {q.coverage_verdict === 'not_answerable' && <Tag color="gold" style={{ marginInlineEnd: 6, fontSize: 11 }}>存疑</Tag>}
+                {q.question}
+              </span>
+            }
+          >
             <div style={{ marginBottom: 8 }}>
               {(q.concept_names ?? []).map((c) => (
                 <Tag key={c} style={{ margin: '0 6px 0 0', fontSize: 11 }}>{c}</Tag>

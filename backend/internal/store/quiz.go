@@ -17,9 +17,12 @@ type QuizItem struct {
 	OntologyID   string   `json:"ontology_id"`
 	ConceptNames []string `json:"concept_names"`
 	Question     string   `json:"question"`
-	Answer       string   `json:"answer"`    // 参考答案+依据（批改对照，前端作答后才展示）
+	Answer       string   `json:"answer"`     // 参考答案+依据（批改对照，前端作答后才展示）
 	Difficulty   string   `json:"difficulty"` // basic | applied
-	CreatedAt    string   `json:"created_at"`
+	// CoverageVerdict REQ-545/M352 出题预检裁决（''=未预检 | answerable | not_answerable——
+	// check_answerable 确定性预检随出题落库，QuizPane 可答/存疑徽标数据源）
+	CoverageVerdict string `json:"coverage_verdict"`
+	CreatedAt       string `json:"created_at"`
 }
 
 // MasteryLevel 概念级掌握度（asked/correct 累计+score 最近加权 0~1）。
@@ -40,19 +43,25 @@ func (s *Store) InsertQuizItem(q *QuizItem) (*QuizItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.DB.Exec(`INSERT INTO quiz_item (id,ontology_id,concept_names,question,answer,difficulty,created_at) VALUES (?,?,?,?,?,?,?)`,
-		q.ID, q.OntologyID, string(cn), q.Question, q.Answer, q.Difficulty, now()); err != nil {
+	if _, err := s.DB.Exec(`INSERT INTO quiz_item (id,ontology_id,concept_names,question,answer,difficulty,coverage_verdict,created_at) VALUES (?,?,?,?,?,?,?,?)`,
+		q.ID, q.OntologyID, string(cn), q.Question, q.Answer, q.Difficulty, q.CoverageVerdict, now()); err != nil {
 		return nil, err
 	}
 	return q, nil
 }
 
+// UpdateQuizCoverage REQ-545/M352：预检裁决回写（出题后异步预检落库）。
+func (s *Store) UpdateQuizCoverage(id, verdict string) error {
+	_, err := s.DB.Exec(`UPDATE quiz_item SET coverage_verdict=? WHERE id=?`, verdict, id)
+	return err
+}
+
 // GetQuizItem 按 id 取出题（作答后批改对照用）。
 func (s *Store) GetQuizItem(id string) (*QuizItem, error) {
-	row := s.DB.QueryRow(`SELECT id,ontology_id,concept_names,question,answer,difficulty,created_at FROM quiz_item WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id,ontology_id,concept_names,question,answer,difficulty,COALESCE(coverage_verdict, '') AS coverage_verdict, created_at FROM quiz_item WHERE id=?`, id)
 	q := &QuizItem{}
 	var cn string
-	if err := row.Scan(&q.ID, &q.OntologyID, &cn, &q.Question, &q.Answer, &q.Difficulty, &q.CreatedAt); err != nil {
+	if err := row.Scan(&q.ID, &q.OntologyID, &cn, &q.Question, &q.Answer, &q.Difficulty, &q.CoverageVerdict, &q.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &HTTPError{Status: 404, Msg: "出题不存在"}
 		}
@@ -67,7 +76,7 @@ func (s *Store) ListQuizItems(ontologyID string, limit int) ([]*QuizItem, error)
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := s.DB.Query(`SELECT id,ontology_id,concept_names,question,answer,difficulty,created_at FROM quiz_item WHERE ontology_id=? ORDER BY created_at DESC LIMIT ?`, ontologyID, limit)
+	rows, err := s.DB.Query(`SELECT id,ontology_id,concept_names,question,answer,difficulty,COALESCE(coverage_verdict, '') AS coverage_verdict, created_at FROM quiz_item WHERE ontology_id=? ORDER BY created_at DESC LIMIT ?`, ontologyID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +85,7 @@ func (s *Store) ListQuizItems(ontologyID string, limit int) ([]*QuizItem, error)
 	for rows.Next() {
 		q := &QuizItem{}
 		var cn string
-		if err := rows.Scan(&q.ID, &q.OntologyID, &cn, &q.Question, &q.Answer, &q.Difficulty, &q.CreatedAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.OntologyID, &cn, &q.Question, &q.Answer, &q.Difficulty, &q.CoverageVerdict, &q.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(cn), &q.ConceptNames)

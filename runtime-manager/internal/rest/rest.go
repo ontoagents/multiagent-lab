@@ -43,7 +43,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/runtime-config", s.runtimeConfigGet)
 	m.HandleFunc("PUT /api/runtime-config", s.runtimeConfigPut)
 	m.HandleFunc("GET /api/runtime-profiles/route-ambiguities", s.routeAmbiguities) // REQ-384/M180：多本体路由歧义观测面
-	m.HandleFunc("POST /api/ontology-sparql", s.ontologySparql)                     // REQ-382/M178：按本体路由执行只读 SPARQL（cqbench 执行级对齐通道）
+	m.HandleFunc("POST /api/ontology-sparql", s.ontologySparql)
+	m.HandleFunc("POST /api/check-answerable", s.checkAnswerable) // REQ-545/M352：程序化预检口                     // REQ-382/M178：按本体路由执行只读 SPARQL（cqbench 执行级对齐通道）
 	m.HandleFunc("GET /api/runtime-profiles/{id}/logs", s.logs)
 	m.HandleFunc("GET /api/runtime-profiles/{id}/trace", s.trace)    // 翻译透视（REQ-94）
 	m.HandleFunc("GET /api/runtime-profiles/{id}/sparql", s.sparql)  // SPARQL 工作台端点（REQ-92，Yasgui）
@@ -96,9 +97,9 @@ func (s *Server) routeAmbiguities(w http.ResponseWriter, r *http.Request) {
 		list = []store.RouteAmbiguity{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ambiguities":              list,
-		"count":                    len(list),
-		"owner_cache_ttl_seconds":  int(facade.OwnerCacheTTL / time.Second),
+		"ambiguities":             list,
+		"count":                   len(list),
+		"owner_cache_ttl_seconds": int(facade.OwnerCacheTTL / time.Second),
 	})
 }
 

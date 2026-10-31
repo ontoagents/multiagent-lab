@@ -16,7 +16,7 @@ import (
 )
 
 // coverageVerdictSchema 单条 CQ 判定输出契约（P7 的 Yes/No+解释结构化）。
-const coverageVerdictSchema = `{"type":"object","required":["verdict","explanation"],"properties":{"verdict":{"type":"string","enum":["Yes","No"]},"explanation":{"type":"string"}}}`
+const coverageVerdictSchema = `{"type":"object","required":["verdict","explanation"],"properties":{"verdict":{"type":"string","enum":["Yes","No"]},"explanation":{"type":"string"},"missing":{"type":"array","items":{"type":"string"}}}}`
 
 // coveragePrompt 单条 CQ 判定（P7 cqt_prompt_a/b 中文适配：判定+解释）。
 const coveragePrompt = `你是本体评审专家。以下是一份本体的纯文本描述（口语化），请推断该本体能否回应这条能力问题（Competency Question）。
@@ -27,13 +27,14 @@ const coveragePrompt = `你是本体评审专家。以下是一份本体的纯�
 能力问题：{cq}
 
 判定标准：本体中已建模的概念/关系/实例（或其结构）足以结构化地回应该问题=「Yes」；缺少必要的概念、关系或属性=「No」。
-只输出 JSON 对象：{"verdict":"Yes"或"No","explanation":"一句话中文说明（指出依据的概念/关系，或缺失什么）"}`
+同时给出 missing 字段：不可答或存疑时列出缺失的概念/关系名（字符串数组，可空）。只输出 JSON 对象：{"verdict":"Yes"或"No","explanation":"一句话中文说明（指出依据的概念/关系，或缺失什么）","missing":["缺失的概念/关系名"]}`
 
 // CQVerdict 单条覆盖判定结果。
 type CQVerdict struct {
-	CQ          string `json:"cq"`
-	Verdict     string `json:"verdict"` // Yes | No | Unknown（调用失败如实标注，不静默放行）
-	Explanation string `json:"explanation"`
+	CQ          string   `json:"cq"`
+	Verdict     string   `json:"verdict"` // Yes | No | Unknown（调用失败如实标注，不静默放行）
+	Explanation string   `json:"explanation"`
+	Missing     []string `json:"missing,omitempty"` // REQ-545/M352：结构化缺口清单（缺失的概念/关系名）
 }
 
 // VerbaliseSpec spec 口语化（P8 算法适配：类（含父链+定义）/关系（域→值域+定义）/实例三段式；
@@ -115,13 +116,15 @@ func (e *Engine) TestCoverage(ctx context.Context, sp *pkgspec.Spec, cqs []strin
 		raw, _, err := e.LLM.Chat(ctx, prompt, coverageVerdictSchema)
 		if err == nil {
 			var out struct {
-				Verdict     string `json:"verdict"`
-				Explanation string `json:"explanation"`
+				Verdict     string   `json:"verdict"`
+				Explanation string   `json:"explanation"`
+				Missing     []string `json:"missing"`
 			}
 			if perr := json.Unmarshal([]byte(raw), &out); perr == nil &&
 				(out.Verdict == "Yes" || out.Verdict == "No") {
 				v.Verdict = out.Verdict
 				v.Explanation = strings.TrimSpace(out.Explanation)
+				v.Missing = out.Missing // REQ-545/M352：结构化缺口随裁决透出
 			} else {
 				v.Explanation = "输出解析失败"
 				unknown++

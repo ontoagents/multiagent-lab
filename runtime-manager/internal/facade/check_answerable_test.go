@@ -1,34 +1,36 @@
 package facade
 
-// REQ-415/M211：questionWords 确定性分词单测（CJK bigram/ASCII 词/混合/单字）。
-import "testing"
+// REQ-545/M352 分域零命中清单纯函数单测——三域独立判定/命中不计入/单字符词不参与。
 
-func TestQuestionWords(t *testing.T) {
-	cases := []struct {
-		name, q string
-		want    []string
-	}{
-		{"中文 bigram", "有哪些计算节点", []string{"有哪", "哪些", "些计", "计算", "算节", "节点"}},
-		{"ASCII 词", "what is Pod", []string{"what", "is", "pod"}},
-		{"混合", "查 Pod 驱逐", []string{"查", "pod", "驱逐"}},
-		{"单字", "查 节点", []string{"查", "节点"}},
+import (
+	"reflect"
+	"testing"
+)
+
+func TestMissingByDomain_Req545(t *testing.T) {
+	labels := map[string][]string{
+		"concepts":  {"计算节点", "存储节点"},
+		"relations": {"连接"},
+		"synonyms":  {"服务器"},
 	}
-	for _, c := range cases {
-		got := questionWords(c.q)
-		if len(got) == 0 {
-			t.Fatalf("%s: 空结果", c.name)
-		}
-		for _, w := range c.want {
-			found := false
-			for _, g := range got {
-				if g == w {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("%s: 缺词 %q（got %v）", c.name, w, got)
-			}
-		}
+	words := []string{"计算", "网络", "连接", "服务器", "a"}
+	got := missingByDomain(words, labels)
+	// concepts：计算 命中（计算节点⊃）；网络/连接/服务器 零命中
+	if !reflect.DeepEqual(got["concepts"], []string{"网络", "连接", "服务器"}) {
+		t.Fatalf("concepts 域失真: %v", got["concepts"])
+	}
+	// relations：连接 命中；网络/服务器/计算 零命中
+	if !reflect.DeepEqual(got["relations"], []string{"计算", "网络", "服务器"}) {
+		t.Fatalf("relations 域失真: %v", got["relations"])
+	}
+	// synonyms：服务器 命中
+	if !reflect.DeepEqual(got["synonyms"], []string{"计算", "网络", "连接"}) {
+		t.Fatalf("synonyms 域失真: %v", got["synonyms"])
+	}
+	// 全命中域=空数组（非 nil）
+	labels2 := map[string][]string{"concepts": {"计算节点"}}
+	got2 := missingByDomain([]string{"计算"}, labels2)
+	if got2["concepts"] == nil || len(got2["concepts"]) != 0 {
+		t.Fatalf("全命中应为空数组: %v", got2["concepts"])
 	}
 }
