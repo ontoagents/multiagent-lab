@@ -39,4 +39,7 @@ const (
 	EventConnectorDegr   = "connector.degraded"
 	EventDebugCLI        = "debug.cli"
 	EventSubagentDel     = "subagent.delegate"
+	EventReviewSubmitted = "review.submitted"  // REQ-553/M360：评审 verdict 提交（submit_review 工具体内）
+	EventConflictDete    = "conflict.detected" // REQ-553/M360：规则档命中分歧（review 点挂起/event 点 pending）
+	EventConflictReso    = "conflict.resolved" // REQ-553/M360：人工裁决落库（decision_source=manual）
 )

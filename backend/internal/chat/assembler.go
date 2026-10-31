@@ -1176,6 +1176,7 @@ func (a *Assembler) assembleTools(ctx context.Context, ag *store.Agent, sc assem
 	a.stepMCPTools(ctx, ag, tb)
 	a.stepOntologyTools(ctx, ag, sc, tb)
 	a.stepFileTools(ctx, ag, sc, tb)
+	a.stepConflictTools(ctx, ag, sc, tb)
 	a.stepHookWrap(ag, tb)
 	if err := a.stepApprovalWrap(ctx, ag, sc, tb); err != nil {
 		return nil, err
@@ -1514,6 +1515,34 @@ func (a *Assembler) stepFileTools(ctx context.Context, ag *store.Agent, sc assem
 				tb.Warnings = append(tb.Warnings, "run_command 工具实例化失败: "+rerr.Error())
 			}
 		}
+	}
+}
+
+// step 5.55) submit_review 方案分歧结构化识别（REQ-553/M360；107 号 §4.3①——「评审协议经
+// 装配层注入」同缝 member_profile）：全agent 可用（工具仅在模型显式提交 disagree verdict 时
+// 挂起，可用性本身无副作用）；Store 缺失不装配。
+func (a *Assembler) stepConflictTools(ctx context.Context, ag *store.Agent, sc assembleScope, tb *toolBundle) {
+	if a.Store == nil || sc.ConversationID == "" {
+		return
+	}
+	pid := ""
+	if sc.ProjectID != "" {
+		pid = sc.ProjectID
+	}
+	sr, serr := tool.NewSubmitReviewTool(tool.SubmitReviewDeps{
+		Store:          a.Store,
+		ConversationID: sc.ConversationID,
+		ProjectID:      pid,
+		AgentID:        ag.ID,
+		AgentName:      ag.Name,
+	})
+	if serr != nil {
+		tb.Warnings = append(tb.Warnings, "submit_review 工具实例化失败: "+serr.Error())
+		return
+	}
+	if _, dup := tb.SourceOf["submit_review"]; !dup {
+		tb.Tools = append(tb.Tools, sr)
+		tb.SourceOf["submit_review"] = "builtin"
 	}
 }
 

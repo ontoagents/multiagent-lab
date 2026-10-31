@@ -609,6 +609,11 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 				s.emitAndRecord(ctx, conv, runID, newEvent("verify.failed", runID, map[string]any{
 					"command": agent.VerifyCommand, "output": truncateRunes(out, 1500), "error": verr.Error(),
 				}), emit)
+				// REQ-553 事件点规则（107 号 §4.3②）：verify_failed 命中冲突规则档 event 条目 →
+				// 运行收束后无活运行可挂起，落 pending 裁决单+conflict.detected（裁决后回注消息新运行）。
+				// 默认档无 event 条目=零行为变化；规则档关闭/解析失败同样零命中。
+				s.detectEventConflict(ctx, conv, runID, "verify.failed",
+					"verify_on_stop 验证未通过——按规则档转人工裁决（pending）：命令 "+agent.VerifyCommand+" 失败 "+verr.Error(), emit)
 				s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 					"message": "verify_on_stop 验证未通过，本次运行不标记完成: " + verr.Error(),
 					"output":  truncateRunes(out, 1500),
@@ -851,6 +856,9 @@ type interruptState struct {
 	// Node REQ-205③：工作流挂起节点（HITL 闸门节点化——会话级单槽载体上的节点标注；
 	// 空=非工作流或未知节点。恢复仍沿 CheckpointID/TargetID 定向，本字段为进度呈现与回放定位）
 	Node string `json:"node,omitempty"`
+	// ConflictID REQ-553/M360：分歧裁决单指针（kind='conflict' 时必填——conflict_review 表审计行 id，
+	// resolve 端点据此定位裁决单并复用 Service.Resume 定向恢复）
+	ConflictID string `json:"conflict_id,omitempty"`
 }
 
 // handleInterrupted 捕获运行中断（ask_human / 工具审批）：提取根因中断点信息，
@@ -905,13 +913,18 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 			st.TargetID = chosen.ID
 			if b, err := json.Marshal(chosen.Info); err == nil {
 				var hi struct {
-					Question  string   `json:"question"`
-					Choices   []string `json:"choices"`
-					ToolName  string   `json:"tool_name"`
-					Arguments string   `json:"arguments"`
+					Question   string   `json:"question"`
+					Choices    []string `json:"choices"`
+					ToolName   string   `json:"tool_name"`
+					Arguments  string   `json:"arguments"`
+					ConflictID string   `json:"conflict_id"`
 				}
 				if json.Unmarshal(b, &hi) == nil {
 					switch {
+					case hi.ConflictID != "":
+						// REQ-553：分歧裁决挂起（submit_review 命中规则档）——kind=conflict 外显裁决卡
+						st.Kind, st.Question, st.Choices = "conflict", hi.Question, hi.Choices
+						st.ConflictID = hi.ConflictID
 					case hi.Question != "":
 						st.Kind, st.Question, st.Choices = "ask_human", hi.Question, hi.Choices
 					case hi.ToolName != "":
@@ -934,7 +947,8 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 		"kind": st.Kind, "checkpoint_id": st.CheckpointID, "target_id": st.TargetID,
 		"question": st.Question, "choices": st.Choices,
 		"tool_name": st.ToolName, "arguments": st.Arguments,
-		"node":      st.Node, // REQ-205③：工作流挂起节点（节点级 HITL 定位）
+		"node":        st.Node,      // REQ-205③：工作流挂起节点（节点级 HITL 定位）
+		"conflict_id": st.ConflictID, // REQ-553：分歧裁决单指针（裁决卡 resolve 动作数据源）
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.interrupted", runID, data), emit)
 }

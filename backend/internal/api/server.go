@@ -369,6 +369,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation)        // REQ-136：对话自动命名
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
+	m.HandleFunc("GET /api/conversations/{id}/conflicts", s.listConflicts)          // REQ-553/M360：分歧裁决清单（审计/回放）
+	m.HandleFunc("POST /api/conversations/{id}/conflicts/{cid}/resolve", s.resolveConflict) // REQ-553/M360：人工裁决（SSE——suspended 定向恢复/pending 回注新运行）
 	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
 	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)
 	m.HandleFunc("GET /api/conversations/{id}/state-log", s.conversationStateLog)

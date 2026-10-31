@@ -5,7 +5,7 @@ import { AlignLeftOutlined, BookOutlined, BranchesOutlined, ClusterOutlined, Cop
 import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
-import { api, connDisplayName, extApproval, resumeConversation, runConversation } from '../api/client'
+import { api, connDisplayName, extApproval, resolveConflict as resolveConflictApi, resumeConversation, runConversation } from '../api/client'
 import { notifyPending } from '../lib/notify'
 import type { ComparePaneConfig } from '../api/client'
 import ConvSettingsPanel from './chat/ConvSettingsPanel'
@@ -1266,13 +1266,16 @@ export default function ChatWindow({
 
   // 中断恢复（M11 收尾 + REQ-14 审批）：会话挂起的 ask_human 提问 / 工具审批（随会话数据同步）
   const [interrupt, setInterrupt] = useState<{
-    kind: 'ask_human' | 'approval'
+    kind: 'ask_human' | 'approval' | 'conflict'
     question: string
     choices: string[]
     toolName: string
     arguments: string
+    conflictId?: string // REQ-553：分歧裁决单指针（kind=conflict 时必有）
   } | null>(null)
   const [answer, setAnswer] = useState('')
+  // REQ-553：第三案输入态（裁决卡 adopt=third 时随 resolve 提交）
+  const [thirdText, setThirdText] = useState('')
   // REQ-206/M41 S2：外部推理后端权限转审批的挂起卡（approval.request → 决议 → 清卡）
   const [extApprovalState, setExtApproval] = useState<{ toolName: string; kind: string } | null>(null)
     // REQ-217①/M48：调用轨迹面板（重放并入面板——头部「重放」按钮退役，EventReplayDrawer 作面板内动作）
@@ -1616,6 +1619,24 @@ export default function ChatWindow({
     await streamStart((handler) => resumeConversation(conversation.id, text, debugLevel, handler, debugPersist))
   }
 
+  // REQ-553：分歧人工裁决（裁决卡动作 → /conflicts/{cid}/resolve SSE——suspended 定向恢复续跑/
+  // pending 回注新运行；resolution 落库 decision_source=manual；事件流与运行同构）
+  const resolveConflict = async (adopt: 'a' | 'b' | 'third') => {
+    if (!interrupt?.conflictId || running) return
+    if (adopt === 'third' && !thirdText.trim()) return
+    const label = adopt === 'third' ? `第三案：${thirdText.trim()}` : adopt === 'a' ? '采纳 A 案' : '采纳 B 案'
+    setThirdText('')
+    setInterrupt(null)
+    runKeyRef.current = `resolve-${Date.now()}`
+    setItems((prev) => [
+      ...prev,
+      { kind: 'msg' as const, role: 'user' as const, content: `[裁决] ${label}` },
+    ])
+    await streamStart((handler) =>
+      resolveConflictApi(conversation.id, interrupt.conflictId!, adopt, adopt === 'third' ? thirdText.trim() : '', '', handler),
+    )
+  }
+
   // M17 阶段二：事件流导出（JSON 全量，供归档/外部重放）
   const exportEventsJSON = async () => {
     try {
@@ -1932,7 +1953,35 @@ export default function ChatWindow({
       {/* 中断恢复（M11 收尾 + REQ-14 审批）：ask_human 答复卡 / 工具审批卡 */}
       {interrupt && !running && (
         <div className="composer chat-interrupt">
-          {interrupt.kind === 'approval' ? (
+          {interrupt.kind === 'conflict' ? (
+            // REQ-553/M360：分歧裁决卡（方案对比 + 采纳 A/B/第三案——resolution 落库审计）
+            <Alert
+              type="warning"
+              showIcon
+              title="方案分歧——需要你裁决"
+              description={
+                <div className="chat-interrupt-body">
+                  <pre className="chat-interrupt-args" style={{ whiteSpace: 'pre-wrap' }}>{interrupt.question || '（评审成员提交了分歧，无摘要）'}</pre>
+                  <Space size={8} wrap>
+                    <Button type="primary" onClick={() => resolveConflict('a')}>采纳 A 案</Button>
+                    <Button onClick={() => resolveConflict('b')}>采纳 B 案（维持原方案）</Button>
+                  </Space>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Input
+                      value={thirdText}
+                      onChange={(e) => setThirdText(e.target.value)}
+                      placeholder="第三案全文（给出你自己的方案——提交后回注双方继续执行）"
+                      onPressEnter={() => resolveConflict('third')}
+                    />
+                    <Button type="primary" onClick={() => resolveConflict('third')} disabled={!thirdText.trim()}>裁决第三案</Button>
+                  </Space.Compact>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    裁决后自动定向恢复续跑（decision_source=manual 留痕）；也可直接发送新消息（放弃本次挂起——裁决单仍留档）。
+                  </Typography.Text>
+                </div>
+              }
+            />
+          ) : interrupt.kind === 'approval' ? (
             <Alert
               type="warning"
               showIcon

@@ -1021,6 +1021,18 @@ export function resumeConversation(
 }
 
 
+// REQ-553/M360：分歧人工裁决（SSE——suspended 态定向恢复续跑流 / pending 态回注消息新运行流）
+export function resolveConflict(
+  conversationId: string,
+  conflictId: string,
+  adopt: 'a' | 'b' | 'third',
+  thirdText: string,
+  rationale: string,
+  onEvent: (ev: { event: string; data: any }) => void,
+): { abort: () => void; done: Promise<void> } {
+  return streamRun(`/api/conversations/${conversationId}/conflicts/${encodeURIComponent(conflictId)}/resolve`, { adopt, third_text: thirdText, rationale }, onEvent)
+}
+
 /** SSE over fetch 公共流（运行 / 恢复共用；POST JSON → 逐事件回调）。 */
 function streamRun(
   url: string,

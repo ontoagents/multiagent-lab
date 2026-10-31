@@ -416,6 +416,11 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
       marks.push({ lane: 3, at: t, color: chColor, tip: `${chLabel} 成员过程 ${d?.member ?? ''} · ${String(d?.proto_event ?? '')} · ${String(d?.summary ?? '').slice(0, 60)}` })
     } else if (e.type === 'connector.degraded' || e.type === 'hook.denied') {
       marks.push({ lane: 3, at: t, color: '#ff4d4f', tip: describeEvent(e.type, d).text })
+    } else if (e.type === 'conflict.detected') {
+      // REQ-553：冲突检测/裁决两点标记（检测=红，裁决=绿/第三案=青）
+      marks.push({ lane: 3, at: t, color: '#ff4d4f', tip: `分歧检测 · 规则 ${d?.rule_id ?? ''} · ${String(d?.summary ?? '').slice(0, 60)}` })
+    } else if (e.type === 'conflict.resolved') {
+      marks.push({ lane: 3, at: t, color: d?.adopt === 'third' ? '#13c2c2' : '#52c41a', tip: `分歧裁决 ${d?.adopt === 'third' ? '第三案' : `采纳 ${String(d?.adopt ?? '').toUpperCase()} 案`}（${d?.decision_source ?? 'manual'}）` })
     }
   }
   if (suspendStart != null) segs.push({ lane: 3, s: suspendStart, e: t1, color: '#faad14', tip: '挂起中（尚未恢复）' })

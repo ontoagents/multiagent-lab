@@ -28,11 +28,17 @@ export interface ChatItem {
 /** 会话挂起中断卡数据（run.interrupted payload → 组件状态；实时与对比窗格共用） */
 export function toInterruptState(payload: any) {
   return {
-    kind: (payload.kind === 'approval' || (!payload.question && payload.tool_name) ? 'approval' : 'ask_human') as 'approval' | 'ask_human',
+    kind: (payload.kind === 'approval' || (!payload.question && payload.tool_name)
+      ? 'approval'
+      : payload.kind === 'conflict' || payload.conflict_id
+        ? 'conflict'
+        : 'ask_human') as 'approval' | 'ask_human' | 'conflict',
     question: payload.question ?? '',
     choices: Array.isArray(payload.choices) ? payload.choices : [],
     toolName: payload.tool_name ?? '',
     arguments: payload.arguments ?? '',
+    // REQ-553：分歧裁决单指针（裁决卡 resolve 动作数据源；kind=conflict 时必有）
+    conflictId: payload.conflict_id ?? '',
   }
 }
 
