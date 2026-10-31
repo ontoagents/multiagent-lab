@@ -16,7 +16,7 @@ synced: 2026-10-31
 | 号 | 状态 | 标题（一句话） | M | 归属 | 详录 |
 | --- | --- | --- | --- | --- | --- |
 | REQ-536 | 🚧 | 体验机制化——◐ 文案面收口已落（M343，5c44212）；字号令牌 940 处/会话现场恢复/暗色收编 39 处三面横切排版改造留续 | M343 | 01 §3.17 | 18/02 §12/20 4.172 |
-| REQ-544 | 📋 | 决策/规则 spec 一等公民——decisions[] 可选层 spec 层 v1（四轻字段+Validate+qualitygate+onto_core dogfooding 种子 5 条+资产详情决策分区；不入 TTL 拍板，决策结构化借鉴批①） | M351 | 03 §2.73 | 18/105 号 |
+| REQ-544 | 🚧 | 决策/规则 spec 一等公民——decisions[] 可选层 spec 层 v1（四轻字段+Validate+qualitygate+onto_core dogfooding 种子 5 条+资产详情决策分区；不入 TTL 拍板，决策结构化借鉴批①） | M351 | 03 §2.73 | 18/105 号 |
 | REQ-545 | 📋 | 证据槽/缺槽结构化缺口——check_answerable 槽位化+出题预检接线（missing 分域+REST 口+quiz 迁移 079+QuizPane/CqQuickScreen 缺口透出，收 REQ-524 挂账，决策结构化借鉴批②） | M352 | 03 §2.73 | 18/105 号 |
 | REQ-546 | 📋 | 知识写回补「评审」半边——learning proposal 暂存区（迁移 080+promote 改产提案+裁决端点+CompanionPromotePane，承 REQ-529 挂账，决策结构化借鉴批③） | M353 | 03 §2.73 | 18/105 号 |
 | REQ-547 | 📋 | golden case 案例级 gold+第三信号开闸评估（cqbench kind 扩 case+onto_core 数据集+gate 端点单测+EvolutionPane 开关，默认关维持，决策结构化借鉴批④） | M354 | 03 §2.73 | 18/105 号 |
