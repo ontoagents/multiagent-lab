@@ -1,7 +1,7 @@
 // REQ-401③/M197 收口：会话设置面板（头部 ⋮ Popover content 抽件——零行为变更 prop 化）。
 // 重命名/审批覆盖/模型覆盖/生效配置总览/上下文预算/检索参数/伴生覆盖/侧板入口；
 // 状态（renameVal）与 patchConv/toast 语义留 ChatWindow 主件，本件纯渲染+回调上抛。
-import { Button, Input, InputNumber, Segmented, Select, Tag, Typography } from 'antd'
+import { Button, Input, InputNumber, Segmented, Select, Typography } from 'antd'
 import type { Agent, Conversation } from '../../api/types'
 
 export default function ConvSettingsPanel({
@@ -73,20 +73,23 @@ export default function ConvSettingsPanel({
         style={{ width: '100%' }}
       />
       <div className="proc-pop-title">生效配置总览（合并序：会话 &gt; 智能体 &gt; 全局）</div>
-      <div style={{ fontSize: 11.5, lineHeight: 1.9 }}>
+      {/* REQ-488：总览彩 Tag 灰字化（覆盖/默认为信息标注非状态色）；说明字 12px */}
+      <div style={{ fontSize: 12, lineHeight: 1.9 }}>
         <div>
-          模型：{conversation.model_conn_id ? <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>会话覆盖</Tag> : <Tag style={{ margin: 0, fontSize: 10 }}>智能体默认</Tag>}
+          模型：{conversation.model_conn_id && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>会话覆盖 · </span>}
           {(modelConns ?? []).find((c) => c.id === conversation.model_conn_id)?.name ?? subjectName ?? '跟随'}
+          {!conversation.model_conn_id && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>（智能体默认）</span>}
         </div>
         <div>
           审批：{conversation.tool_approval === 'off' ? '会话关闭' : conversation.tool_approval === 'on' ? '会话开启' : '跟随智能体'}
           {conversation.tool_approval !== 'off' && conversation.tool_approval !== 'on' && (
-            <Typography.Text type="secondary" style={{ fontSize: 11 }}>（{agentApprovalLabel}）</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>（{agentApprovalLabel}）</Typography.Text>
           )}
         </div>
         <div>
-          上下文预算：{conversation.context_mode ? <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>会话覆盖</Tag> : <Tag style={{ margin: 0, fontSize: 10 }}>智能体档</Tag>}
+          上下文预算：{conversation.context_mode && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>会话覆盖 · </span>}
           {conversation.context_mode || '跟随'}
+          {!conversation.context_mode && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>（智能体档）</span>}
         </div>
       </div>
       <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
@@ -104,7 +107,7 @@ export default function ConvSettingsPanel({
       />
       <div className="proc-pop-title">会话检索参数（0=跟随知识库默认）</div>
       <div className="cs-row">
-        <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>top_k</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>top_k</Typography.Text>
         <InputNumber
           size="small" min={0} max={50} precision={0} style={{ width: 72 }}
           value={conversation.top_k ?? 0}

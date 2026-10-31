@@ -16,6 +16,7 @@ import {
   ToolOutlined,
   ControlOutlined,
   InfoCircleOutlined,
+  RightOutlined,
 DeleteOutlined, PlusOutlined, EyeOutlined} from '@ant-design/icons'
 import { api, connDisplayName } from '../api/client'
 import { agentFullPayload } from '../api/payload' // REQ-400①③：单源载荷构造器
@@ -418,7 +419,7 @@ function SegmentedFormView({
           options={segments.map((s) => ({ value: s.key, label: s.label }))}
         />
       )}
-      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>{cur.desc}</Typography.Text>
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>{cur.desc}</Typography.Text>
       <AgentConfigForm agent={agent} onChanged={onChanged} visibleTabs={[cur.tab]} embedded />
     </div>
   )
@@ -718,8 +719,8 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
           promptList.map((p) => (
             <div key={p.id} style={{ marginBottom: 14 }}>
               <Typography.Text strong style={{ fontSize: 12 }}>{p.label}</Typography.Text>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 4 }}>{p.purpose}</Typography.Paragraph>
-              <Input.TextArea readOnly value={p.text} autoSize={{ minRows: 4, maxRows: 12 }} style={{ fontSize: 11, fontFamily: 'monospace' }} />
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>{p.purpose}</Typography.Paragraph>
+              <Input.TextArea readOnly value={p.text} autoSize={{ minRows: 4, maxRows: 12 }} style={{ fontSize: 12, fontFamily: 'monospace' }} />
             </div>
           ))
         )}
@@ -787,7 +788,7 @@ function OnchatModeControl({ value, onChange }: { value?: string; onChange?: (v:
           ]}
         />
       )}
-      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {on ? `已开启（默认${value === 'quick' ? '快速' : '访谈'}模式；运行时自动并入 ontochat_* 工具+注入内置访谈纪律段）` : '关闭——开启后自动并入工具与纪律段，无需手勾/粘贴'}
       </Typography.Text>
     </Space>
@@ -802,7 +803,7 @@ function OntoOpsControl({ value, onChange }: { value?: boolean; onChange?: (v: b
   return (
     <Space size={8} wrap>
       <Switch size="small" checked={on} onChange={(c) => onChange?.(c)} data-testid="ontoops-switch" aria-label="本体操作工具开关" />
-      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {on ? '已开启——挂载本体的会话自动并入 spec CRUD/校验/CQ 基准 13 件工具（写类触发审批）' : '关闭——开启后挂载本体的会话可由智能体直接增删改本体资产（写类触发审批）'}
       </Typography.Text>
     </Space>
@@ -846,25 +847,26 @@ function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInst
       </div>
       {on && (
         <div data-testid="onchat-sessions" style={{ marginTop: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
             产出清单：进行中 {ongoing} · 已入库 {saved}
             {sessions && sessions.length === 0 ? '（暂无构建会话——对话中说「帮我构建一个本体」即可开始）' : ''}
             {!sessions ? '（清单加载失败，稍后重试）' : ''}
           </Typography.Text>
           {(sessions ?? []).slice(0, 5).map((s) => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', minWidth: 0 }}>
-              <Tag {...(s.stage === 'done' ? { color: 'green' } : { color: 'processing' })} style={{ margin: 0, fontSize: 11 }}>
+              {/* REQ-488：状态彩 Tag 灰字化（done 非告警态不入色）；渠道标注灰字；操作钮灰图标 hover */}
+              <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>
                 {s.stage === 'done' ? '已入库' : '进行中'}
-              </Tag>
+              </Typography.Text>
               <Typography.Text ellipsis style={{ flex: 1, fontSize: 12 }} title={s.title}>{s.title || s.id}</Typography.Text>
-              {s.source === 'agent_chat' && <Tag style={{ margin: 0, fontSize: 10 }}>对话渠道</Tag>}
-              <Button size="small" type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => continueInBuild(s.id)}>
-                继续
-              </Button>
+              {s.source === 'agent_chat' && <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>对话渠道</Typography.Text>}
+              <Tooltip title="在构建平面继续">
+                <Button size="small" type="text" style={{ padding: 0, width: 22 }} icon={<RightOutlined />} aria-label="继续" onClick={() => continueInBuild(s.id)} />
+              </Tooltip>
             </div>
           ))}
           {(sessions?.length ?? 0) > 5 && (
-            <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => continueInBuild('')}>
+            <Button size="small" type="text" style={{ padding: 0, fontSize: 12, color: 'var(--c-ink-3)' }} onClick={() => continueInBuild('')}>
               在构建平面查看全部 {sessions!.length} 条…
             </Button>
           )}

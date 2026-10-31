@@ -4,6 +4,7 @@
 import { Bubble } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import { Button, Checkbox, Collapse, Input, InputNumber, Select, Space, Tooltip, Typography } from 'antd'
+import { CheckOutlined } from '@ant-design/icons'
 import { AgentLogo } from '../AgentLogo'
 import { connDisplayName } from '../../api/client'
 import { paneBadgeSelect, type PaneSel } from './bits'
@@ -67,15 +68,15 @@ export default function ComparePane({
           <AgentLogo agent={paneAgent} size={16} context="runtime" />
           <Typography.Text strong style={{ fontSize: 12 }}>{paneAgent?.name ?? '—'}</Typography.Text>
         </span>
-        {/* REQ-144 可选增强：采纳该窗格配置写回对话（仅 agent 直聊；运行中禁用） */}
+        {/* REQ-144 可选增强：采纳该窗格配置写回对话（仅 agent 直聊；运行中禁用）；REQ-488 灰图标化 */}
         {canAdopt && (
           <Tooltip title="采纳：把该窗格的智能体/模型/知识库/方案/技能开关写回对话配置，之后单流对话沿用">
             <Button
-              type="link" size="small" style={{ padding: '0 4px', fontSize: 11 }}
+              type="text" size="small" aria-label="采纳窗格配置"
+              style={{ padding: '0 4px', width: 24, color: 'var(--c-ink-3)' }}
+              icon={<CheckOutlined />}
               onClick={() => onAdopt(sel)}
-            >
-              采纳
-            </Button>
+            />
           </Tooltip>
         )}
         <span className="cmp-pane-badges">

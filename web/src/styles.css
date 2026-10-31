@@ -306,33 +306,20 @@ body { font-size: 14px; background: var(--c-bg); }
 .msg-list .ant-bubble-content-filled .user-actions .ant-btn { color: rgba(255, 255, 255, 0.8); }
 .msg-list .ant-bubble-content-filled:hover .user-actions .ant-btn { color: #fff; }
 
-/* REQ-330②：伴生沉淀悬浮胶囊（消息流右上角；旁路过程呈现，独立于显示档） */
-.companion-capsule { position: absolute; z-index: var(--z-float); top: 14px; right: max(24px, calc((100% - var(--chat-col)) / 2)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.companion-capsule-pill {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 32px; padding: 0 13px; border-radius: 999px;
-  background: var(--c-panel); border: 1px solid var(--c-line); color: var(--c-ink);
-  font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
-  box-shadow: 0 4px 14px rgba(28, 33, 48, 0.10), 0 1px 2px rgba(28, 33, 48, 0.06);
-  transition: border-color .15s ease, opacity .3s ease;
+/* REQ-488：伴生沉淀入流行（对齐 REQ-483② 口径——原右上悬浮胶囊退役；行随流滚动，明细行内嵌展开） */
+.companion-inline { max-width: var(--chat-col); margin: 2px auto; padding: 0 10px; }
+.companion-inline-row {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; background: transparent; padding: 2px 0;
+  font-family: inherit; font-size: 12px; color: var(--c-ink-3); cursor: pointer;
 }
-.companion-capsule-pill:hover { border-color: #7cc7d6; }
-.companion-capsule.mini .companion-capsule-pill { padding: 0 9px; opacity: 0.72; }
-.companion-capsule.mini .companion-capsule-pill:hover { opacity: 1; }
-.companion-capsule-mark { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; border-radius: 50%; font-size: 10px; color: #fff; background: #0b7a55; }
-.companion-capsule-mark.bad { background: var(--c-err, #c2373f); }
-.companion-capsule-label { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.companion-capsule-panel {
-  width: min(420px, calc(100vw - 96px));
-  background: var(--c-panel); border: 1px solid var(--c-line); border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(28, 33, 48, 0.16), 0 2px 6px rgba(28, 33, 48, 0.08);
-  overflow: hidden;
-}
-.companion-capsule-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--c-line); }
-.companion-capsule-title { font-size: 12px; font-weight: 600; color: var(--c-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.companion-capsule-close { border: 0; background: transparent; color: var(--c-ink-3); cursor: pointer; font-size: 12px; padding: 2px 4px; }
-.companion-capsule-close:hover { color: var(--c-ink); }
-.companion-capsule-body { max-height: min(420px, 56vh); overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.companion-inline-row:hover { color: var(--c-ink-2, var(--c-ink)); }
+.companion-inline-mark { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; border-radius: 50%; font-size: 10px; color: #fff; background: #0b7a55; }
+.companion-inline-mark.bad { background: var(--c-err, #c2373f); }
+.companion-inline.failed .companion-inline-row { color: var(--c-err, #c2373f); }
+.companion-inline-label { max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.companion-inline-caret { font-size: 9px; opacity: 0.7; }
+.companion-inline-panel { margin: 4px 0 6px; padding: 6px 10px; border-left: 2px solid var(--c-line, #e3e6f0); display: flex; flex-direction: column; gap: 6px; }
 /* REQ-330④：回放态伴生管线轻量摘要行（非交互；全量过程归调用轨迹） */
 .companion-summary-line { color: var(--c-ink-3); }
 /* 事件卡（运行时间线 / 工具调用 / 错误）：紧凑、从属于正文，与助手文本对齐，
@@ -672,11 +659,12 @@ pre.raw-json {
 .cmp-pane-title { font-size: 12px; font-weight: 600; color: var(--c-ink); white-space: nowrap; } /* 原 --c-ink-1 幽灵令牌修正 */
 .cmp-pane-badges { display: inline-flex; gap: 4px; flex-wrap: wrap; min-width: 0; }
 .cmp-badge {
-  font-size: 10.5px; line-height: 16px; padding: 0 5px; border-radius: 4px;
+  /* REQ-488：徽标 10.5px→12px；set 覆盖态去品牌底色（中性灰，覆盖语义由 Select 值承载） */
+  font-size: 12px; line-height: 18px; padding: 0 5px; border-radius: 4px;
   color: var(--c-ink-3); background: var(--c-bg-soft); max-width: 130px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cmp-badge.set { color: var(--c-brand); background: rgba(79, 70, 229, 0.08); font-weight: 500; }
+.cmp-badge.set { color: var(--c-ink-2, var(--c-ink)); font-weight: 500; }
 .cmp-pane-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px; }
 .cmp-pane-stream .ant-bubble { max-width: none; margin-inline: 0; }
 .cmp-pane-empty {

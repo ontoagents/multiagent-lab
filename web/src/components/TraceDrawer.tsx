@@ -30,14 +30,13 @@ const typesOfGroups = (gs: string[]) => {
   return set
 }
 
-const TYPE_COLOR: Record<string, string> = {
-  'tool.call': 'blue', 'tool.result': 'geekblue', 'model.step': 'purple', 'run.warning': 'orange',
-  'run.interrupted': 'gold', 'subagent.enter': 'cyan', 'subagent.exit': 'cyan', 'retrieval': 'green',
-  'companion.extract': 'cyan', 'companion.candidates': 'cyan', 'companion.decision': 'gold',
-  'companion.ingest': 'green', 'companion.reject': 'red',
-  'artifact.saved': 'magenta', 'debug.cli': 'default', 'run.started': 'default', 'run.finished': 'green',
-  'run.error': 'red', 'skill.loaded': 'default', 'context.stats': 'default',
+// REQ-488：事件类型 20 色 Tag 墙灰字化（REQ-483 视觉语言——仅告警/错误/拒绝留色，其余灰字）
+const ALERT_COLOR: Record<string, string> = {
+  'run.warning': 'orange',
+  'run.error': 'red',
+  'companion.reject': 'red',
 }
+const isAlertType = (t: string) => t in ALERT_COLOR
 
 export default function TraceDrawer({
   conversationId,
@@ -447,7 +446,7 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
   if (!isFinite(t0) || T <= 0) return null
   const pct = (t: number) => Math.max(0, Math.min(100, ((t - t0) / T) * 100))
   return (
-    <div style={{ margin: '4px 10px 8px', padding: '6px 8px 4px', border: '1px solid var(--c-border, #e3e6f0)', borderRadius: 6, background: 'var(--c-panel, #fff)' }}>
+    <div style={{ margin: '4px 10px 8px', padding: '6px 8px 4px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, marginLeft: 22 }}>
         <Typography.Text type="secondary" style={{ fontSize: 10 }}>时序 · 总 {fmtDur(T)}（思考/正文/工具/事件/智能体）</Typography.Text>
         <span style={{ flex: 1 }} />
@@ -555,35 +554,43 @@ function RunBlock({
   // REQ-284①：流式输出归并段（列表主视图——delta 不再逐条渲染）
   const segs = useMemo(() => buildSegments(run.events), [run.events])
   return (
-    <div style={{ marginBottom: 14, border: '1px solid var(--c-border, #e3e6f0)', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ marginBottom: 14, borderBottom: index > 0 ? '1px solid var(--c-border, #e3e6f0)' : undefined }}>
       {wfStrip && (
-        <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--c-border, #e3e6f0)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', background: 'var(--c-bg-soft, #f6f7fb)' }} data-testid="wf-progress">
-          <Tag color="geekblue" style={{ margin: 0, fontSize: 10 }}>工作流 · {wfStrip.mode}</Tag>
+        <div style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-testid="wf-progress">
+          {/* REQ-488：运行头彩 Tag 墙灰字化——仅失败/校验告警留色（REQ-483 视觉语言） */}
+          <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>工作流 · {wfStrip.mode}</Typography.Text>
           {wfStrip.items.map(([name, st]) => (
-            <Tag key={name} style={{ margin: 0, fontSize: 10 }} color={st.phase === 'completed' ? 'success' : 'processing'} data-testid={`wf-node-${name}`}>
+            <Typography.Text key={name} type="secondary" style={{ margin: 0, fontSize: 11 }} data-testid={`wf-node-${name}`}>
               {st.phase === 'completed' ? '✓ ' : '▶ '}{name}{st.index > 0 ? ` ${st.index}/${st.total}` : ''}
-            </Tag>
+            </Typography.Text>
           ))}
         </div>
       )}
       <div style={{ background: 'var(--c-bg-soft, #f6f7fb)', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Typography.Text strong style={{ fontSize: 12 }}>运行 {index + 1}</Typography.Text>
-        <Typography.Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(run.startedAt)}</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{fmtTime(run.startedAt)}</Typography.Text>
         {modelCfgChip}
         {approvalChip}
         {fin && (
-          <Tag color={fin.type === 'run.error' ? 'red' : (finState?.reason === 'verify_failed' ? 'orange' : 'green')} style={{ margin: 0, fontSize: 10 }}>
-            {fin.type === 'run.error' ? '出错' : finState?.reason ? String(finState.reason) : '完成'}
-          </Tag>
+          fin.type === 'run.error' ? (
+            <Tag color="red" style={{ margin: 0, fontSize: 10 }}>出错</Tag>
+          ) : finState?.reason === 'verify_failed' ? (
+            <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>{String(finState.reason)}</Tag>
+          ) : (
+            <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>{finState?.reason ? String(finState.reason) : '完成'}</Typography.Text>
+          )
         )}
-        {finState?.duration_ms != null && <Typography.Text type="secondary" style={{ fontSize: 11 }}>{finState.duration_ms}ms</Typography.Text>}
+        {finState?.duration_ms != null && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{finState.duration_ms}ms</Typography.Text>}
         {finState?.usage?.total_tokens != null && (
           <Tooltip title={`输入 ${finState.usage.input_tokens ?? '—'} / 输出 ${finState.usage.output_tokens ?? '—'}`}>
-            <Tag style={{ margin: 0, fontSize: 10 }}>{finState.usage.total_tokens} tok</Tag>
+            <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>{finState.usage.total_tokens} tok</Typography.Text>
           </Tooltip>
         )}
         <span style={{ flex: 1 }} />
-        <Button size="small" type="link" icon={<RollbackOutlined />} onClick={onReplay}>重放此运行</Button>
+        {/* REQ-488：重放操作灰图标化（hover 提示） */}
+        <Tooltip title="重放此运行">
+          <Button size="small" type="text" aria-label="重放此运行" icon={<RollbackOutlined />} onClick={onReplay} />
+        </Tooltip>
       </div>
       {showTimeline && <TimelineStrip events={run.allEvents} />}
       <div style={{ padding: '4px 0' }}>
@@ -629,9 +636,14 @@ function RunBlock({
             <div key={e.id} style={{ padding: '3px 10px 3px' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, paddingLeft: depth * 16, cursor: 'pointer' }}
                 onClick={() => setOpenId((m) => ({ ...m, [e.id]: !m[e.id] }))}>
-                <Tag color={TYPE_COLOR[e.type] ?? 'default'} style={{ margin: 0, fontSize: 10 }}>{e.type}</Tag>
+                {/* REQ-488：类型标注灰字（告警/错误/拒绝留色 Tag）；source 标注灰字 */}
+                {isAlertType(e.type) ? (
+                  <Tag color={ALERT_COLOR[e.type]} style={{ margin: 0, fontSize: 10 }}>{e.type}</Tag>
+                ) : (
+                  <span style={{ margin: 0, fontSize: 11, color: 'var(--c-ink-3)', fontFamily: 'monospace' }}>{e.type}</span>
+                )}
                 <span style={{ fontSize: 12, flex: 1 }} className={desc.warn ? 'warn-text' : ''}>{desc.text}</span>
-                {d?.source && <Tag style={{ margin: 0, fontSize: 10 }}>{String(d.source)}</Tag>}
+                {d?.source && <span style={{ margin: 0, fontSize: 11, color: 'var(--c-ink-3)' }}>{String(d.source)}</span>}
                 {dur && <span style={{ fontSize: 11, color: 'var(--c-ink-2)' }}>{dur}</span>}
               </div>
               {(showRaw || openId[e.id]) && e.data && (

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Tag , Input} from 'antd'
+import { Button, Input } from 'antd'
 import {
   PlusOutlined,
   EllipsisOutlined,
@@ -242,9 +242,9 @@ export default function Sidebar({
             <EmptyGuide
               title="创建第一个智能体"
               steps={[
-                '起个名称，写一句话描述它的职责（系统提示词）',
-                '模型连接可留空 = 跟随全局默认（设置页已预置 DeepSeek）',
-                '需要执行动作就勾选工具（current_time / ask_human 等）',
+                '起个名称，一句话描述职责',
+                '模型连接可留空（跟随全局默认）',
+                '需要执行动作就勾选工具',
               ]}
               actionLabel="＋ 新建智能体"
               onAction={onNewAgent}
@@ -254,9 +254,9 @@ export default function Sidebar({
             <EmptyGuide
               title="创建第一个项目"
               steps={[
-                '起个名称，选择协作模式（默认 agent_as_tool）',
-                '可绑定本地目录：对话产物写入该目录，文件/Git 侧边栏可见（绑定即授予模型该目录读写权限）',
-                '在项目配置中勾选成员智能体并指定主智能体',
+                '起个名称，选择协作模式',
+                '可绑定本地目录（产物写入，文件/Git 可见）',
+                '配置成员与主智能体',
               ]}
               actionLabel="＋ 新建项目"
               onAction={onNewProject}
@@ -280,7 +280,8 @@ export default function Sidebar({
                 >
                   <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
-                  {n.builtin && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>内置</Tag>}
+                  {/* REQ-488：彩色 Tag 灰字化——内置标注为中性灰字（非状态色） */}
+                  {n.builtin && <span style={{ margin: 0, fontSize: 11, lineHeight: '16px', color: 'var(--c-ink-3)' }}>内置</span>}
                   {/* REQ-336：会话数裸数字退役（迭代四后行内常驻元素只剩它，孤数怪异；展开子树即见会话清单） */}
                 </button>
                 {/* REQ-326 迭代四：行内操作悬停显现＋齿轮改三点；配置入口=三点钮（REQ-213 内置助手同入口归一不变） */}

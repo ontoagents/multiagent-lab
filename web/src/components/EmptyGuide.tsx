@@ -34,7 +34,8 @@ export default function EmptyGuide({
       </Button>
       {footer && (
         <div style={{ marginTop: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>{footer}</Typography.Text>
+          {/* REQ-488：说明字下限 12px（11px 说明字统一） */}
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{footer}</Typography.Text>
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, Drawer, Empty, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { InboxOutlined, MessageOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import type { ConversationDelegate } from '../../api/types'
 
@@ -9,11 +9,12 @@ import type { ConversationDelegate } from '../../api/types'
 // 后台委派（conversation_delegate）；动作=steer 插话引导（轮界接续）/interrupt 打断/
 // collect 收结果摘要（全文在子会话）。API 全部既有（REQ-208），零新后端。
 
-const STATUS_META: Record<ConversationDelegate['status'], { color: string; label: string }> = {
-  running: { color: 'processing', label: '运行中' },
-  completed: { color: 'success', label: '已完成' },
+// REQ-488：状态彩 Tag 灰字化——仅 failed 留色（REQ-483 视觉语言），其余中性灰字
+const STATUS_META: Record<ConversationDelegate['status'], { color?: string; label: string }> = {
+  running: { label: '运行中' },
+  completed: { label: '已完成' },
   failed: { color: 'error', label: '失败' },
-  stopped: { color: 'warning', label: '已停止' },
+  stopped: { label: '已停止' },
 }
 
 export default function DelegatePanel({ conversationId, open, onClose }: {
@@ -95,36 +96,47 @@ export default function DelegatePanel({ conversationId, open, onClose }: {
           {items.map((d) => {
             const meta = STATUS_META[d.status] ?? STATUS_META.running
             return (
-              <div key={d.id} data-testid="delegate-item" style={{ border: '1px solid var(--c-line)', borderRadius: 10, padding: '10px 12px' }}>
+              // REQ-488：委派卡去框改分隔线；状态灰字（仅失败留色）；操作钮灰图标 hover；字号统一 13/12 两档
+              <div key={d.id} data-testid="delegate-item" style={{ padding: '10px 2px', borderBottom: '1px solid var(--c-line, #e6e8f0)' }}>
                 <Space size={6} wrap style={{ marginBottom: 4 }}>
-                  <Tag color={meta.color} style={{ margin: 0 }}>{meta.label}</Tag>
+                  {meta.color ? (
+                    <Tag color={meta.color} style={{ margin: 0 }}>{meta.label}</Tag>
+                  ) : (
+                    <Typography.Text type="secondary" style={{ margin: 0, fontSize: 12 }}>{meta.label}</Typography.Text>
+                  )}
                   <Typography.Text strong style={{ fontSize: 13 }}>{d.member_name || d.member_agent_id}</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>{new Date(d.created_at).toLocaleString()}</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{new Date(d.created_at).toLocaleString()}</Typography.Text>
                 </Space>
-                <Typography.Paragraph style={{ margin: 0, fontSize: 12.5 }} ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>
+                <Typography.Paragraph style={{ margin: 0, fontSize: 13 }} ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>
                   {d.task}
                 </Typography.Paragraph>
                 {d.steer_note && (
-                  <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>插话：{d.steer_note}</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>插话：{d.steer_note}</Typography.Text>
                 )}
                 {d.status === 'failed' && d.error && (
-                  <Typography.Text type="danger" style={{ fontSize: 11.5, display: 'block', marginTop: 4 }}>{d.error}</Typography.Text>
+                  <Typography.Text type="danger" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>{d.error}</Typography.Text>
                 )}
-                <Space size={6} style={{ marginTop: 8 }}>
+                <Space size={2} style={{ marginTop: 6 }}>
                   {d.status === 'running' && (
                     <>
-                      <Button size="small" onClick={() => setSteer({ d, note: '' })} disabled={busy}>插话引导</Button>
+                      <Tooltip title="插话引导（轮界接续）">
+                        <Button size="small" type="text" aria-label="插话引导" icon={<MessageOutlined />} disabled={busy} onClick={() => setSteer({ d, note: '' })} />
+                      </Tooltip>
                       <Popconfirm title="打断该后台委派？" description="子会话历史完整保留，可冷恢复续跑" onConfirm={() => doInterrupt(d)}>
-                        <Button size="small" danger disabled={busy}>打断</Button>
+                        <Tooltip title="打断">
+                          <Button size="small" type="text" aria-label="打断" danger icon={<StopOutlined />} disabled={busy} />
+                        </Tooltip>
                       </Popconfirm>
                     </>
                   )}
                   {(d.status === 'completed' || d.status === 'failed') && (
-                    <Button size="small" onClick={() => doCollect(d)} disabled={busy}>收结果</Button>
+                    <Tooltip title="收结果">
+                      <Button size="small" type="text" aria-label="收结果" icon={<InboxOutlined />} disabled={busy} onClick={() => doCollect(d)} />
+                    </Tooltip>
                   )}
                   {d.child_conversation_id && (
                     <Tooltip title={`子会话 ${d.child_conversation_id.slice(0, 8)}…（历史持久化，可冷恢复）`}>
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>子会话在档</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>子会话在档</Typography.Text>
                     </Tooltip>
                   )}
                 </Space>

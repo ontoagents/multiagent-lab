@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Result, Splitter } from 'antd'
+import { Splitter, Typography } from 'antd'
 import { api } from '../api/client'
 import type { Agent, Conversation } from '../api/types'
 import { useUI } from '../store/ui'
@@ -162,17 +162,11 @@ export default function AgentsPage() {
                 initialDraft={draftRef.current?.convId === currentConv.id ? draftRef.current.msg : undefined}
               />
             ) : (
-              <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Result
-                  icon={null}
-                  title="选择左侧智能体，与其开始对话"
-                  subTitle="每个智能体可挂多个对话；左侧节点上的 ＋ 可直接新建对话。"
-                  extra={
-                    <Button type="primary" disabled={!activeAgent} onClick={() => activeAgent && newConversation(activeAgent.id)}>
-                      ＋ 为「{activeAgent?.name ?? '当前智能体'}」新建对话
-                    </Button>
-                  }
-                />
+              // REQ-488：空态单列一行灰字（REQ-483 视觉语言——去 Result 盒与开场大钮）
+              <div className="page" style={{ padding: '48px 40px' }}>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }} data-testid="agents-empty-quiet">
+                  在左侧选择智能体，与其开始对话；节点上的 ＋ 可新建对话。
+                </Typography.Text>
               </div>
             )}
           </div>

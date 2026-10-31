@@ -1207,12 +1207,21 @@ export default function ChatWindow({
         ),
       })
     }
+    // REQ-488：伴生沉淀胶囊入流化（对齐 REQ-483② 口径——原右上悬浮胶囊退役；
+    // companion.* 旁路事件保持独立收集不入消息流，本行随 capsuleEvents 清空消失）
+    if (capsuleEvents.length > 0) {
+      out.push({
+        key: `${prefix}companion-capsule`,
+        role: 'event',
+        content: <CompanionCapsule events={capsuleEvents} renderEvent={renderEventCard} />,
+      })
+    }
     return out
   }
   const listItems = useMemo(
     () => toBubbleList(displayItems, ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, running, runStart, nowTick],
+    [displayItems, showRaw, reasoningOpen, granularity, showReasoning, debugLevel, running, runStart, nowTick, capsuleEvents],
   )
 
   // REQ-150② 窗格状态对齐：从窗格消息流派生本轮状态（流式中/出错/已停止/完成/待提问/断流），窗格头统一呈现
@@ -1810,8 +1819,7 @@ export default function ChatWindow({
       </div>
 
       <div className={`msg-list${running ? ' running' : ''}`}>
-        {/* REQ-330②：伴生沉淀悬浮胶囊（右上角；管线过程事件与本职工作事件解耦，旁路呈现独立于显示档） */}
-        {capsuleEvents.length > 0 && <CompanionCapsule events={capsuleEvents} renderEvent={renderEventCard} />}
+        {/* REQ-488：伴生沉淀胶囊入流化（流尾灰行，见 toBubbleList 尾 push）——原右上悬浮胶囊退役 */}
         {cmp.on ? (
           <>
             {/* 对比开启前/外的对话历史（共享，折叠收纳；对比轮次的各窗格回答也会落库进此历史） */}

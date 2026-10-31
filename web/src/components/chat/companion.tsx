@@ -1,5 +1,5 @@
 // REQ-401/M197：伴生沉淀呈现辅助（自 ChatWindow.tsx 拆出——回放摘要行+悬浮胶囊；行为零变更）。
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LoadingOutlined } from '@ant-design/icons'
 
@@ -49,23 +49,15 @@ export function summarizeCompanionPhases(items: any[]): any[] {
   return out
 }
 
-/** REQ-330②：伴生沉淀悬浮胶囊（聊天流右上角，与 chat-stop 同列对齐；旁路过程与本职工作事件解耦）。
- *  处理中=展开态胶囊增量摘要（候选 N · 自动入图 M 随事件到达递增）；终态定格 6s 后淡出为小徽标；
- *  点击随时展开/收起明细面板（管线过程卡逐张回看，候选卡自带的明细展开一并可用）。 */
+/** REQ-330②→REQ-488 入流化：伴生沉淀悬浮胶囊退役——聊天流内一行灰字（对齐 REQ-483② 计时行入流口径），
+ *  旁路过程与本职工作事件解耦语义不变（companion.* 独立收集不入消息流）。
+ *  处理中=行内增量摘要（候选 N · 自动入图 M 随事件到达递增）；点击行随时展开/收起明细
+ *  （管线过程卡逐张回看，随流滚动；候选卡自带的明细展开一并可用）。失败行保留警示色。 */
 export function CompanionCapsule({ events, renderEvent }: { events: any[]; renderEvent: (it: any, i: number) => ReactNode }) {
   const terminal = events.find((e) => e.evType === 'companion.extract' && (e.evData?.phase === 'done' || e.evData?.phase === 'error'))
   const failed = terminal?.evData?.phase === 'error'
   const processing = !terminal
   const [expanded, setExpanded] = useState(false)
-  const [minimized, setMinimized] = useState(false)
-  useEffect(() => {
-    if (!terminal) {
-      setMinimized(false)
-      return
-    }
-    const t = window.setTimeout(() => setMinimized(true), 6000) // 终态定格 6s 后淡出为小徽标
-    return () => window.clearTimeout(t)
-  }, [terminal])
   const cand = events.reduce((s, e) => s + (e.evType === 'companion.candidates' ? Number(e.evData?.count ?? 0) : 0), 0)
   const ingested = Number(terminal?.evData?.auto_ingested ?? 0)
   const statTxt = `${cand > 0 ? `候选 ${cand}` : ''}${cand > 0 && ingested > 0 ? ' · ' : ''}${ingested > 0 ? `自动入图 ${ingested}` : ''}`
@@ -75,30 +67,26 @@ export function CompanionCapsule({ events, renderEvent }: { events: any[]; rende
       ? `伴生沉淀失败${statTxt ? ` · ${statTxt}` : ''}`
       : `伴生沉淀完成${statTxt ? ` · ${statTxt}` : ''}`
   return (
-    <div className={`companion-capsule${minimized && !expanded ? ' mini' : ''}${failed ? ' failed' : ''}`} data-testid="companion-capsule">
+    <div className={`companion-inline${failed ? ' failed' : ''}`} data-testid="companion-capsule">
       <button
         type="button"
-        className="companion-capsule-pill"
+        className="companion-inline-row"
         data-testid="companion-capsule-pill"
         onClick={() => setExpanded((o) => !o)}
+        aria-expanded={expanded}
         title={expanded ? '收起伴生沉淀明细' : '展开伴生沉淀明细'}
       >
         {processing ? (
-          <LoadingOutlined spin style={{ color: 'var(--ant-color-primary, #4f46e5)' }} />
+          <LoadingOutlined spin />
         ) : (
-          <span className={`companion-capsule-mark${failed ? ' bad' : ''}`}>{failed ? '✕' : '✓'}</span>
+          <span className={`companion-inline-mark${failed ? ' bad' : ''}`}>{failed ? '✕' : '✓'}</span>
         )}
-        {!minimized && <span className="companion-capsule-label">{label}</span>}
+        <span className="companion-inline-label">{label}</span>
+        <span className="companion-inline-caret" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
       </button>
       {expanded && (
-        <div className="companion-capsule-panel" data-testid="companion-capsule-panel">
-          <div className="companion-capsule-head">
-            <span className="companion-capsule-title">{label}</span>
-            <button type="button" className="companion-capsule-close" onClick={() => { setExpanded(false); setMinimized(true) }} aria-label="收起">✕</button>
-          </div>
-          <div className="companion-capsule-body">
-            {events.map((e, i) => renderEvent(e, i))}
-          </div>
+        <div className="companion-inline-panel" data-testid="companion-capsule-panel">
+          {events.map((e, i) => renderEvent(e, i))}
         </div>
       )}
     </div>
