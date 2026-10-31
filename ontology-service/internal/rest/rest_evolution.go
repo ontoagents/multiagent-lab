@@ -223,12 +223,19 @@ func (s *Server) gateEvolutionCandidate(w http.ResponseWriter, r *http.Request) 
 				regressed = true
 				verdict = "门控不过（基准三率回退——gold 对齐率或白名单率下降）"
 			}
+			benchNote := "第三信号（REQ-382）：进化诊断用基准、门控同用——gold 对齐率/白名单率回退即回归（执行级对齐口径随执行通道可用性）"
+			for _, dc := range ds.CQs {
+				if dc.Kind == cqbench.KindCase {
+					benchNote += "；含 case 案例级条目（REQ-547）：期望可答判「引用概念 ⊇ expected_concepts」、期望不可答判「expected 零引用（幻觉即判可答）」，判定面=查询文本∪执行结果"
+					break
+				}
+			}
 			bench = map[string]any{
 				"dataset": ds.Name, "total": ds_revided(ds),
 				"base":   map[string]any{"translated": baseRep.Translated, "whitelist": baseRep.Whitelist, "gold_aligned": baseRep.GoldAlign, "rate": baseRate.gold},
 				"patched": map[string]any{"translated": patchRep.Translated, "whitelist": patchRep.Whitelist, "gold_aligned": patchRep.GoldAlign, "rate": patchRate.gold},
 				"regressed": benchRegressed,
-				"note":      "第三信号（REQ-382）：进化诊断用基准、门控同用——gold 对齐率/白名单率回退即回归（执行级对齐口径随执行通道可用性）",
+				"note":      benchNote,
 			}
 			note = "配对门控：补丁前后同题对照（qualitygate 三维加权 + 结构断言 + cqbench 三率增量三信号）"
 		}

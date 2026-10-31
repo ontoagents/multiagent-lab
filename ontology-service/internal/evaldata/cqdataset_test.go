@@ -26,15 +26,18 @@ type cqDataset struct {
 		Type       string   `json:"type"`
 		Kind       string   `json:"kind"`
 		Difficulty string   `json:"difficulty"`
+		// REQ-547 case 案例级标注（与 cqbench.CQ 同形态——本测试独立副本校验）
+		ExpectedConcepts   []string `json:"expected_concepts"`
+		ExpectedAnswerable *bool    `json:"expected_answerable"`
 	} `json:"cqs"`
 }
 
 const datasetDir = "../../../seeds/evaldata/ontology-cq"
 
 // validDifficulty / validKind REQ-367 双维标注枚举（与 cqbench 包枚举同口径——本测试独立副本，
-// evaldata 不依赖 cqbench 包）。
+// evaldata 不依赖 cqbench 包）；REQ-547 kind 增 case 案例级。
 func validDifficulty(v string) bool { return v == "easy" || v == "medium" || v == "hard" }
-func validKind(v string) bool       { return v == "fact" || v == "relation" || v == "inference" }
+func validKind(v string) bool       { return v == "fact" || v == "relation" || v == "inference" || v == "case" }
 
 func TestCQDatasetConsistency(t *testing.T) {
 	ents, err := os.ReadDir(datasetDir)
@@ -101,11 +104,29 @@ func TestCQDatasetConsistency(t *testing.T) {
 			if sp.CQ[i] != dc.CQ {
 				t.Fatalf("%s: 第 %d 条 CQ 漂移\n  数据集: %s\n  种子:   %s", ds.Ontology, i+1, dc.CQ, sp.CQ[i])
 			}
+			// REQ-547 case 案例级标注校验（与 cqbench.LoadDataset 同口径）：expected_* 仅 case
+			// 可用且 case 必填齐备；case 判定不走 gold（gold 应留空）；期望可答的 expected_concepts
+			// 须在种子承载（可答性前提）、期望不可答的须不在（「应缺失」前提自洽）。
+			if dc.Kind == "case" {
+				if dc.ExpectedAnswerable == nil {
+					t.Fatalf("%s: %s case 条目缺 expected_answerable", ds.Ontology, dc.ID)
+				}
+				if len(dc.ExpectedConcepts) == 0 {
+					t.Fatalf("%s: %s case 条目缺 expected_concepts（判定对象必填）", ds.Ontology, dc.ID)
+				}
+				if len(dc.Gold) > 0 {
+					t.Fatalf("%s: %s case 条目判定走 expected_*，gold 应留空", ds.Ontology, dc.ID)
+				}
+				continue
+			}
+			if dc.ExpectedAnswerable != nil || len(dc.ExpectedConcepts) > 0 {
+				t.Fatalf("%s: %s expected_* 标注仅 case 条目可用（kind=%s）", ds.Ontology, dc.ID, dc.Kind)
+			}
 			if len(dc.Gold) == 0 {
 				t.Fatalf("%s: %s 缺 gold terms", ds.Ontology, dc.ID)
 			}
 		}
-		// ② gold terms 在种子概念/关系中实际承载（可答性结构性前提）
+		// ② gold terms 在种子概念/关系中实际承载（可答性结构性前提）；REQ-547 case 按期望方向核
 		names := map[string]bool{}
 		for _, c := range sp.Concepts {
 			names[c.Name] = true
@@ -114,6 +135,17 @@ func TestCQDatasetConsistency(t *testing.T) {
 			names[r.Name] = true
 		}
 		for _, dc := range ds.CQs {
+			if dc.Kind == "case" {
+				for _, e := range dc.ExpectedConcepts {
+					if *dc.ExpectedAnswerable && !names[e] {
+						t.Fatalf("%s: %s 期望可答 case 的 expected %q 未在种子概念/关系中承载（可答性前提失配）", ds.Ontology, dc.ID, e)
+					}
+					if !*dc.ExpectedAnswerable && names[e] {
+						t.Fatalf("%s: %s 期望不可答 case 的 expected %q 已被种子承载（前提矛盾——本体覆盖即应可答）", ds.Ontology, dc.ID, e)
+					}
+				}
+				continue
+			}
 			for _, g := range dc.Gold {
 				if !names[g] {
 					t.Fatalf("%s: %s gold term %q 未在种子概念/关系中承载（CQ 不可答）", ds.Ontology, dc.ID, g)
