@@ -880,3 +880,6 @@ tr.onto-diff-row-only-b > td { background: rgba(250, 173, 20, 0.12) !important; 
 /* REQ-491：文档表操作列 hover 显隐（灰图标钮常驻隐、行悬停现） */
 .kb-doc-actions { opacity: 0; transition: opacity .15s ease; }
 .ant-table-row:hover .kb-doc-actions, .kb-doc-actions:focus-within { opacity: 1; }
+/* REQ-493：设置页表格操作列 hover 显隐（灰图标钮常驻隐、行悬停现） */
+.provider-ops { opacity: 0; transition: opacity .15s ease; }
+.ant-table-row:hover .provider-ops, .provider-ops:focus-within { opacity: 1; }

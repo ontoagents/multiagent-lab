@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, DatePicker, Menu, Popconfirm, Result, Segmented, Space, Splitter, Table, Tag, Typography, Upload } from 'antd'
+import { Button, DatePicker, Dropdown, Menu, Popconfirm, Result, Segmented, Space, Splitter, Table, Tag, Tooltip, Typography, Upload } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
-import { DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { ApiOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, MoreOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { ProviderGroupMeta } from '../api/client'
 import HintIcon from './settings/HintIcon'
@@ -153,9 +153,10 @@ export default function SettingsPage() {
         <Typography.Text strong>
           {g.name}
           {/* 界面优化批：只区分内置/自定义供应商（不再供应商×协议正交拆行） */}
-          <Tag style={{ marginInlineStart: 6 }} color={isBuiltinVendor(g.anchor.name) ? 'geekblue' : 'default'}>
+          {/* REQ-493：分类标注灰字化 */}
+          <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400, marginInlineStart: 6 }}>
             {isBuiltinVendor(g.anchor.name) ? '内置' : '自定义'}
-          </Tag>
+          </Typography.Text>
         </Typography.Text>
       ),
     },
@@ -171,7 +172,7 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }} data-testid="provider-proto-pairs">
             {pairs.map((m) => (
               <div key={`${m.protocol}::${m.base_url}`} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <Tag style={{ margin: 0, fontSize: 11 }} color={m.protocol === 'anthropic' ? 'purple' : 'default'}>{m.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Tag>
+                <Typography.Text type="secondary" style={{ margin: 0, fontSize: 12 }}>{m.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Typography.Text>
                 <Typography.Text code style={{ fontSize: 12 }} ellipsis>{m.base_url}</Typography.Text>
               </div>
             ))}
@@ -194,12 +195,12 @@ export default function SettingsPage() {
       width: '9%',
       render: (_, g) => {
         const on = g.members.filter((m) => m.enabled).length
-        if (on === g.members.length) return <Tag color="green" style={{ margin: 0 }}>启用</Tag>
-        if (on === 0) return <Tag style={{ margin: 0 }}>停用</Tag>
+        if (on === g.members.length) return <Typography.Text type="secondary" style={{ fontSize: 12 }}>启用</Typography.Text>
+        if (on === 0) return <Typography.Text type="secondary" style={{ fontSize: 12 }}>停用</Typography.Text>
         return <Tag color="orange" style={{ margin: 0 }}>启用 {on}/{g.members.length}</Tag>
       },
     },
-    { title: '模型数', key: 'count', width: '6%', align: 'center', render: (_, g) => <Tag style={{ margin: 0 }}>{g.members.length}</Tag> },
+    { title: '模型数', key: 'count', width: '6%', align: 'center', render: (_, g) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{g.members.length}</Typography.Text> },
     {
       title: '操作',
       key: 'ops',
@@ -208,9 +209,14 @@ export default function SettingsPage() {
         // 测试代表连接：优先取组内存有 Key 的成员
         const rep = g.members.find((m) => m.has_key) ?? g.anchor
         return (
-          <Space size={0} wrap>
-            <Button type="link" size="small" loading={testing === rep.id} onClick={() => test(rep)}>测试连接</Button>
-            <Button type="link" size="small" onClick={() => setProviderModal(g)}>编辑</Button>
+          // REQ-493：操作列灰图标+「更多」菜单收纳（添加/自动获取）；hover 显隐随 provider-ops
+          <Space size={0} wrap className="provider-ops">
+            <Tooltip title="测试连接">
+              <Button type="text" size="small" aria-label="测试连接" icon={<ApiOutlined />} loading={testing === rep.id} onClick={() => test(rep)} />
+            </Tooltip>
+            <Tooltip title="编辑提供商">
+              <Button type="text" size="small" aria-label="编辑" icon={<EditOutlined />} onClick={() => setProviderModal(g)} />
+            </Tooltip>
             <Popconfirm
               title={`删除提供商「${g.name}」？`}
               description={`将同时删除其下全部 ${g.members.length} 个模型连接；被智能体引用的连接需先解除引用。`}
@@ -219,10 +225,21 @@ export default function SettingsPage() {
               cancelText="取消"
               onConfirm={() => removeGroup(g)}
             >
-              <Button type="link" size="small" danger>删除</Button>
+              <Tooltip title="删除提供商">
+                <Button type="text" size="small" danger aria-label="删除" icon={<DeleteOutlined />} />
+              </Tooltip>
             </Popconfirm>
-            <Button type="link" size="small" onClick={() => openModelModal('new', g.key)}>＋添加模型</Button>
-            <Button type="link" size="small" onClick={() => startDiscover(g)}>自动获取模型</Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'add', label: '＋ 添加模型' },
+                  { key: 'discover', label: '自动获取模型' },
+                ],
+                onClick: ({ key }) => (key === 'add' ? openModelModal('new', g.key) : startDiscover(g)),
+              }}
+            >
+              <Button type="text" size="small" aria-label="更多操作" icon={<MoreOutlined />} />
+            </Dropdown>
           </Space>
         )
       },
@@ -234,21 +251,31 @@ export default function SettingsPage() {
     { title: '模型', dataIndex: 'model_name', render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v}</Typography.Text> },
     { title: '类型', dataIndex: 'conn_type', width: '24%', render: (t: string, c) => (
       <Space size={4}>
-        {t === 'chat' ? <Tag color="blue" style={{ margin: 0 }}>chat</Tag> : <Tag color="green" style={{ margin: 0 }}>embedding</Tag>}
+        {/* REQ-493：类型标注灰字化 */}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t === 'chat' ? 'chat' : 'embedding'}</Typography.Text>
         {/* REQ-177①：协议为连接属性，混合协议组内逐连接可见 */}
-        <Tag style={{ margin: 0 }} color={c.protocol === 'anthropic' ? 'purple' : 'default'}>{c.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Tag>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>{c.protocol === 'anthropic' ? 'anthropic' : 'openai'}</Typography.Text>
       </Space>
     ) },
-    { title: '默认', dataIndex: 'is_default', width: '16%', render: (_, c) => (c.is_default ? <Tag color="gold" style={{ margin: 0 }}>{c.conn_type} 默认</Tag> : <Typography.Text type="secondary">—</Typography.Text>) },
+    { title: '默认', dataIndex: 'is_default', width: '16%', render: (_, c) => (c.is_default ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>{c.conn_type} 默认</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>) },
     {
       title: '操作',
       key: 'ops',
       width: '26%',
       render: (_, c) => (
-        <Space size={0} wrap>
-          <Button type="link" size="small" loading={testing === c.id} onClick={() => test(c)}>测试</Button>
-          <Button type="link" size="small" onClick={() => openModelModal(c)}>编辑</Button>
-          {c.is_default ? null : <Button type="link" size="small" onClick={() => setDefault(c)}>设为默认</Button>}
+        // REQ-493：模型行操作列灰图标化
+        <Space size={0} wrap className="provider-ops">
+          <Tooltip title="测试连接">
+            <Button type="text" size="small" aria-label="测试连接" icon={<ApiOutlined />} loading={testing === c.id} onClick={() => test(c)} />
+          </Tooltip>
+          <Tooltip title="编辑连接">
+            <Button type="text" size="small" aria-label="编辑" icon={<EditOutlined />} onClick={() => openModelModal(c)} />
+          </Tooltip>
+          {c.is_default ? null : (
+            <Tooltip title="设为默认">
+              <Button type="text" size="small" aria-label="设为默认" icon={<CheckCircleOutlined />} onClick={() => setDefault(c)} />
+            </Tooltip>
+          )}
           <Popconfirm
             title={`删除模型「${c.model_name}」？`}
             description="仅删除该模型连接；同提供商的其他模型不受影响。"
@@ -257,7 +284,9 @@ export default function SettingsPage() {
             cancelText="取消"
             onConfirm={() => remove(c)}
           >
-            <Button type="link" size="small" danger>删除</Button>
+            <Tooltip title="删除连接">
+              <Button type="text" size="small" danger aria-label="删除" icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -423,13 +452,10 @@ export default function SettingsPage() {
               )}
 
               {!hasChat && !loadErr && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginTop: 12 }}
-                  title="尚未配置可用的对话模型"
-                  description="预置了「DeepSeek（预置）」连接：填入 API Key 并启用、设为默认，即可开始对话。"
-                />
+                // REQ-493：开场 Alert 降盒——一行灰字引导
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12, lineHeight: 1.7 }}>
+                  尚未配置可用的对话模型——预置了「DeepSeek（预置）」连接：填入 API Key 并启用、设为默认，即可开始对话。
+                </Typography.Text>
               )}
 
               <div style={{ marginTop: 12 }}>
@@ -640,7 +666,7 @@ function StatsView() {
         />
         {range && (
           <>
-            <Tag color="blue" style={{ margin: 0 }}>{from} ~ {to}</Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{from} ~ {to}</Typography.Text>
             <Button type="link" size="small" onClick={() => setRange(null)}>清除</Button>
           </>
         )}
@@ -696,14 +722,14 @@ function InferencePanel() {
       render: (v: string, r) => (
         <Space size={6}>
           <span style={{ fontWeight: 600 }}>{v}</span>
-          {r.default && <Tag color="blue" style={{ margin: 0 }}>默认</Tag>}
+          {r.default && <Typography.Text type="secondary" style={{ fontSize: 12 }}>默认</Typography.Text>}
         </Space>
       ),
     },
     {
       title: '状态', dataIndex: 'available', width: 110,
       render: (ok: boolean, r) => ok
-        ? <Tag color="green" style={{ margin: 0 }}>可用{r.version ? ` · ${r.version}` : ''}</Tag>
+        ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>可用{r.version ? ` · ${r.version}` : ''}</Typography.Text>
         : <Tag color="default" style={{ margin: 0 }}>未发现</Tag>,
     },
     {
@@ -897,7 +923,7 @@ function SecurityPanel() {
         dataSource={data?.conversations ?? []}
         columns={[
           { title: '标题', dataIndex: 'title', ellipsis: true },
-          { title: '归属', dataIndex: 'scope', width: 90, render: (v: string) => (v === 'agent' ? <Tag color="blue" style={{ margin: 0 }}>智能体</Tag> : <Tag color="purple" style={{ margin: 0 }}>项目</Tag>) },
+          { title: '归属', dataIndex: 'scope', width: 90, render: (v: string) => (v === 'agent' ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>智能体</Typography.Text> : <Typography.Text type="secondary" style={{ fontSize: 12 }}>项目</Typography.Text>) },
           { title: '消息数', dataIndex: 'messages', width: 90, render: (v: number) => fmtNum(v) },
           { title: '更新时间', dataIndex: 'updated_at', width: 180, render: (v: string) => (v || '').replace('T', ' ').slice(0, 16) },
           {
