@@ -5,7 +5,7 @@ import { AlignLeftOutlined, BookOutlined, BranchesOutlined, ClusterOutlined, Cop
 import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
-import { api, connDisplayName, extApproval, resolveConflict as resolveConflictApi, resumeConversation, runConversation } from '../api/client'
+import { api, connDisplayName, extApproval, pauseConversation, resolveConflict as resolveConflictApi, resumeConversation, runConversation, unpauseConversation } from '../api/client'
 import { notifyPending } from '../lib/notify'
 import type { ComparePaneConfig } from '../api/client'
 import ConvSettingsPanel from './chat/ConvSettingsPanel'
@@ -1637,6 +1637,27 @@ export default function ChatWindow({
     )
   }
 
+  // REQ-558/M365：暂停恢复（unpause——无答复沿 checkpoint 续跑；事件流与运行同构）
+  const resumePaused = async () => {
+    if (running) return
+    runKeyRef.current = `unpause-${Date.now()}`
+    setItems((prev) => [
+      ...prev,
+      { kind: 'msg' as const, role: 'user' as const, content: '[继续] 暂停运行恢复' },
+    ])
+    await streamStart((handler) => unpauseConversation(conversation.id, '', handler))
+  }
+
+  // REQ-558/M365：pause 安全点挂起（运行中任意时点主动暂停——区别于决策点挂起）
+  const doPause = async () => {
+    try {
+      const r = await pauseConversation(conversation.id)
+      if (!r.paused) showToast('没有可暂停的运行', 'err')
+    } catch (e: any) {
+      showToast(e?.message ?? '暂停失败', 'err')
+    }
+  }
+
   // M17 阶段二：事件流导出（JSON 全量，供归档/外部重放）
   const exportEventsJSON = async () => {
     try {
@@ -1950,6 +1971,32 @@ export default function ChatWindow({
         </div>
       )}
 
+      {/* REQ-558/M365：paused 恢复卡（安全点挂起——无答复沿 checkpoint 续跑；决策点挂起走 interrupt 卡） */}
+      {!running && !interrupt && conversation.pause_state && (
+        <div className="composer chat-interrupt">
+          <Alert
+            type="warning"
+            showIcon
+            title="运行已暂停（安全点挂起）"
+            description={
+              <div className="chat-interrupt-body">
+                <Space size={8}>
+                  <Button type="primary" onClick={() => void resumePaused()}>继续运行</Button>
+                </Space>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  续跑沿 checkpoint 定向恢复（跨重启可恢复）；输入纠偏指令后继续请发送新消息并选择「从暂停锚点重跑」——或在下方直接答复（将按新消息运行）。
+                </Typography.Text>
+              </div>
+            }
+          />
+        </div>
+      )}
+      {/* REQ-558/M365：运行中 pause 入口（安静一行——非决策点的用户主动挂起） */}
+      {running && !interrupt && (
+        <div style={{ textAlign: 'right', padding: '0 4px 4px' }}>
+          <Button size="small" type="text" onClick={() => void doPause()}>暂停运行</Button>
+        </div>
+      )}
       {/* 中断恢复（M11 收尾 + REQ-14 审批）：ask_human 答复卡 / 工具审批卡 */}
       {interrupt && !running && (
         <div className="composer chat-interrupt">

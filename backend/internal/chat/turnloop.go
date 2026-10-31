@@ -27,11 +27,15 @@ import (
 	"log"
 	"os"
 	"sync"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/ontoagents/ontoagents/backend/internal/store"
+	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
 // runItem TurnLoop 条目（gob 编码入 checkpoint——字段保持可 gob 基本类型）。
@@ -51,6 +55,9 @@ var turnLoopStreamingDefault = true
 type loopHandle struct {
 	loop  *adk.TurnLoop[runItem, *schema.Message]
 	runID string
+	// pauseFlag REQ-558/M365：pause 抢占标记（Pause 置位 → OnAgentEvents Preempted 分支检测
+	// → Stop 优雅收束落 checkpoint——与 steer 同通道不同语义）
+	pauseFlag *atomic.Bool
 	// emit 该运行的实时事件通道（REQ-516/M323 P26①：steer.pushed 此前经 no-op emit 只落库
 	// 不进实时 SSE——「三事件生效时点可观测」承诺在 steer.pushed 一环断链）
 	emit EmitFn
@@ -102,6 +109,7 @@ func (s *Service) emitRunEvent(convID, runID, typ string, data map[string]any, e
 func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *store.Conversation, agent *store.Agent, rt *BuildResult, runID, checkpointID string, histMsgs []*schema.Message, resumeParams *adk.ResumeParams, obs *obsHandler, steerable bool) *adk.TurnLoopExitState[runItem, *schema.Message] {
 	firstTurn := true
 	var turnMu sync.Mutex
+	pauseFlag := &atomic.Bool{} // REQ-558/M365：pause 抢占标记（steerable 时挂入句柄供 Pause 置位）
 	loop := adk.NewTurnLoop[runItem, *schema.Message](adk.TurnLoopConfig[runItem, *schema.Message]{
 		Store:        s.Assembler.CheckPoints,
 		CheckpointID: checkpointID,
@@ -158,6 +166,19 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 			s.flushTurnAssistant(rc, conv, runID)
 			select {
 			case <-tc.Preempted:
+				// REQ-558/M365：pause 抢占（Pause 置位）——安全点收束不续跑：Stop 优雅退出，
+				// 框架 cleanup 落 turnloop checkpoint（pause 条目入 unhandled items），已完成轮
+				// 产物已由 flushTurnAssistant 落库；终态 run.finished reason=paused（对称 interrupted）。
+				if h := s.loops[conv.ID]; h != nil && h.pauseFlag != nil && h.pauseFlag.Load() {
+					rc.paused = true
+					cpID := checkPointIDOf(runID)
+					_ = s.Store.SetConversationPauseState(conv.ID, fmt.Sprintf(`{"checkpoint_id":%q,"run_id":%q,"paused_at":%q}`, cpID, runID, time.Now().UTC().Format(time.RFC3339)), "pause:"+runID)
+					s.emitRunEvent(conv.ID, runID, "run.paused", map[string]any{
+						"checkpoint_id": cpID, "note": "安全点挂起（本轮已收束落库）——unpause 沿 checkpoint 续跑",
+					}, rc.emit)
+					tc.Loop.Stop()
+					return nil
+				}
 				// 抢占导致的本轮取消（context.Canceled）会置 rc.stopped——运行并未停止，
 				// 复位防终态误标；随后 GenInput 消费插话续跑。
 				rc.stopped = false
@@ -184,7 +205,7 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 	// 登记运行句柄（steerRun 抢占入口；对比窗格多路不登记）；退出时按值注销
 	var handle *loopHandle
 	if steerable {
-		handle = &loopHandle{loop: loop, runID: runID, emit: rc.emit}
+		handle = &loopHandle{loop: loop, runID: runID, emit: rc.emit, pauseFlag: pauseFlag}
 		s.mu.Lock()
 		s.loops[conv.ID] = handle
 		s.mu.Unlock()
@@ -261,4 +282,122 @@ func (s *Service) flushTurnAssistant(rc *runConsumer, conv *store.Conversation, 
 	}
 	rc.buf = nil
 	rc.segmentMark = 0
+}
+
+
+// Pause 主会话运行中安全点挂起（REQ-558/M365；107 号 §9.3——与 Steer 同通道不同语义）：
+// Push pause 条目 WithPreempt(AnySafePoint) → OnAgentEvents 检测标记 → Stop 优雅收束
+// （框架 cleanup 落 turnloop checkpoint，pause 条目入 unhandled items）→ 终态
+// run.finished reason=paused + pause_state 落库。返回 (false, nil)=无进行中 TurnLoop 运行
+// 或 pause 到达过晚（调用方 409 沿 steer 形态）。
+func (s *Service) Pause(convID string) (bool, error) {
+	s.mu.Lock()
+	h := s.loops[convID]
+	s.mu.Unlock()
+	if h == nil || h.pauseFlag == nil {
+		return false, nil
+	}
+	h.pauseFlag.Store(true)
+	ok, _ := h.loop.Push(runItem{Kind: "pause", Content: "__pause__"}, adk.WithPreempt[runItem, *schema.Message](adk.AnySafePoint))
+	if !ok {
+		// 运行已收束（pause 到达过晚）——复位防误伤后续轮
+		h.pauseFlag.Store(false)
+		return false, nil
+	}
+	return true, nil
+}
+
+// ResumePaused 暂停恢复（REQ-558/M365；无答复——区别于 Resume 的 interruptState 强校验，
+// 薄变体零破坏既有审批/ask_human 语义）：取 pause_state.checkpoint_id 复用 runTurnLoop 同键
+// 装载（checkpoint 含 unhandled pause 条目+runner 状态时框架 GenResume 接管；无 runner 状态时
+// 全量历史重建续跑），开新 runID 拒绝复活旧 run（redo_of 溯源键口径）；instruction 非空=
+// checkpoint 锚点 redo 纠偏指令（先落消息流——全量历史重建可见，显式落消息流用户可见）。
+// 工作流 Runner 不支持（工作流路径不登记句柄——Pause 恒 false 409 如实）。
+func (s *Service) ResumePaused(ctx context.Context, conv *store.Conversation, agent *store.Agent, instruction string, debug int, debugPersist bool, emit EmitFn) (string, *RunResult, error) {
+	if err := s.acquireRun(conv.ID); err != nil {
+		return "", nil, err
+	}
+	defer s.releaseRun(conv.ID)
+	var st struct {
+		CheckpointID string `json:"checkpoint_id"`
+		RunID        string `json:"run_id"`
+	}
+	if conv.PauseState == "" || json.Unmarshal([]byte(conv.PauseState), &st) != nil || st.CheckpointID == "" {
+		return "", nil, errors.New("该会话没有暂停中的运行")
+	}
+	if emit == nil {
+		emit = func(*Event) {}
+	}
+	newRunID := store.NewID()
+	instr := strings.TrimSpace(instruction)
+	// 纠偏指令（checkpoint 锚点 redo）先落消息流——全量历史重建可见（显式落消息流用户可见）
+	if instr != "" {
+		if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: instr}); err != nil {
+			return "", nil, err
+		}
+	}
+	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
+		s.emitAndRecord(context.Background(), conv, newRunID, newEvent(t, newRunID, data), emit)
+	})
+	if agent != nil {
+		ctx = tool.WithCaller(ctx, tool.CallerInfo{
+			AgentID: agent.ID, AgentName: agent.Name, ConversationID: conv.ID, Scope: conv.Scope,
+		})
+	}
+	var rt *BuildResult
+	if s.assembleOverride != nil {
+		// 测试钩子（stub 模型直注——单测夹具不落模型连接；生产路径恒 nil 走 Assemble）
+		var aerr error
+		rt, aerr = s.assembleOverride(ctx, agent, conv)
+		if aerr != nil {
+			return "", nil, aerr
+		}
+	} else {
+		var aerr error
+		rt, aerr = s.Assembler.Assemble(ctx, agent, conv)
+		if aerr != nil {
+			return "", nil, aerr
+		}
+	}
+	// 全量历史重建（含 pause 前已落库产物+纠偏指令）——checkpoint 无 runner 状态时走此输入续跑
+	cr, err := s.buildRunContext(ctx, conv, agent)
+	if err != nil {
+		return "", nil, fmt.Errorf("unpause 历史重建失败: %w", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.cancels[conv.ID] = cancel
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.cancels, conv.ID)
+		s.mu.Unlock()
+		cancel()
+	}()
+	start := time.Now()
+	startData := map[string]any{
+		"conversation_id": conv.ID, "agent_name": rt.AgentName, "model": rt.ModelLabel,
+		"backend": "inprocess", "resumed": "paused", "resumed_from_run": st.RunID,
+	}
+	if instr != "" {
+		startData["redo_instruction"] = true // redo checkpoint 锚点（纠偏指令随历史重建）
+	}
+	s.emitAndRecord(runCtx, conv, newRunID, newEvent("run.started", newRunID, startData), emit)
+	s.emitAndRecord(runCtx, conv, newRunID, newEvent("run.resumed", newRunID, map[string]any{
+		"from_checkpoint": st.CheckpointID, "resumed_run": st.RunID, "redo": instr != "",
+	}), emit)
+	// 清 pause 挂起状态（再次 pause 由本轮重新落）
+	_ = s.Store.SetConversationPauseState(conv.ID, "", "unpause:"+newRunID)
+	obs := &obsHandler{level: DebugLevel(debug)}
+	rc := newRunConsumer(s, runCtx, conv, newRunID, rt, emit, start, debugPersist, nil)
+	s.runTurnLoop(runCtx, rc, conv, agent, rt, newRunID, st.CheckpointID, cr.Messages, nil, obs, true)
+	// 登记恢复链锚点（同 Resume：ADK 再次挂起时沿用本 id 覆盖保存快照）
+	s.cpAnchors.Store(conv.ID, st.CheckpointID)
+	rc.subagentLeave(rc.lastAgent)
+	res := &RunResult{}
+	s.runFinalize(runCtx, rc, conv, agent, newRunID, start, emit, res, finalizeOpts{
+		VerifyOnStop:   false, // 同 Resume：不跑 verify 背压（既有行为分叉如实保留）
+		InvariantCheck: false,
+	})
+	return newRunID, res, nil
 }

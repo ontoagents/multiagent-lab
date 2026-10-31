@@ -28,6 +28,8 @@ import (
 
 // Service 运行服务：装配、执行、停止。
 type Service struct {
+	// assembleOverride 单测钩子（REQ-558 暂停恢复测试直注 stub 模型；生产恒 nil 走 Assembler.Assemble）
+	assembleOverride func(ctx context.Context, agent *store.Agent, conv *store.Conversation) (*BuildResult, error)
 	Store     *store.Store
 	Assembler *Assembler
 	KB        KBSource            // M6：对话知识库召回（REQ-355 R1 接口反转；nil 时禁用，api 装配层适配 kb.Service）
@@ -616,6 +618,9 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 	case rc.interrupted:
 		// M11 收尾：挂起等待答复（区别于 completed / stopped）
 		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("interrupted")), emit)
+	case rc.paused:
+		// REQ-558/M365：pause 安全点挂起（对称 interrupted；pause_state 已由 OnAgentEvents 落库）
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("paused")), emit)
 	default:
 		// REQ-202 ③ verify_on_stop 背压：验证命令失败不标记 completed（verify_failed + 事件透出输出）
 		if agent != nil && agent.VerifyCommand != "" {
@@ -1048,6 +1053,7 @@ type runConsumer struct {
 	agentUsageAgg map[string]int            // REQ-557/M364：成员名 → 归因 total_tokens 聚合（过程账本——run.finished usage_by_agent 默认开启）
 	curAgent      *agentRef                 // REQ-557：当前成员可变引用（tool 层事件 approval.*/hook.denied 归属注入——WithEventSink ctx 键同款模式）
 	lastAgent   string
+	paused      bool // REQ-558/M365：pause 安全点挂起（终态 run.finished reason=paused）
 }
 
 // newRunConsumer 构造事件消费者（Run 与 Resume 共用；闭包绑定自身状态）。

@@ -41,6 +41,9 @@ const (
 	EventSubagentDel     = "subagent.delegate"
 	EventWorkflowNode    = "workflow.node"     // REQ-557/M364 补录缺口：工作流节点开始/完成（phase=started|completed——runner 字面量在案）
 	EventStateChanged    = "state.changed"     // REQ-557/M364 补录缺口：会话状态族变更（interrupt/resume/abandon）
+	EventRunPaused       = "run.paused"       // REQ-558/M365：pause 安全点挂起（对称 interrupted）
+	EventRunResumed      = "run.resumed"      // REQ-558/M365：unpause 续跑（新 runID 沿 checkpoint）
+	EventRedoAnchored    = "redo.anchored"    // REQ-558/M365：redo 锚点（截断计数+redo_of 溯源）
 	EventReviewSubmitted = "review.submitted"  // REQ-553/M360：评审 verdict 提交（submit_review 工具体内）
 	EventConflictDete    = "conflict.detected" // REQ-553/M360：规则档命中分歧（review 点挂起/event 点 pending）
 	EventConflictReso    = "conflict.resolved" // REQ-553/M360：人工裁决落库（decision_source=manual）

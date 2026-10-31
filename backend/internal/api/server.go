@@ -373,6 +373,10 @@ func (s *Server) routes() {
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
 	m.HandleFunc("GET /api/conversations/{id}/conflicts", s.listConflicts)          // REQ-553/M360：分歧裁决清单（审计/回放）
+	m.HandleFunc("POST /api/conversations/{id}/pause", s.pauseConversation)    // REQ-558/M365：安全点挂起（非决策点——用户主动任意时点）
+	m.HandleFunc("POST /api/conversations/{id}/unpause", s.unpauseConversation) // REQ-558/M365：暂停恢复（无答复沿 checkpoint 续跑；instruction=redo 纠偏）
+	m.HandleFunc("POST /api/conversations/{id}/redo", s.redoConversation)       // REQ-558/M365：消息锚点重跑（截断+新 runID redo_of 溯源）
+	m.HandleFunc("GET /api/projects/{id}/files/{fid}/preview", s.previewProjectFile) // REQ-558/M365：HTML 产物内联沙箱预览（CSP sandbox）
 	m.HandleFunc("POST /api/conversations/{id}/conflicts/{cid}/resolve", s.resolveConflict) // REQ-553/M360：人工裁决（SSE——suspended 定向恢复/pending 回注新运行）
 	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
 	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)

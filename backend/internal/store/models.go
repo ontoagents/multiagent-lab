@@ -222,6 +222,9 @@ type Conversation struct {
 	EnableSkills *bool `json:"enable_skills,omitempty"`
 	// InterruptState 中断挂起信息 JSON（ask_human 等 HIL 中断；空=无。M11 收尾）
 	InterruptState string `json:"interrupt_state,omitempty"`
+	// PauseState pause 安全点挂起信息 JSON（REQ-558/M365；{checkpoint_id,run_id,paused_at}——
+	// 独立列不复用 interrupt_state：Resume 强校验 TargetID，混用逼「无答复恢复」伪装审批答复）
+	PauseState string `json:"pause_state,omitempty"`
 	// ToolApproval 对话级工具审批覆盖（REQ-135②：nil=不改 | ''=跟随 Agent 级 | on | off）
 	ToolApproval *string `json:"tool_approval,omitempty"`
 	// ModelConnID 会话级模型连接覆盖（REQ-291：nil=不改 | ''=跟随智能体默认 | 连接 ID；

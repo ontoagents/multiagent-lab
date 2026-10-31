@@ -1033,6 +1033,19 @@ export function resolveConflict(
   return streamRun(`/api/conversations/${conversationId}/conflicts/${encodeURIComponent(conflictId)}/resolve`, { adopt, third_text: thirdText, rationale }, onEvent)
 }
 
+// REQ-558/M365：暂停恢复（SSE——无答复沿 checkpoint 续跑；instruction=redo 纠偏指令）
+export function unpauseConversation(
+  conversationId: string,
+  instruction: string,
+  onEvent: (ev: { event: string; data: any }) => void,
+): { abort: () => void; done: Promise<void> } {
+  return streamRun(`/api/conversations/${conversationId}/unpause`, { instruction }, onEvent)
+}
+
+export async function pauseConversation(conversationId: string): Promise<{ paused: boolean }> {
+  return req<{ paused: boolean }>(`/api/conversations/${conversationId}/pause`, { method: 'POST' })
+}
+
 /** SSE over fetch 公共流（运行 / 恢复共用；POST JSON → 逐事件回调）。 */
 function streamRun(
   url: string,

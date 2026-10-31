@@ -253,6 +253,8 @@ export interface Conversation {
   enable_skills?: boolean
   /** 中断挂起信息 JSON（M11 收尾：ask_human 等待答复；空 = 无挂起） */
   interrupt_state?: string | null
+  /** REQ-558/M365：pause 安全点挂起（{checkpoint_id,run_id,paused_at} JSON——phase=paused 数据源） */
+  pause_state?: string | null
   /** REQ-135②：对话级工具审批覆盖（空=跟随智能体级 | on | off） */
   tool_approval?: string | null
   /** REQ-291：会话级模型连接覆盖（空=跟随智能体默认；合并序 请求级 > 会话级 > 智能体默认） */
