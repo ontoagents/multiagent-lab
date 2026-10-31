@@ -58,6 +58,33 @@ interface TaskCardDef {
   acceptance: string
   link: { text: string; sidebar: 'build' | 'assets' | 'runtime' ; s1tab?: string }
   difficulty: number
+  /** REQ-512/M320：打卡真实性检测（服务端信号）——未检测到真实产物时拒绝假完成并给「去创建」深链提示；
+   *  读图/阅读/对话观察类任务无「创建」语义，不设检测（人工确认打卡，验收问题在卡内自答）。 */
+  verify?: { check: () => Promise<boolean>; unmet: string }
+}
+
+// REQ-512/M320：打卡真实性检测器（服务端真值——资产/方案清单；对照任务步骤的「创建是否真实发生」）
+const TASK_VERIFIES: Record<string, { check: () => Promise<boolean>; unmet: string }> = {
+  task_s1_first_ontology: {
+    check: async () => (await api.listOntologies()).length >= 1,
+    unmet: '尚未检测到任何本体资产——请先按步骤完成一次创建（用下方「前往自定义构建 S1」直达），再来打卡。',
+  },
+  task_s2_model_cq: {
+    check: async () => (await api.listOntologies()).some((o) => (o.n_concepts ?? 0) >= 2 && (o.n_relations ?? 0) >= 1),
+    unmet: '未检测到含 ≥2 概念与 ≥1 关系的本体——请在 Spec 编辑器完成 CQ 建模并保存（「前往录入 CQ 与建模」直达）。',
+  },
+  task_s3_break_references: {
+    check: async () => (await api.listOntologies()).some((o) => (o.version ?? 1) >= 2),
+    unmet: '未检测到 ≥2 个版本快照（制造校验失败与修正各保存一次会各涨一版）——请完成两次保存后再打卡。',
+  },
+  task_s5_run_profile: {
+    check: async () => (await api.listRuntimeProfiles()).some((p) => p.status === 'running'),
+    unmet: '未检测到 running 状态的运行方案——请先新建方案并启动（「前往本体运行」直达）。',
+  },
+  task_s5_reload_semantics: {
+    check: async () => (await api.listRuntimeProfiles()).length >= 2,
+    unmet: '未检测到 ≥2 套运行方案——请用不同端口再建一套（「前往本体运行」直达）。',
+  },
 }
 
 const TASKS: TaskCardDef[] = [
@@ -71,6 +98,7 @@ const TASKS: TaskCardDef[] = [
     acceptance: '每条路径的产物分别是什么形态？哪条有损、为什么？',
     link: { text: '前往自定义构建 S1', sidebar: 'build' },
     difficulty: 1,
+    verify: TASK_VERIFIES.task_s1_first_ontology,
   },
   {
     id: 'task_s2_model_cq',
@@ -82,6 +110,7 @@ const TASKS: TaskCardDef[] = [
     acceptance: '你的哪条 CQ 需要跨概念的关系才能回答？',
     link: { text: '前往录入 CQ 与建模（构建栏 AI 创建）', sidebar: 'build', s1tab: 'ai' }, // REQ-248/M71：直达 CQ 录入点
     difficulty: 1,
+    verify: TASK_VERIFIES.task_s2_model_cq,
   },
   {
     id: 'task_s3_break_references',
@@ -93,6 +122,7 @@ const TASKS: TaskCardDef[] = [
     acceptance: '校验在构建平面还是运行平面执行？为什么不允许保存坏本体？',
     link: { text: '前往本体资产校验', sidebar: 'assets' },
     difficulty: 1,
+    verify: TASK_VERIFIES.task_s3_break_references,
   },
   {
     id: 'task_s4_read_graph',
@@ -115,6 +145,7 @@ const TASKS: TaskCardDef[] = [
     acceptance: '为什么仓库更新后方案不会自动生效？（REQ-87 解耦语义）',
     link: { text: '前往本体运行', sidebar: 'runtime' },
     difficulty: 2,
+    verify: TASK_VERIFIES.task_s5_run_profile,
   },
   {
     id: 'task_s6_facade',
@@ -148,6 +179,7 @@ const TASKS: TaskCardDef[] = [
     acceptance: '两套方案的查询结果一致吗？停止一套后挂载它的对话看到什么提示？',
     link: { text: '前往本体运行', sidebar: 'runtime' },
     difficulty: 2,
+    verify: TASK_VERIFIES.task_s5_reload_semantics,
   },
 ]
 
@@ -288,10 +320,40 @@ export default function LearnPage() {
       .catch(() => setLearningExamples([]))
   }, [])
 
-  const toggleTask = (id: string) => {
-    const next = { ...checklist }
-    if (next[id]) delete next[id]
-    else next[id] = new Date().toISOString()
+  // REQ-512/M320：打卡真实性检测态——verifying=检测中（按钮 loading）；unmet=检测未过（拒绝假完成+深链提示）
+  const [verifying, setVerifying] = useState<string | null>(null)
+  const [unmet, setUnmet] = useState<string | null>(null)
+  const toggleTask = async (t: TaskCardDef) => {
+    const id = t.id
+    if (checklist[id]) {
+      // 取消打卡恒允许（回退人工判定权在用户）
+      const next = { ...checklist }
+      delete next[id]
+      setChecklist(next)
+      writeChecklist(next)
+      setUnmet(null)
+      return
+    }
+    if (t.verify) {
+      setVerifying(id)
+      setUnmet(null)
+      let ok = false
+      try {
+        ok = await t.verify.check()
+      } catch {
+        ok = false
+      } finally {
+        setVerifying(null)
+      }
+      if (!ok) {
+        // 检测未过：不落打卡（拒绝假完成），卡内给「去创建」深链提示（按钮即卡内既有「前往…」直达）
+        setUnmet(id)
+        return
+      }
+      // 检测通过：留跨动线验证痕迹（eino.onto.task.verify.{id}；沿 eino.onto.* 通道口径）
+      try { localStorage.setItem(`eino.onto.task.verify.${id}`, new Date().toISOString()) } catch { /* 配额满静默 */ }
+    }
+    const next = { ...checklist, [id]: new Date().toISOString() }
     setChecklist(next)
     writeChecklist(next)
   }
@@ -406,8 +468,9 @@ export default function LearnPage() {
                       type={done ? 'primary' : 'default'}
                       icon={<CheckCircleOutlined />}
                       disabled={!prereqOk && !done}
-                      title={!prereqOk && !done ? `前置任务未完成：${t.prereq.join(', ')}` : undefined}
-                      onClick={() => toggleTask(t.id)}
+                      loading={verifying === t.id}
+                      title={t.verify ? '打卡时将核对真实产物（服务端信号）' : '人工确认打卡（本任务无创建语义）'}
+                      onClick={() => void toggleTask(t)}
                     >
                       {done ? '已完成' : '打卡'}
                     </Button>
@@ -422,6 +485,11 @@ export default function LearnPage() {
                       ))}
                     </ol>
                     <p className="onto-task-accept"><b>验收问题：</b>{t.acceptance}</p>
+                    {unmet === t.id && (
+                      <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginBottom: 4 }} data-testid="task-unmet-hint">
+                        {t.verify?.unmet}
+                      </Typography.Text>
+                    )}
                     <Button
                       size="small"
                       type="link"
