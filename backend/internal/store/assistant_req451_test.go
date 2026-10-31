@@ -34,8 +34,8 @@ func TestEnsureAssistantToolsReq451Base(t *testing.T) {
 			t.Fatalf("基座自愈应并入 %s：%v", want, a.Tools)
 		}
 	}
-	if len(a.Tools) != 10 {
-		t.Fatalf("基座应为 10 工具：%v", a.Tools)
+	if len(a.Tools) != 11 {
+		t.Fatalf("基座应为 11 工具（REQ-561 +platform_cli）：%v", a.Tools)
 	}
 }
 
