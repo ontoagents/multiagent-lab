@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Button, Checkbox, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import NameSuggestInput from '../NameSuggestInput'
+import WhyHint from '../WhyHint'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
@@ -211,6 +212,9 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
         <Form.Item name="name" label="关系名（唯一标识——联想已声明关系类型，先找再造）" rules={[{ required: true, message: '请输入关系名' }]}>
           <NameSuggestInput localNames={(rows ?? []).map((t) => t.name)} placeholder="如 连接到" vocab={false} disabled={!!editing?.key} />
         </Form.Item>
+        <WhyHint testid="why-hint-relation">
+          查询主体判据：这个值以后要不要当查询主体（「找出所有由张伟负责的项目」）？要就是关系（可导航的连接）；只是展示字段就是属性。关系用动词或动词短语命名（领域分析卡 · 02）。
+        </WhyHint>
         <Space.Compact block>
           <Form.Item name="from" label="定义域（from 概念）" style={{ width: '50%', paddingInlineEnd: 6 }} rules={[{ required: true, message: '必填' }]}>
             <Select

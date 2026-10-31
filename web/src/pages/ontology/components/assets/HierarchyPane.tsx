@@ -9,6 +9,7 @@ import RestrictionsEditor from './RestrictionsEditor'
 import { RenameButton } from './RenameButton'
 import InstanceEditPanel from './InstanceEditPanel'
 import NameSuggestInput, { type VocabPick } from '../NameSuggestInput'
+import WhyHint from '../WhyHint'
 import { useQualityDigest } from './qualityDigest'
 import { ERR_COLUMNS } from '../../shared'
 
@@ -1100,6 +1101,11 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
                 <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', margin: '2px 0 4px' }} data-testid="vocab-pick-note">
                   引入并对齐：已按 LOV「{vocabPick.title}」预填同义词（{vocabPick.prefix}）——external_refs 登记在资产页「引用与产物」
                 </Typography.Text>
+              )}
+              {elemModal?.mode === 'create' && elemModal.parent && (
+                <WhyHint testid="why-hint-subclass">
+                  上下位追问：对子概念问「它是什么的一种？」校验父类选得对；再问「它有哪几种？」看是否还要再分层——每多一层必须能说出该层独有的属性或关系（领域分析卡 · 02）。
+                </WhyHint>
               )}
               <Form.Item name="label" label="显示名（可选）">
                 <Input />

@@ -16,6 +16,7 @@ import { useUI } from '../../../store/ui'
 import { ERR_COLUMNS } from '../shared'
 import SpecGraph from '../components/SpecGraph'
 import HierarchyPane, { type OntoSelection } from '../components/assets/HierarchyPane'
+import WhyHint from '../components/WhyHint'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
 import DraftTrimPanel from '../components/DraftTrimPanel'
@@ -684,6 +685,9 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
                     AI 生成 CQ
                   </Button>
                 </div>
+                <WhyHint testid="why-hint-cq">
+                  验收测试用例：CQ 不只是提问——建完的本体要能逐条回答它们（答不上=建模跑偏）。好 CQ 涉及多个概念的关系（「某缺陷源于哪个需求」），能用领域词汇回答且可验证（能力问题卡 · 01）。
+                </WhyHint>
                 <Input.TextArea
                   value={aiCq}
                   onChange={(e) => setAiCq(e.target.value)}
@@ -1052,6 +1056,10 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
                 <Typography.Text strong style={{ fontSize: 13 }}>新建第一个概念</Typography.Text>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   在下方层级树点「新建」命名你的第一个概念，保存后可继续挂父级、建关系——树与表单的每次保存都走服务端结构校验。
+                </Typography.Text>
+                {/* REQ-505/M313：空态引导卡附微型示例 */}
+                <Typography.Text code style={{ fontSize: 11.5, display: 'block', marginTop: 4 }} data-testid="s2-empty-micro-example">
+                  微型示例：订单 →（挂父）合同标的 →（关系 下单人 →）客户 ——三个概念两条线即可开始。
                 </Typography.Text>
               </Space>
             </Card>
