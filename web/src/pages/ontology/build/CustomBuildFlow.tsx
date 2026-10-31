@@ -15,6 +15,7 @@ import type { AiDraftResult, ExtractedCQ, ImportReport, Ontology, QualityReport,
 import { useUI } from '../../../store/ui'
 import { ERR_COLUMNS } from '../shared'
 import SpecGraph from '../components/SpecGraph'
+import HierarchyPane, { type OntoSelection } from '../components/assets/HierarchyPane'
 import ReferenceMaterialsPanel from '../components/ReferenceMaterialsPanel'
 import QualityReportCard, { qualityFindingsText } from '../components/QualityReportCard'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
@@ -845,10 +846,14 @@ function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectI
 
 function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId: string; spec: Spec | null; onSaved: () => void; onPrev: () => void; onNext: () => void }) {
   const { showToast } = useUI()
-  // REQ-532/M339（P10①②③）：①JsonEditor（CodeMirror+jsonParseLinter 行内错误标记）替换裸
-  // TextArea——parse 失败就地定位；②specText 接 draftStore（custom-spec-draft:{oid}）——刷新
-  // 不丢未保存编辑；③「回滚到上一保存版本」接 restoreOntologyVersion（既有 API/UI 能力，
-  // 指定版本恢复为新版本语义如实标注）。
+  // REQ-501/M309（100 号 R2 结构优先双形态）：默认层级树+元素表单（复用 HierarchyPane+REQ-436
+  // 八端点，同一 Spec.Validate 单管线），Spec JSON 折叠「高级」态兜底（对齐 SpecEditorPane
+  // spec_json 默认收起范式）+S2 空态「新建第一个概念」引导卡；AI 草稿默认落树视图逐条确认。
+  // REQ-532/M339（P10①②③）遗留：JsonEditor（CodeMirror+jsonParseLinter）+specText 接
+  // draftStore（custom-spec-draft:{oid}，高级态草稿暂存兼容保留）+回滚接 restoreOntologyVersion。
+  const [view, setView] = useState<'struct' | 'json'>('struct')
+  const [ontoObj, setOntoObj] = useState<Ontology | null>(null)
+  const [sel, setSel] = useState<OntoSelection | null>(null)
   const draftKey = `custom-spec-draft:${ontologyId}`
   const [specText, setSpecText] = useState(() => loadDraft<string>(draftKey) ?? '')
   const [saving, setSaving] = useState(false)
@@ -871,7 +876,7 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
   useEffect(() => {
     api
       .getOntology(ontologyId)
-      .then((o) => { setOntoName(o.name); setOntoVersion(o.version ?? null) })
+      .then((o) => { setOntoName(o.name); setOntoVersion(o.version ?? null); setOntoObj(o) })
       .catch(() => setOntoName(ontologyId))
   }, [ontologyId])
 
@@ -879,13 +884,6 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
     setSpecText(v)
     saveDraft(draftKey, v)
   }
-
-  useEffect(() => {
-    api
-      .getOntology(ontologyId)
-      .then((o) => setOntoName(o.name))
-      .catch(() => setOntoName(ontologyId))
-  }, [ontologyId])
 
   const save = async () => {
     let parsed: Spec
@@ -915,10 +913,21 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
     }
   }
 
+  const emptySpec = !!spec && (spec.concepts?.length ?? 0) === 0 && (spec.relations?.length ?? 0) === 0 && (spec.instances?.length ?? 0) === 0
   return (
     <>
       <div className="onto-sec" style={{ marginTop: 0 }}>
-        <span className="onto-sec-title">Spec JSON · {ontoName}</span>
+        <span className="onto-sec-title">{ontoName}</span>
+        <Segmented
+          size="small"
+          value={view}
+          onChange={(v) => setView(v as 'struct' | 'json')}
+          options={[
+            { value: 'struct', label: '结构（层级树）' },
+            { value: 'json', label: '高级 · Spec JSON' },
+          ]}
+          data-testid="s2-view-switch"
+        />
         <span className="hit-spacer" />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {spec ? `概念 ${spec.concepts?.length ?? 0} · 关系 ${spec.relations?.length ?? 0} · 实例 ${spec.instances?.length ?? 0}` : '尚未保存过 Spec'}
@@ -926,13 +935,40 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
         <Button size="small" onClick={onPrev} icon={<LeftOutlined />}>
           上一步
         </Button>
-        <Button size="small" type="primary" loading={saving} disabled={!specText} onClick={save}>
-          保存 Spec
-        </Button>
+        {view === 'json' && (
+          <Button size="small" type="primary" loading={saving} disabled={!specText} onClick={save}>
+            保存 Spec
+          </Button>
+        )}
         <Button size="small" onClick={onNext}>
           下一步：校验 <RightOutlined />
         </Button>
       </div>
+      {view === 'struct' ? (
+        <>
+          {/* REQ-501：S2 空态「新建第一个概念」引导卡（树上「新建」即入表单） */}
+          {emptySpec && (
+            <Card size="small" style={{ marginBottom: 10 }} data-testid="s2-empty-guide">
+              <Space size={8} align="center" wrap>
+                <Typography.Text strong style={{ fontSize: 13 }}>新建第一个概念</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  在下方层级树点「新建」命名你的第一个概念，保存后可继续挂父级、建关系——树与表单的每次保存都走服务端结构校验。
+                </Typography.Text>
+              </Space>
+            </Card>
+          )}
+          {ontoObj && (
+            <HierarchyPane
+              ontology={ontoObj}
+              spec={spec}
+              selection={sel}
+              onSelect={setSel}
+              onSaved={onSaved}
+            />
+          )}
+        </>
+      ) : (
+        <>
       <JsonEditor value={specText} onChange={updateSpecText} height="520px" />
       {ontoVersion != null && ontoVersion > 0 && (
         <Popconfirm
@@ -974,6 +1010,8 @@ function S2EditPane({ ontologyId, spec, onSaved, onPrev, onNext }: { ontologyId:
             size="small"
             style={{ marginTop: 8 }}
           />
+        </>
+      )}
         </>
       )}
     </>
