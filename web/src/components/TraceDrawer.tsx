@@ -79,6 +79,10 @@ export default function TraceDrawer({
   // REQ-555/M362：离线回放数据源（导入回放文件——纯本地渲染零 API 请求；不写本地库）
   const [offlineEvents, setOfflineEvents] = useState<RunEventDTO[] | null>(null)
   const [offlineTitle, setOfflineTitle] = useState<string>('')
+  // REQ-557/M364 过程账本：单 run 指标（参与度/介入/阶段——后端派生聚合，前端不复算）
+  const [metricsOpen, setMetricsOpen] = useState(false)
+  const [metrics, setMetrics] = useState<any>(null)
+  const [metricsErr, setMetricsErr] = useState<string | null>(null)
   // REQ-284②：时序条开关（默认开）
   const [showTimeline, setShowTimeline] = useState(true)
   // 界面优化批：运行块分页（最近置顶）——每页默认 5 条，可切 10/20
@@ -132,6 +136,30 @@ export default function TraceDrawer({
       showToast(e?.message ?? '回放文件解析失败', 'err')
     }
     return false // 阻断 antd Upload 自动上传
+  }
+
+  // REQ-557：拉取单 run 指标（选中 run 优先；缺省取最近含 run.finished 的运行）
+  const loadMetrics = () => {
+    const target =
+      replayRun && replayRun !== '__none__'
+        ? replayRun
+        : runs.find((r) => r.events.some((e) => e.type === 'run.finished'))?.runId
+    if (!target) {
+      setMetricsErr('暂无已落库的运行')
+      setMetrics(null)
+      return
+    }
+    fetch(`/api/stats/run/${encodeURIComponent(target)}/metrics`)
+      .then(async (r) => {
+        const j = await r.json().catch(() => null)
+        if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
+        setMetrics(j)
+        setMetricsErr(null)
+      })
+      .catch((e: any) => {
+        setMetricsErr(e?.message ?? '指标加载失败')
+        setMetrics(null)
+      })
   }
 
   // 按运行分组（created_at 升序；run_id 空的散事件归「未分组」段）
@@ -197,10 +225,59 @@ export default function TraceDrawer({
           <Upload accept=".json,application/json" showUploadList={false} beforeUpload={importReplay}>
             <Button size="small">导入回放</Button>
           </Upload>
+          {/* REQ-557/M364：过程账本指标（参与度/介入/阶段——后端派生，前端不复算） */}
+          <Button size="small" onClick={() => { const next = !metricsOpen; setMetricsOpen(next); if (next) loadMetrics() }}>
+            指标
+          </Button>
         </Space>
       }
     >
       {/* REQ-336：原「显示设置/运行治理」两区退役（与头部过程面板/会话设置重合），轨迹页只呈现轨迹 */}
+      {metricsOpen && (
+        <div style={{ border: '1px solid var(--c-border, #eee)', borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 12 }}>
+          {metricsErr ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{metricsErr}</Typography.Text>
+          ) : !metrics ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>指标加载中…</Typography.Text>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>过程指标</span>
+                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                  run {String(metrics.run_id ?? '').slice(0, 12)}… · {metrics.event_count} 事件 · 总耗时 {metrics.phases?.elapsed_ms ?? 0}ms
+                </Typography.Text>
+              </div>
+              {(metrics.participation ?? []).length > 0 && (
+                <div>
+                  <div style={{ color: 'var(--c-ink-2, #666)' }}>参与度（token 归因 · 工具调用 · 在位时长）</div>
+                  {(metrics.participation ?? []).map((p: any) => (
+                    <div key={p.agent} style={{ color: 'var(--c-ink-2, #666)' }}>
+                      {p.agent}：{p.total_tokens} tok · {p.tool_calls} 次工具 · {p.duration_ms}ms
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div>
+                <div style={{ color: 'var(--c-ink-2, #666)' }}>介入频次</div>
+                <div style={{ color: 'var(--c-ink-2, #666)' }}>
+                  审批 {metrics.interventions?.approval_requests ?? 0}（批准 {metrics.interventions?.approval_granted ?? 0}/拒绝 {metrics.interventions?.approval_denied ?? 0}）· 插话 {metrics.interventions?.steer_pushed ?? 0} · 守卫拦截 {metrics.interventions?.hook_denied ?? 0} · 抢占 {metrics.interventions?.run_preempted ?? 0}
+                  {metrics.interventions?.interrupted_by_kind && Object.keys(metrics.interventions.interrupted_by_kind).length > 0 && (
+                    <> · 挂起 {Object.entries(metrics.interventions.interrupted_by_kind).map(([k, v]) => `${k}×${v}`).join('、')}</>
+                  )}
+                </div>
+              </div>
+              {(metrics.phases?.workflow_nodes ?? []).length > 0 && (
+                <div>
+                  <div style={{ color: 'var(--c-ink-2, #666)' }}>工作流节点耗时</div>
+                  {(metrics.phases?.workflow_nodes ?? []).map((n: any, i: number) => (
+                    <div key={i} style={{ color: 'var(--c-ink-2, #666)' }}>{n.name}：{n.duration_ms}ms{n.open ? '（未闭合）' : ''}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* REQ-208/M42 余项：后台委派面板（可继续子 Agent——插话/打断/冷恢复人工动作面） */}
       <DelegatesPanel conversationId={conversationId} />

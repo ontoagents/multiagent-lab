@@ -309,7 +309,7 @@ export interface ProviderModelList {
  * 使用统计（ASSUMED 后端契约，接口可能尚未就绪）：
  * GET /api/stats/usage?group_by=model|agent|project
  */
-export type UsageGroupBy = 'model' | 'agent' | 'project'
+export type UsageGroupBy = 'model' | 'agent' | 'project' | 'member' // REQ-557/M364：过程账本成员维度
 
 export interface UsageRow {
   key: string

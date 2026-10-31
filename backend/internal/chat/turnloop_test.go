@@ -80,7 +80,7 @@ func TestTurnLoopBasicRun(t *testing.T) {
 
 	runCtx := context.Background()
 	start := time.Now()
-	rc := newRunConsumer(s, runCtx, conv, "tlr_basic", rt, func(*Event) {}, start, false)
+	rc := newRunConsumer(s, runCtx, conv, "tlr_basic", rt, func(*Event) {}, start, false, nil)
 	// 用户消息先落库（runOnce 语义；GenInput 首轮历史从 DB 重建仅在 steer 轮发生）
 	if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: "问题"}); err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestTurnLoopSteerPreempt(t *testing.T) {
 
 	runCtx := context.Background()
 	start := time.Now()
-	rc := newRunConsumer(s, runCtx, conv, "tlr_steer", rt, func(*Event) {}, start, false)
+	rc := newRunConsumer(s, runCtx, conv, "tlr_steer", rt, func(*Event) {}, start, false, nil)
 	if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: "开始长任务"}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestTurnLoopInterruptResume(t *testing.T) {
 	rt := &BuildResult{Agent: tlAgent(t, tlEchoAfterToolModel{}, wrapped), AgentName: "tl-root"}
 	runCtx := context.Background()
 	start := time.Now()
-	rc := newRunConsumer(s, runCtx, conv, "tlr_intr", rt, func(*Event) {}, start, false)
+	rc := newRunConsumer(s, runCtx, conv, "tlr_intr", rt, func(*Event) {}, start, false, nil)
 	if _, err := s.Store.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: "现在几点"}); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestTurnLoopInterruptResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 定向恢复（GenResume 路径）
-	rc2 := newRunConsumer(s, runCtx, conv, "tlr_intr2", rt, func(*Event) {}, time.Now(), false)
+	rc2 := newRunConsumer(s, runCtx, conv, "tlr_intr2", rt, func(*Event) {}, time.Now(), false, nil)
 	exit := s.runTurnLoop(runCtx, rc2, conv, ag, rt, "tlr_intr2", stt.CheckpointID, nil,
 		&adk.ResumeParams{Targets: map[string]any{stt.TargetID: tool.ApprovalApprove}}, &obsHandler{}, true)
 	if exit != nil && exit.ExitReason != nil {
@@ -367,7 +367,7 @@ func TestTurnLoopSteerSeesPersistedRecall(t *testing.T) {
 
 	runCtx := context.Background()
 	start := time.Now()
-	rc := newRunConsumer(s, runCtx, conv, "tlr_recall_steer", rt, func(*Event) {}, start, false)
+	rc := newRunConsumer(s, runCtx, conv, "tlr_recall_steer", rt, func(*Event) {}, start, false, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

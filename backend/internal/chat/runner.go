@@ -278,7 +278,16 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 
 	// REQ-224/M52：运行期事件汇——装配层/工具包装层（审批 granted·denied/hook.denied/连接器降级）
 	// 经 ctx 发结构化审计事件，与常规事件同走 emitAndRecord（SSE+落库同源，schema_version=2）
+	agentRef := &agentRef{} // REQ-557：tool 层事件成员归属（runConsumer 构造后接管更新）
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
+		if data == nil {
+			data = map[string]any{}
+		}
+		if a := agentRef.get(); a != "" {
+			if _, dup := data["agent"]; !dup {
+				data["agent"] = a // approval.granted/denied、hook.denied 等成员归属（未知成员不加字段）
+			}
+		}
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
 	// REQ-354/P2·G4：调用者身份入 ctx（ontochat 工具组落构建平面审计两列的数据源；
@@ -504,7 +513,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		s.abandonInterrupt(runCtx, conv, runID, emit)
 	}
 
-	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
+	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist, agentRef)
 	// REQ-453/M249：callbacks 统一执行观测面（model/tool 计时/错误/token 落 obs.timing，
 	// level>0 才激活——与 model.step 同门控；debugModel 维持现状评估结论见 callbacks.go 注）
 	obs := &obsHandler{level: DebugLevel(debug)}
@@ -572,6 +581,20 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 				}
 				sort.Slice(arr, func(i, j int) bool { return arr[i].TotalTokens > arr[j].TotalTokens })
 				data["usage_by_tool"] = arr
+			}
+			// REQ-557/M364 过程账本：成员维度 token 归因（默认开启不经 debug 门控——与 model.step
+			// 的关键差别；近似口径沿 REQ-397：并行均摊/余数归首个，闭合偏差仅并行均摊余数）
+			if len(rc.agentUsageAgg) > 0 {
+				type agentTok struct {
+					Agent       string `json:"agent"`
+					TotalTokens int    `json:"total_tokens"`
+				}
+				arr := make([]agentTok, 0, len(rc.agentUsageAgg))
+				for a, n := range rc.agentUsageAgg {
+					arr = append(arr, agentTok{Agent: a, TotalTokens: n})
+				}
+				sort.Slice(arr, func(i, j int) bool { return arr[i].TotalTokens > arr[j].TotalTokens })
+				data["usage_by_agent"] = arr
 			}
 		}
 		if rc.lastFinish != "" {
@@ -968,6 +991,25 @@ func (s *Service) abandonInterrupt(ctx context.Context, conv *store.Conversation
 	}), emit)
 }
 
+// agentRef 当前成员可变引用（REQ-557/M364 过程账本）——trackAgent 切换时更新、sink 闭包读之；
+// tool 层事件（approval.granted/denied、hook.denied 经 WithEventSink 发出）归属注入的数据通道。
+type agentRef struct {
+	mu   sync.Mutex
+	name string
+}
+
+func (a *agentRef) set(name string) {
+	a.mu.Lock()
+	a.name = name
+	a.mu.Unlock()
+}
+
+func (a *agentRef) get() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.name
+}
+
 // runConsumer 单次运行的事件消费状态（Run 与 Resume 共用同一事件翻译管线）。
 type runConsumer struct {
 	s     *Service
@@ -1003,11 +1045,13 @@ type runConsumer struct {
 	toolCallArg map[string]string    // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
 	toolCallUsage map[string]*usageSnapshot // REQ-397/M193：tool_call_id → 发起步 usage 快照（差值归因）
 	toolUsageAgg  map[string]int            // REQ-397：工具名 → 归因 total_tokens 聚合
+	agentUsageAgg map[string]int            // REQ-557/M364：成员名 → 归因 total_tokens 聚合（过程账本——run.finished usage_by_agent 默认开启）
+	curAgent      *agentRef                 // REQ-557：当前成员可变引用（tool 层事件 approval.*/hook.denied 归属注入——WithEventSink ctx 键同款模式）
 	lastAgent   string
 }
 
 // newRunConsumer 构造事件消费者（Run 与 Resume 共用；闭包绑定自身状态）。
-func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, runID string, rt *BuildResult, emit EmitFn, start time.Time, persistDeltas bool) *runConsumer {
+func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, runID string, rt *BuildResult, emit EmitFn, start time.Time, persistDeltas bool, curAgent *agentRef) *runConsumer {
 	rc := &runConsumer{
 		s: s, ctx: ctx, conv: conv, runID: runID, rt: rt, emit: emit, start: start,
 		persistDeltas: persistDeltas,
@@ -1017,7 +1061,15 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		toolCallArg:   map[string]string{},
 		toolCallUsage: map[string]*usageSnapshot{},
 		toolUsageAgg:  map[string]int{},
+		agentUsageAgg: map[string]int{},
 	}
+	// REQ-557：当前成员引用（trackAgent 切换时更新；runOnce/Resume 的 sink 闭包读之——
+	// 事件消费与流式回调大体同 goroutine，互斥锁兜底并行安全；nil=自建〔单测/无 sink 场景〕）
+	if curAgent == nil {
+		curAgent = &agentRef{}
+	}
+	rc.curAgent = curAgent
+	curAgent.set(rt.AgentName) // root 成员即当前（委派进入成员时 trackAgent 覆写）
 	rc.subagentLeave = func(name string) {
 		if name != "" && name != rc.rootAgent {
 			s.emitAndRecord(rc.ctx, conv, runID, newEvent("subagent.exit", runID, map[string]any{"agent": name}), emit)
@@ -1048,6 +1100,7 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 			}), emit)
 		}
 		rc.lastAgent = name
+		curAgent.set(name)
 	}
 	rc.emitReasoning = func(delta string) {
 		if delta != "" {
@@ -1209,6 +1262,11 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 					}), emit)
 				}
 			}
+			if rc.curAgent != nil { // REQ-557：tool 事件带成员归属（与 subagent.enter/exit 泳道同源）
+				if a := rc.curAgent.get(); a != "" {
+					data["agent"] = a
+				}
+			}
 			s.emitAndRecord(runCtx, conv, runID, newEvent("tool.result", runID, data), emit)
 			// REQ-224 H10：onto_* facade 工具消费命中——逐次落库+ontology.hit 事件（companion.hit 先例推广）
 			if src == "ontology:facade" {
@@ -1264,7 +1322,16 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 		ctx = withDebug(ctx, rec)
 	}
 	// REQ-224/M52：事件汇挂载（同 runOnce——审批 granted·denied 在恢复重入路径发出）
+	agentRef := &agentRef{} // REQ-557：tool 层事件成员归属（runConsumer 构造后接管更新）
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
+		if data == nil {
+			data = map[string]any{}
+		}
+		if a := agentRef.get(); a != "" {
+			if _, dup := data["agent"]; !dup {
+				data["agent"] = a // approval.granted/denied、hook.denied 等成员归属（未知成员不加字段）
+			}
+		}
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
 	// REQ-354/P2·G4：调用者身份入 ctx（同 runOnce——恢复重入路径的工具调用同源可审计）
@@ -1323,7 +1390,7 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	// Runner.ResumeWithParams；checkpointID=挂起锚点 st.CheckpointID，框架自动加载）；旧路径
 	// 直调 Runner.ResumeWithParams。两路互斥（防双恢复）。
 	obs := &obsHandler{level: DebugLevel(debug)}
-	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
+	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist, agentRef)
 	if turnLoopEnabled() && rt.Workflow == nil {
 		s.runTurnLoop(runCtx, rc, conv, agent, rt, runID, st.CheckpointID, nil, &adk.ResumeParams{
 			Targets: map[string]any{st.TargetID: answer},
@@ -1416,6 +1483,16 @@ func (rc *runConsumer) settleUsageDelta(prev *usageSnapshot, cur *schema.TokenUs
 			}
 		}
 		rc.toolUsageAgg[toolName] += d
+		// REQ-557/M364：成员维度归因（同点同构 toolUsageAgg）——lastAgent 由 trackAgent 单点维护
+		//（发射点归属 vs 聚合栈推断：栈推断在 steer 抢占/并行调用下漂移，泳道同源更可靠）；
+		// 无成员上下文归 root（诚实计入，107 §8.5 边界）
+		agent := rc.lastAgent
+		if agent == "" {
+			agent = rc.rootAgent
+		}
+		if agent != "" {
+			rc.agentUsageAgg[agent] += d
+		}
 		delete(rc.toolCallUsage, id)
 	}
 	_ = rem
@@ -1511,6 +1588,11 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 	ctx := context.Background()
 	if rc != nil {
 		ctx = rc.ctx
+		if rc.curAgent != nil { // REQ-557：tool 事件带成员归属（泳道同源）
+			if a := rc.curAgent.get(); a != "" {
+				data["agent"] = a
+			}
+		}
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("tool.call", runID, data), emit)
 }

@@ -435,6 +435,7 @@ func (s *Server) routes() {
 	// 使用统计（按 model|agent|project 聚合 run_event）
 	m.HandleFunc("GET /api/stats/storage", s.storageOverview) // REQ-113②：数据量概览
 	m.HandleFunc("GET /api/stats/usage", s.usageStats)
+	m.HandleFunc("GET /api/stats/run/{run_id}/metrics", s.runMetrics) // REQ-557/M364：单 run 过程账本（参与度/介入/阶段三出料——事件派生零迁移）
 	// REQ-204/M39：进度产物人类侧导出 + 对话级定时续跑（进程内调度器，重启失效）
 	m.HandleFunc("GET /api/conversations/{id}/todo.md", s.exportTodo)
 	m.HandleFunc("POST /api/conversations/{id}/schedule", s.createSchedule)
