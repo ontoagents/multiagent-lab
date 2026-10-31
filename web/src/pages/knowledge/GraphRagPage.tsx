@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Input, InputNumber, Select, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { Button, Card, Checkbox, Input, InputNumber, Select, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { KBDoc, KBHit } from '../../api/types'
 import { api } from '../../api/client'
 import { useUI } from '../../store/ui'
@@ -14,8 +14,7 @@ import {
   modeOf,
   useDocColumns,
   useDocsPolling,
-  type KbTypePageProps,
-} from './shared'
+  type KbTypePageProps, KB_DOC_PAGINATION } from './shared'
 
 // ---------------------------------------------------------------------------
 // GraphRAG 类型页（REQ-258 类型导航化拆分）：KG+向量混合检索库的独立实现与显示——
@@ -302,7 +301,7 @@ export default function GraphRagPage({ kbs, loadErr, onReloadKBs, onCreate, focu
           columns={columns}
           dataSource={docs}
           loading={docsLoading}
-          pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+          pagination={{ ...KB_DOC_PAGINATION }}
           size="middle"
           locale={{ emptyText: docsErr
             ? <LoadErrorAlert title="文档列表加载失败" message={docsErr} onRetry={() => active && reloadDocs(active.id)} style={{ margin: 12 }} />
@@ -356,13 +355,10 @@ export default function GraphRagPage({ kbs, loadErr, onReloadKBs, onCreate, focu
           </Button>
         </div>
         {searchMeta?.degraded && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginTop: 12 }}
-            title="GraphRAG worker 不可达，本次结果来自向量检索回退（降级不阻断）"
-            description={searchMeta.error}
-          />
+          /* REQ-491：降级提示对齐 RagPage 一行灰字形态（沿既有先例） */
+          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 12, lineHeight: 1.7 }}>
+            检索降级：GraphRAG 不可达，本次结果来自向量检索回退（不阻断）——{searchMeta.error}
+          </Typography.Text>
         )}
         <HitsList hits={hits} kbId={active?.id} />
       </Card>
@@ -414,13 +410,10 @@ export default function GraphRagPage({ kbs, loadErr, onReloadKBs, onCreate, focu
                   label: '图谱与统计',
                   children: (
                     <>
-                      <Alert
-                        type="info"
-                        showIcon
-                        style={{ marginBottom: 12 }}
-                        title="GraphRAG 子模块（M14；M16 图谱增强已启用）"
-                        description="文档索引后自动把 chunks 同步抽取为自存 KG（D-O15 自研抽取：REQ-98 LLM 主路径 + 规则回退，零外部进程）；检索优先 GraphRAG，KG 无命中自动回退向量检索（不阻断）。图谱视图支持实体搜索、邻域展开、claims 溯源与聚焦检索（REQ-127/128）。"
-                      />
+                      {/* REQ-491：开场大段说明 Alert 降盒——灰字一行（去内部编号） */}
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+                        文档索引后自动把 chunks 同步抽取为自存知识图谱（LLM 主路径+规则回退，零外部进程）；检索优先 GraphRAG，KG 无命中自动回退向量检索（不阻断）。图谱视图支持实体搜索、邻域展开、溯源与聚焦检索。
+                      </Typography.Text>
                       <KGGraphView kbID={active.id} />
                     </>
                   ),

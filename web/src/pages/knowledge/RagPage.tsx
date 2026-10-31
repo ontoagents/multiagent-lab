@@ -13,8 +13,7 @@ import {
   modeOf,
   useDocColumns,
   useDocsPolling,
-  type KbTypePageProps,
-} from './shared'
+  type KbTypePageProps, KB_DOC_PAGINATION } from './shared'
 
 // ---------------------------------------------------------------------------
 // RAG 类型页（REQ-258 类型导航化拆分）：向量检索库的独立实现与显示——
@@ -242,7 +241,7 @@ export default function RagPage({ kbs, loadErr, onReloadKBs, onCreate, focusId, 
                 columns={columns}
                 dataSource={docs}
                 loading={docsLoading}
-                pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+                pagination={{ ...KB_DOC_PAGINATION }}
                 size="middle"
                 locale={{ emptyText: docsErr
                   ? <LoadErrorAlert title="文档列表加载失败" message={docsErr} onRetry={() => active && reloadDocs(active.id)} style={{ margin: 12 }} />

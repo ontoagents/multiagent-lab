@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Badge, Button, Empty, Form, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography, Upload } from 'antd'
 import type { BadgeProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ReloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { DeleteOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import KBContentModal from '../../components/KBContentModal' 
 import type { KBDoc, KBHit, KnowledgeBase } from '../../api/types'
@@ -62,14 +62,18 @@ export function StatTile({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
-/** REQ-241（M67）：wiki 页面类型分组元数据（LLM Wiki 类型页专用显示） */
-export const WIKI_TYPE_META: Record<string, { label: string; color: string }> = {
-  index: { label: '目录', color: 'default' },
-  summary: { label: '文档摘要', color: 'blue' },
-  entity: { label: '实体', color: 'green' },
-  concept: { label: '概念', color: 'geekblue' },
-  topic: { label: '主题', color: 'orange' },
-  synthesis: { label: '综合', color: 'purple' },
+/** REQ-491：三类型页文档表分页单源（收敛三处重复配置） */
+export const KB_DOC_PAGINATION = { pageSize: 10, hideOnSinglePage: true, showSizeChanger: false } as const
+
+/** REQ-241（M67）：wiki 页面类型分组元数据（LLM Wiki 类型页专用显示）；
+ *  REQ-491：6 色收敛——类型为信息标注非状态色，color 字段退役改灰字呈现 */
+export const WIKI_TYPE_META: Record<string, { label: string }> = {
+  index: { label: '目录' },
+  summary: { label: '文档摘要' },
+  entity: { label: '实体' },
+  concept: { label: '概念' },
+  topic: { label: '主题' },
+  synthesis: { label: '综合' },
 }
 
 /** 类型页详情头（名称 + 类型徽标 + 描述 + 删除库；extra 追加类型专属徽标/动作） */
@@ -88,18 +92,19 @@ export function KbDetailHead({
         <div className="work-head-title">
           <Typography.Title level={4} style={{ margin: 0 }}>
             {kb.name}
-            <Tag color={MODE_TAG[modeOf(kb)].color} style={{ marginInlineStart: 8, verticalAlign: 'middle' }}>
+            {/* REQ-491：详情头 3 彩 Tag 灰字化（信息标注非状态色） */}
+            <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400, marginInlineStart: 8, verticalAlign: 'middle' }}>
               {MODE_TAG[modeOf(kb)].text}
-            </Tag>
+            </Typography.Text>
             {kb.official && (
-              <Tag color="blue" style={{ marginInlineStart: 4, verticalAlign: 'middle' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400, marginInlineStart: 6, verticalAlign: 'middle' }}>
                 官方·平台知识
-              </Tag>
+              </Typography.Text>
             )}
             {kb.kb_vector && kb.kb_graph && (
-              <Tag color="geekblue" style={{ marginInlineStart: 4, verticalAlign: 'middle' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400, marginInlineStart: 6, verticalAlign: 'middle' }}>
                 双路
-              </Tag>
+              </Typography.Text>
             )}
             {extra}
           </Typography.Title>
@@ -230,13 +235,6 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
       render: (v?: number) => (v ?? '—'),
     },
     {
-      title: '维度',
-      dataIndex: 'dim',
-      width: 80,
-      align: 'right',
-      render: (v?: number) => (v && v > 0 ? v : <Tooltip title="零维 = 未向量化（wiki 库零 embedding 或失败态）"><span>—</span></Tooltip>),
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       width: 140,
@@ -271,18 +269,20 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
     },
     {
       title: '操作',
-      width: 170,
+      width: 92,
+      // REQ-491：操作列改 hover 灰图标（行悬停显隐——kb-doc-actions 样式）+砍「维度」低价值列（同轮移除）
       render: (_, d: KBDoc) => (
-        <Space size={0}>
-          <Button
-            type="link"
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={reindexing === d.id}
-            onClick={() => onReindex(d)}
-          >
-            重建索引
-          </Button>
+        <Space size={0} className="kb-doc-actions">
+          <Tooltip title="重建索引">
+            <Button
+              type="text"
+              size="small"
+              aria-label="重建索引"
+              icon={<ReloadOutlined />}
+              loading={reindexing === d.id}
+              onClick={() => onReindex(d)}
+            />
+          </Tooltip>
           <Popconfirm
             title={`删除文档「${d.title}」？`}
             description="将级联删除其全部 chunk 与向量。"
@@ -291,9 +291,9 @@ export function useDocColumns(onReindex: (d: KBDoc) => void, onRemove: (d: KBDoc
             cancelText="取消"
             onConfirm={() => onRemove(d)}
           >
-            <Button type="link" size="small" danger>
-              删除
-            </Button>
+            <Tooltip title="删除文档">
+              <Button type="text" size="small" danger aria-label="删除文档" icon={<DeleteOutlined />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -346,9 +346,10 @@ export function HitsList({ hits, kbId }: { hits: KBHit[] | null; kbId?: string }
                       </Tag>
                     </Tooltip>
                   )}
-                  <Tag className="hit-score" color={band === 'hi' ? 'green' : band === 'mid' ? 'blue' : 'gold'} style={{ margin: 0 }}>
+                  {/* REQ-491：score 分档彩 Tag→灰字数字（分档由命中卡左缘发丝条承载） */}
+                  <span className="hit-score" style={{ margin: 0, fontSize: 12, color: 'var(--c-ink-3)', fontFamily: 'monospace' }}>
                     score {fmtScore(h.score)}
-                  </Tag>
+                  </span>
                 </div>
                 <div className="hit-excerpt">
                   <HighlightSpans text={h.excerpt} spans={h.spans} />

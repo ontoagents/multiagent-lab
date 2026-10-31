@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert,
-  Button,
+    Button,
   Card,
   Collapse,
   Drawer,
@@ -34,8 +33,7 @@ import {
   modeOf,
   useDocColumns,
   useDocsPolling,
-  type KbTypePageProps,
-} from './shared'
+  type KbTypePageProps, KB_DOC_PAGINATION } from './shared'
 
 // ---------------------------------------------------------------------------
 // LLM Wiki 类型页（REQ-258 类型导航化拆分；REQ-241/M67 能力的独立实现与显示）：
@@ -227,7 +225,7 @@ export default function WikiPage({ kbs, loadErr, onReloadKBs, onCreate, focusId,
           columns={columns}
           dataSource={docs}
           loading={docsLoading}
-          pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
+          pagination={{ ...KB_DOC_PAGINATION }}
           size="middle"
           locale={{ emptyText: docsErr
             ? <LoadErrorAlert title="文档列表加载失败" message={docsErr} onRetry={() => active && reloadDocs(active.id)} style={{ margin: 12 }} />
@@ -419,28 +417,20 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
         </Space>
       }
     >
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="LLM Wiki = 写时合成层（REQ-241）：重建按文档数产生 LLM 调用（每文档 1 次摘要 + 聚合页批量 1 次），内容未变更的文档自动跳过；检索读页非读片段，零 embedding 依赖。"
-      />
+      {/* REQ-491：开场 Alert 降盒——警示色一行文（成本说明中性保留） */}
+      <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+        LLM Wiki = 写时合成层：重建按文档数产生模型调用（每文档 1 次摘要 + 聚合页批量 1 次），内容未变更的文档自动跳过；检索读页非读片段，零 embedding 依赖。
+      </Typography.Text>
       {lastResult && (
-        <Alert
-          type={lastResult.degraded ? 'warning' : 'success'}
-          showIcon
-          style={{ marginBottom: 12 }}
-          title={`上次重建：${lastResult.pages} 页 · LLM 调用 ${lastResult.llm_calls} 次 · 跳过 ${lastResult.skipped_docs} 篇 · ${lastResult.duration_ms}ms`}
-          description={
-            lastResult.warnings?.length ? (
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {lastResult.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            ) : undefined
-          }
-        />
+        lastResult.degraded ? (
+          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+            {`上次重建（降级）：${lastResult.pages} 页 · 模型调用 ${lastResult.llm_calls} 次 · 跳过 ${lastResult.skipped_docs} 篇 · ${lastResult.duration_ms}ms${lastResult.warnings?.length ? '——' + lastResult.warnings.join('；') : ''}`}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+            {`上次重建：${lastResult.pages} 页 · 模型调用 ${lastResult.llm_calls} 次 · 跳过 ${lastResult.skipped_docs} 篇 · ${lastResult.duration_ms}ms`}
+          </Typography.Text>
+        )
       )}
       {pages.length === 0 && !loading ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无 wiki 页面：导入文档后点击「重建 Wiki」生成（文档摘要 / 实体 / 概念 / 主题 / 综合五类互链页面）" />
@@ -454,9 +444,10 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
               key: t,
               label: (
                 <Space size={6}>
-                  <Tag color={WIKI_TYPE_META[t].color} style={{ margin: 0 }}>
+                  {/* REQ-491：类型标注灰字化 */}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {WIKI_TYPE_META[t].label}
-                  </Tag>
+                  </Typography.Text>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {groups[t].length} 页
                   </Typography.Text>
@@ -493,9 +484,10 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
         title={
           preview && (
             <Space size={8}>
-              <Tag color={WIKI_TYPE_META[preview.page_type]?.color ?? 'default'} style={{ margin: 0 }}>
+              {/* REQ-491：类型标注灰字化 */}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {WIKI_TYPE_META[preview.page_type]?.label ?? preview.page_type}
-              </Tag>
+              </Typography.Text>
               <span>{preview.title}</span>
             </Space>
           )
@@ -511,7 +503,7 @@ function WikiPagesCard({ kbID, docCount, conns }: { kbID: string; docCount: numb
                 {preview.sources.length > 6 ? ' …' : ''}）（原文下钻：chat 命中卡与检索试运行命中点 doc 名）
               </Typography.Paragraph>
             )}
-            <div className="wiki-page-md">
+            <div className="wiki-page-md chat-md">
               <XMarkdown>{preview.content_md}</XMarkdown>
             </div>
           </>
