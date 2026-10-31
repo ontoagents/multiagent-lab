@@ -16,7 +16,7 @@ synced: 2026-10-31
 | 号 | 状态 | 标题（一句话） | M | 归属 | 详录 |
 | --- | --- | --- | --- | --- | --- |
 | REQ-536 | 🚧 | 体验机制化——◐ 文案面收口已落（M343，5c44212）；字号令牌 940 处/会话现场恢复/暗色收编 39 处三面横切排版改造留续 | M343 | 01 §3.17 | 18/02 §12/20 4.172 |
-| REQ-545 | 📋 | 证据槽/缺槽结构化缺口——check_answerable 槽位化+出题预检接线（missing 分域+REST 口+quiz 迁移 079+QuizPane/CqQuickScreen 缺口透出，收 REQ-524 挂账，决策结构化借鉴批②） | M352 | 03 §2.73 | 18/105 号 |
+| REQ-545 | 🚧 | 证据槽/缺槽结构化缺口——check_answerable 槽位化+出题预检接线（missing 分域+REST 口+quiz 迁移 079+QuizPane/CqQuickScreen 缺口透出，收 REQ-524 挂账，决策结构化借鉴批②） | M352 | 03 §2.73 | 18/105 号 |
 | REQ-546 | 📋 | 知识写回补「评审」半边——learning proposal 暂存区（迁移 080+promote 改产提案+裁决端点+CompanionPromotePane，承 REQ-529 挂账，决策结构化借鉴批③） | M353 | 03 §2.73 | 18/105 号 |
 | REQ-547 | 📋 | golden case 案例级 gold+第三信号开闸评估（cqbench kind 扩 case+onto_core 数据集+gate 端点单测+EvolutionPane 开关，默认关维持，决策结构化借鉴批④） | M354 | 03 §2.73 | 18/105 号 |
 | REQ-552 | 📋 | 结构化任务编排 DAG 计划与调度——workflow_mode=dag 档+规划者结构化输出+无环校验+入度并行派发（委派底盘复用）+失败策略+dag.* 事件+重启对账+DAG 视图（结构化协作批 P0） | M359 | 01 §3.19 | 18/02 §12/107 号 |
