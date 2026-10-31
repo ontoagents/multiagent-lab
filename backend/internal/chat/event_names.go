@@ -42,6 +42,10 @@ const (
 	EventWorkflowNode    = "workflow.node"     // REQ-557/M364 补录缺口：工作流节点开始/完成（phase=started|completed——runner 字面量在案）
 	EventStateChanged    = "state.changed"     // REQ-557/M364 补录缺口：会话状态族变更（interrupt/resume/abandon）
 	EventRunPaused       = "run.paused"       // REQ-558/M365：pause 安全点挂起（对称 interrupted）
+	EventWFNodeStarted   = "wf.node.started"   // REQ-563/M370：WF 一等节点事件族（node_id/status/phase/attempt——113 号归一轮单源口径）
+	EventWFNodeCompleted = "wf.node.completed" // REQ-563/M370
+	EventWFNodeFailed    = "wf.node.failed"    // REQ-563/M370
+	EventWFNodeSkipped   = "wf.node.skipped"   // REQ-563/M370：条件边不满足/上游失败传播
 	EventRunResumed      = "run.resumed"      // REQ-558/M365：unpause 续跑（新 runID 沿 checkpoint）
 	EventRedoAnchored    = "redo.anchored"    // REQ-558/M365：redo 锚点（截断计数+redo_of 溯源）
 	EventReviewSubmitted = "review.submitted"  // REQ-553/M360：评审 verdict 提交（submit_review 工具体内）
