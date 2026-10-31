@@ -164,8 +164,12 @@ func (r *Runner) Run(ctx context.Context, input string) (*RunResult, error) {
 	return res, nil
 }
 
-// execNode 单节点执行（重试 NodeRetries 次——attempt 计数入事件）。
+// execNode 单节点执行（重试 NodeRetries 次——attempt 计数入事件；gate 节点带断言走
+// execGateNode 回喂循环——WF-③）。
 func (r *Runner) execNode(ctx context.Context, n Node, in string) (string, error) {
+	if n.Type == NodeGate && len(n.Assertions) > 0 {
+		return r.execGateNode(ctx, n, in)
+	}
 	var exec Executor
 	switch n.Type {
 	case NodeTool:
@@ -193,6 +197,51 @@ func (r *Runner) execNode(ctx context.Context, n Node, in string) (string, error
 		})
 	}
 	return "", lastErr
+}
+
+// execGateNode 门禁节点（REQ-564/M371 WF-③ a 路线）：执行体生成产出→断言求值→未过闸
+// 回喂失败清单重新生成 ≤GateMaxFeedback 轮（护栏④防死循环；attempt 计数入事件）→超限
+// 失败终止；RequireApproval 人审卡点=approval 占位事件（审批三档 UI 复用经 chat 装配层
+// stepApprovalWrap 接线 WF-⑥——库层 v1 如实标注）。
+func (r *Runner) execGateNode(ctx context.Context, n Node, in string) (string, error) {
+	if n.RequireApproval {
+		// 人审卡点占位事件（WF-⑥ 接线后由审批挂起替代——v1 如实透出待批态）
+		r.emit(EventNodeStarted, n.ID, "waiting_approval", "approval_pending", 0, map[string]any{
+			"note": "人审卡点（RequireApproval）——审批接线随 WF-⑥ 装配层",
+		})
+	}
+	exec := r.d.ExecLLM
+	if exec == nil {
+		return "", fmt.Errorf("门禁节点 %s 无执行体", n.ID)
+	}
+	feedback := in
+	for attempt := 0; attempt <= GateMaxFeedback; attempt++ {
+		r.emit(EventNodeStarted, n.ID, "running", "started", attempt, map[string]any{"type": n.Type})
+		out, err := exec(ctx, n, feedback)
+		if err != nil {
+			r.emit(EventNodeFailed, n.ID, "failed", "error", attempt, map[string]any{
+				"error": err.Error(), "will_retry": attempt < GateMaxFeedback,
+			})
+			feedback = in + "\n\n【上次生成失败，请重试】" + err.Error()
+			continue
+		}
+		failedAssertions := EvaluateGate(n, out, r.d.Vars)
+		if len(failedAssertions) == 0 {
+			r.emit(EventNodeCompleted, n.ID, "completed", "completed", attempt, map[string]any{
+				"gate": "passed", "output_bytes": len(out),
+			})
+			return out, nil
+		}
+		// 未过闸：回喂失败清单重新生成（≤GateMaxFeedback 轮——超限失败终止）
+		r.emit(EventNodeFailed, n.ID, "gate_failed", "gate_check", attempt, map[string]any{
+			"failed_assertions": failedAssertions,
+			"will_feedback":     attempt < GateMaxFeedback,
+		})
+		if attempt < GateMaxFeedback {
+			feedback = in + "\n\n【门禁未通过——请按以下断言失败原因重新生成】\n" + strings.Join(failedAssertions, "\n")
+		}
+	}
+	return "", fmt.Errorf("门禁节点 %s 断言 %d 轮未通过（回喂上限 %d）——失败终止", n.ID, len(n.Assertions), GateMaxFeedback)
 }
 
 // conditionsMet 条件边判定（v1 语法 var:name==value 对 VarTable；无条件边恒真；

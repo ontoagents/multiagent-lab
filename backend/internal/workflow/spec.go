@@ -45,6 +45,29 @@ type Node struct {
 	VarWrites []string `json:"var_writes,omitempty"`
 	// Condition 条件边判定用节点输出标记（门禁/条件边 v1 占位；WF-③ 消费）
 	Condition string `json:"condition,omitempty"`
+	// Assertions 门禁断言清单（REQ-564/M371 WF-③——gate 节点产出须全部通过才算过闸；
+	// 失败回喂执行体 ≤GateMaxFeedback 轮重生成，超限失败终止）
+	Assertions []GateAssertion `json:"assertions,omitempty"`
+	// RequireApproval 人审卡点标记（gate 节点 WF-③；true=过闸前须人工批准——审批三档 UI
+	// 复用经 chat 装配层 stepApprovalWrap 接线〔WF-⑥〕；库层 v1 出 approval 占位事件）
+	RequireApproval bool `json:"require_approval,omitempty"`
+}
+
+// 断言类型白名单（WF-③ v1：产出文本/变量两域）。
+const (
+	AssertContains   = "contains"    // 产出含 value（大小写敏感 containment）
+	AssertNotContains = "not_contains" // 产出不含 value
+	AssertEquals     = "equals"      // 产出 trim 后全等 value
+	AssertVarEquals  = "var_equals"  // 变量 name 值 containment value（VarTable 域）
+)
+
+// GateAssertion 门禁断言单条。
+type GateAssertion struct {
+	Type  string `json:"type"` // contains|not_contains|equals|var_equals
+	Value string `json:"value"`
+	// Name var_equals 的变量名（其余类型忽略）
+	Name string `json:"name,omitempty"`
+	Desc string `json:"desc,omitempty"` // 人话说明（失败回喂/事件透出）
 }
 
 // Edge 有向边（条件边=Condition 非空）。
