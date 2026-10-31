@@ -240,6 +240,8 @@ export interface Conversation {
   scope: 'agent' | 'project'
   agent_id: string | null
   project_id: string | null
+  /** REQ-548/M355 工作区归属（NULL=无归属存量行为不变；删工作区 SET NULL 回落智能体页） */
+  workspace_id?: string | null
   title: string
   kb_id: string | null
   enable_kb: boolean

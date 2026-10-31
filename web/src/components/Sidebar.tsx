@@ -13,7 +13,7 @@ import { Conversations } from '@ant-design/x'
 import { api } from '../api/client'
 import EmptyGuide from './EmptyGuide'
 import LoadErrorAlert from './LoadErrorAlert'
-import type { Agent, Conversation, Project } from '../api/types'
+import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { confirmAction } from '../lib/antd'
 import NameModal from './NameModal'
@@ -30,39 +30,52 @@ interface TreeNode {
 /**
  * 左栏树（原型 06 §3.1 / §3.2）：
  * - mode=agent：智能体节点（头像点 + 会话数轻量数字 + 常驻「＋新对话」「⚙配置」），其下挂该智能体的对话；
+ *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点，行加「·工作区」灰字标注区分；
  * - mode=project：项目节点同样结构，其下挂项目对话；
+ * - mode=workspace：工作区节点（REQ-549/M356 M1b），其下挂 scope=agent 且归属本工作区的直挂对话；
  * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）。
  */
 export default function Sidebar({
   mode,
   agents,
   projects,
+  workspaces = [],
   conversations,
   activeAgentId,
   activeProjectId,
+  activeWorkspaceId = null,
   onSelectAgent,
   onSelectProject,
+  onSelectWorkspace,
   onNewAgent,
   onNewProject,
+  onNewWorkspace,
   onNewConversation,
   onConfigureAgent,
   onConfigureProject,
+  onConfigureWorkspace,
   loadErr,
   onRetry,
 }: {
-  mode: 'agent' | 'project'
+  mode: 'agent' | 'project' | 'workspace'
   agents: Agent[]
   projects: Project[]
+  /** mode=workspace：工作区节点清单（REQ-549） */
+  workspaces?: Workspace[]
   conversations: Conversation[]
   activeAgentId: string | null
   activeProjectId: string | null
+  activeWorkspaceId?: string | null
   onSelectAgent: (id: string) => void
   onSelectProject: (id: string) => void
+  onSelectWorkspace?: (id: string) => void
   onNewAgent: () => void
   onNewProject: () => void
+  onNewWorkspace?: () => void
   onNewConversation: (nodeId: string) => void
   onConfigureAgent: (id: string) => void
   onConfigureProject: (id: string) => void
+  onConfigureWorkspace?: (id: string) => void
   // REQ-515/M322 三态收口：主列表加载失败由页面透传——错误态不再被空态引导冒充
   loadErr?: string | null
   onRetry?: () => void
@@ -111,6 +124,16 @@ export default function Sidebar({
         }))
         .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
     }
+    if (mode === 'workspace') {
+      // REQ-549/M356：工作区树——scope=agent 且归属本工作区的直挂对话（无归属会话不出现在本树）
+      return workspaces
+        .map((ws) => ({
+          key: ws.id,
+          name: ws.name,
+          convs: conversations.filter((c) => c.scope === 'agent' && (c.workspace_id ?? '') === ws.id && match(c)).sort(byCreated),
+        }))
+        .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
+    }
     return projects
       .map((p) => ({
         key: p.id,
@@ -118,9 +141,9 @@ export default function Sidebar({
         convs: conversations.filter((c) => c.scope === 'project' && c.project_id === p.id && match(c)).sort(byCreated),
       }))
       .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
-  }, [mode, agents, projects, conversations, kwTrim])
+  }, [mode, agents, projects, workspaces, conversations, kwTrim])
 
-  const activeId = mode === 'agent' ? activeAgentId : activeProjectId
+  const activeId = mode === 'agent' ? activeAgentId : mode === 'workspace' ? activeWorkspaceId : activeProjectId
 
   // 选中节点自动展开
   useEffect(() => {
@@ -129,12 +152,13 @@ export default function Sidebar({
 
   const selectNode = (id: string) => {
     if (mode === 'agent') onSelectAgent(id)
+    else if (mode === 'workspace') onSelectWorkspace?.(id)
     else onSelectProject(id)
   }
 
   // REQ-211：跨智能体直接点选会话——点击会话若归属智能体与当前选中不同，与 setCurrentConv
   // 同批原子切换选中智能体（React 18 自动批处理：AgentsPage 归位守卫 effect 读到的是切换后
-  // 的归属，不再清空会话）；项目模式无跨实体切换语义，直接激活会话。
+  // 的归属，不再清空会话）；项目/工作区模式无跨实体切换语义，直接激活会话。
   const openConversation = (convId: string) => {
     if (mode === 'agent') {
       const conv = conversations.find((c) => c.id === convId)
@@ -151,8 +175,10 @@ export default function Sidebar({
   }
 
   const isAgent = mode === 'agent'
+  const isWorkspace = mode === 'workspace'
   const configure = (id: string) => {
     if (isAgent) onConfigureAgent(id)
+    else if (isWorkspace) onConfigureWorkspace?.(id)
     else onConfigureProject(id)
   }
 
@@ -183,7 +209,7 @@ export default function Sidebar({
   return (
     <div className="sidebar">
       <div className="side-head">
-        <span className="side-title">{isAgent ? '智能体' : '项目'}</span>
+        <span className="side-title">{isAgent ? '智能体' : isWorkspace ? '工作区' : '项目'}</span>
         <span className="side-count">{nodes.length}</span>
         {/* REQ-326 迭代四：新建入口 + 化并入标题行右端（原整幅虚线钮退役；空态引导保留显式 CTA） */}
         <Button
@@ -191,9 +217,9 @@ export default function Sidebar({
           size="small"
           className="side-head-add"
           icon={<PlusOutlined />}
-          title={`新建${isAgent ? '智能体' : '项目'}`}
-          aria-label={`新建${isAgent ? '智能体' : '项目'}`}
-          onClick={isAgent ? onNewAgent : onNewProject}
+          title={`新建${isAgent ? '智能体' : isWorkspace ? '工作区' : '项目'}`}
+          aria-label={`新建${isAgent ? '智能体' : isWorkspace ? '工作区' : '项目'}`}
+          onClick={isAgent ? onNewAgent : isWorkspace ? (onNewWorkspace ?? (() => {})) : onNewProject}
         />
       </div>
 
@@ -231,7 +257,7 @@ export default function Sidebar({
       <div className="conv-list">
         {loadErr ? (
           <LoadErrorAlert
-            title={isAgent ? '智能体列表加载失败' : '项目列表加载失败'}
+            title={isAgent ? '智能体列表加载失败' : isWorkspace ? '工作区列表加载失败' : '项目列表加载失败'}
             message={loadErr}
             onRetry={onRetry}
             style={{ margin: 12 }}
@@ -248,6 +274,19 @@ export default function Sidebar({
               ]}
               actionLabel="＋ 新建智能体"
               onAction={onNewAgent}
+              footer="创建后点节点上的 ＋ 新建对话即可开始。"
+            />
+          ) : isWorkspace ? (
+            // REQ-549/M356：工作区空态引导（领域容器——默认值免每会话重选）
+            <EmptyGuide
+              title="创建第一个工作区"
+              steps={[
+                '起个名称，一句话描述领域场景',
+                '可选设默认知识库/本体方案/智能体',
+                '新会话免选即继承默认值',
+              ]}
+              actionLabel="＋ 新建工作区"
+              onAction={onNewWorkspace ?? (() => {})}
               footer="创建后点节点上的 ＋ 新建对话即可开始。"
             />
           ) : (
@@ -279,7 +318,7 @@ export default function Sidebar({
                   onClick={() => toggleNode(n.key)}
                 >
                   <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
-                  <span className="side-node-name" title={n.name}>{n.name || (mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
+                  <span className="side-node-name" title={n.name}>{n.name || (mode === 'workspace' ? '未命名工作区' : mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {/* REQ-488：彩色 Tag 灰字化——内置标注为中性灰字（非状态色） */}
                   {n.builtin && <span style={{ margin: 0, fontSize: 11, lineHeight: '16px', color: 'var(--c-ink-3)' }}>内置</span>}
                   {/* REQ-336：会话数裸数字退役（迭代四后行内常驻元素只剩它，孤数怪异；展开子树即见会话清单） */}
@@ -297,7 +336,11 @@ export default function Sidebar({
                     <div className="side-node-empty">暂无对话 · 点 ＋ 新建</div>
                   ) : (
                     <Conversations
-                      items={n.convs.map((c) => ({ key: c.id, label: c.title || '未命名对话' }))}
+                      items={n.convs.map((c) => ({
+                        key: c.id,
+                        // REQ-549 双入口共存口径：工作区直挂对话同现智能体页，行尾「·工作区」灰字标注区分
+                        label: (c.title || '未命名对话') + (mode === 'agent' && c.workspace_id ? ' · 工作区' : ''),
+                      }))}
                       activeKey={currentConvId ?? undefined}
                       onActiveChange={openConversation}
                       menu={(c) => ({

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dropdown, Splitter, Typography } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
+import { Button, Dropdown, Splitter, Tooltip, Typography } from 'antd'
+import { BlockOutlined, DownOutlined, ProjectOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, Conversation, Project } from '../api/types'
 import { useUI } from '../store/ui'
@@ -11,13 +11,65 @@ import ProjectModal from '../components/ProjectModal'
 import ProjectSidePanel, { type PanelView } from '../components/ProjectSidePanel'
 import HybridTeamTemplate from '../components/HybridTeamTemplate'
 import DevTeamTemplate from '../components/DevTeamTemplate'
+import WorkspacePage from './WorkspacePage'
+
+/** REQ-549/M356：模块内页签选中记忆（切走再切回不丢位置；沿 eino.onto.sidebar 先例） */
+const PROJ_TAB_KEY = 'eino.proj.tab'
+type ProjTab = 'project' | 'workspace'
 
 /**
- * 项目视图（原型 06 §3.2）：
+ * 项目模块（REQ-549/M356 M1b）：内容区顶部「项目 | 工作区」模块内页签（module-tabs 先例，
+ * 导航六项不动、ui.ts/App.tsx 零改动——106 号 mustFix-3 终值），页签下为两套页面体。
+ */
+export default function ProjectsPage() {
+  const [tab, setTab] = useState<ProjTab>(() => (localStorage.getItem(PROJ_TAB_KEY) === 'workspace' ? 'workspace' : 'project'))
+  const selectTab = (t: ProjTab) => {
+    setTab(t)
+    try { localStorage.setItem(PROJ_TAB_KEY, t) } catch { /* 配额满静默（沿 REQ-509 本地存档口径） */ }
+  }
+  return (
+    <div className="module-shell">
+      <div className="module-tabs" role="tablist" aria-label="项目模块导航" data-testid="proj-module-tabs">
+        <Tooltip title="执行容器：目录/Git/文件/成员协作" placement="bottom" mouseEnterDelay={0.4}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'project'}
+            aria-current={tab === 'project' ? 'page' : undefined}
+            className={`module-tab${tab === 'project' ? ' active' : ''}`}
+            onClick={() => selectTab('project')}
+            data-testid="proj-tab-projects"
+          >
+            <span className="module-tab-icon"><ProjectOutlined /></span>
+            <span className="module-tab-label">项目</span>
+          </button>
+        </Tooltip>
+        <Tooltip title="领域容器：会话默认值与直挂对话" placement="bottom" mouseEnterDelay={0.4}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'workspace'}
+            aria-current={tab === 'workspace' ? 'page' : undefined}
+            className={`module-tab${tab === 'workspace' ? ' active' : ''}`}
+            onClick={() => selectTab('workspace')}
+            data-testid="proj-tab-workspaces"
+          >
+            <span className="module-tab-icon"><BlockOutlined /></span>
+            <span className="module-tab-label">工作区</span>
+          </button>
+        </Tooltip>
+      </div>
+      <div className="module-body">{tab === 'workspace' ? <WorkspacePage /> : <ProjectsBody />}</div>
+    </div>
+  )
+}
+
+/**
+ * 项目页体（原型 06 §3.2）：
  * 左栏为项目折叠列表（每节点常驻「＋新对话」「⚙配置」），右侧为与智能体视图一致的对话窗口。
  * REQ-103：项目配置改为右侧边栏配置视图（原 ProjectModal 编辑表单迁入）；ProjectModal 仅用于新建。
  */
-export default function ProjectsPage() {
+function ProjectsBody() {
   const { currentConvId, setCurrentConv, dataVersion, bumpData, showToast } = useUI()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])

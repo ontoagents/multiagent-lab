@@ -221,11 +221,12 @@ export const api = {
   gitWorking: (id: string) => req<{ files: GitWorkingFile[] }>(`/api/projects/${id}/git-working`),
 
   // conversations
-  listConversations: (q: { scope?: string; agent_id?: string; project_id?: string } = {}) => {
+  listConversations: (q: { scope?: string; agent_id?: string; project_id?: string; workspace_id?: string } = {}) => {
     const params = new URLSearchParams()
     if (q.scope) params.set('scope', q.scope)
     if (q.agent_id) params.set('agent_id', q.agent_id)
     if (q.project_id) params.set('project_id', q.project_id)
+    if (q.workspace_id) params.set('workspace_id', q.workspace_id)
     const qs = params.toString()
     return req<Conversation[]>(`/api/conversations${qs ? '?' + qs : ''}`)
   },
@@ -629,6 +630,11 @@ export const api = {
     }),
   // ---- REQ-495/M304 笔记本 Notes（自产成果文档资产层；KB 回流=引用语义+触碰同步） ----
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
+  // ---- REQ-549/M356 工作区页 M1b（Q-24 分层批②；M1a 五端点的前端消费补全） ----
+  createWorkspace: (w: Partial<Workspace>) => req<Workspace>('/api/workspaces', { method: 'POST', body: JSON.stringify(w) }),
+  getWorkspace: (id: string) => req<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`),
+  updateWorkspace: (id: string, w: Partial<Workspace>) => req<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(w) }),
+  deleteWorkspace: (id: string) => req<{ ok: string }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   listNotebooks: () => req<Notebook[]>('/api/notebooks'),
   createNotebook: (n: Partial<Notebook>) => req<Notebook>('/api/notebooks', { method: 'POST', body: JSON.stringify(n) }),
   getNotebook: (id: string) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`),
