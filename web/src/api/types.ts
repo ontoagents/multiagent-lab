@@ -1021,9 +1021,15 @@ export interface VersionMeta {
   original_size?: number
 }
 
+/** REQ-541：版本行并入发布快照 tag（version_name 发布命名随 release 透出） */
+export interface VersionRow extends VersionMeta {
+  release?: { version_name?: string; published_at?: string }
+}
+
 export interface VersionsResponse {
   ontology_id: string
-  versions: VersionMeta[] | null
+  /** REQ-509/M317：实际返回 VersionRow（含 release.version_name）——保持字段兼容 */
+  versions: VersionRow[] | null
 }
 
 /** 翻译透视条目（GET /api/runtime-profiles/{id}/trace，REQ-94；失败查询也留痕） */

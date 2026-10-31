@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Select, Skeleton, Statistic, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Input, Select, Skeleton, Statistic, Table, Tabs, Tag, Typography } from 'antd'
 import { SwapOutlined } from '@ant-design/icons'
 import ReactDiffViewer from 'react-diff-viewer-continued'
 import type { ColumnsType } from 'antd/es/table'
 import { api } from '../../../api/client'
-import type { DiffChanged, DiffCollection, DiffItem, DiffResult, VersionMeta } from '../../../api/types'
+import type { DiffChanged, DiffCollection, DiffItem, DiffResult, VersionMeta, VersionRow } from '../../../api/types'
 
 // ---------------------------------------------------------------------------
 // 版本 diff（REQ-95，04 §4.8.4）：双版本选择 → 三集合 added/removed/changed + 引用影响
@@ -166,7 +166,26 @@ function TextDiffPane({ ontologyId, fromV, toV }: { ontologyId: string; fromV: n
 
 /** 版本 diff 面板：版本对选择 + 汇总统计 + 三集合表 + 引用影响 */
 export default function VersionDiff({ ontologyId, versions, currentVersion }: { ontologyId: string; versions: VersionMeta[]; currentVersion?: number }) {
-  const opts = versions.map((v) => ({ value: v.version, label: `v${v.version} · ${v.created_at}` }))
+  // REQ-509/M317：发布命名展示（v.release.version_name——REQ-541 版本行并入 tag）+ 任意版本备注
+  // （纯前端单机存档：localStorage eino.onto.version-remark.{oid}.{version}）
+  const rows = versions as VersionRow[]
+  const remarkKey = (v: number) => `eino.onto.version-remark.${ontologyId}.${v}`
+  const readRemark = (v: number) => {
+    try { return localStorage.getItem(remarkKey(v)) ?? '' } catch { return '' }
+  }
+  const [remarks, setRemarks] = useState<Record<number, string>>(() => {
+    const out: Record<number, string> = {}
+    for (const v of versions) out[v.version] = readRemark(v.version)
+    return out
+  })
+  const saveRemark = (v: number, text: string) => {
+    setRemarks((m) => ({ ...m, [v]: text }))
+    try { localStorage.setItem(remarkKey(v), text) } catch { /* 配额满静默（备注为本地增强非权威数据） */ }
+  }
+  const opts = rows.map((v) => ({
+    value: v.version,
+    label: `v${v.version}${v.release?.version_name ? ` · ${v.release.version_name}` : ''}${remarks[v.version] ? ` · ${remarks[v.version]}` : ''} · ${v.created_at}`,
+  }))
   const latest = versions.length ? versions[versions.length - 1].version : currentVersion
   const [fromV, setFromV] = useState<number | null>(versions.length > 1 ? versions[versions.length - 2].version : null)
   const [toV, setToV] = useState<number | null>(latest ?? null)
@@ -217,6 +236,16 @@ export default function VersionDiff({ ontologyId, versions, currentVersion }: { 
         <Select size="small" value={fromV ?? undefined} onChange={setFromV} style={{ width: 220 }} placeholder="起始版本" options={opts} />
         <Button size="small" icon={<SwapOutlined />} onClick={swap} aria-label="交换对比方向" />
         <Select size="small" value={toV ?? undefined} onChange={setToV} style={{ width: 220 }} placeholder="目标版本" options={opts} />
+        {toV != null && (
+          <Input
+            size="small"
+            style={{ width: 220 }}
+            value={remarks[toV] ?? ''}
+            onChange={(e) => saveRemark(toV, e.target.value)}
+            placeholder={`给 v${toV} 补一行备注（本地存档，如「投稿基线」）`}
+            data-testid="version-remark-input"
+          />
+        )}
       </div>
       {err ? (
         <Alert type="warning" showIcon title="版本对比失败" description={err} />

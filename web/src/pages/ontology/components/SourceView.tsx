@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Popconfirm, Select, Skeleton, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Popconfirm, Select, Skeleton, Tabs, Tag, Typography , Input } from 'antd'
 import { CopyOutlined, DownloadOutlined, UndoOutlined } from '@ant-design/icons'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { api } from '../../../api/client'
-import type { Spec, VersionMeta } from '../../../api/types'
+import type { Spec, VersionMeta , VersionRow } from '../../../api/types'
 import { useUI } from '../../../store/ui'
 import { LARGE_SPEC_CHARS } from '../shared'
 import VersionDiff from './VersionDiff'
+
+// REQ-509/M317：任意版本备注（纯前端单机存档——localStorage eino.onto.version-remark.{oid}.{version}）
+const remarkOf = (ontologyId: string, version: number): string => {
+  try { return localStorage.getItem(`eino.onto.version-remark.${ontologyId}.${version}`) ?? '' } catch { return '' }
+}
 
 // ---------------------------------------------------------------------------
 // 源码视图（REQ-93）：版本选择 + CodeMirror 只读渲染 + Spec JSON 格式化视图
@@ -33,6 +38,7 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
   const [listErr, setListErr] = useState<string | null>(null)
   const [listLoading, setListLoading] = useState(false)
   const [version, setVersion] = useState<number | null>(null)
+  const [, setVersionRemarkTick] = useState(0) // REQ-509：备注写入触发选择器 label 刷新
   const [original, setOriginal] = useState<string | null>(null)
   const [origErr, setOrigErr] = useState<string | null>(null)
   const [origLoading, setOrigLoading] = useState(false)
@@ -158,6 +164,19 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
                 ) : (
                   <>
                     <span className="onto-sec-title">版本</span>
+                    {version != null && (
+                      <Input
+                        size="small"
+                        style={{ width: 240 }}
+                        value={remarkOf(ontologyId, version)}
+                        onChange={(e) => {
+                          try { localStorage.setItem(`eino.onto.version-remark.${ontologyId}.${version}`, e.target.value) } catch { /* 配额满静默 */ }
+                          setVersionRemarkTick((t) => t + 1)
+                        }}
+                        placeholder={`给 v${version} 补一行备注（本地存档）`}
+                        data-testid="version-remark-input"
+                      />
+                    )}
                     <Select
                       size="small"
                       value={version ?? undefined}
@@ -165,9 +184,10 @@ export default function SourceView({ ontologyId, currentVersion, spec, onRestore
                       onChange={setVersion}
                       style={{ width: 260 }}
                       placeholder="选择版本"
-                      options={(list ?? []).map((v) => ({
+                      options={((list ?? []) as VersionRow[]).map((v) => ({
                         value: v.version,
-                        label: `v${v.version} · ${v.created_at}${v.has_original ? '' : '（无源文件）'}`,
+                        // REQ-509/M317：发布命名+本地备注随显
+                        label: `v${v.version}${v.release?.version_name ? ` · ${v.release.version_name}` : ''} · ${v.created_at}${v.has_original ? '' : '（无源文件）'}${remarkOf(ontologyId, v.version) ? ` · ${remarkOf(ontologyId, v.version)}` : ''}`,
                       }))}
                     />
                   </>

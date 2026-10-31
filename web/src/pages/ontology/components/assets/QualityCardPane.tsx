@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { AlertOutlined, ArrowRightOutlined, CheckCircleOutlined, CloseCircleOutlined, HistoryOutlined, QuestionCircleOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { QualityReport } from '../../../../api/client'
-import type { CqBenchmarkRun, OntoChatCQVerdict, OntoContribution, QualityScoreRow, RuntimeProfile } from '../../../../api/types'
+import type { CqBenchmarkRun, OntoChatCQVerdict, OntoContribution, QualityScoreRow, RuntimeProfile , VersionRow } from '../../../../api/types'
 import QualityRadar, { radarDimsOf } from '../../../../components/QualityRadar'
 
 // ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ const SEV_META: Record<string, { color: string; text: string }> = {
 }
 
 /** REQ-331①：版本×综合分趋势线（SVG 折线零依赖；点=一次评分记录，悬停看版本/来源/时间） */
-function TrendChart({ rows }: { rows: QualityScoreRow[] }) {
+function TrendChart({ rows, names }: { rows: QualityScoreRow[]; names?: Record<number, string> }) {
   if (rows.length < 2) return null
   const W = 560
   const H = 120
@@ -40,7 +40,7 @@ function TrendChart({ rows }: { rows: QualityScoreRow[] }) {
       <path d={path} fill="none" stroke="var(--c-brand, #4f46e5)" strokeWidth={2} />
       {rows.map((r, i) => (
         <circle key={r.id} cx={xs(i)} cy={ys(r.overall)} r={4} fill={srcColor(r.source)}>
-          <title>{`v${r.version} · ${{ draft: '草稿', ingest: '入库', manual: '手动' }[r.source] ?? r.source} · ${r.overall.toFixed(1)} 分 · ${r.created_at.slice(0, 19).replace('T', ' ')}`}</title>
+          <title>{`v${r.version}${names?.[r.version] ? ` · ${names[r.version]}` : ''} · ${{ draft: '草稿', ingest: '入库', manual: '手动' }[r.source] ?? r.source} · ${r.overall.toFixed(1)} 分 · ${r.created_at.slice(0, 19).replace('T', ' ')}`}</title>
         </circle>
       ))}
       <text x={PAD} y={12} fontSize={10} fill="var(--ant-color-text-tertiary, #999)">综合分 {rows[rows.length - 1].overall.toFixed(1)}（{rows.length} 次评估）</text>
@@ -142,6 +142,8 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
   const [err, setErr] = useState<string | null>(null)
   // REQ-331/M131：评分历史（三点对照+趋势线+评估历史同源）与修复指引（check_id→人话）
   const [history, setHistory] = useState<QualityScoreRow[]>([])
+  // REQ-509/M317：版本命名映射（趋势线随显命名——listVersions release.version_name）
+  const [versionNames, setVersionNames] = useState<Record<number, string>>({})
   const [remediations, setRemediations] = useState<Record<string, string>>({})
   // REQ-346/M146：CQ 基准集「测我」（数据集清单/运行/报告历史）
   const [benchDatasets, setBenchDatasets] = useState<{ name: string; ontology: string; count: number; revision?: string }[]>([]) // REQ-367：revision 透出（r2=60 条分层）
@@ -178,6 +180,17 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
       .getQualityHistory(ontologyId)
       .then((r) => setHistory(r.history ?? []))
       .catch(() => setHistory([]))
+    // REQ-509/M317：版本命名映射（趋势线悬停随显发布命名）
+    api
+      .listVersions(ontologyId)
+      .then((r) => {
+        const names: Record<number, string> = {}
+        for (const v of r.versions ?? []) {
+          if ((v as VersionRow).release?.version_name) names[v.version] = (v as VersionRow).release!.version_name!
+        }
+        setVersionNames(names)
+      })
+      .catch(() => {})
     api
       .cqBenchmarkDatasets()
       .then((r) => setBenchDatasets(r.datasets ?? []))
@@ -636,7 +649,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
             <Card size="small" className="work-card" data-testid="quality-archive-card">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <EvolutionTriple history={history} />
-                {history.length >= 2 && <TrendChart rows={history} />}
+                {history.length >= 2 && <TrendChart rows={history} names={versionNames} />}
               </div>
             </Card>
           )}
