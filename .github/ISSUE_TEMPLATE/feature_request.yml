@@ -1,0 +1,40 @@
+name: "💡 功能建议 / Feature request"
+description: 提出新需求或改进——请说明使用场景与触发条件（中英文均可）
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本项目需求按「触发条件」驱动评估——场景真实出现才排期。建议里写清触发条件，会大幅加快采纳与优先级判断。
+        Feature requests here are evaluated trigger-first: describing when the need really bites helps a lot.
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景 / Your scenario
+      description: 你正在做什么、现有能力卡在哪（What you are trying to do, and where the current capability falls short）。
+    validations:
+      required: true
+  - type: textarea
+    id: trigger
+    attributes:
+      label: 触发条件 / When does this matter?
+      description: 什么情况下这个需求会真实出现、出现频率如何。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案 / Proposed solution
+      description: 有想法就写，没有也没关系（可只描述目标不描述实现）。
+    validations:
+      required: false
+  - type: dropdown
+    id: willing
+    attributes:
+      label: 是否愿意提交 PR？/ Willing to submit a PR?
+      options:
+        - "愿意 / Yes"
+        - "看情况 / Maybe"
+        - "仅建议 / Suggestion only"
+    validations:
+      required: false

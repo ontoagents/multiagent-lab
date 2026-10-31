@@ -1,0 +1,46 @@
+name: "🐛 Bug 报告 / Bug report"
+description: 功能行为不符合预期时使用（中英文均可 / Chinese or English, either is fine）
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！中英文均可，回复可能是双语的。提交前建议先搜索已有 issue。
+        Thanks for reporting! Please search existing issues first — write in either language.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述 / What happened?
+      description: 期望行为 vs 实际行为（Expected vs actual behavior）。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤 / Reproduction steps
+      placeholder: |
+        1. 启动方式（run-dev.sh / 桌面端安装包 / Docker）
+        2. 打开的页面与操作
+        3. 出现了什么
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息 / Environment
+      description: 操作系统、版本（源码提交号或安装包版本）、浏览器；本体相关问题时注明是否已安装运行引擎。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 终端输出或 `data/` 下各 `*.log` 的相关片段（请先脱敏 API Key）。
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图与补充 / Screenshots & notes
+    validations:
+      required: false

@@ -9,7 +9,7 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-native-8A2BE2)
@@ -128,7 +128,7 @@ cd web && npm run dev               # terminal 2 (:5173, proxies API to :8080)
 
 | Layer | Choices |
 | --- | --- |
-| Backend | Go 1.22+ · CloudWeGo Eino/ADK · mark3labs/mcp-go · SQLite (optional Qdrant vector store) |
+| Backend | Go 1.25+ · CloudWeGo Eino/ADK · mark3labs/mcp-go · SQLite (optional Qdrant vector store) |
 | Frontend | React 18 · TypeScript · Vite · Ant Design 6 · Ant Design X · zustand · 3d-force-graph |
 | Protocols | REST + SSE (streaming) · MCP (both consuming and serving) |
 
@@ -140,6 +140,10 @@ ontology-service/    Ontology build plane (:8091, multi-form assets / quality ga
 runtime-manager/     Ontology runtime plane (:8090, engine profile management)
 web/                 React 18 + Vite + TS frontend
 apps/desktop/        Desktop client (Tauri shell frontend, Windows / macOS)
+pkg/                 Shared Go modules (SQLite migration runner / ontology spec / SPARQL guard)
+hooks/               Git hooks (pre-commit doccheck gate; enable once: git config core.hooksPath hooks)
+wrappers/            External agent integration wrappers (e.g. AgentScope A2A)
+data/ logs/          Local runtime data & logs (gitignored, created on first run)
 website/             Project website (GitHub Pages; auto-deploys on push to main)
 platform-knowledge/  In-app platform knowledge (product design / principles / module guides)
 docs/                Requirements & design documents (source of truth, see index below)
@@ -314,9 +318,12 @@ An embedding connection is missing or the index is not ready; the knowledge page
 
 ## 🤝 Contributing
 
-- Requirements and design documents in `docs/` are the source of truth; new requirements must be registered in [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) before implementation.
-- Regression checks follow [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md).
-- AI coding assistants should read [AGENTS.md](AGENTS.md) first.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first — it defines two contribution channels: **bug fixes / docs / small features go the light path** (no REQ paperwork — requirement registration and doc write-back are handled by the maintainer on merge), larger features start with an issue first. Issues and PRs in Chinese or English are both welcome.
+
+- Report bugs via the [issue templates](.github/ISSUE_TEMPLATE/); issues labeled `good first issue` / `help wanted` are ready to pick up.
+- Security vulnerabilities: follow [SECURITY.md](SECURITY.md) — private disclosure, no public issues.
+- Everyone interacting with the project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Requirements and design documents in `docs/` are the source of truth; regression checks follow [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md); AI coding assistants read [AGENTS.md](AGENTS.md) first.
 
 ## 📜 License
 

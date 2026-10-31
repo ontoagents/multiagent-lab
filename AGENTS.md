@@ -54,6 +54,7 @@
 
 - **REQ-545 ✅（2026-10-31，M352——决策结构化借鉴批②：证据槽/缺槽结构化缺口）**：check_answerable 分域缺口（missingByDomain 纯函数三域判定）+CheckAnswerableCore 共享核（MCP/REST 同源）+REST POST /api/check-answerable+迁移 083 出题预检接线+QuizPane 徽标+CqQuickScreen 存疑态同权缺口；单测 2 组+负路径冒烟 2/2 smoke/req545/。全量在 03 v2.78/18 v6.08/18A/19 号/20 v3.128（4.215）。
 ## 当前状态（滚动窗口·最近 20 条，由协作 Agent 维护；2026-10-29 REQ-498 治理拍板：单条一行指针式 ≤600B——REQ 号+一句话状态+全量指针，信息不丢、详录全量在各档迭代表+18 号+20 号；新条置顶、末条移出）
+- **开源贡献者门面批次 ✅（2026-10-31——P0 四件+P1 四处，吸引外部贡献者首轮基建）**：.github issue 表单（bug/feature+config，后者内嵌触发条件字段）+PR 模板+CODE_OF_CONDUCT+SECURITY 新建；CONTRIBUTING 扩容=轻量/常规双通道（外部免领号、docs 回写维护者代管）+hooksPath 启用步+冒烟指引+中英诚实声明；README 中英同轮=Go 口径 1.22→1.25 统一+目录结构补 pkg/hooks/wrappers/data 注+Contributing 节链化（挂账：Discussions 开启+good first issue 标签预建需网页端手动）。
 - **REQ-561 立项 📋 M368（2026-10-31——平台助手管理面 CLI 化：对话执行任何页面管理面操作，开发者实测建 agent 未实现触发三轮方案分析收敛）**：manifest 驱动 ontoapi 单二进制+platform_cli 工具免沙箱直 exec+读写分级同轮（ro 直行/rw 审批/deny 拒绝沿 REQ-186 覆盖面口径演进机制不反转）；方案 111 号。全量在 01 v2.70 §3.21/18 v6.07/19 号/02 v0.459/53+34 号（滚动：KB-20 条移出）。
 - **110 号《产品_定位与规划》首建 ✅（2026-10-31——平台级产品定位演进/阶段规划/进展大事记叙事层，开发者「产品规划与进展专门维护档」设想落地；承 90 号导航层先例）**：§0 定位演进时间线（Q-21/Q-22/Q-23/Q-24+10-29 自托管语义拍板）/§3 阶段规划四线/§4 大事记 13 行——导航层，定位事实源仍=01 §8 Q-x；互链=17 号 v0.73+90 号+00_整体设计+必读表行。
 - **REQ-544 ✅（2026-10-31，M351——决策结构化借鉴批①：决策/规则 spec 一等公民）**：decisions[] spec 层 v1（Decision 三要素+Validate 引用校验+overlay 拍板=不进对象 overlay）+qualitygate 双 warning+Stats.Decisions+onto_core dogfooding 种子 5 条+DecisionsPane 只读分区；单测 4 组+冒烟 11/11 smoke/req544/。全量在 03 v2.77/18 v5.94/18A/19 号/20 v3.127（4.214）。

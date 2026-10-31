@@ -9,7 +9,7 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-native-8A2BE2)
@@ -128,7 +128,7 @@ cd web && npm run dev               # 终端 2（:5173，API 代理到 8080）
 
 | 层 | 选型 |
 | --- | --- |
-| 后端 | Go 1.22+ · CloudWeGo Eino/ADK · mark3labs/mcp-go · SQLite（可选 Qdrant 向量库） |
+| 后端 | Go 1.25+ · CloudWeGo Eino/ADK · mark3labs/mcp-go · SQLite（可选 Qdrant 向量库） |
 | 前端 | React 18 · TypeScript · Vite · Ant Design 6 · Ant Design X · zustand · 3d-force-graph |
 | 协议 | REST + SSE（流式）· MCP（消费 + 服务化双向） |
 
@@ -140,6 +140,10 @@ ontology-service/    本体构建平面（:8091，多形态资产 / 质量门禁
 runtime-manager/     本体运行平面（:8090，引擎方案管理）
 web/                 React 18 + Vite + TS 前端
 apps/desktop/        桌面客户端（Tauri 壳前端，Windows / macOS）
+pkg/                 共享 Go 模块（SQLite 迁移器 / 本体 spec / SPARQL 守护）
+hooks/               Git 钩子（pre-commit doccheck 门禁；启用一次：git config core.hooksPath hooks）
+wrappers/            外部智能体接入包装（如 AgentScope A2A）
+data/ logs/          本地运行数据与日志（gitignore，首次启动生成）
 website/             项目官网（GitHub Pages；推送 main 自动部署）
 platform-knowledge/  平台知识（产品设计 / 技术原理 / 模块导读，应用内渲染）
 docs/                需求与设计文档（事实源，见下方索引）
@@ -314,9 +318,12 @@ embedding 连接未配置或索引未就绪——知识库页有状态徽标与�
 
 ## 🤝 参与贡献
 
-- `docs/` 内需求与设计文档为事实源；新需求实施前必须在 [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) 登记编号。
-- 回归验证遵循 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md)。
-- AI 编码助手请先阅读 [AGENTS.md](AGENTS.md)。
+请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)——其中定义了两条贡献通道：**bug 修复 / 文档 / 小功能走轻量通道**（无需领 REQ 编号，需求登记与文档回写由维护者合入时代管），较大功能先开 issue 对齐方案再动手。Issue 与 PR 中英文皆可。
+
+- 报 bug 请用 [issue 模板](.github/ISSUE_TEMPLATE/)；带 `good first issue` / `help wanted` 标签的 issue 可直接认领。
+- 安全漏洞：遵循 [SECURITY.md](SECURITY.md)——私密上报，勿开公开 issue。
+- 参与本项目请遵守[行为准则](CODE_OF_CONDUCT.md)。
+- `docs/` 内需求与设计文档为事实源；回归验证遵循 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md)；AI 编码助手请先阅读 [AGENTS.md](AGENTS.md)。
 
 ## 📜 许可证
 
