@@ -39,6 +39,7 @@ import CompanionContentPane from './components/companion/CompanionContentPane'
 import MineRelationsButton from './components/companion/MineRelationsButton'
 import CompanionCheckupButton from './components/companion/CompanionCheckupButton'
 import CompanionExportPane from './components/companion/CompanionExportPane'
+import CompanionPromotePane from './components/companion/CompanionPromotePane'
 import type { CompanionGraph } from '../../api/companion'
 import EvolutionPane from './components/assets/EvolutionPane'
 import RelationTypesPane from './components/assets/RelationTypesPane'
@@ -87,6 +88,7 @@ function sectionGroups(isCompanion: boolean): { title: string; items: { key: str
           { key: 'graph', label: '沉淀总览' },
           { key: 'companion', label: '伴生候选' },
           { key: 'companion-content', label: '内容清单' },
+          { key: 'companion-promote', label: '晋升提案' },
           { key: 'companion-export', label: '导出 TTL' },
         { key: 'community', label: '社区' },
         ],
@@ -1039,6 +1041,15 @@ export default function AssetsPage() {
                   <HierarchyPane ontology={active} spec={spec} selection={ontoSel} onSelect={setOntoSel} onSaved={refreshAfterSave} />
                 )}
                 {secKey === 'companion-content' && <CompanionContentPane graph={compGraph} ontologyId={active.id} onChanged={() => reloadCompGraphRef.current()} />}
+                {secKey === 'companion-promote' && isCompActive && (
+                  <CompanionPromotePane
+                    key={active.id}
+                    ontologyId={active.id}
+                    compGraph={compGraph}
+                    targets={ontos.filter((o) => !boundIds.has(o.id)).map((o) => ({ id: o.id, name: o.name }))}
+                    onChanged={() => reloadCompGraphRef.current()}
+                  />
+                )}
                 {secKey === 'companion-export' && <CompanionExportPane key={active.id} ontologyId={active.id} />}
                 {secKey === 'community' && isCompActive && <CommunityPane key={active.id} ontologyId={active.id} />}
                 {/* REQ-458：进化 + 影响分析 合并为「演化与影响」——候选裁决与变更波及同区，纵向并置 */}
