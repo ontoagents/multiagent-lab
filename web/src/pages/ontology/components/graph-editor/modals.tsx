@@ -6,6 +6,7 @@ import type { Spec, SpecConcept, SpecDataProperty } from '../../../../api/types'
 import { instNameOf } from './model'
 import type { ConnDraft } from './types'
 import JsonEditor from '../JsonEditor'
+import NameSuggestInput from '../NameSuggestInput'
 
 // ---------------------------------------------------------------------------
 // GraphEditor 三个弹窗（B1 拆分，REQ-145）：添加概念 / 连线 / 添加实例。
@@ -35,11 +36,12 @@ export function AddConceptModal({
       <Form form={form} layout="vertical" initialValues={{ parents: [] }}>
         <Form.Item
           name="name"
-          label="名称（唯一标识）"
+          label="名称（唯一标识——输入即联想本地已声明/LOV 词表，先找再造）"
           rules={[{ required: true, message: '请输入概念名' }]}
           extra={<NamingHint draft={draft} form={form} />}
         >
-          <Input placeholder="如 Paper" />
+          {/* REQ-504/M312：命名输入内联复用联想（本地+LOV；命中仅预填不代改——图形编辑连线语义留人工） */}
+          <NameSuggestInput localNames={(draft.concepts ?? []).map((c) => c.name)} placeholder="如 Paper" />
         </Form.Item>
         <Form.Item name="label" label="显示名（可选）">
           <Input placeholder="如 论文" />

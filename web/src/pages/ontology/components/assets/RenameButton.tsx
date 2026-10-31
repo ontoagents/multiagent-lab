@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Button, Input, Modal } from 'antd'
+import { Button, Modal } from 'antd'
+import NameSuggestInput from '../NameSuggestInput'
 import { useUI } from '../../../../store/ui'
 
 // ---------------------------------------------------------------------------
@@ -13,6 +14,7 @@ export function RenameButton({
   kind,
   name,
   label,
+  localNames,
   onSaved,
   size = 'small',
   danger,
@@ -22,6 +24,8 @@ export function RenameButton({
   name: string
   /** 实体类型中文名（弹窗文案用，如「概念」） */
   label: string
+  /** REQ-504：本地已声明概念名（重命名联想——排除自身在组件内处理） */
+  localNames?: string[]
   onSaved: () => void
   size?: 'small' | 'middle'
   danger?: boolean
@@ -76,13 +80,15 @@ export function RenameButton({
         onCancel={() => setOpen(false)}
         onOk={submit}
       >
-        <Input
+        {/* REQ-504/M312：重命名命名输入接本地已声明概念联想（vocab=false 纯本地；排除自身） */}
+        <NameSuggestInput
           value={to}
-          onChange={(e) => setTo(e.target.value)}
+          onChange={setTo}
+          localNames={localNames}
+          exclude={name}
           placeholder={`新名称（现为 ${name}）`}
-          autoFocus
-          onPressEnter={submit}
-          data-testid="rename-input"
+          vocab={false}
+          testid="rename-input"
         />
       </Modal>
     </>

@@ -8,6 +8,7 @@ import './hierarchy.css'
 import RestrictionsEditor from './RestrictionsEditor'
 import { RenameButton } from './RenameButton'
 import InstanceEditPanel from './InstanceEditPanel'
+import NameSuggestInput, { type VocabPick } from '../NameSuggestInput'
 import { useQualityDigest } from './qualityDigest'
 import { ERR_COLUMNS } from '../../shared'
 
@@ -620,7 +621,7 @@ function DescPanel(props: { ontology: Ontology; spec: Spec; sel: OntoSelection; 
       {/* REQ-475/M275：概念/实例重命名（refactor rename——服务端全引用面 rewire） */}
       {onChanged && (sel.kind === 'concept' || sel.kind === 'instance') && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-          <RenameButton ontologyId={ontology.id} kind={sel.kind} name={sel.name} label={sel.kind === 'concept' ? '概念' : '实例'} onSaved={onChanged} />
+          <RenameButton ontologyId={ontology.id} kind={sel.kind} name={sel.name} label={sel.kind === 'concept' ? '概念' : '实例'} localNames={(spec?.concepts ?? []).map((c) => c.name)} onSaved={onChanged} />
         </div>
       )}
       {body}
@@ -673,6 +674,8 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
   const [elemErrors, setElemErrors] = useState<ValidationError[] | null>(null)
   const [ontoVersion, setOntoVersion] = useState<number | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
+  // REQ-504/M312：LOV 命中「引入并对齐」——预填同义词+记录词表来源（external_refs 登记面在资产页）
+  const [vocabPick, setVocabPick] = useState<VocabPick | null>(null)
 
   const propTree = useMemo(() => (spec ? buildPropTree(spec) : { data: [], index: new Map<string, NodeMeta>() }), [spec])
 
@@ -717,7 +720,13 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
       if (elemModal.mode === 'create') {
         const parents = elemModal.parent ? [elemModal.parent] : []
         await runElem(
-          () => api.elementUpsert(ontology.id, 'concept', { name: v.name.trim(), label: v.label ?? '', definition: v.definition ?? '', parents }),
+          () => api.elementUpsert(ontology.id, 'concept', {
+            name: v.name.trim(),
+            label: v.label ?? '',
+            definition: v.definition ?? '',
+            parents,
+            synonyms: v.synonyms ? v.synonyms.split(/[,，、]/).map((x: string) => x.trim()).filter(Boolean) : undefined,
+          }),
           elemModal.parent ? `概念「${v.name.trim()}」已创建（父概念：${elemModal.parent}）` : `根概念「${v.name.trim()}」已创建`,
         )
       } else if (elemModal.concept) {
@@ -750,7 +759,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
   const classOps = (name: string) => (
     <span className="onto-hier-ops" data-testid={`hierarchy-ops-${name}`}>
       <Tooltip title={`在「${name}」下新建子概念`}>
-        <button type="button" className="onto-hier-op" onClick={(e) => { e.stopPropagation(); setElemModal({ mode: 'create', parent: name }); form.resetFields() }}>＋子</button>
+        <button type="button" className="onto-hier-op" onClick={(e) => { e.stopPropagation(); setVocabPick(null); setElemModal({ mode: 'create', parent: name }); form.resetFields() }}>＋子</button>
       </Tooltip>
       <Tooltip title={`为「${name}」挂父概念（多继承）`}>
         <button type="button" className="onto-hier-op" onClick={(e) => { e.stopPropagation(); setElemModal({ mode: 'attach', concept: name }); form.resetFields() }}>挂父</button>
@@ -983,7 +992,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
             size="small"
             icon={<PlusOutlined />}
             data-testid="hierarchy-add-root"
-            onClick={() => { setElemModal({ mode: 'create' }); form.resetFields() }}
+            onClick={() => { setVocabPick(null); setElemModal({ mode: 'create' }); form.resetFields() }}
           >
             根概念
           </Button>
@@ -1067,18 +1076,36 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
         }
         okText={elemModal?.mode === 'create' ? '创建' : '挂父'}
         okButtonProps={{ loading: busy }}
-        onCancel={() => setElemModal(null)}
+        onCancel={() => { setVocabPick(null); setElemModal(null) }}
         cancelText="取消"
         onOk={submitElemModal}
       >
         <Form form={form} layout="vertical">
           {elemModal?.mode === 'create' ? (
             <>
-              <Form.Item name="name" label="概念名（唯一标识）" rules={[{ required: true, message: '请输入概念名' }]}>
-                <Input placeholder="如 交换机" data-testid="hierarchy-new-name" />
+              {/* REQ-504/M312：命名输入内联复用联想（本地已声明+LOV 徽标；命中上抛引入对齐） */}
+              <Form.Item name="name" label="概念名（唯一标识——输入即联想本地已声明/LOV 词表，先找再造）" rules={[{ required: true, message: '请输入概念名' }]}>
+                <NameSuggestInput
+                  localNames={(spec?.concepts ?? []).map((c) => c.name)}
+                  placeholder="如 交换机"
+                  testid="hierarchy-new-name"
+                  onPickVocab={(pick) => {
+                    setVocabPick(pick)
+                    form.setFieldValue('synonyms', pick.title)
+                    if (!form.getFieldValue('label')) form.setFieldValue('label', pick.title)
+                  }}
+                />
               </Form.Item>
+              {vocabPick && (
+                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', margin: '2px 0 4px' }} data-testid="vocab-pick-note">
+                  引入并对齐：已按 LOV「{vocabPick.title}」预填同义词（{vocabPick.prefix}）——external_refs 登记在资产页「引用与产物」
+                </Typography.Text>
+              )}
               <Form.Item name="label" label="显示名（可选）">
                 <Input />
+              </Form.Item>
+              <Form.Item name="synonyms" label="同义词（可选，逗号分隔——命中词表时预填）">
+                <Input placeholder="如 交换机、switch" />
               </Form.Item>
               <Form.Item name="definition" label="定义（可选）">
                 <Input.TextArea rows={2} />

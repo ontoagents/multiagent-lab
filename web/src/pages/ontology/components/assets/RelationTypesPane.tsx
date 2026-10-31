@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Button, Checkbox, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
+import NameSuggestInput from '../NameSuggestInput'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
@@ -207,8 +208,8 @@ export default function RelationTypesPane({ spec, ontologyId, onSaved }: { spec:
       }}
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="name" label="关系名（唯一标识）" rules={[{ required: true, message: '请输入关系名' }]}>
-          <Input placeholder="如 连接到" disabled={!!editing?.key} />
+        <Form.Item name="name" label="关系名（唯一标识——联想已声明关系类型，先找再造）" rules={[{ required: true, message: '请输入关系名' }]}>
+          <NameSuggestInput localNames={(rows ?? []).map((t) => t.name)} placeholder="如 连接到" vocab={false} disabled={!!editing?.key} />
         </Form.Item>
         <Space.Compact block>
           <Form.Item name="from" label="定义域（from 概念）" style={{ width: '50%', paddingInlineEnd: 6 }} rules={[{ required: true, message: '必填' }]}>

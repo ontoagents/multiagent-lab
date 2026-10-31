@@ -52,6 +52,7 @@
 10. **文档双语范围**（2026-10-29 REQ-498 拍板，90 号 E3 悬置项前置）：README 门面双语维持（中英同轮同步交付）；platform-knowledge 与 docs 深度档中文为主不追译；对外英文面仅 README + 官网 locale。`tools/docsize.sh` 交付回写时顺手跑，单档超阈值即触发指针化/压缩；**超档必须在同轮压平（头部前版链压一层+行内注指针化）并留迭代表注记，禁止跨轮积累**（2026-10-29 REQ-498 增补；docsize 不做硬门禁防常红，走本条 checklist）。头部「> 状态：」行按「当前版本+一行摘要+前版指针」口径，禁止递归嵌套前版链。
 
 ## 当前状态（滚动窗口·最近 20 条，由协作 Agent 维护；2026-10-29 REQ-498 治理拍板：单条一行指针式 ≤600B——REQ 号+一句话状态+全量指针，信息不丢、详录全量在各档迭代表+18 号+20 号；新条置顶、末条移出）
+- **REQ-504 ✅（2026-10-31，M312——三场景批 R5·P1：命名输入内联复用联想先找再造）**：NameSuggestInput 组件（本地+LOV 双联想徽标+离线降级）四处接线（HierarchyPane 新建/RenameButton/GraphEditor modals/RelationTypesPane）+LOV 命中引入对齐同义词预填+落库 synonyms；headless 8/8 smoke/req504/（LOV 桩真机三服务链）。全量在 03 v2.69/18 v6.01/18A/19 号/20 v3.115（4.202）/02 v0.451。
 - **REQ-503 ✅（2026-10-31，M311——三场景批 R4·P1：custom AI 精修小步提案化，承 69 号 A4 转正）**：DraftTrimPanel 分组勾选+origin 组级徽标+FindingProposalCards 逐条提案卡（diff 对照+采纳/修改/忽略三裁决；结构类仅提示）+job_id 持久化超时取回+逐 tick 容错；后端零改动；headless 15/15 smoke/req503/。全量在 03 v2.68/18 v6.00/18A/19 号/20 v3.114（4.201）/02 v0.450。
 - **REQ-502 ✅（2026-10-31，M310——三场景批 R3·P0：编辑视图常驻诊断条+失败明细与回滚）**：HierarchyPane save=false 快评 chip+Findings 下钻+runElem path+message 结构化明细表+回滚入口（快照栈）+树上操作钮常显；headless 6/6 smoke/req502/+REQ-501 回归过。全量在 03 v2.67/18 v5.99/18A/19 号/20 v3.113（4.200）/02 v0.449。
 - **REQ-501 ✅（2026-10-31，M309——三场景批 R2·P0 首件：构建 S2 结构优先双形态+空态引导）**：S2EditPane 双形态（默认层级树 HierarchyPane 复用+elementUpsert 单管线/Spec JSON 高级态兜底）+空态引导卡+AI 草稿默认落树视图+草稿暂存兼容；headless 13/13 smoke/req501/+REQ-508 回归 C 段过。全量在 03 v2.66/18 v5.98/18A/19 号/20 v3.112（4.199）/02 v0.448。
