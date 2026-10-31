@@ -754,6 +754,18 @@ export interface Workspace {
   updated_at: string
 }
 
+/** REQ-551/M358 工作区记忆（Q-23 衍生②转正载体——候选/已入/已否三态，行级溯源可审计） */
+export interface MemoryRec {
+  id: string
+  workspace_id: string
+  content: string
+  source_conversation_id: string
+  source_message_id: string
+  status: 'candidate' | 'accepted' | 'rejected'
+  created_at: string
+  updated_at: string
+}
+
 /** REQ-495/M304 笔记本（自产成果文档资产层；workspace_id 绑定 REQ-548 workspace 实体一对多） */
 export interface Notebook {
   id: string

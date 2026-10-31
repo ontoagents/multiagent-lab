@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { Button, Divider, Form, Input, Popconfirm, Select, Tooltip, Typography } from 'antd'
+import { Button, Divider, Form, Input, Popconfirm, Segmented, Select, Tooltip, Typography } from 'antd'
 import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
+  HistoryOutlined,
   SettingOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
-import type { Agent, KnowledgeBase, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
+import type { Agent, KnowledgeBase, MemoryRec, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 
-export type WorkspacePanelView = 'config' | 'projects'
+export type WorkspacePanelView = 'config' | 'projects' | 'memory'
 
 /** 侧边栏小节标题（与 ProjectSidePanel 同语言） */
 function Section({ children, first }: { children: React.ReactNode; first?: boolean }) {
@@ -129,6 +130,19 @@ export default function WorkspaceSidePanel({
             <TeamOutlined />
           </button>
         </Tooltip>
+        {/* REQ-551/M358：记忆候选确认（三桶列表沿伴生范式；可审计口径） */}
+        <Tooltip title="记忆" placement="left">
+          <button
+            type="button"
+            className={`proj-bar-btn${view === 'memory' && !collapsed ? ' active' : ''}`}
+            aria-label="记忆"
+            aria-selected={view === 'memory' && !collapsed}
+            role="tab"
+            onClick={() => switchView('memory')}
+          >
+            <HistoryOutlined />
+          </button>
+        </Tooltip>
         <span className="proj-bar-spacer" />
         <Tooltip title={collapsed ? '展开侧边栏' : '收起为竖条'} placement="left">
           <button
@@ -153,6 +167,7 @@ export default function WorkspaceSidePanel({
         <div className="proj-panel-view">
           {view === 'config' && <ConfigView workspace={workspace} agents={agents} onChanged={onChanged} />}
           {view === 'projects' && <ProjectsView workspace={workspace} onChanged={onChanged} />}
+          {view === 'memory' && <MemoryView workspace={workspace} />}
         </div>
       )}
     </aside>
@@ -432,6 +447,128 @@ function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChange
               <Button size="small" type="text" style={{ marginLeft: 'auto' }} loading={busy === p.id} aria-label={`归属 ${p.name}`} onClick={() => assign(p)}>
                 归属本工作区
               </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 记忆视图（REQ-551/M358）：候选/已入/已否三桶（沿伴生三桶列表范式）+手工录入。
+// 可审计口径：每条带来源会话/消息行级溯源（手工=无溯源标注）；无自动入记忆（黑箱记忆不做）。
+// ---------------------------------------------------------------------------
+
+const MEMORY_BUCKETS = [
+  { value: 'candidate', label: '候选' },
+  { value: 'accepted', label: '已入' },
+  { value: 'rejected', label: '已否' },
+]
+
+function MemoryView({ workspace }: { workspace: Workspace }) {
+  const { showToast } = useUI()
+  const [bucket, setBucket] = useState<'candidate' | 'accepted' | 'rejected'>('candidate')
+  const [items, setItems] = useState<MemoryRec[]>([])
+  const [loading, setLoading] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  const load = () => {
+    setLoading(true)
+    api.listMemories(workspace.id).then(setItems).catch(() => setItems([])).finally(() => setLoading(false))
+  }
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.id])
+
+  const rows = items.filter((m) => m.status === bucket)
+  const decide = async (m: MemoryRec, accept: boolean) => {
+    try {
+      await api.decideMemory(m.id, accept)
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+  const remove = async (m: MemoryRec) => {
+    try {
+      await api.deleteMemory(m.id)
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+  const add = async () => {
+    const content = draft.trim()
+    if (!content) return
+    setAdding(true)
+    try {
+      await api.createMemory(workspace.id, content)
+      setDraft('')
+      showToast('已记入（手工录入即显式确认）')
+      load()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <div className="proj-view-body">
+      <Section first>工作区记忆（跨会话，显式确认）</Section>
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+        对话收尾自动生成候选，采纳后跨会话注入本工作区对话；全程可审计（黑箱记忆不做）。
+      </Typography.Text>
+      <Segmented
+        size="small"
+        value={bucket}
+        onChange={(v) => setBucket(v as typeof bucket)}
+        options={MEMORY_BUCKETS}
+        data-testid="ws-memory-buckets"
+      />
+      <div style={{ display: 'flex', gap: 6, margin: '10px 0' }}>
+        <Input
+          size="small"
+          placeholder="手工记一条（如：论文截止 3 月）"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onPressEnter={add}
+          data-testid="ws-memory-input"
+        />
+        <Button size="small" type="primary" loading={adding} onClick={add} data-testid="ws-memory-add">
+          记入
+        </Button>
+      </div>
+      {loading ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text>
+      ) : rows.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+          {bucket === 'candidate' ? '暂无候选——对话收尾自动生成，或手工记入。' : bucket === 'accepted' ? '暂无已入记忆。' : '暂无已否记录。'}
+        </Typography.Text>
+      ) : (
+        <ul className="proj-entries" style={{ margin: 0, flexDirection: 'column' }}>
+          {rows.map((m) => (
+            <li key={m.id} className="proj-entry" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12.5, lineHeight: 1.6 }}>{m.content}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+                <span style={{ fontSize: 11, color: 'var(--c-ink-3)' }}>
+                  {m.source_conversation_id ? `溯源 · 会话 ${m.source_conversation_id.slice(0, 8)}` : '手工录入'}
+                </span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
+                  {m.status === 'candidate' && (
+                    <>
+                      <Button size="small" type="text" aria-label="采纳" onClick={() => decide(m, true)}>采纳</Button>
+                      <Button size="small" type="text" aria-label="拒绝" onClick={() => decide(m, false)}>拒绝</Button>
+                    </>
+                  )}
+                  <Popconfirm title="删除这条记忆？" okText="删除" okButtonProps={{ danger: true }} cancelText="取消" onConfirm={() => remove(m)}>
+                    <Button size="small" type="text" danger aria-label="删除">删除</Button>
+                  </Popconfirm>
+                </span>
+              </span>
             </li>
           ))}
         </ul>

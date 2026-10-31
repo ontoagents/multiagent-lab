@@ -143,6 +143,7 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	// REQ-170/M28：伴生本体收尾触发（旁路 goroutine；开关关/未绑定 Agent 静默返回，不影响 SSE 收尾）
 	s.Companion.OnRunComplete(conv, agent, runID)
+	s.Memory.OnRunComplete(conv, agent, runID) // REQ-551/M358：记忆候选生成（无工作区会话静默短路）
 	// REQ-228①：召回消费追踪（本次 run 的 companion 命中实体是否在回答中出现 → companion.hit 事件）
 	s.Companion.RecordHits(conv.ID, runID)
 }
@@ -275,6 +276,7 @@ func (s *Server) resumeConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	// REQ-170/M28：恢复收尾同样触发伴生抽取（方案：Run/Resume 收尾事件触发）
 	s.Companion.OnRunComplete(conv, agent, runID)
+	s.Memory.OnRunComplete(conv, agent, runID) // REQ-551/M358
 }
 
 func mustJSON(v any) json.RawMessage {

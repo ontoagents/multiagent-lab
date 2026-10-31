@@ -82,8 +82,8 @@ func TestRegisterRetrieverSource_Order_Req456(t *testing.T) {
 	s.RegisterRetrieverSource("zeta", &fakeRetriever{})
 	s.RegisterRetrieverSource("alpha", &fakeRetriever{})
 	chain := s.recallChainWithExternal()
-	if len(chain) != 4 { // kb + companion + 2 external
-		t.Fatalf("链长应为 4，得到 %d", len(chain))
+	if len(chain) != 5 { // kb + companion + memory（REQ-551/M358）+ 2 external
+		t.Fatalf("链长应为 5，得到 %d", len(chain))
 	}
 	names := externalSourceNames(s)
 	if names[0] != "alpha" || names[1] != "zeta" {
@@ -91,7 +91,7 @@ func TestRegisterRetrieverSource_Order_Req456(t *testing.T) {
 	}
 	// 覆盖注册：同名覆盖不重复
 	s.RegisterRetrieverSource("alpha", &fakeRetriever{})
-	if len(s.recallChainWithExternal()) != 4 {
+	if len(s.recallChainWithExternal()) != 5 {
 		t.Fatal("同名注册应覆盖不追加")
 	}
 }

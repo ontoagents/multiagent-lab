@@ -422,7 +422,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 	// REQ-456：链名清单与链同源派生（内置 kb/companion + 外部注册源按名序）——
 	// context.stats 逐源注入量与实际消费链不再依赖两份手写清单对齐
 	chain := s.recallChainWithExternal()
-	recallNames := append([]string{"kb", "companion"}, externalSourceNames(s)...)
+	recallNames := append([]string{"kb", "companion", "memory"}, externalSourceNames(s)...)
 	for i, rp := range chain {
 		before := len(histMsgs)
 		histMsgs = rp(runCtx, conv, agent, runID, input, histMsgs, emit)
@@ -1886,8 +1886,45 @@ func (s *Service) Running(convID string) bool {
 type RecallProvider func(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, histMsgs []*schema.Message, emit EmitFn) []*schema.Message
 
 // recallChain REQ-201 A4：上下文准入链（替代 runOnce 内的硬编码追加顺序）。
+// REQ-551/M358：工作区记忆召回源并入（chat→memory 包环约束下经 store 直读 accepted 行）。
 func (s *Service) recallChain() []RecallProvider {
-	return []RecallProvider{s.recallKB, s.recallCompanion}
+	return []RecallProvider{s.recallKB, s.recallCompanion, s.recallMemory}
+}
+
+// recallMemory 工作区记忆召回源（REQ-551/M358）：会话有工作区归属（直挂 workspace_id 或项目
+// 归属转发）且存在已入记忆时，注入为 System 消息（跨会话个人记忆——显式确认文本，非黑箱）。
+// 与伴生/KB 同口径：失败/空命中降级不阻断；retrieval 事件带 source=memory（过程可观测）。
+// 注入落库沿 REQ-516 persistRecallInjections（runOnce 链路对 chain 增量统一持久化）。
+func (s *Service) recallMemory(ctx context.Context, conv *store.Conversation, agent *store.Agent, runID, input string, histMsgs []*schema.Message, emit EmitFn) []*schema.Message {
+	if conv == nil || s.Store == nil {
+		return histMsgs
+	}
+	wsID := ""
+	if conv.WorkspaceID != nil && *conv.WorkspaceID != "" {
+		wsID = *conv.WorkspaceID
+	} else if conv.Scope == "project" && conv.ProjectID != nil && *conv.ProjectID != "" {
+		if p, err := s.Store.GetProject(*conv.ProjectID); err == nil {
+			wsID = p.WorkspaceID
+		}
+	}
+	if wsID == "" {
+		return histMsgs
+	}
+	mems, err := s.Store.AcceptedMemories(wsID)
+	if err != nil {
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{"message": "工作区记忆读取失败，本次未注入: " + err.Error()}), emit)
+		return histMsgs
+	}
+	if len(mems) == 0 {
+		return histMsgs
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("以下是该工作区此前确认的记忆（%d 条，跨会话有效——回答时作为长期背景参考）：\n", len(mems)))
+	for _, m := range mems {
+		b.WriteString("- " + m.Content + "\n")
+	}
+	s.emitAndRecord(ctx, conv, runID, newEvent("retrieval", runID, map[string]any{"source": "memory", "workspace_id": wsID, "count": len(mems)}), emit)
+	return append(histMsgs, schema.SystemMessage(strings.TrimSpace(b.String())))
 }
 
 // recallKB 知识库召回公共段（M13 抽取：inprocess 与外部推理后端两条路径共用）。

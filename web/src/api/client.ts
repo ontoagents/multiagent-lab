@@ -8,6 +8,7 @@ import type {
   OntoContributionSummaryRow,
   OntoRunGroup,
   AiDraftJobState,
+  MemoryRec,
   Notebook,
   NotePage,
   Workspace,
@@ -638,6 +639,11 @@ export const api = {
   // ---- REQ-550/M357 项目归属与继承 M2（Q-24 分层批③；归属/解除+应用到现有会话幂等批量） ----
   setProjectWorkspace: (id: string, workspaceId: string) => req<Project>(`/api/projects/${encodeURIComponent(id)}/workspace`, { method: 'PUT', body: JSON.stringify({ workspace_id: workspaceId }) }),
   applyProjectWorkspace: (id: string) => req<{ updated: number }>(`/api/projects/${encodeURIComponent(id)}/workspace/apply`, { method: 'POST' }),
+  // ---- REQ-551/M358 工作区记忆（候选确认+手工录入；可审计口径） ----
+  listMemories: (workspaceId: string, status?: string) => req<MemoryRec[]>(`/api/workspaces/${encodeURIComponent(workspaceId)}/memories${status ? `?status=${status}` : ''}`),
+  createMemory: (workspaceId: string, content: string) => req<MemoryRec>(`/api/workspaces/${encodeURIComponent(workspaceId)}/memories`, { method: 'POST', body: JSON.stringify({ content }) }),
+  decideMemory: (id: string, accept: boolean) => req<{ changed: boolean; memory: MemoryRec }>(`/api/memories/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ accept }) }),
+  deleteMemory: (id: string) => req<{ ok: string }>(`/api/memories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   listNotebooks: () => req<Notebook[]>('/api/notebooks'),
   createNotebook: (n: Partial<Notebook>) => req<Notebook>('/api/notebooks', { method: 'POST', body: JSON.stringify(n) }),
   getNotebook: (id: string) => req<Notebook>(`/api/notebooks/${encodeURIComponent(id)}`),

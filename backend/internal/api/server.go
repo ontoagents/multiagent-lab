@@ -15,6 +15,7 @@ import (
 	"github.com/ontoagents/ontoagents/backend/internal/a2a"
 	"github.com/ontoagents/ontoagents/backend/internal/chat"
 	"github.com/ontoagents/ontoagents/backend/internal/companion"
+	"github.com/ontoagents/ontoagents/backend/internal/memory"
 	comedata "github.com/ontoagents/ontoagents/backend/internal/companion/evaldata"
 	"github.com/ontoagents/ontoagents/backend/internal/kb"
 	"github.com/ontoagents/ontoagents/backend/internal/kg"
@@ -42,6 +43,7 @@ type Server struct {
 	DocsRoot      string             // REQ-140：内部方案文档根目录（只读查看）
 	KnowledgeRoot string             // REQ-161：platform-knowledge/ 平台知识根目录（只读查看，2026-09-25 扩展）
 	Companion     *companion.Service // REQ-170/M28：伴生本体旁路管线（Run/Resume 收尾触发，低侵入）
+	Memory        *memory.Service    // REQ-551/M358：工作区记忆旁路管线（收尾候选生成——可审计口径）
 	sched         *scheduler         // REQ-204/M39 C5：对话级定时续跑（REQ-224 起调度状态落库，重启 LoadSchedules 续装）
 	RuntimeEnv    *RuntimeEnv        // REQ-191/M31：运行环境统一配置（DB 覆盖 env，动态沙箱后端解析）
 	Mux           *http.ServeMux
@@ -52,6 +54,7 @@ type Server struct {
 // NewServer 构造并注册全部路由。
 func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *tool.Registry, kbSvc *kb.Service, onto *ontology.Service, dbPath, docsRoot, knowledgeRoot string) *Server {
 	comp := companion.NewService(st, box, nil)
+	memSvc := memory.NewService(st, box) // REQ-551/M358：工作区记忆收尾候选生成
 	chatSvc.Companion = comp // REQ-170 P2「KG 检索源并入」：伴生图检索源经接口反转注入 chat（companion→chat 包环约束）
 	// REQ-358/M158 B+C（EvoOntology 借鉴旁路面）：①伴生图按需语义检索工具（默认关——92 号
 	// §5.2，Agent 显式勾选生效）；②自动入图基准门控（事前评估旁挂，COMPANION_BENCHMARK_GATE=1
@@ -91,7 +94,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 	ontoBuildSvc := ontobuild.NewService(st, box, kbSvc)
 	ontoBuildSvc.BuildPlaneURL = onto.BuildURL                 // REQ-267/M76：统一质量快评与反代同源（BUILD_SVC_URL）
 	ontoBuildSvc.OnStage = buildflowTracePoster(onto.BuildURL) // REQ-340 A2：kb-extract 段留痕聚合到构建平面（fire-and-forget）
-	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Mux: http.NewServeMux()}
+	s := &Server{Store: st, Box: box, Chat: chatSvc, Tools: tools, KB: kbSvc, Ontology: onto, OntoBuild: ontoBuildSvc, DBPath: dbPath, DocsRoot: docsRoot, KnowledgeRoot: knowledgeRoot, Companion: comp, Memory: memSvc, Mux: http.NewServeMux()}
 	// REQ-369/M167：A2A 端点服务（运行执行器=chat.Run+伴生收尾+最终助手消息读取——与 SSE 路径
 	// 同一 runner 管线；伴生沉淀/命中追踪对 A2A 委派同样生效）
 	s.A2A = a2a.New(st)
@@ -101,6 +104,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 			return "", rerr
 		}
 		comp.OnRunComplete(conv, agent, runID)
+		memSvc.OnRunComplete(conv, agent, runID) // REQ-551/M358：记忆候选生成（无工作区会话静默短路）
 		comp.RecordHits(conv.ID, runID)
 		if res != nil {
 			chatSvc.RecordOntologyCited(conv.ID, runID, res.AssistantMessageID) // REQ-530/M337：cited 归因（委派链同权）
@@ -133,6 +137,7 @@ func NewServer(st *store.Store, box *secrets.Box, chatSvc *chat.Service, tools *
 			return "", rerr
 		}
 		comp.OnRunComplete(conv, agent, runID)
+		memSvc.OnRunComplete(conv, agent, runID) // REQ-551/M358
 		comp.RecordHits(conv.ID, runID)
 		if res.Error != "" {
 			return "", errors.New(res.Error)
@@ -311,6 +316,11 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations", s.createConversation)
 	// REQ-548/M355：工作区领域容器（Q-24 分层批①——创建时默认值实体；对话归属 workspace_id 互斥 project_id）
 	m.HandleFunc("GET /api/workspaces", s.listWorkspaces)
+	// REQ-551/M358：工作区记忆（Q-24 分层批④收官——候选确认+召回挂载；可审计口径）
+	m.HandleFunc("GET /api/workspaces/{id}/memories", s.listMemories)
+	m.HandleFunc("POST /api/workspaces/{id}/memories", s.createMemory)
+	m.HandleFunc("POST /api/memories/{id}/decide", s.decideMemory)
+	m.HandleFunc("DELETE /api/memories/{id}", s.deleteMemory)
 	m.HandleFunc("POST /api/workspaces", s.createWorkspace)
 	m.HandleFunc("GET /api/workspaces/{id}", s.getWorkspace)
 	m.HandleFunc("PUT /api/workspaces/{id}", s.updateWorkspace)
