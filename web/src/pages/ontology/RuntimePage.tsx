@@ -264,14 +264,14 @@ export default function RuntimePage() {
             <Typography.Title level={4} style={{ margin: 0 }}>
               本体运行
             </Typography.Title>
-            <Tag color="blue" style={{ margin: 0 }}>按运行方式分组</Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>按运行方式分组</Typography.Text>
           </div>
           <p className="work-head-desc">
-            运行方案是仓库内容的「部署视图」（REQ-87）：同一本体可被多套方案加载；方案停止/删除不影响仓库资产；本体更新后需在方案上显式重载。
+            运行方案是仓库内容的「部署视图」：同一本体可被多套方案加载；方案停止/删除不影响仓库资产；本体更新后需在方案上显式重载。
           </p>
+          {/* REQ-490：生命周期钮入工具行形态（primary ghost 大钮退役） */}
           <Button
-            type="primary"
-            ghost
+            size="small"
             icon={<ThunderboltOutlined />}
             onClick={() => setLifecycleOpen(true)}
             style={{ marginTop: 8 }}
@@ -310,6 +310,7 @@ export default function RuntimePage() {
             >
               <span className="onto-engine-top">
                 <span className="onto-engine-label">{e.label}</span>
+                {/* REQ-490：引擎状态标注灰字化——未安装/安装中属异常态留色 Tag，可用/推理为正常态灰字 */}
                 {missing ? (
                   <Tooltip title={<div>{tip.lines.map((l, i) => <div key={i}>{l}</div>)}</div>}>
                     <Tag
@@ -322,9 +323,9 @@ export default function RuntimePage() {
                   </Tooltip>
                 ) : (
                   STATE_TAG[e.key].map((t) => (
-                    <Tag key={t.text} color={t.color} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                    <Typography.Text key={t.text} type="secondary" style={{ margin: 0, fontSize: 11, lineHeight: '16px' }}>
                       {t.text}
-                    </Tag>
+                    </Typography.Text>
                   ))
                 )}
               </span>
@@ -654,65 +655,64 @@ function EngineProfilesPage({
                 )}
               </div>
               <div className="onto-profile-ontos">
+                {/* REQ-490：已载本体 Tag 顿号灰字 */}
                 {(p.ontology_ids ?? []).length === 0 ? (
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>未加载本体</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>未加载本体</Typography.Text>
                 ) : (
-                  (p.ontology_ids ?? []).map((oid) => (
-                    <Tag key={oid} style={{ margin: 0, fontSize: 11 }} color="geekblue">
-                      {ontoName(oid)}
-                    </Tag>
-                  ))
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {(p.ontology_ids ?? []).map((oid) => ontoName(oid)).join('、')}
+                  </Typography.Text>
                 )}
               </div>
               <div className="onto-profile-ops">
+                {/* REQ-490：方案卡 6 link 钮灰图标化（hover 提示承载语义） */}
                 {(p.status === 'created' || p.status === 'stopped' || p.status === 'error') && (
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<PlayCircleOutlined />}
-                    loading={busyId === p.id}
-                    onClick={() => act(p.id, () => api.startRuntimeProfile(p.id), '已请求启动')}
-                  >
-                    启动
-                  </Button>
+                  <Tooltip title="启动">
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="启动"
+                      icon={<PlayCircleOutlined />}
+                      loading={busyId === p.id}
+                      onClick={() => act(p.id, () => api.startRuntimeProfile(p.id), '已请求启动')}
+                    />
+                  </Tooltip>
                 )}
                 {(p.status === 'running' || p.status === 'starting') && (
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<PauseCircleOutlined />}
-                    loading={busyId === p.id}
-                    onClick={() => act(p.id, () => api.stopRuntimeProfile(p.id), '已停止')}
-                  >
-                    停止
-                  </Button>
+                  <Tooltip title="停止">
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="停止"
+                      icon={<PauseCircleOutlined />}
+                      loading={busyId === p.id}
+                      onClick={() => act(p.id, () => api.stopRuntimeProfile(p.id), '已停止')}
+                    />
+                  </Tooltip>
                 )}
-                <Tooltip title="仓库本体更新后，在此显式重载生效（REQ-87）">
+                <Tooltip title="重载——仓库本体更新后显式生效">
                   <Button
-                    type="link"
+                    type="text"
                     size="small"
+                    aria-label="重载"
                     icon={<ReloadOutlined />}
                     loading={busyId === p.id}
                     onClick={() => act(p.id, () => api.reloadRuntimeProfile(p.id), '已请求重载')}
-                  >
-                    重载
-                  </Button>
+                  />
                 </Tooltip>
                 {/* REQ-147：停止态编辑（更换加载本体）；running/starting 置灰（后端语义为更新即先停，UI 不主动停） */}
                 {p.status === 'running' || p.status === 'starting' ? (
-                  <Tooltip title="运行中：先停止再编辑（REQ-147）">
-                    <Button type="link" size="small" icon={<EditOutlined />} disabled>
-                      编辑
-                    </Button>
+                  <Tooltip title="运行中：先停止再编辑">
+                    <Button type="text" size="small" aria-label="编辑（先停止）" icon={<EditOutlined />} disabled />
                   </Tooltip>
                 ) : (
-                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => setEditId(p.id)}>
-                    编辑
-                  </Button>
+                  <Tooltip title="编辑">
+                    <Button type="text" size="small" aria-label="编辑" icon={<EditOutlined />} onClick={() => setEditId(p.id)} />
+                  </Tooltip>
                 )}
-                <Button type="link" size="small" icon={<RightOutlined />} onClick={() => setDetailId(p.id)}>
-                  详情
-                </Button>
+                <Tooltip title="详情">
+                  <Button type="text" size="small" aria-label="详情" icon={<RightOutlined />} onClick={() => setDetailId(p.id)} />
+                </Tooltip>
                 <Popconfirm
                   title={`删除运行方案「${p.name}」？`}
                   description="运行中将先停止再删除；不影响本体仓库资产。"
@@ -721,9 +721,9 @@ function EngineProfilesPage({
                   cancelText="取消"
                   onConfirm={() => remove(p.id)}
                 >
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                    删除
-                  </Button>
+                  <Tooltip title="删除">
+                    <Button type="text" size="small" danger aria-label="删除" icon={<DeleteOutlined />} />
+                  </Tooltip>
                 </Popconfirm>
               </div>
             </div>
@@ -838,11 +838,10 @@ function ProfileEdit({
     >
       {profile && (
         <Space direction="vertical" style={{ width: '100%' }} size={10}>
-          <Alert
-            type="info"
-            showIcon
-            title={`引擎 ${profile.engine ?? '—'} 与端口 ${profile.port ? profile.port : '自动分配'} 不可修改（引擎换型=删建方案；端口影响 facade 挂载稳定性）。保存后下次启动按新本体集合装载。`}
-          />
+          {/* REQ-490：info Alert 降灰字一行 */}
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+            {`引擎 ${profile.engine ?? '—'} 与端口 ${profile.port ? profile.port : '自动分配'} 不可修改（引擎换型=删建方案；端口影响挂载稳定性）。保存后下次启动按新本体集合装载。`}
+          </Typography.Text>
           <div className="onto-csv-field">
             <span className="cfg-label">方案名称</span>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -965,7 +964,8 @@ function ProfileWizard({
       />
       {step === 0 && (
         <Space direction="vertical" style={{ width: '100%' }} size={8}>
-          <Alert type="info" showIcon title={`本分组内固定为 ${engine}（Oxigraph 轻量无推理；Fuseki 支持 RDFS/OWL 推理开关）。`} />
+          {/* REQ-490：info Alert 降灰字一行 */}
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>{`本分组内固定为 ${engine}（Oxigraph 轻量无推理；Fuseki 支持 RDFS/OWL 推理开关）。`}</Typography.Text>
           <div className="onto-wizard-engine">
             <Tag color="green" style={{ margin: 0 }}>{engine}</Tag>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -1006,11 +1006,8 @@ function ProfileWizard({
               <Switch checked={reasoning} onChange={setReasoning} checkedChildren="开" unCheckedChildren="关" />
             </div>
           )}
-          <Alert
-            type="info"
-            showIcon
-            title="配置变更后需重启方案生效；SPARQL 端点经平台反代访问（浏览器不直连引擎端口）。"
-          />
+          {/* REQ-490：info Alert 降灰字一行 */}
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>配置变更后需重启方案生效；SPARQL 端点经平台反代访问（浏览器不直连引擎端口）。</Typography.Text>
         </Space>
       )}
     </Modal>
@@ -1096,12 +1093,10 @@ function ProfileDetail({
                 profile.status === 'running' ? (
                   <InferenceComparePane profile={profile} profiles={profiles} onChanged={onChanged} />
                 ) : (
-                  <Alert
-                    type="info"
-                    showIcon
-                    title="启动方案后可执行推理对照"
-                    description="推理对照（REQ-94②/REQ-379②）对两个 running 方案并行执行同一查询并 diff 结果；需第二个对照方案（建议同本体集合、推理一开一关）。"
-                  />
+                  // REQ-490：info Alert 降灰字一行
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', lineHeight: 1.7 }}>
+                    启动方案后可执行推理对照——对两个运行中方案并行执行同一查询并 diff 结果；需第二个对照方案（建议同本体集合、推理一开一关）。
+                  </Typography.Text>
                 ),
             },
             {
@@ -1144,13 +1139,10 @@ function OverviewPane({ profile }: { profile: RuntimeProfile }) {
           </Descriptions.Item>
         )}
       </Descriptions>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginTop: 12 }}
-        title="显式重载语义（REQ-87）"
-        description="本体在仓库更新版本后，需在此方案执行「重载」才按新版本返回查询结果；页面不静默生效。"
-      />
+      {/* REQ-490：info Alert 降灰字一行 */}
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12, lineHeight: 1.7 }}>
+        显式重载语义：本体在仓库更新版本后，需在此方案执行「重载」才按新版本返回查询结果；页面不静默生效。
+      </Typography.Text>
     </>
   )
 }
@@ -1260,13 +1252,10 @@ function QueryMountPane({ profile, profilesErr }: { profile: RuntimeProfile; pro
 
   return (
     <>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="对话经「运行方案」挂载本体"
-        description={`在对话输入框的「本体增强」chip 中选择 running 方案「${profile.name}」；装配期注入 guide，单次失败即降级（ontology.unavailable 事件卡），配置保留，下一条消息自动恢复。`}
-      />
+      {/* REQ-490：info Alert 降灰字一行 */}
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+        {`对话经「运行方案」挂载本体：在对话输入框的「本体增强」chip 中选择运行中方案「${profile.name}」；装配期注入 guide，单次失败即降级（事件卡提示），配置保留，下一条消息自动恢复。`}
+      </Typography.Text>
       {profile.status === 'running' ? (
         <>
           <div className="onto-sec" style={{ marginTop: 4 }}>

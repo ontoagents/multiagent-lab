@@ -306,10 +306,9 @@ export default function AuditObserveTab({
               <div className="sema-claim" key={i}>
                 <p className="sema-claim-text">{r.label}</p>
                 <div className="sema-claim-meta">
-                  <Tag color="green" style={{ margin: 0 }}>
-                    TTL 来源
-                  </Tag>
-                  <Tag style={{ margin: 0, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.uri}</Tag>
+                  {/* REQ-490：来源标注灰字化 */}
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>TTL 来源</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.uri}</Typography.Text>
                 </div>
               </div>
             ))}
@@ -327,57 +326,30 @@ export default function AuditObserveTab({
           </Space>
         }
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+        {/* REQ-490：导航小卡改灰字链接列表（去内层卡框与彩 Tag；前往钮灰图标化） */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           {NAV_ITEMS.map((n) => (
-            <Card
-              key={n.key}
-              type="inner"
-              size="small"
-              title={
-                <Space size={6}>
-                  <Tag color={n.color} style={{ margin: 0 }}>
-                    {n.tag}
-                  </Tag>
-                  <span>{n.title}</span>
-                </Space>
-              }
-              style={{ width: 330 }}
-              extra={
-                n.pane ? (
-                  <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => gotoPane(n.pane!)}>
-                    前往
-                  </Button>
-                ) : undefined
-              }
-            >
-              <p className="sema-feature-body" style={{ margin: 0 }}>
-                {n.body}
-              </p>
-            </Card>
+            <div key={n.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px dashed var(--c-line, #e6e8f0)' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0, minWidth: 64 }}>{n.tag}</Typography.Text>
+              <Typography.Text style={{ fontSize: 13, flexShrink: 0 }}>{n.title}</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</Typography.Text>
+              {n.pane ? (
+                <Tooltip title={`前往${n.title}`}>
+                  <Button size="small" type="text" aria-label={`前往${n.title}`} icon={<ExportOutlined />} onClick={() => gotoPane(n.pane!)} />
+                </Tooltip>
+              ) : null}
+            </div>
           ))}
-          <Card
-            key="kb-exit"
-            type="inner"
-            size="small"
-            title={
-              <Space size={6}>
-                <Tag color="default" style={{ margin: 0 }}>
-                  知识库模块
-                </Tag>
-                <span>KB 抽取 KG · GraphRAG</span>
-              </Space>
-            }
-            style={{ width: 330 }}
-            extra={
-              <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => setPage('knowledge')}>
-                前往
-              </Button>
-            }
-          >
-            <p className="sema-feature-body" style={{ margin: 0 }}>
-              知识库文本抽取 KG 的图谱展示与治理在知识库模块 GraphRAG 页（REQ-290 内容置换：本栏不再重复展示）。
-            </p>
-          </Card>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+            <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0, minWidth: 64 }}>知识库模块</Typography.Text>
+            <Typography.Text style={{ fontSize: 13, flexShrink: 0 }}>KB 抽取 KG · GraphRAG</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              知识库文本抽取 KG 的图谱展示与治理在知识库模块 GraphRAG 页（本栏不再重复展示）。
+            </Typography.Text>
+            <Tooltip title="前往知识库模块">
+              <Button size="small" type="text" aria-label="前往知识库模块" icon={<ExportOutlined />} onClick={() => setPage('knowledge')} />
+            </Tooltip>
+          </div>
         </div>
       </Card>
 

@@ -891,7 +891,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                       disabled={turning || !active?.context?.cqs?.length}
                       title={
                         active?.context?.cqs?.length
-                          ? '对当前草稿逐条判定能力问题覆盖（每条独立调用防泄漏；成本=N 次模型调用）——test 站，入库前发现建模缺口'
+                          ? '对当前草稿逐条自查能力问题覆盖（每条独立调用防泄漏，约 N 次调用）——入库前发现建模缺口'
                           : '先确认能力问题后再测试'
                       }
                       onClick={runSessionTest}

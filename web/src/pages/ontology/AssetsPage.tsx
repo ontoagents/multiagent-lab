@@ -553,8 +553,8 @@ export default function AssetsPage() {
             <Typography.Title level={4} style={{ margin: 0 }}>
               本体资产
             </Typography.Title>
-            <Tag color="blue" style={{ margin: 0 }}>统一管理</Tag>
-            <Tag style={{ margin: 0 }}>{ontos.length}</Tag>
+            {/* REQ-490：页头彩 Tag 灰字化 */}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>统一管理 · {ontos.length}</Typography.Text>
           </div>
           <p className="work-head-desc">
             已构建本体的统一仓库（REQ-60）：新建请到「本体构建」选择路径；点击本体进详情工作区，负责编辑、校验、版本、产物、可视化与 TTL 导出。
@@ -606,22 +606,23 @@ export default function AssetsPage() {
             <Typography.Title level={4} style={{ margin: 0 }}>
               {active.name}
             </Typography.Title>
-            <Tag color="geekblue" style={{ margin: 0 }}>v{active.version ?? '—'}</Tag>
+            {/* REQ-490：详情头彩 Tag 灰字化（vN/发布态/来源/签名均为信息标注非状态色） */}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>v{active.version ?? '—'}</Typography.Text>
             {/* REQ-239/M65：发布态徽标（published=命名快照终态；draft=可编辑工作态） */}
             {active.status === 'published' ? (
               <Tooltip title={`已发布命名版本「${active.version_name || `v${active.version}`}」——内容变更将自动回 draft`}>
-                <Tag color="green" style={{ margin: 0 }}>Published{active.version_name ? ` · ${active.version_name}` : ''}</Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>已发布{active.version_name ? ` · ${active.version_name}` : ''}</Typography.Text>
               </Tooltip>
             ) : (
-              <Tag style={{ margin: 0 }}>Draft</Tag>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>草稿</Typography.Text>
             )}
-            <Tag color={sourceTag(active).color} style={{ margin: 0 }}>{sourceTag(active).text}</Tag>
-            {/* REQ-253④（59 号 P4）：表达性签名徽标（规则映射非推理器） */}
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{sourceTag(active).text}</Typography.Text>
+            {/* REQ-253④（59 号 P4）：表达性签名徽标（规则映射非推理器）；R10 文案人话化 */}
             {(() => {
               const ex = expressivityOf(spec)
               return ex.sig ? (
-                <Tooltip title={`表达性签名（简化 DL 记号）：${ex.feats.join('、')}`}>
-                  <Tag color="cyan" style={{ margin: 0, fontFamily: 'monospace' }} data-testid="expressivity-tag">{ex.sig}</Tag>
+                <Tooltip title={`表达能力（简化 DL 记号）：${ex.feats.join('、')}`}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }} data-testid="expressivity-tag">{ex.sig}</Typography.Text>
                 </Tooltip>
               ) : null
             })()}
@@ -692,7 +693,10 @@ export default function AssetsPage() {
                   }
                 }}
               >
-                <Button size="small" icon={<CloudDownloadOutlined />}>撤回发布</Button>
+                {/* REQ-490：动作钮灰图标化（hover 提示承载语义） */}
+                <Tooltip title="撤回发布（回 draft，命名版本清除）">
+                  <Button size="small" type="text" aria-label="撤回发布" icon={<CloudDownloadOutlined />} />
+                </Tooltip>
               </Popconfirm>
             ) : (
               <Popconfirm
@@ -726,7 +730,9 @@ export default function AssetsPage() {
                   }
                 }}
               >
-                <Button size="small" type="primary" ghost icon={<CloudUploadOutlined />}>发布</Button>
+                <Tooltip title="发布为命名版本（快照终态）">
+                  <Button size="small" type="text" aria-label="发布" icon={<CloudUploadOutlined />} />
+                </Tooltip>
               </Popconfirm>
             ))}
             {!isCompActive && (
@@ -756,23 +762,28 @@ export default function AssetsPage() {
               }}
               onConfirm={doFork}
             >
-              <Button size="small" icon={<BranchesOutlined />}>Fork 本体</Button>
+              <Tooltip title="Fork 为新本体（复制全部 Spec 与产物）">
+                <Button size="small" type="text" aria-label="Fork 本体" icon={<BranchesOutlined />} />
+              </Tooltip>
             </Popconfirm>
             )}
             {/* REQ-301 口径修订：重命名对伴生型恢复（name 为表级展示属性，改名不影响绑定/伴生子图；
                 宿主方案名保持创建时快照）——导入合并维持伴生隐藏（spec 恒空壳） */}
-            <Button size="small" icon={<EditOutlined />} onClick={() => setRenameOpen(true)}>
-              重命名
-            </Button>
+            <Tooltip title="重命名">
+              <Button size="small" type="text" aria-label="重命名" icon={<EditOutlined />} onClick={() => setRenameOpen(true)} />
+            </Tooltip>
             {!isCompActive && (
-            <Button size="small" icon={<ImportOutlined />} onClick={() => setMergeOpen(true)}>
-              导入合并
-            </Button>
+              <Tooltip title="导入合并">
+                <Button size="small" type="text" aria-label="导入合并" icon={<ImportOutlined />} onClick={() => setMergeOpen(true)} />
+              </Tooltip>
             )}
             {/* REQ-339：演化动作——携本体 id 跳转 OntoExtend 流程（ODP 扩展/词表补全，buildPath 透传） */}
             {!isCompActive && (
+            <Tooltip title="演化（跳转 OntoExtend 流程）">
             <Button
               size="small"
+              type="text"
+              aria-label="演化"
               icon={<RocketOutlined />}
               data-testid="asset-evolve-btn"
               onClick={() =>
@@ -784,9 +795,8 @@ export default function AssetsPage() {
                   window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
                 })
               }
-            >
-              演化
-            </Button>
+            />
+            </Tooltip>
             )}
             <Popconfirm
               title={`删除本体「${active.name}」？`}
@@ -830,9 +840,9 @@ export default function AssetsPage() {
               }}
               onConfirm={removeActive}
             >
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                删除
-              </Button>
+              <Tooltip title="删除本体（级联删除 Spec、产物与引用）">
+                <Button size="small" type="text" danger aria-label="删除" icon={<DeleteOutlined />} />
+              </Tooltip>
             </Popconfirm>
             </Space>
           </div>
@@ -857,7 +867,7 @@ export default function AssetsPage() {
             <Alert type="error" showIcon closable title="Fork 失败" description={forkErr} onClose={() => setForkErr(null)} />
           )}
 
-          <Card className="work-card onto-stage-card" size="small">
+          <Card className="work-card work-card-flat onto-stage-card" size="small">
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               {/* 左锚点分区导航（REQ-183 同款范式：sticky + 常显标签；三簇分组）
                   REQ-253 bugfix：分区多且竖排高于视口时 sticky 底部不可达——限高 + 纵向滚动 */}
@@ -1034,7 +1044,7 @@ export default function AssetsPage() {
                       onChange={(v) => setAxView(v as 'spec' | 'raw')}
                       options={[
                         { value: 'spec', label: 'Spec 公理（建模声明）' },
-                        { value: 'raw', label: '透传公理（导入存档）' },
+                        { value: 'raw', label: '导入的原生公理（只读存档）' },
                       ]}
                       style={{ marginBottom: 12 }}
                       data-testid="axioms-segmented"

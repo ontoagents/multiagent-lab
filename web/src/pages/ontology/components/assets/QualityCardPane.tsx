@@ -610,16 +610,21 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                 </div>
               ))}
               <Space size={6} wrap>
-                <Tag color="red" style={{ margin: 0 }}>错误 {report.error_count}</Tag>
-                <Tag color="orange" style={{ margin: 0 }}>告警 {report.warning_count}</Tag>
-                <Tag style={{ margin: 0 }}>提示 {report.info_count}</Tag>
-                <Tag color={report.pass ? 'green' : 'default'} style={{ margin: 0 }}>{report.pass ? '门禁通过' : '存在错误级命中'}</Tag>
+                {/* REQ-490：统计 Tag 灰字化——仅错误/告警留色（门禁通过为正常态灰字） */}
+                {report.error_count > 0 && <Tag color="red" style={{ margin: 0 }}>错误 {report.error_count}</Tag>}
+                {report.warning_count > 0 && <Tag color="orange" style={{ margin: 0 }}>告警 {report.warning_count}</Tag>}
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>提示 {report.info_count}</Typography.Text>
+                {report.pass ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>门禁通过</Typography.Text>
+                ) : (
+                  <Tag color="red" style={{ margin: 0 }}>存在错误级命中</Tag>
+                )}
                 {cqPassRate && (
                   <Tooltip title="CQ 验收通过率（REQ-255①）：SPARQL 查询有结果=通过；人工确认模板后经运行方案执行">
-                    <Tag color="geekblue" style={{ margin: 0 }} data-testid="cq-pass-tag"><CheckCircleOutlined /> CQ 验收 {cqPassRate}</Tag>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }} data-testid="cq-pass-tag"><CheckCircleOutlined /> CQ 验收 {cqPassRate}</Typography.Text>
                   </Tooltip>
                 )}
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   规模：{report.stats.concepts} 概念 / {report.stats.relations} 关系 / {report.stats.instances} 实例{reportAt ? ` · ${reportAt.slice(0, 19).replace('T', ' ')}` : ''}
                 </Typography.Text>
               </Space>
@@ -702,7 +707,7 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
                   : '①快筛：本体口语化后逐条 CQ 独立判定（每条单独调用防泄漏，对「可推断不显式」偏乐观）；②精判：存疑项自动翻译 SPARQL 并对运行方案执行（有结果=通过）；双轨结果统一入报告并落 artifact——本体变更后（版本超前）报告过期提示重跑（回归基准）。'}
               </Typography.Text>
               <Popconfirm
-                title={`将对 ${covCQs.length} 条能力问题各执行 1 次模型调用，确认开始？`}
+                title={`将逐条自查 ${covCQs.length} 条能力问题（每条约 1 次调用），确认开始？`}
                 onConfirm={() => runCoverage(covCQs)}
                 disabled={covBusy || covCQs.length === 0}
               >
@@ -988,16 +993,17 @@ export default function QualityCardPane({ ontologyId, onReport, onGoGraphEdit }:
         </>
       )}
 
-      {/* REQ-376③：「spec 外比例」一等指标常驻——余量占比越高=门禁/进化补丁/overlay 编辑作用面越窄 */}
+      {/* REQ-376③：「spec 外比例」一等指标常驻；REQ-490：Alert 降盒——占比高时警示色一行文，否则灰字一行 */}
       {recon && recon.triples_in > 0 && (
-        <Alert
-          type={recon.remainder / recon.triples_in > 0.3 ? 'warning' : 'info'}
-          showIcon
-          style={{ marginTop: 12 }}
-          data-testid="spec-external-ratio"
-          title={`spec 外比例 ${Math.round((recon.remainder / recon.triples_in) * 1000) / 10}%（${recon.remainder}/${recon.triples_in} 三元组在余量账本）——质量门禁/进化补丁/overlay 编辑仅作用于 spec 内形态`}
-          description="来自最近一次导入对账（REQ-328 恒等式：triples_in = vocabulary + projected + remainder）；占比高时建议在源系统补具名结构声明后重新导入。"
-        />
+        recon.remainder / recon.triples_in > 0.3 ? (
+          <Typography.Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 12, lineHeight: 1.7 }} data-testid="spec-external-ratio">
+            spec 外比例 {Math.round((recon.remainder / recon.triples_in) * 1000) / 10}%（{recon.remainder}/{recon.triples_in} 三元组在余量账本）——质量门禁/进化补丁/overlay 编辑仅作用于 spec 内形态；建议在源系统补具名结构声明后重新导入。
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12, lineHeight: 1.7 }} data-testid="spec-external-ratio">
+            spec 外比例 {Math.round((recon.remainder / recon.triples_in) * 1000) / 10}%（{recon.remainder}/{recon.triples_in} 三元组在余量账本）——质量门禁/进化补丁/overlay 编辑仅作用于 spec 内形态。
+          </Typography.Text>
+        )
       )}
     </div>
   )

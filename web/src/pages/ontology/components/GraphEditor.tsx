@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GraphPaneShell from './GraphPaneShell'
-import { Alert, Button, Empty, Form, Space, Splitter, Switch, Tag } from 'antd'
+import { Alert, Button, Empty, Form, Space, Splitter, Switch, Tag, Typography } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import {
   Background,
@@ -55,6 +55,8 @@ export default function GraphEditor({
   const [saving, setSaving] = useState(false)
   const [saveErrors, setSaveErrors] = useState<{ path: string; message: string }[] | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
+  // REQ-490⑤：MiniMap 默认关（右上小图常驻 retired——大图覆盖阅读面；Controls M 键唤出系 react-flow 内建）
+  const [miniMapOn, setMiniMapOn] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [addInstOpen, setAddInstOpen] = useState(false)
   const [showInstances, setShowInstances] = useState(true)
@@ -284,9 +286,15 @@ export default function GraphEditor({
           }}>
             添加实例
           </Button>
-          <Tag>概念 {d.concepts.length}</Tag>
-          <Tag>关系 {d.relations?.length ?? 0}</Tag>
-          <Tag>实例 {d.instances?.length ?? 0}</Tag>
+          {/* REQ-490：计数标注灰字；MiniMap 复开开关（默认关） */}
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>概念 {d.concepts.length} · 关系 {d.relations?.length ?? 0} · 实例 {d.instances?.length ?? 0}</Typography.Text>
+          <Switch
+            size="small"
+            checkedChildren="小图开"
+            unCheckedChildren="小图关"
+            checked={miniMapOn}
+            onChange={setMiniMapOn}
+          />
           <Switch
             size="small"
             checkedChildren="显示实例"
@@ -361,7 +369,7 @@ export default function GraphEditor({
               className="onto-flow"
             >
               <Background variant={BackgroundVariant.Dots} gap={18} size={1.5} color="#c9cee0" />
-              <MiniMap position="top-right" pannable zoomable nodeColor="#c9cef3" maskColor="rgba(246, 247, 251, 0.72)" />
+              {miniMapOn && <MiniMap position="top-right" pannable zoomable nodeColor="#c9cef3" maskColor="rgba(246, 247, 251, 0.72)" />}
               <Controls showInteractive={false} position="bottom-left" />
             </ReactFlow>
           </div>

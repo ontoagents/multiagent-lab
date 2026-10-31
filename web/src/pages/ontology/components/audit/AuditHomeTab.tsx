@@ -1,4 +1,4 @@
-import { Card, Space, Steps, Tag, Typography } from 'antd'
+import { Card, Collapse, Space, Steps, Tag, Typography } from 'antd'
 
 // ---------------------------------------------------------------------------
 // 消费与审计 · 学习引导页签（三段式：功能 / 原理 / 使用说明）。
@@ -56,7 +56,16 @@ const DRILL_STEPS = [
 ]
 
 export default function AuditHomeTab() {
+  // REQ-490：说明页退役为默认收起的折叠节（三张带框说明卡不再常驻开场）
   return (
+    <Collapse
+      size="small"
+      ghost
+      items={[
+        {
+          key: 'guide',
+          label: '功能与使用说明（点开查看——它是什么 / 原理 / 怎么用）',
+          children: (
     <div className="sema-home">
       <Card
         size="small"
@@ -130,5 +139,9 @@ export default function AuditHomeTab() {
         <Steps size="small" orientation="vertical" items={DRILL_STEPS} />
       </Card>
     </div>
+        ),
+      },
+      ]}
+    />
   )
 }

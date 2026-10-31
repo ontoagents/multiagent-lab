@@ -145,17 +145,20 @@ export default function AssetListPage({
                     <span className="asset-row-main">
                       <span className="asset-row-title">
                         <span className="asset-item-name" title={o.name}>{o.name}</span>
+                        {/* REQ-490：列表行 4 彩 Tag 圆点化灰字（仅校验有误留红） */}
                         {o.status === 'published' && (
-                          <Tag color="green" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }} title={`已发布${o.version_name ? ` · ${o.version_name}` : ''}`}>
-                            已发布
-                          </Tag>
+                          <span className="asset-row-dot" title={`已发布${o.version_name ? ` · ${o.version_name}` : ''}`}>
+                            <i className="dot dot-ok" />已发布
+                          </span>
                         )}
-                        {g === 'fork' && <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>fork</Tag>}
-                        {g === 'grown' && <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>对话生长</Tag>}
+                        {g === 'fork' && <span className="asset-row-dot">fork</span>}
+                        {g === 'grown' && <span className="asset-row-dot">对话生长</span>}
                         {val && (
-                          <Tag color={val.ok ? 'green' : 'red'} style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>
-                            {val.ok ? '校验通过' : '校验有误'}
-                          </Tag>
+                          val.ok ? (
+                            <span className="asset-row-dot"><i className="dot dot-ok" />校验通过</span>
+                          ) : (
+                            <Tag color="red" style={{ margin: 0, fontSize: 10, lineHeight: '15px', padding: '0 4px' }}>校验有误</Tag>
+                          )
                         )}
                       </span>
                       <span className="asset-row-desc">{o.description || '未填写描述'}</span>

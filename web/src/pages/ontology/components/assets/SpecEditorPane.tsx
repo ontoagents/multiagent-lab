@@ -250,7 +250,9 @@ export default function SpecEditorPane({
       </Form>
 
       <div className="onto-sec">
-        <span className="onto-sec-title">Spec JSON（concepts / relations / instances 三要素）</span>
+        {/* R10（并入 REQ-490）：文案人话化——「Spec JSON」→「知识结构（原生格式）」 */}
+        <span className="onto-sec-title">知识结构（原生格式）</span>
+        <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>含概念 / 关系 / 实例三要素</Typography.Text>
         {dirty && (
           <Tooltip title="本地修改尚未保存——刷新/关闭/切换本体会丢失（REQ-466 离开防护已挂）">
             <Tag color="orange" style={{ margin: 0 }} data-testid="spec-dirty-tag">
@@ -365,7 +367,7 @@ export default function SpecEditorPane({
               items={[
                 {
                   key: 'spec-json',
-                  label: `spec_json 全文 · ${specText ? specText.split('\n').length : 0} 行 —— 展开查看 / 编辑`,
+                  label: `知识结构全文 · ${specText ? specText.split('\n').length : 0} 行 —— 展开查看 / 编辑`,
                   children: (
                     <JsonEditor
                       value={specText}
@@ -473,7 +475,7 @@ function LargeSpecSummary({
               仍要打开全文查看（只读，大文档解析需数秒）
             </Button>
             <Button size="small" icon={<DownloadOutlined />} href={api.ontologyExportUrl(ontologyId, 'spec_json')} download>
-              下载 spec_json
+              下载知识结构文件
             </Button>
           </Space>
         </Space>

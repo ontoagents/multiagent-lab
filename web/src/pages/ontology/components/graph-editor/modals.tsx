@@ -50,7 +50,7 @@ export function AddConceptModal({
         <Form.Item name="parents" label="父概念（可选，多选；相关候选排前）">
           <ParentSelect draft={draft} form={form} />
         </Form.Item>
-        <Form.Item name="synonyms" label="同义词（可选）" extra="顿号/逗号分隔，如 客户、甲方——业务口语命中面（REQ-419，check_answerable 预检消费）">
+        <Form.Item name="synonyms" label="同义词（可选）" extra="顿号/逗号分隔，如 客户、甲方——业务口语也可命中">
           <Input placeholder="客户、甲方" />
         </Form.Item>
       </Form>

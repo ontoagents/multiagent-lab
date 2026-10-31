@@ -233,8 +233,9 @@ function writeChecklist(c: Record<string, string>) {
 // bugfix（开发者报障「图标淡几乎看不到」）：值必须是 **CSS 颜色**——原 s3: 'geekblue' 是 AntD
 // 预设色名而非 CSS 颜色，inline background 无效 → S3 色块透明、白字落白底（不可见）。
 // 统一改 hex（与 AntD preset 视觉近似），不再依赖「恰好是 CSS 关键字」的偶然。
+// REQ-490：七阶段色块灰阶化（无框灰字语言——阶段差异由序号与完成态承载，不再用七彩区分）
 const STAGE_COLORS: Record<string, string> = {
-  s1: '#722ed1', s2: '#1677ff', s3: '#2f54eb', s4: '#08979c', s5: '#389e0d', s6: '#d48806', s7: '#c41d7f',
+  s1: '#8b91a5', s2: '#8b91a5', s3: '#8b91a5', s4: '#8b91a5', s5: '#8b91a5', s6: '#8b91a5', s7: '#8b91a5',
 }
 
 // ---------------------------------------------------------------------------
@@ -548,7 +549,7 @@ export default function LearnPage() {
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           {section === 'path' && (
-            <Card className="work-card" size="small" title="七阶段学习路径（S1 → S7）">
+            <Card className="work-card work-card-flat" size="small" title="七阶段学习路径（S1 → S7）">
               <div className="onto-learn-steps" role="tablist" aria-label="七阶段学习路径步骤条">
                 {STAGE_DEFS.map((st, i) => {
                   const prog = stageProgress.get(st.key) ?? { total: 0, done: 0 }
@@ -581,7 +582,7 @@ export default function LearnPage() {
           )}
 
           {section === 'build-paths' && (
-            <Card className="work-card" size="small" title="构建方式对照（六路径）">
+            <Card className="work-card work-card-flat" size="small" title="构建方式对照（六路径）">
               <div className="onto-learn-cards">
                 {BUILD_PATH_CARDS.map((c) => (
                   <div className="onto-learn-card" key={c.key}>
@@ -602,7 +603,7 @@ export default function LearnPage() {
           )}
 
           {section === 'runtime-paths' && (
-            <Card className="work-card" size="small" title="运行方式对照（引擎差异）">
+            <Card className="work-card work-card-flat" size="small" title="运行方式对照（引擎差异）">
               <Alert
                 type="success"
                 showIcon
@@ -634,7 +635,7 @@ export default function LearnPage() {
 
           {section === 'quiz' && <QuizPane ontologies={ontologies} />}
           {section === 'examples' && (
-            <Card className="work-card" size="small" title="示例本体库">
+            <Card className="work-card work-card-flat" size="small" title="示例本体库">
               {learningExamples === null ? (
                 <Skeleton active title={false} paragraph={{ rows: 3 }} />
               ) : learningExamples.length === 0 ? (
@@ -672,7 +673,7 @@ export default function LearnPage() {
           )}
 
           {section === 'pipeline' && (
-            <Card className="work-card" size="small" title="工具链配置（REQ-75/76）">
+            <Card className="work-card work-card-flat" size="small" title="工具链配置（REQ-75/76）">
               <PipelinePane />
             </Card>
           )}

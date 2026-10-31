@@ -844,7 +844,7 @@ export default function HierarchyPane({ ontology, spec, selection, onSelect, onS
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <Typography.Text strong>层级浏览</Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Protégé 式树形导航（REQ-363）：树=导航式查询，与图形视图互补（选择联动）
+          概念层级（R10 文案人话化）：树形浏览与选择联动，与图形视图互补
         </Typography.Text>
         <span style={{ flex: 1 }} />
         <AutoComplete

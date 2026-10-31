@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Space, Tabs, Tag, Typography } from 'antd'
+import { Button, Space, Tabs, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../api/client'
 import type { RuntimeProfile } from '../../api/types'
@@ -52,13 +52,11 @@ export default function AuditPage() {
               <Typography.Title level={4} style={{ margin: 0 }}>
                 消费与审计
               </Typography.Title>
-              <Tag color="purple" style={{ margin: 0 }}>
-                本体消费侧观测台
-              </Tag>
-              <Tag style={{ margin: 0 }}>TTL 消费 · 决策留痕</Tag>
+              {/* REQ-490：页头 Tag 灰字化 */}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>消费侧观测台 · 决策留痕</Typography.Text>
             </div>
             <p className="work-head-desc">
-              本体消费侧观测台（D-O19/REQ-290）：观测本体 TTL 装载后的消费面（消费一览 / 关键词快查 / 运行态实渲 · SPARQL · AI 消费 · CQ 验收导航），构建与治理决策全程留痕可溯源并导出 PROV-O。知识库文本抽取 KG 的展示与治理在知识库模块（内容置换出本栏）。
+              观测本体装载后的消费面（消费一览 / 关键词快查 / 运行态实渲 / SPARQL / AI 消费 / 问题验收导航），构建与治理决策全程留痕可溯源。知识库文本抽取知识图谱的展示与治理在知识库模块。
             </p>
           </div>
           <Space size={8} wrap>
@@ -68,42 +66,22 @@ export default function AuditPage() {
           </Space>
         </div>
 
-        {/* 状态条：运行方案聚合 + 质量低分警示（REQ-234① 口径，只警示不阻断） */}
-        <div className="sema-status">
+        {/* 状态条：运行方案聚合 + 质量低分警示（REQ-234① 口径，只警示不阻断）；REQ-490 三件套瘦身为灰字一行 */}
+        <div className="sema-status" style={{ fontSize: 12.5, color: 'var(--c-ink-2, var(--c-ink))', padding: '2px 0 10px' }}>
           {profiles === null ? (
-            <Alert type="info" showIcon title="运行方案加载中…" />
+            <Typography.Text type="secondary">运行方案加载中…</Typography.Text>
           ) : running.length === 0 ? (
-            <Alert
-              type="info"
-              showIcon
-              title="暂无运行中的本体方案"
-              description="消费面观测需先启动方案：到「本体运行」栏启动（或创建）运行方案后，此处展示装载版本与质量快照。"
-            />
+            <Typography.Text type="secondary">
+              暂无运行中的本体方案——到「本体运行」栏启动（或创建）运行方案后，此处展示装载版本与质量快照。
+            </Typography.Text>
+          ) : warnCount > 0 ? (
+            <Typography.Text type="warning" style={{ fontSize: 12.5 }}>
+              {running.length} 个运行方案消费中 · 质量低分警示 ×{warnCount}（快照异步快评写入，仅警示不阻断）；消费面见「消费观测」、决策留痕见「决策审计」页签。
+            </Typography.Text>
           ) : (
-            <Alert
-              type={warnCount > 0 ? 'warning' : 'success'}
-              showIcon
-              title={
-                <Space size={8} wrap>
-                  <span>
-                    <b>{running.length}</b> 个运行方案消费中
-                  </span>
-                  {warnCount > 0 && (
-                    <Tag color="orange" style={{ margin: 0 }}>
-                      质量低分警示 ×{warnCount}
-                    </Tag>
-                  )}
-                </Space>
-              }
-              description={
-                <Space size={16} wrap>
-                  <span>消费面见「消费观测」页签；决策留痕见「决策审计」页签</span>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    质量快照由方案启动异步快评写入（REQ-234①），低分仅警示不阻断
-                  </Typography.Text>
-                </Space>
-              }
-            />
+            <Typography.Text type="secondary">
+              {running.length} 个运行方案消费中；消费面见「消费观测」、决策留痕见「决策审计」页签。
+            </Typography.Text>
           )}
         </div>
 

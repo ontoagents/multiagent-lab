@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Popconfirm, Select, Space, Table, Tag, Tooltip, Input } from 'antd'
+import { Alert, Button, Popconfirm, Select, Space, Table, Tooltip, Typography, Input } from 'antd'
 import { api } from '../../../../api/client'
 import type { ExternalRef } from '../../../../api/types'
 
@@ -108,20 +108,21 @@ export default function ExternalRefsPane({ ontologyId, concepts, ontos }: { onto
           {
             title: '引用', dataIndex: 'ref_kind', width: 130,
             render: (k: string, r: ExternalRef) => (
+              // REQ-490：种类标注灰字化（信息标注非状态色）
               <Space size={4}>
-                <Tag color={k === 'import' ? 'blue' : k === 'alignment' ? 'purple' : 'green'}>{k}</Tag>
-                {r.predicate && <Tag>{r.predicate}</Tag>}
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{k}</Typography.Text>
+                {r.predicate && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.predicate}</Typography.Text>}
               </Space>
             ),
           },
           {
             title: '目标', key: 'target', ellipsis: true,
             render: (_: any, r: ExternalRef) =>
-              r.to_onto_id ? <span>{(ontos.find((o) => o.id === r.to_onto_id)?.name ?? r.to_onto_id)}:{r.to_concept}</span> : <span title="外部词表/未导入资产（IRI 登记态）">{r.to_concept} <Tag style={{ marginLeft: 4 }}>外部</Tag></span>,
+              r.to_onto_id ? <span>{(ontos.find((o) => o.id === r.to_onto_id)?.name ?? r.to_onto_id)}:{r.to_concept}</span> : <span title="外部词表/未导入资产（IRI 登记态）">{r.to_concept} <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>外部</Typography.Text></span>,
           },
           {
             title: '来源', dataIndex: 'justification', width: 130,
-            render: (j: string) => <Tag>{j === 'import_statement' ? 'owl:imports 自动登记' : j}</Tag>,
+            render: (j: string) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{j === 'import_statement' ? 'owl:imports 自动登记' : j}</Typography.Text>,
           },
           { title: '备注', dataIndex: 'note', ellipsis: true },
           {

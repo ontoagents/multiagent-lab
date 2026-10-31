@@ -133,13 +133,10 @@ export function ExportPane({ ontology }: { ontology: Ontology }) {
   const { showToast } = useUI()
   return (
     <>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="spec_json → Turtle 导出（O1 sidecar）"
-        description="从零创建的本体（仅有 spec_json）经此导出 RDF 形态后，可在 SPARQL 型运行方案（Oxigraph/Fuseki）中加载运行；消费与审计环节见本体模块「消费与审计」栏（D-O15 自研 KG）。"
-      />
+      {/* REQ-490：Alert 盒降盒——灰字一行（R10：去 D-O15 内部编号） */}
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+        从零创建的本体经此导出 Turtle 形态，可在 SPARQL 型运行方案（Oxigraph/Fuseki）中加载运行；消费与审计见「消费与审计」栏。
+      </Typography.Text>
       <Space>
         <Button
           type="primary"

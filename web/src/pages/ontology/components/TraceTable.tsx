@@ -65,10 +65,9 @@ export default function TraceTable({ profiles }: { profiles: RuntimeProfile[] })
       dataIndex: 'ok',
       width: 80,
       render: (v: boolean) =>
+        // REQ-490：状态列灰字化——成功为正常态灰字，失败留红
         v ? (
-          <Tag color="green" style={{ margin: 0 }}>
-            成功
-          </Tag>
+          <Typography.Text type="secondary" style={{ margin: 0, fontSize: 12 }}>成功</Typography.Text>
         ) : (
           <Tag color="red" style={{ margin: 0 }}>
             失败
