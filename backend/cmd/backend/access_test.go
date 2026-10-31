@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +117,83 @@ func TestAccessAuthOnlyAPIGated(t *testing.T) {
 		if rec.Code != 200 {
 			t.Fatalf("%s 不应被凭证门禁拦截（仅 /api/* 管）, got %d", p, rec.Code)
 		}
+	}
+}
+
+// REQ-556/M363 只读演示凭证（PLATFORM_TOKEN_RO）行为矩阵（107 号 §7.4 验收③）：
+// 无凭证 401／RO GET 200／RO POST 403 人话／全权 POST 200／loopback 无凭证 200（豁免不回归）/
+// RO 打敏感导出面 403（backup/export 打包主密钥）／RO 未启用时带 RO 值凭证走全权判定 401。
+func TestAccessAuthROScope_Req556(t *testing.T) {
+	withToken(t, "full-s3cret")
+	old, had := os.LookupEnv("PLATFORM_TOKEN_RO")
+	os.Setenv("PLATFORM_TOKEN_RO", "ro-s3cret")
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("PLATFORM_TOKEN_RO", old)
+		} else {
+			os.Unsetenv("PLATFORM_TOKEN_RO")
+		}
+	})
+	h := accessAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+
+	ro := func(r *http.Request) { r.Header.Set("X-Platform-Token", "ro-s3cret") }
+	full := func(r *http.Request) { r.Header.Set("X-Platform-Token", "full-s3cret") }
+
+	// RO GET → 200
+	rec := httptest.NewRecorder()
+	r := newReq("192.168.1.5:1234", "/api/kb")
+	ro(r)
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("RO GET 应 200, got %d", rec.Code)
+	}
+	// RO POST → 403 人话
+	rec = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/api/conversations", nil)
+	r.RemoteAddr = "192.168.1.5:1234"
+	ro(r)
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "只读凭证") {
+		t.Fatalf("RO POST 应 403 人话, got %d %s", rec.Code, rec.Body.String())
+	}
+	// RO 敏感导出面（backup/export 打包主密钥）→ 403
+	rec = httptest.NewRecorder()
+	r = newReq("192.168.1.5:1234", "/api/backup/export")
+	ro(r)
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "敏感导出面") {
+		t.Fatalf("RO backup/export 应 403, got %d %s", rec.Code, rec.Body.String())
+	}
+	// 全权 POST → 200（RO 不影响全权档）
+	rec = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, "/api/conversations", nil)
+	r.RemoteAddr = "192.168.1.5:1234"
+	full(r)
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("全权 POST 应 200, got %d", rec.Code)
+	}
+	// loopback 无凭证 → 200（豁免语义不回归）
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, newReq("127.0.0.1:9999", "/api/kb"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("loopback 豁免应保持, got %d", rec.Code)
+	}
+	// RO 未启用：RO 值凭证非全权 → 401（第二档关闭零变化）
+	os.Unsetenv("PLATFORM_TOKEN_RO")
+	rec = httptest.NewRecorder()
+	r = newReq("192.168.1.5:1234", "/api/kb")
+	ro(r)
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("RO 未启用时 RO 凭证应 401, got %d", rec.Code)
+	}
+	// 错误 RO 凭证 → 401（非 403——不泄露 RO 档存在性）
+	rec = httptest.NewRecorder()
+	r = newReq("192.168.1.5:1234", "/api/kb")
+	r.Header.Set("X-Platform-Token", "ro-wrong")
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("错误凭证应 401, got %d", rec.Code)
 	}
 }

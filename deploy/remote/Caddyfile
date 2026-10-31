@@ -1,0 +1,13 @@
+# REQ-556/M363 Caddy 反代参考配置（107 号 §7.3）：
+# - {$DEMO_DOMAIN} 环境变量注入域名；Caddy 自动 ACME/HTTPS（公网 DNS 指向本机即可）；
+# - 反代 backend:8080（compose 服务名——卫星 8090/8091/6333 不进反代，16 号 §11.3-4）；
+# - SSE：Caddy 默认关闭响应缓冲直通（flush_interval -1 对 SSE 必要时显式声明已留）；
+# - 同源形态：平台 CORS 零改动（main.go 同源白名单放行反代来源）。
+{$DEMO_DOMAIN} {
+	encode gzip
+
+	# SSE 事件流直通（EventSource/fetch 流式；无缓冲）
+	reverse_proxy backend:8080 {
+		flush_interval -1
+	}
+}
