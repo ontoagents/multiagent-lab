@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Input, Popconfirm, Result, Segmented, Space, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Input, Modal, Popconfirm, Result, Segmented, Space, Tag, Tooltip, Typography } from 'antd'
 import {
   ArrowLeftOutlined,
   BranchesOutlined,
@@ -50,6 +50,7 @@ import ImportMergeWizard from './components/assets/ImportMergeWizard'
 import ReferencesPane from './components/assets/ReferencesPane'
 import ExternalRefsPane from './components/assets/ExternalRefsPane'
 import HierarchyPane, { type OntoSelection } from './components/assets/HierarchyPane'
+import CqQuickScreen from './components/CqQuickScreen'
 
 // ---------------------------------------------------------------------------
 // 本体资产（AssetsPage，REQ-104 ③）：全部已构建本体统一管理
@@ -167,6 +168,10 @@ export default function AssetsPage() {
   const [mergeOpen, setMergeOpen] = useState(false) // REQ-157 导入合并向导
   const [renameOpen, setRenameOpen] = useState(false)
   const [publishName, setPublishName] = useState('') // REQ-239/M65 发布命名
+  // REQ-507/M315：发布前轻量体检卡（不阻断——快评摘要+可选 CQ 快筛；反转 78 号 P2 触发驱动口径）
+  const [publishCardOpen, setPublishCardOpen] = useState(false)
+  const [publishDigest, setPublishDigest] = useState<QualityReport | null>(null)
+  const [publishDigestLoading, setPublishDigestLoading] = useState(false)
   const [forkName, setForkName] = useState('')
   // REQ-240③/M66：资产卡能力雷达数据（缓存质量报告静默拉取；无报告不显示）
   // REQ-326③：列表态整页雷达——缓存扩为全量渐进拉取（详情态同口径 ensure）
@@ -701,40 +706,104 @@ export default function AssetsPage() {
             ) : (
               <Popconfirm
                 icon={null}
-                title={`发布 v${active.version ?? '—'} 为命名版本`}
-                description={
-                  <Space direction="vertical" style={{ width: 300 }} size={8}>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      发布即快照终态：运行向导优先装载已发布版本；后续编辑将自动回 draft，历史快照可恢复为新版本。
-                    </Typography.Text>
-                    <Input
-                      value={publishName}
-                      onChange={(e) => setPublishName(e.target.value)}
-                      placeholder={`命名（可选，默认 v${active.version ?? '—'}，如 v${active.version ?? '1'}-k8s-baseline）`}
-                    />
-                  </Space>
-                }
-                okText="发布"
+                title="打开发布前体检卡？"
+                description="体检卡展示质量快评与可选 CQ 覆盖快筛（不阻断发布）——确认后进入发布确认。"
+                okText="打开体检卡"
                 cancelText="取消"
                 onOpenChange={(o) => {
-                  if (o) setPublishName('')
-                }}
-                onConfirm={async () => {
-                  if (!active) return
-                  try {
-                    const o = await api.publishOntology(active.id, publishName.trim())
-                    showToast(`已发布${o.version_name ? ` · ${o.version_name}` : ''}`)
-                    reloadOntos()
-                  } catch (e: any) {
-                    showToast(e.message, 'err')
+                  if (o) {
+                    setPublishName('')
+                    setPublishCardOpen(true)
+                    setPublishDigestLoading(true)
+                    setPublishDigest(null)
+                    api
+                      .qualityRun(active.id, false, false, false)
+                      .then((r) => setPublishDigest(r.report))
+                      .catch(() => setPublishDigest(null))
+                      .finally(() => setPublishDigestLoading(false))
                   }
                 }}
+                onConfirm={() => setPublishCardOpen(true)}
               >
                 <Tooltip title="发布为命名版本（快照终态）">
                   <Button size="small" type="text" aria-label="发布" icon={<CloudUploadOutlined />} />
                 </Tooltip>
               </Popconfirm>
             ))}
+            {/* REQ-507/M315：发布前轻量体检卡（不阻断——快评摘要+可选 CQ 快筛+仍要发布；反转 78 号 P2） */}
+            <Modal
+              open={publishCardOpen}
+              title={`发布前轻量体检 · v${active?.version ?? '—'}（不阻断发布）`}
+              width={560}
+              onCancel={() => setPublishCardOpen(false)}
+              footer={
+                <Space>
+                  <Button onClick={() => setPublishCardOpen(false)}>取消</Button>
+                  <Button
+                    type="primary"
+                    data-testid="publish-anyway"
+                    disabled={!active}
+                    onClick={async () => {
+                      if (!active) return
+                      try {
+                        const o = await api.publishOntology(active.id, publishName.trim())
+                        showToast(`已发布${o.version_name ? ` · ${o.version_name}` : ''}`)
+                        setPublishCardOpen(false)
+                        reloadOntos()
+                      } catch (e: any) {
+                        showToast(e.message, 'err')
+                      }
+                    }}
+                  >
+                    仍要发布
+                  </Button>
+                </Space>
+              }
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size={10}>
+                <div>
+                  <Typography.Text strong style={{ fontSize: 12.5 }}>质量快评（save=false，不落 artifact）</Typography.Text>
+                  {publishDigestLoading ? (
+                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>快评生成中…</Typography.Text>
+                  ) : publishDigest ? (
+                    <div style={{ marginTop: 4 }} data-testid="publish-digest">
+                      <Space size={6} wrap>
+                        {publishDigest.error_count > 0 && <Tag color="red" style={{ margin: 0 }}>错误 {publishDigest.error_count}</Tag>}
+                        {publishDigest.warning_count > 0 && <Tag color="orange" style={{ margin: 0 }}>警告 {publishDigest.warning_count}</Tag>}
+                        {publishDigest.error_count === 0 && publishDigest.warning_count === 0 && <Tag style={{ margin: 0 }}>全部通过</Tag>}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>综合 {publishDigest.score?.overall?.toFixed(1) ?? '—'}</Typography.Text>
+                      </Space>
+                      {(publishDigest.findings ?? []).slice(0, 5).map((f, i) => (
+                        <Typography.Paragraph key={i} type="secondary" style={{ fontSize: 11.5, margin: '4px 0 0' }}>
+                          [{f.severity}] {f.title}
+                        </Typography.Paragraph>
+                      ))}
+                    </div>
+                  ) : (
+                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>快评不可用（构建平面不可达）——不阻断发布。</Typography.Text>
+                  )}
+                </div>
+                <div>
+                  <Typography.Text strong style={{ fontSize: 12.5 }}>可选：CQ 覆盖快筛</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginBottom: 4 }}>
+                    逐条自查 spec.CQ 覆盖（每条约 1 次调用）——可选步骤，跳过不影响发布。
+                  </Typography.Text>
+                  {active && <CqQuickScreen ontologyId={active.id} />}
+                </div>
+                <div>
+                  <Typography.Text strong style={{ fontSize: 12.5 }}>发布命名</Typography.Text>
+                  <Input
+                    style={{ marginTop: 4 }}
+                    value={publishName}
+                    onChange={(e) => setPublishName(e.target.value)}
+                    placeholder={`命名（可选，默认 v${active?.version ?? '—'}，如 v${active?.version ?? '1'}-k8s-baseline）`}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                    发布即快照终态：运行向导优先装载已发布版本；后续编辑将自动回 draft，历史快照可恢复为新版本。
+                  </Typography.Text>
+                </div>
+              </Space>
+            </Modal>
             {!isCompActive && (
             <Popconfirm
               icon={null}
