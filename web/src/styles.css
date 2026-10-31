@@ -507,7 +507,7 @@ pre.raw-json {
 /* ---- 设置页（原型 06 §3.6：左分类 + 右内容，满高两栏） ---- */
 .settings-main { flex: 1; min-width: 0; overflow: auto; padding: 16px 22px 28px; }
 .settings-note {
-  margin: 12px 12px 0; padding: 10px 12px; border: 1px dashed var(--c-line); border-radius: 8px;
+  margin: 12px 12px 0; padding: 4px 12px; border: 0;
   font-size: 12px; color: var(--c-ink-3); line-height: 1.8;
 }
 .tab-footer { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }

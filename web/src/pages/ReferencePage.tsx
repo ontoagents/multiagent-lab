@@ -214,11 +214,10 @@ function SourceMap({ meta, onOpenDoc }: { meta: Frontmatter; onOpenDoc: (path: s
     { label: '关联决策', items: meta.decisions ?? [] },
   ].filter((r) => r.items.length > 0 && !(r.items.length === 1 && r.items[0] === '—'))
   if (rows.length === 0) return null
+  // REQ-494：去框改「标签: 条目」灰字行（Card 外框/样板句/品牌色 Tag 堆叠退役；可点条目灰字链接化）
   return (
-    <Card size="small" className="ref-sourcemap" title="深入阅读 · 源文档地图">
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-        本页是学习视图；权威事实以下列出处为准（编号见 docs/18 注册表）。
-      </Typography.Paragraph>
+    <div className="ref-sourcemap" data-testid="ref-sourcemap">
+      <Typography.Text strong style={{ fontSize: 12.5, display: 'block', marginBottom: 6 }}>深入阅读 · 源文档地图</Typography.Text>
       {rows.map((r) => (
         <div key={r.label} className="ref-sourcemap-row">
           <span className="ref-sourcemap-label">{r.label}</span>
@@ -227,17 +226,18 @@ function SourceMap({ meta, onOpenDoc }: { meta: Frontmatter; onOpenDoc: (path: s
               const file = docFileOf(it)
               const clickable = r.label !== '需求编号' && file
               return clickable ? (
-                <Tag
+                <Typography.Text
                   key={it}
-                  style={{ marginInlineEnd: 6, cursor: 'pointer', color: 'var(--c-brand)', borderColor: 'var(--c-brand)' }}
+                  type="secondary"
+                  style={{ fontSize: 12, marginInlineEnd: 10, cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dashed', textUnderlineOffset: 3 }}
                   onClick={() => onOpenDoc(file)}
                 >
-                  {it} · 点击查看
-                </Tag>
-              ) : (
-                <Tag key={it} style={{ marginInlineEnd: 6 }}>
                   {it}
-                </Tag>
+                </Typography.Text>
+              ) : (
+                <Typography.Text key={it} type="secondary" style={{ fontSize: 12, marginInlineEnd: 10 }}>
+                  {it}
+                </Typography.Text>
               )
             })}
           </span>
@@ -248,7 +248,7 @@ function SourceMap({ meta, onOpenDoc }: { meta: Frontmatter; onOpenDoc: (path: s
           最后同步：{meta.synced}（语义级变更须按 AGENTS.md 纪律 7 同步本页）
         </Typography.Paragraph>
       )}
-    </Card>
+    </div>
   )
 }
 
@@ -425,7 +425,7 @@ export default function ReferencePage() {
             )}
           </div>
           <div className="ref-body" onClick={onBodyClick}>
-            <XMarkdown content={body} openLinksInNewTab />
+            <XMarkdown className="chat-md" content={body} openLinksInNewTab />
             <SourceMap meta={meta} onOpenDoc={setViewDoc} />
           </div>
         </div>
@@ -529,7 +529,7 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
 
   return (
     <Card size="small" style={{ flex: 'none', margin: '0 0 8px' }} data-testid="knowledge-graph-panel"
-      title={<Space size={8}><span>知识图谱 · 前置图投影</span><Tag color="purple" style={{ margin: 0 }}>L2</Tag>
+      title={<Space size={8}><span>知识图谱 · 前置图投影</span><Typography.Text type="secondary" style={{ fontSize: 11 }}>L2</Typography.Text>
         {data && (
           <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
             节点 {nodes.length} · 边 {edges.length}{broken.length > 0 ? ` · 断链 ${broken.length}` : ''}
@@ -552,9 +552,16 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
               description={`${loadErr}——可能原因：后端服务不可达。可点击右上「重新摄取」重试。`} />
           )}
           {data && nodes.length === 0 && !loadErr && (
-            <Alert type={data.ingestError ? 'error' : 'info'} showIcon style={{ marginBottom: 8 }}
-              title={data.ingestError ? '知识图谱为空且自动摄取失败' : '知识图谱为空（尚无卡节点）'}
-              description={data.ingestError ?? '知识体系目录下暂无可摄取的卡。按卡规范落档后点击右上「重新摄取」。'} />
+            data.ingestError ? (
+              <Alert type="error" showIcon style={{ marginBottom: 8 }}
+                title="知识图谱为空且自动摄取失败"
+                description={data.ingestError} />
+            ) : (
+              /* REQ-494：info Alert 降灰字一行（error 态保留） */
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+                知识图谱为空（尚无卡节点）——知识体系目录下暂无可摄取的卡。按卡规范落档后点击右上「重新摄取」。
+              </Typography.Text>
+            )
           )}
           {nodes.length > 0 && (
             <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
@@ -602,7 +609,7 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
             const meta = KG_KIND_META[k]
             return (
               <div key={k} style={{ marginTop: 6 }}>
-                <Tag color={meta.color} style={{ fontSize: 11 }}>{meta.label}卡 {kn.length}</Tag>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>{meta.label}卡 {kn.length}</Typography.Text>
                 {kn.map((n) => (
                   <Tooltip key={n.id} title={n.desc || n.id}>
                     <a onClick={() => onOpenCard(n.id)} style={{ fontSize: 12, marginRight: 10 }}>{n.topic || cardName(n.id)}</a>
