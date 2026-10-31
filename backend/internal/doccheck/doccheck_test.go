@@ -251,7 +251,8 @@ func TestReqIndexOpenSet(t *testing.T) {
 			}
 		}
 	}
-	if rows < 40 {
+	// 2026-11-01 调 40→35：决策结构化批+结构化协作批+动态工作流批 17 件同日交付合规删行
+	if rows < 35 {
 		t.Errorf("19 号开放需求行数 %d 异常偏少（建档初版 56 行）——疑似误删", rows)
 	}
 }
