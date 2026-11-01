@@ -1,13 +1,15 @@
 # REQ-538/M345：最小 CI 门禁（自 90 号 E3 拆出与 E1 并线——外部 PR 出现前的裸奔窗口收口）。
-# 触发：push main + PR；跑三平面 Go 测试 + web tsc/build。
+# 触发：workflow_dispatch（手动按需）+ PR；跑三平面 Go 测试 + web tsc/build。
 # 边界：headless 冒烟不纳入（runner 成本——评估后决定，见 01 §3.17 REQ-538 行）。
 # 2026-10-31 拆步：build/vet/test 各占一步——合并步失败时批注只给 exit code 不给命令名，
 # 排障盲（ontology-service 连续两轮 red 无法归因到命令级，拆步后 annotation 直指步骤）。
+# 2026-11-01 REQ-567 顺手件：push 全触发退役——批量交付 21 轮 push 一轮未跑（minutes 限额）
+# 且本地 pre-commit+测试已有门禁，改 workflow_dispatch 按需触发省 minutes；PR 保留自动触发。
+# 手动触发方式：GitHub Actions 页面 → ci → Run workflow；或 gh workflow run ci.yml
 name: ci
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
   pull_request:
 
 jobs:
