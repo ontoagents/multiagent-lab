@@ -28,6 +28,8 @@ import (
 
 // Service 运行服务：装配、执行、停止。
 type Service struct {
+	// assembleOverride 单测钩子（REQ-558 暂停恢复测试直注 stub 模型；生产恒 nil 走 Assembler.Assemble）
+	assembleOverride func(ctx context.Context, agent *store.Agent, conv *store.Conversation) (*BuildResult, error)
 	Store     *store.Store
 	Assembler *Assembler
 	KB        KBSource            // M6：对话知识库召回（REQ-355 R1 接口反转；nil 时禁用，api 装配层适配 kb.Service）
@@ -278,7 +280,16 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 
 	// REQ-224/M52：运行期事件汇——装配层/工具包装层（审批 granted·denied/hook.denied/连接器降级）
 	// 经 ctx 发结构化审计事件，与常规事件同走 emitAndRecord（SSE+落库同源，schema_version=2）
+	agentRef := &agentRef{} // REQ-557：tool 层事件成员归属（runConsumer 构造后接管更新）
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
+		if data == nil {
+			data = map[string]any{}
+		}
+		if a := agentRef.get(); a != "" {
+			if _, dup := data["agent"]; !dup {
+				data["agent"] = a // approval.granted/denied、hook.denied 等成员归属（未知成员不加字段）
+			}
+		}
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
 	// REQ-354/P2·G4：调用者身份入 ctx（ontochat 工具组落构建平面审计两列的数据源；
@@ -504,7 +515,7 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		s.abandonInterrupt(runCtx, conv, runID, emit)
 	}
 
-	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
+	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist, agentRef)
 	// REQ-453/M249：callbacks 统一执行观测面（model/tool 计时/错误/token 落 obs.timing，
 	// level>0 才激活——与 model.step 同门控；debugModel 维持现状评估结论见 callbacks.go 注）
 	obs := &obsHandler{level: DebugLevel(debug)}
@@ -573,6 +584,20 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 				sort.Slice(arr, func(i, j int) bool { return arr[i].TotalTokens > arr[j].TotalTokens })
 				data["usage_by_tool"] = arr
 			}
+			// REQ-557/M364 过程账本：成员维度 token 归因（默认开启不经 debug 门控——与 model.step
+			// 的关键差别；近似口径沿 REQ-397：并行均摊/余数归首个，闭合偏差仅并行均摊余数）
+			if len(rc.agentUsageAgg) > 0 {
+				type agentTok struct {
+					Agent       string `json:"agent"`
+					TotalTokens int    `json:"total_tokens"`
+				}
+				arr := make([]agentTok, 0, len(rc.agentUsageAgg))
+				for a, n := range rc.agentUsageAgg {
+					arr = append(arr, agentTok{Agent: a, TotalTokens: n})
+				}
+				sort.Slice(arr, func(i, j int) bool { return arr[i].TotalTokens > arr[j].TotalTokens })
+				data["usage_by_agent"] = arr
+			}
 		}
 		if rc.lastFinish != "" {
 			data["finish_reason"] = rc.lastFinish
@@ -593,6 +618,9 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 	case rc.interrupted:
 		// M11 收尾：挂起等待答复（区别于 completed / stopped）
 		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("interrupted")), emit)
+	case rc.paused:
+		// REQ-558/M365：pause 安全点挂起（对称 interrupted；pause_state 已由 OnAgentEvents 落库）
+		s.emitAndRecord(ctx, conv, runID, newEvent("run.finished", runID, finishData("paused")), emit)
 	default:
 		// REQ-202 ③ verify_on_stop 背压：验证命令失败不标记 completed（verify_failed + 事件透出输出）
 		if agent != nil && agent.VerifyCommand != "" {
@@ -609,6 +637,11 @@ func (s *Service) runFinalize(ctx context.Context, rc *runConsumer, conv *store.
 				s.emitAndRecord(ctx, conv, runID, newEvent("verify.failed", runID, map[string]any{
 					"command": agent.VerifyCommand, "output": truncateRunes(out, 1500), "error": verr.Error(),
 				}), emit)
+				// REQ-553 事件点规则（107 号 §4.3②）：verify_failed 命中冲突规则档 event 条目 →
+				// 运行收束后无活运行可挂起，落 pending 裁决单+conflict.detected（裁决后回注消息新运行）。
+				// 默认档无 event 条目=零行为变化；规则档关闭/解析失败同样零命中。
+				s.detectEventConflict(ctx, conv, runID, "verify.failed",
+					"verify_on_stop 验证未通过——按规则档转人工裁决（pending）：命令 "+agent.VerifyCommand+" 失败 "+verr.Error(), emit)
 				s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 					"message": "verify_on_stop 验证未通过，本次运行不标记完成: " + verr.Error(),
 					"output":  truncateRunes(out, 1500),
@@ -851,6 +884,9 @@ type interruptState struct {
 	// Node REQ-205③：工作流挂起节点（HITL 闸门节点化——会话级单槽载体上的节点标注；
 	// 空=非工作流或未知节点。恢复仍沿 CheckpointID/TargetID 定向，本字段为进度呈现与回放定位）
 	Node string `json:"node,omitempty"`
+	// ConflictID REQ-553/M360：分歧裁决单指针（kind='conflict' 时必填——conflict_review 表审计行 id，
+	// resolve 端点据此定位裁决单并复用 Service.Resume 定向恢复）
+	ConflictID string `json:"conflict_id,omitempty"`
 }
 
 // handleInterrupted 捕获运行中断（ask_human / 工具审批）：提取根因中断点信息，
@@ -905,13 +941,18 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 			st.TargetID = chosen.ID
 			if b, err := json.Marshal(chosen.Info); err == nil {
 				var hi struct {
-					Question  string   `json:"question"`
-					Choices   []string `json:"choices"`
-					ToolName  string   `json:"tool_name"`
-					Arguments string   `json:"arguments"`
+					Question   string   `json:"question"`
+					Choices    []string `json:"choices"`
+					ToolName   string   `json:"tool_name"`
+					Arguments  string   `json:"arguments"`
+					ConflictID string   `json:"conflict_id"`
 				}
 				if json.Unmarshal(b, &hi) == nil {
 					switch {
+					case hi.ConflictID != "":
+						// REQ-553：分歧裁决挂起（submit_review 命中规则档）——kind=conflict 外显裁决卡
+						st.Kind, st.Question, st.Choices = "conflict", hi.Question, hi.Choices
+						st.ConflictID = hi.ConflictID
 					case hi.Question != "":
 						st.Kind, st.Question, st.Choices = "ask_human", hi.Question, hi.Choices
 					case hi.ToolName != "":
@@ -934,7 +975,8 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 		"kind": st.Kind, "checkpoint_id": st.CheckpointID, "target_id": st.TargetID,
 		"question": st.Question, "choices": st.Choices,
 		"tool_name": st.ToolName, "arguments": st.Arguments,
-		"node":      st.Node, // REQ-205③：工作流挂起节点（节点级 HITL 定位）
+		"node":        st.Node,      // REQ-205③：工作流挂起节点（节点级 HITL 定位）
+		"conflict_id": st.ConflictID, // REQ-553：分歧裁决单指针（裁决卡 resolve 动作数据源）
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.interrupted", runID, data), emit)
 }
@@ -952,6 +994,25 @@ func (s *Service) abandonInterrupt(ctx context.Context, conv *store.Conversation
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.warning", runID, map[string]any{
 		"message": "已有挂起的提问未答复，本次新消息按新问题运行（原提问已放弃）",
 	}), emit)
+}
+
+// agentRef 当前成员可变引用（REQ-557/M364 过程账本）——trackAgent 切换时更新、sink 闭包读之；
+// tool 层事件（approval.granted/denied、hook.denied 经 WithEventSink 发出）归属注入的数据通道。
+type agentRef struct {
+	mu   sync.Mutex
+	name string
+}
+
+func (a *agentRef) set(name string) {
+	a.mu.Lock()
+	a.name = name
+	a.mu.Unlock()
+}
+
+func (a *agentRef) get() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.name
 }
 
 // runConsumer 单次运行的事件消费状态（Run 与 Resume 共用同一事件翻译管线）。
@@ -989,11 +1050,14 @@ type runConsumer struct {
 	toolCallArg map[string]string    // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
 	toolCallUsage map[string]*usageSnapshot // REQ-397/M193：tool_call_id → 发起步 usage 快照（差值归因）
 	toolUsageAgg  map[string]int            // REQ-397：工具名 → 归因 total_tokens 聚合
+	agentUsageAgg map[string]int            // REQ-557/M364：成员名 → 归因 total_tokens 聚合（过程账本——run.finished usage_by_agent 默认开启）
+	curAgent      *agentRef                 // REQ-557：当前成员可变引用（tool 层事件 approval.*/hook.denied 归属注入——WithEventSink ctx 键同款模式）
 	lastAgent   string
+	paused      bool // REQ-558/M365：pause 安全点挂起（终态 run.finished reason=paused）
 }
 
 // newRunConsumer 构造事件消费者（Run 与 Resume 共用；闭包绑定自身状态）。
-func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, runID string, rt *BuildResult, emit EmitFn, start time.Time, persistDeltas bool) *runConsumer {
+func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, runID string, rt *BuildResult, emit EmitFn, start time.Time, persistDeltas bool, curAgent *agentRef) *runConsumer {
 	rc := &runConsumer{
 		s: s, ctx: ctx, conv: conv, runID: runID, rt: rt, emit: emit, start: start,
 		persistDeltas: persistDeltas,
@@ -1003,7 +1067,15 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 		toolCallArg:   map[string]string{},
 		toolCallUsage: map[string]*usageSnapshot{},
 		toolUsageAgg:  map[string]int{},
+		agentUsageAgg: map[string]int{},
 	}
+	// REQ-557：当前成员引用（trackAgent 切换时更新；runOnce/Resume 的 sink 闭包读之——
+	// 事件消费与流式回调大体同 goroutine，互斥锁兜底并行安全；nil=自建〔单测/无 sink 场景〕）
+	if curAgent == nil {
+		curAgent = &agentRef{}
+	}
+	rc.curAgent = curAgent
+	curAgent.set(rt.AgentName) // root 成员即当前（委派进入成员时 trackAgent 覆写）
 	rc.subagentLeave = func(name string) {
 		if name != "" && name != rc.rootAgent {
 			s.emitAndRecord(rc.ctx, conv, runID, newEvent("subagent.exit", runID, map[string]any{"agent": name}), emit)
@@ -1034,6 +1106,7 @@ func newRunConsumer(s *Service, ctx context.Context, conv *store.Conversation, r
 			}), emit)
 		}
 		rc.lastAgent = name
+		curAgent.set(name)
 	}
 	rc.emitReasoning = func(delta string) {
 		if delta != "" {
@@ -1195,6 +1268,11 @@ func (rc *runConsumer) consume(iter *adk.AsyncIterator[*adk.AgentEvent]) {
 					}), emit)
 				}
 			}
+			if rc.curAgent != nil { // REQ-557：tool 事件带成员归属（与 subagent.enter/exit 泳道同源）
+				if a := rc.curAgent.get(); a != "" {
+					data["agent"] = a
+				}
+			}
 			s.emitAndRecord(runCtx, conv, runID, newEvent("tool.result", runID, data), emit)
 			// REQ-224 H10：onto_* facade 工具消费命中——逐次落库+ontology.hit 事件（companion.hit 先例推广）
 			if src == "ontology:facade" {
@@ -1250,7 +1328,16 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 		ctx = withDebug(ctx, rec)
 	}
 	// REQ-224/M52：事件汇挂载（同 runOnce——审批 granted·denied 在恢复重入路径发出）
+	agentRef := &agentRef{} // REQ-557：tool 层事件成员归属（runConsumer 构造后接管更新）
 	ctx = tool.WithEventSink(ctx, func(t string, data map[string]any) {
+		if data == nil {
+			data = map[string]any{}
+		}
+		if a := agentRef.get(); a != "" {
+			if _, dup := data["agent"]; !dup {
+				data["agent"] = a // approval.granted/denied、hook.denied 等成员归属（未知成员不加字段）
+			}
+		}
 		s.emitAndRecord(context.Background(), conv, runID, newEvent(t, runID, data), emit)
 	})
 	// REQ-354/P2·G4：调用者身份入 ctx（同 runOnce——恢复重入路径的工具调用同源可审计）
@@ -1309,7 +1396,7 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	// Runner.ResumeWithParams；checkpointID=挂起锚点 st.CheckpointID，框架自动加载）；旧路径
 	// 直调 Runner.ResumeWithParams。两路互斥（防双恢复）。
 	obs := &obsHandler{level: DebugLevel(debug)}
-	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist)
+	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist, agentRef)
 	if turnLoopEnabled() && rt.Workflow == nil {
 		s.runTurnLoop(runCtx, rc, conv, agent, rt, runID, st.CheckpointID, nil, &adk.ResumeParams{
 			Targets: map[string]any{st.TargetID: answer},
@@ -1402,6 +1489,16 @@ func (rc *runConsumer) settleUsageDelta(prev *usageSnapshot, cur *schema.TokenUs
 			}
 		}
 		rc.toolUsageAgg[toolName] += d
+		// REQ-557/M364：成员维度归因（同点同构 toolUsageAgg）——lastAgent 由 trackAgent 单点维护
+		//（发射点归属 vs 聚合栈推断：栈推断在 steer 抢占/并行调用下漂移，泳道同源更可靠）；
+		// 无成员上下文归 root（诚实计入，107 §8.5 边界）
+		agent := rc.lastAgent
+		if agent == "" {
+			agent = rc.rootAgent
+		}
+		if agent != "" {
+			rc.agentUsageAgg[agent] += d
+		}
 		delete(rc.toolCallUsage, id)
 	}
 	_ = rem
@@ -1497,6 +1594,11 @@ func emitToolCall(s *Service, rc *runConsumer, conv *store.Conversation, runID s
 	ctx := context.Background()
 	if rc != nil {
 		ctx = rc.ctx
+		if rc.curAgent != nil { // REQ-557：tool 事件带成员归属（泳道同源）
+			if a := rc.curAgent.get(); a != "" {
+				data["agent"] = a
+			}
+		}
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("tool.call", runID, data), emit)
 }

@@ -1,9 +1,11 @@
 package api
 
-// REQ-529/M336（P17）：沉淀链出料口——①伴生图→正式本体晋升 ②项目产物→KB 一键入库。
-// 知识资产管线（90 号 §2.2）出料段补全：伴生确认实体/关系写入目标本体 spec 草稿（走既有
-// 统一校验循环——PUT spec 即构建平面 Spec.Validate，差异只在生成段、收敛在资产段架构复用，
-// 零新能力）；项目文件复用既有摄入管道（ImportAsync，富格式 REQ-414 已在）。
+// REQ-529/M336（P17）：沉淀链出料口——伴生图→正式本体晋升 + 项目产物→KB 一键入库。
+// REQ-546/M353（决策结构化借鉴批③；105 号 P1-5）：晋升补「评审」半边——promote 改产
+// pending 提案（learning proposal 暂存区，原直接 PUT 退役），裁决端点 approve 执行入库
+// （重取 digest 取交集防伴生图漂移）/ reject 留痕（decided_note=reject route 素材，
+// 衔接 REQ-544 decisions[]）；promotion-candidates 清单端点供裁决卡与审计回看。
+// 审计半边：spec PUT 既有 auditOntologyProxy 同面覆盖（与 M336 直推同址同源）。
 
 import (
 	"context"
@@ -43,9 +45,6 @@ func (s *Server) queryCompanionGraph(ctx context.Context, ontologyID, sparql str
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		Bindings []companionBinding `json:"results"`
-	}
 	// sparql-results+json: {"results": {"bindings": [...]}}
 	var wrapper struct {
 		Results struct {
@@ -55,8 +54,7 @@ func (s *Server) queryCompanionGraph(ctx context.Context, ontologyID, sparql str
 	if err := json.Unmarshal(raw, &wrapper); err != nil {
 		return nil, fmt.Errorf("伴生图结果解析失败: %w", err)
 	}
-	out.Bindings = wrapper.Results.Bindings
-	return out.Bindings, nil
+	return wrapper.Results.Bindings, nil
 }
 
 // companionGraphDigest 伴生图摘要：活跃实体（label）+活跃关系边（subject/relName/object）。
@@ -122,14 +120,64 @@ func sortStrings(ss []string) {
 	}
 }
 
-// promoteCompanion POST /api/companion/ontologies/{id}/promote {target_ontology_id}
-// → 伴生确认实体/关系写入目标本体 spec 草稿（去重合并——已存在同名概念/同边关系跳过），
-// PUT 构建平面 spec 走统一校验循环（Spec.Validate；审计由 spec PUT 既有 auditOntologyProxy
-// 同面覆盖——本端点直调构建平面与 auditOntologyProxy 转发同址）。
+// filterDigestByLabels 实体勾选过滤（REQ-529 挂账「逐条勾选」合流）：实体取勾选集与
+// 活跃集交集；关系保留两端均在勾选集的活跃边（缺端即悬空，不随提案）。
+func filterDigestByLabels(d *companionGraphDigest, selected []string) *companionGraphDigest {
+	sel := map[string]bool{}
+	for _, l := range selected {
+		if l != "" {
+			sel[l] = true
+		}
+	}
+	out := &companionGraphDigest{Labels: d.Labels}
+	for _, e := range d.Entities {
+		if sel[e] {
+			out.Entities = append(out.Entities, e)
+		}
+	}
+	for _, edge := range d.Relations {
+		if sel[edge[0]] && sel[edge[2]] {
+			out.Relations = append(out.Relations, edge)
+		}
+	}
+	return out
+}
+
+// intersectDigestPayload 裁决时点漂移防护（105 号 E2「写回=validate+评审」：入库以
+// 当前活跃集为准）——提案快照 ∩ 当前活跃 digest：实体取双集合交，边取原样仍活跃者。
+func intersectDigestPayload(payload *store.PromotionPayload, cur *companionGraphDigest) *companionGraphDigest {
+	inCur := map[string]bool{}
+	for _, e := range cur.Entities {
+		inCur[e] = true
+	}
+	out := &companionGraphDigest{Labels: cur.Labels}
+	for _, e := range payload.Entities {
+		if inCur[e] {
+			out.Entities = append(out.Entities, e)
+		}
+	}
+	edgeSet := map[[3]string]bool{}
+	for _, edge := range cur.Relations {
+		edgeSet[edge] = true
+	}
+	for _, edge := range payload.Relations {
+		if edgeSet[edge] {
+			out.Relations = append(out.Relations, edge)
+		}
+	}
+	return out
+}
+
+// promoteCompanion POST /api/companion/ontologies/{id}/promote
+// {target_ontology_id, entity_ids?[], note?} → 产 pending 提案（REQ-546 改产提案——
+// 原直接 PUT 退役）：entity_ids 非空按勾选过滤（REQ-529 挂账「逐条勾选」合流），
+// 缺省=全量活跃集；提案快照冻结发起时点 digest，实际入库在 approve 裁决时点执行。
 func (s *Server) promoteCompanion(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var in struct {
-		TargetOntologyID string `json:"target_ontology_id"`
+		TargetOntologyID string   `json:"target_ontology_id"`
+		EntityIDs        []string `json:"entity_ids"`
+		Note             string   `json:"note"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeErr(w, err)
@@ -148,22 +196,165 @@ func (s *Server) promoteCompanion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "伴生图为空（无已确认实体/关系）——先在对话中沉淀"})
 		return
 	}
-	// 读目标本体 spec（构建平面权威）
-	specRaw, err := s.buildPlaneGET(r.Context(), "/api/ontologies/"+in.TargetOntologyID+"/spec")
+	if len(in.EntityIDs) > 0 {
+		digest = filterDigestByLabels(digest, in.EntityIDs)
+		if len(digest.Entities) == 0 && len(digest.Relations) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "勾选实体均不在伴生图活跃集——请核对后重选"})
+			return
+		}
+	}
+	p := &store.PromotionProposal{
+		SourceOntologyID: id,
+		TargetOntologyID: in.TargetOntologyID,
+		Note:             truncNote300(in.Note),
+	}
+	for _, e := range digest.Entities {
+		p.Payload.Entities = append(p.Payload.Entities, e)
+	}
+	p.Payload.Relations = append(p.Payload.Relations, digest.Relations...)
+	p.EntityCount, p.RelationCount = len(p.Payload.Entities), len(p.Payload.Relations)
+	if err := s.Store.CreatePromotionProposal(p); err != nil {
+		writeErr(w, err)
+		return
+	}
+	saved, err := s.Store.GetPromotionProposal(p.ID)
+	if err != nil || saved == nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
+// listPromotionProposals GET /api/companion/promotion-proposals
+// ?source_ontology_id=&target_ontology_id=&status= ——提案清单（裁决卡数据源+审计回看；
+// 被拒提案即 reject route 素材，衔接 REQ-544 decisions[]）。
+func (s *Server) listPromotionProposals(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Store.ListPromotionProposals(
+		r.URL.Query().Get("source_ontology_id"),
+		r.URL.Query().Get("target_ontology_id"),
+		r.URL.Query().Get("status"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
+	if list == nil {
+		list = []*store.PromotionProposal{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// decidePromotionProposal POST /api/companion/promotion-proposals/{id}/decide
+// {action: "approve"|"reject", note?} ——裁决入口（仅 pending；终态不可再裁）。
+// approve=重取源伴生图 digest 取交集（漂移防护）→既有去重合并→PUT 统一校验循环入库
+// →置 approved；reject=留痕（note=拒绝理由，reject route 素材）。
+func (s *Server) decidePromotionProposal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in struct {
+		Action string `json:"action"`
+		Note   string `json:"note"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeErr(w, err)
+		return
+	}
+	switch in.Action {
+	case "reject":
+		p, err := s.Store.DecidePromotionProposal(id, "rejected", truncNote300(in.Note))
+		if err != nil {
+			writeDecideErr(w, p, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	case "approve":
+		proposal, err := s.Store.GetPromotionProposal(id)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if proposal == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "提案不存在"})
+			return
+		}
+		if proposal.Status != "pending" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "提案已裁决（" + proposal.Status + "）——仅 pending 可裁决"})
+			return
+		}
+		cur, err := s.companionGraphDigest(r.Context(), proposal.SourceOntologyID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		d := intersectDigestPayload(&proposal.Payload, cur)
+		if len(d.Entities) == 0 && len(d.Relations) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "提案内容已不在伴生图活跃集（伴生图已漂移）——可拒绝留痕后重新发起"})
+			return
+		}
+		applied, err := s.applyDigestToTarget(r.Context(), proposal.TargetOntologyID, d)
+		if err != nil {
+			writeErr(w, err) // 提案保持 pending——可修复后重试
+			return
+		}
+		p, err := s.Store.DecidePromotionProposal(id, "approved", truncNote300(in.Note))
+		if err != nil {
+			writeDecideErr(w, p, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"proposal": p, "promoted_concepts": applied.Concepts,
+			"promoted_relations": applied.Relations, "skipped_existing": applied.Skipped,
+			"target": proposal.TargetOntologyID,
+		})
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "action 仅 approve|reject"})
+	}
+}
+
+// writeDecideErr 裁决守卫错误映射：不存在 404 / 已裁决 409。
+func writeDecideErr(w http.ResponseWriter, p *store.PromotionProposal, err error) {
+	if err == store.ErrPromotionAlreadyDecided {
+		status := "approved"
+		if p != nil {
+			status = p.Status
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "提案已裁决（" + status + "）——仅 pending 可裁决"})
+		return
+	}
+	writeErr(w, err)
+}
+
+// truncNote300 注记截断（沿 store.truncateNote 300 rune 口径——防滥用）。
+func truncNote300(s string) string {
+	rs := []rune(strings.TrimSpace(s))
+	if len(rs) > 300 {
+		return string(rs[:300])
+	}
+	return string(rs)
+}
+
+// promoteResult 入库计数（approve 响应与原 M336 响应同形）。
+type promoteResult struct {
+	Concepts int `json:"promoted_concepts"`
+	Relations int `json:"promoted_relations"`
+	Skipped  int `json:"skipped_existing"`
+}
+
+// applyDigestToTarget digest 写入目标本体 spec 草稿（去重合并——已存在同名概念/同边关系
+// 跳过），PUT 构建平面走统一校验循环（Spec.Validate；校验失败构建平面 400 明细透传，
+// 调用方提案保持 pending 可重试）。M336 原直推链原样迁此。
+func (s *Server) applyDigestToTarget(ctx context.Context, targetOntologyID string, d *companionGraphDigest) (*promoteResult, error) {
+	specRaw, err := s.buildPlaneGET(ctx, "/api/ontologies/"+targetOntologyID+"/spec")
+	if err != nil {
+		return nil, err
+	}
 	var spec struct {
-		Name       string                   `json:"name"`
-		Concepts   []map[string]any         `json:"concepts"`
-		Relations  []map[string]any         `json:"relations"`
-		Instances  []map[string]any         `json:"instances"`
-		CQ         []string                 `json:"cq"`
+		Name      string           `json:"name"`
+		Concepts  []map[string]any `json:"concepts"`
+		Relations []map[string]any `json:"relations"`
+		Instances []map[string]any `json:"instances"`
+		CQ        []string         `json:"cq"`
 	}
 	if err := json.Unmarshal(specRaw, &spec); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "目标本体 spec 解析失败: " + err.Error()})
-		return
+		return nil, &store.HTTPError{Status: http.StatusBadGateway, Msg: "目标本体 spec 解析失败: " + err.Error()}
 	}
 	haveConcept := map[string]bool{}
 	for _, c := range spec.Concepts {
@@ -178,43 +369,37 @@ func (s *Server) promoteCompanion(w http.ResponseWriter, r *http.Request) {
 		t, _ := rel["to"].(string)
 		haveEdge[n+"\x00"+f+"\x00"+t] = true
 	}
-	addedC, addedR, skipped := 0, 0, 0
-	for _, e := range digest.Entities {
+	out := &promoteResult{}
+	for _, e := range d.Entities {
 		if haveConcept[e] {
-			skipped++
+			out.Skipped++
 			continue
 		}
 		spec.Concepts = append(spec.Concepts, map[string]any{"name": e})
 		haveConcept[e] = true
-		addedC++
+		out.Concepts++
 	}
-	for _, edge := range digest.Relations {
+	for _, edge := range d.Relations {
 		key := edge[1] + "\x00" + edge[0] + "\x00" + edge[2]
-		if haveConcept[edge[0]] == false || haveConcept[edge[2]] == false || haveEdge[key] {
-			skipped++
+		if !haveConcept[edge[0]] || !haveConcept[edge[2]] || haveEdge[key] {
+			out.Skipped++
 			continue
 		}
 		spec.Relations = append(spec.Relations, map[string]any{"name": edge[1], "from": edge[0], "to": edge[2]})
 		haveEdge[key] = true
-		addedR++
+		out.Relations++
 	}
-	// PUT 回构建平面（统一校验循环——校验失败构建平面返回 400 明细，本端点透传）
 	patch, err := json.Marshal(map[string]any{
 		"name": spec.Name, "concepts": spec.Concepts, "relations": spec.Relations,
 		"instances": spec.Instances, "cq": spec.CQ,
 	})
 	if err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	if err := s.buildPlanePUT(r.Context(), "/api/ontologies/"+in.TargetOntologyID+"/spec", patch); err != nil {
-		writeErr(w, err)
-		return
+	if err := s.buildPlanePUT(ctx, "/api/ontologies/"+targetOntologyID+"/spec", patch); err != nil {
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"promoted_concepts": addedC, "promoted_relations": addedR, "skipped_existing": skipped,
-		"target": in.TargetOntologyID,
-	})
+	return out, nil
 }
 
 // buildPlaneGET/PUT 构建平面直调（与 auditOntologyProxy 转发同址 BuildURL；PUT 即走构建平面

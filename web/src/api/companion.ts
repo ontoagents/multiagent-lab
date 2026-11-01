@@ -207,6 +207,38 @@ export const companionApi = {
     req<{ ontology_id: string; count: number; detect_method: string; note?: string }>(`/api/companion/communities/rebuild`, { method: 'POST', body: JSON.stringify({ ontology_id: ontologyId }) }),
   summarizeCommunity: (ontologyId: string, label: string) =>
     req<{ ontology_id: string; label: string; summary: string; method: string }>(`/api/companion/communities/summarize`, { method: 'POST', body: JSON.stringify({ ontology_id: ontologyId, label }) }),
+
+  // ----- REQ-546/M353 learning proposal 暂存区（晋升「提案→人批→入库」显式化） -----
+  // 发起晋升提案（entity_ids 勾选过滤；缺省=全量活跃集；原 REQ-529 直接 PUT 退役）
+  promoteCompanion: (ontologyId: string, payload: { target_ontology_id: string; entity_ids?: string[]; note?: string }) =>
+    req<PromotionProposal>(`/api/companion/ontologies/${encodeURIComponent(ontologyId)}/promote`, { method: 'POST', body: JSON.stringify(payload) }),
+  // 提案清单（裁决卡数据源+审计回看；被拒提案即 reject route 素材）
+  listPromotionProposals: (params: { source_ontology_id?: string; target_ontology_id?: string; status?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (params.source_ontology_id) q.set('source_ontology_id', params.source_ontology_id)
+    if (params.target_ontology_id) q.set('target_ontology_id', params.target_ontology_id)
+    if (params.status) q.set('status', params.status)
+    const s = q.toString()
+    return req<PromotionProposal[]>(`/api/companion/promotion-proposals${s ? '?' + s : ''}`)
+  },
+  // 提案裁决：approve=重取伴生图取交集入库（漂移防护）/ reject=留痕（note=拒绝理由）
+  decidePromotionProposal: (id: string, action: 'approve' | 'reject', note = '') =>
+    req<unknown>(`/api/companion/promotion-proposals/${encodeURIComponent(id)}/decide`, { method: 'POST', body: JSON.stringify({ action, note }) }),
+}
+
+/** REQ-546/M353 晋升提案（learning proposal 暂存行；pending→approved|rejected 单向审计链） */
+export interface PromotionProposal {
+  id: string
+  source_ontology_id: string
+  target_ontology_id: string
+  payload: { entities: string[]; relations?: [string, string, string][] }
+  entity_count: number
+  relation_count: number
+  note?: string
+  status: 'pending' | 'approved' | 'rejected'
+  decided_note?: string
+  created_at: string
+  decided_at?: string
 }
 
 /** REQ-288/M93 伴生社区摘要（Louvain+LLM；对齐 Graphiti community summaries） */

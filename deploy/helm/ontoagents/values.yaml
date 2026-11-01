@@ -30,6 +30,9 @@ components:
     port: 8080
     storage: 2Gi
     env:
+      # REQ-556/M363（107 号 §7.2 实测缺陷③）：编排显式 ADDR 覆盖镜像回环默认（Service 指向 pod IP 须绑全接口）
+      - name: ADDR
+        value: ":8080"
       - name: BUILD_SVC_URL
         value: http://ontoagents-ontology-service:8091
       - name: RUNTIME_MGR_URL
@@ -48,6 +51,9 @@ components:
     port: 8091
     storage: 1Gi
     env:
+      # REQ-556/M363（107 号 §7.2 实测缺陷③）：编排显式 ADDR 覆盖镜像回环默认（同 backend）
+      - name: ADDR
+        value: ":8091"
       - name: PLATFORM_URL
         value: http://ontoagents-backend:8080
   - name: runtime-manager
@@ -57,6 +63,9 @@ components:
     port: 8090
     storage: 2Gi
     env:
+      # REQ-556/M363：同上（运行平面）
+      - name: ADDR
+        value: ":8090"
       - name: BUILD_SVC_URL
         value: http://ontoagents-ontology-service:8091
       - name: PLATFORM_API_URL

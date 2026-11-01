@@ -112,13 +112,22 @@ func TestAssembleWorkflowFreeFallback(t *testing.T) {
 	if rt.Workflow != nil {
 		t.Fatalf("free 不应有 Workflow 元数据: %+v", rt.Workflow)
 	}
-	// 未知模式：回落自由协作 + 告警
-	_, conv2 := workflowProjectNamed(t, st, "dag", "-2")
+	// 未知模式：回落自由协作 + 告警（REQ-567：dag 已入白名单——未知示例改 "chaos"）
+	_, conv2 := workflowProjectNamed(t, st, "chaos", "-2")
 	rt2, err := asm.Assemble(context.Background(), &store.Agent{Name: "entry"}, conv2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rt2.Workflow != nil || !strings.Contains(strings.Join(rt2.Warnings, "\n"), "未知工作流模式") {
 		t.Fatalf("未知模式应回落+告警: %+v %v", rt2.Workflow, rt2.Warnings)
+	}
+	// REQ-567/M374：dag 入白名单——诚实降级 free + 计划生成随 REQ-552 告警
+	_, conv3 := workflowProjectNamed(t, st, "dag", "-3")
+	rt3, err := asm.Assemble(context.Background(), &store.Agent{Name: "entry"}, conv3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt3.Workflow != nil || !strings.Contains(strings.Join(rt3.Warnings, "\n"), "REQ-552") {
+		t.Fatalf("dag 应降级 free+REQ-552 告警: %+v %v", rt3.Workflow, rt3.Warnings)
 	}
 }

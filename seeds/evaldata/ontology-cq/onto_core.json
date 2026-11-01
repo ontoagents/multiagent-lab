@@ -1,0 +1,106 @@
+{
+  "note": "REQ-547/M354 决策结构化借鉴批④：onto_core golden case 案例级数据集（105 号 P1-4；对应 REQ-544 onto_core 种子 5 条 decisions 治理判断域）。5 条常规（fact/relation/inference 覆盖本体工程域概念）+2 条 case 案例回归（①期望可答=答案引用概念 ⊇ expected_concepts〔忠实翻译必然引用的关系 IRI〕；②期望不可答=expected 概念零引用〔种子不承载「维护人/修改时间」——幻觉引用即判可答〕）。判定面=查询文本∪执行结果；翻译/白名单失败=无法判定计不通过（门控保守侧）。gold=答案依赖的概念/关系名（与种子 spec 概念/关系一一对应）；种子 spec.CQ 与本数据集由一致性测试锁定双端同源（cqdataset_test.go）。",
+  "ontology": "onto_core",
+  "revision": "r1-req547",
+  "cqs": [
+    {
+      "id": "onto_core-cq-1",
+      "cq": "什么时候应该为一个概念补同义词？",
+      "gold": [
+        "概念",
+        "同义词"
+      ],
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
+    },
+    {
+      "id": "onto_core-cq-2",
+      "cq": "单资产概念规模到多少应该拆分新本体？",
+      "gold": [
+        "概念",
+        "本体"
+      ],
+      "type": "E",
+      "kind": "inference",
+      "difficulty": "hard"
+    },
+    {
+      "id": "onto_core-cq-3",
+      "cq": "伴生图里的候选实体满足什么条件才晋升为正式概念？",
+      "gold": [
+        "概念",
+        "实体"
+      ],
+      "type": "E",
+      "kind": "relation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "onto_core-cq-4",
+      "cq": "本体由哪些要素构成？",
+      "gold": [
+        "本体要素"
+      ],
+      "type": "E",
+      "kind": "fact",
+      "difficulty": "easy"
+    },
+    {
+      "id": "onto_core-cq-5",
+      "cq": "哪些实体提及了哪些概念？",
+      "gold": [
+        "提及"
+      ],
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "onto_core-cq-6",
+      "cq": "概念之间有哪些对齐关系？",
+      "gold": [
+        "对齐"
+      ],
+      "type": "R",
+      "kind": "relation",
+      "difficulty": "medium"
+    },
+    {
+      "id": "onto_core-cq-7",
+      "cq": "装载了本体的运行方案里哪些实体提及了概念？",
+      "gold": [
+        "装载",
+        "提及"
+      ],
+      "type": "I",
+      "kind": "inference",
+      "difficulty": "hard"
+    },
+    {
+      "id": "onto_core-case-1",
+      "cq": "哪些实体提及了同一个概念？",
+      "gold": [],
+      "type": "R",
+      "kind": "case",
+      "difficulty": "medium",
+      "expected_concepts": [
+        "提及"
+      ],
+      "expected_answerable": true
+    },
+    {
+      "id": "onto_core-case-2",
+      "cq": "概念的维护人与最后修改时间是什么？",
+      "gold": [],
+      "type": "E",
+      "kind": "case",
+      "difficulty": "hard",
+      "expected_concepts": [
+        "维护人",
+        "修改时间"
+      ],
+      "expected_answerable": false
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -32,9 +33,9 @@ type connectorOut struct {
 	HasCredentials bool           `json:"has_credentials"`
 	Status         string         `json:"status"`
 	StatusDetail   string         `json:"status_detail"`
-	Tools          []string       `json:"tools"`     // REQ-214 P2：工具名清单（test 落库；授权前知情）
-	TestedAt       string         `json:"tested_at"` // REQ-214 P2：最近测试时间（状态时效）
-	Card           map[string]any `json:"card,omitempty"` // REQ-416/M212：a2a 注册握手的 agent card（只读预览）
+	Tools          []string       `json:"tools"`             // REQ-214 P2：工具名清单（test 落库；授权前知情）
+	TestedAt       string         `json:"tested_at"`         // REQ-214 P2：最近测试时间（状态时效）
+	Card           map[string]any `json:"card,omitempty"`    // REQ-416/M212：a2a 注册握手的 agent card（只读预览）
 	Profile        map[string]any `json:"profile,omitempty"` // REQ-429/M225：成员能力画像（技能/在环性/成本档——连接器面呈现）
 	IsBuiltin      bool           `json:"is_builtin"`
 	Refs           []string       `json:"refs"` // 引用该连接器的 agent 名（删除保护）
@@ -59,10 +60,10 @@ func (s *Server) connectorOut(c *store.Connector) connectorOut {
 		ID: c.ID, Kind: c.Kind, Name: c.Name, Description: c.Description,
 		Config: c.Config, HasCredentials: c.HasCredentials,
 		Status: c.Status, StatusDetail: c.StatusDetail, Tools: c.Tools, TestedAt: c.TestedAt,
-		Card: card,
-		Profile: profile,
+		Card:      card,
+		Profile:   profile,
 		IsBuiltin: c.IsBuiltin,
-		Refs: refs, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Refs:      refs, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
 
@@ -360,6 +361,9 @@ func (s *Server) probeConnector(ctx context.Context, c *store.Connector) (ok boo
 			tools = connector.SSHToolNames()
 		}
 		return ok, detail, tools, nil
+	case store.ConnectorKindDevops:
+		// REQ-554/M361：devops 探测——datasource 白名单+二进制在场+git 仓库有效性（只读面）
+		return s.testDevopsConnector(ctx, c)
 	case store.ConnectorKindStdio:
 		// REQ-433/M229：stdio 探测 = spawn+initialize+tools/list 真握手（工具清单入库）
 		cfg, serr := tool.ParseStdioConfig(c.Config)
@@ -534,6 +538,57 @@ func (s *Server) resolveCredentials(c *store.Connector) (map[string]any, error) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// testDevopsConnector devops 探针（REQ-554/M361）：datasource 白名单+对应 CLI 二进制在场+
+// git 仓库有效性（rev-parse 只读探测）；testreport 纯 Go 恒可达。探测成功回写工具清单
+// （授权前知情沿 REQ-214 P2 口径）。
+func (s *Server) testDevopsConnector(ctx context.Context, c *store.Connector) (bool, string, []string, map[string]any) {
+	ds, _ := c.Config["datasource"].(string)
+	if !containsStr(connector.DevopsDatasources, ds) {
+		return false, "config.datasource 非法（须 git|issues|ci|testreport）", nil, nil
+	}
+	tools := connector.DevopsToolNames(ds)
+	switch ds {
+	case "git":
+		dir, _ := c.Config["repo_dir"].(string)
+		if dir == "" {
+			return false, "config.repo_dir 必填（git 仓库工作目录）", nil, nil
+		}
+		bin, _ := c.Config["git_bin"].(string)
+		if bin == "" {
+			bin = "git"
+		}
+		cmd := exec.CommandContext(ctx, bin, "-C", dir, "rev-parse", "--is-inside-work-tree")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return false, "git 仓库探测失败（" + dir + "）：" + strings.TrimSpace(string(out)), nil, nil
+		}
+		return true, "git 仓库可达（只读面 5 工具）", tools, map[string]any{"type": "devops-git", "datasource": ds}
+	case "issues", "ci":
+		bin, _ := c.Config["gh_bin"].(string)
+		if bin == "" {
+			bin = "gh"
+		}
+		if _, err := exec.LookPath(bin); err != nil {
+			return false, "gh CLI 不可达（PATH 中未找到 " + bin + "）——gh 数据源依赖本机 gh", nil, nil
+		}
+		detail := "gh CLI 在场（只读面 2 工具）"
+		if c.HasCredentials {
+			detail += "；token 已绑定（服务端解密后 env 注入子进程，不进工具参数）"
+		}
+		return true, detail, tools, map[string]any{"type": "devops-gh", "datasource": ds}
+	default: // testreport：纯 Go 解析零子进程
+		return true, "test_report_parse 就绪（纯 Go 解析，零子进程）", tools, map[string]any{"type": "devops-testreport", "datasource": ds}
+	}
+}
+
+func containsStr(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
 
 // testKubernetesConnector kubectl 探针（CLI + 认证 + 服务端可达）。

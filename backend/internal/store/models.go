@@ -109,7 +109,7 @@ type MCPServer struct {
 // 凭据服务端绑定（CredentialsEncrypted），不进 LLM 上下文不进工具参数。
 type Connector struct {
 	ID                   string         `json:"id"`
-	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh | a2a
+	Kind                 string         `json:"kind"` // mcp | kubernetes | ssh | a2a | cli | stdio | devops（REQ-554/M361）——白名单 store.ConnectorKinds 单源
 	Name                 string         `json:"name"` // 实例名（装配前缀槽位 {name}__{tool}）
 	Description          string         `json:"description"`
 	Config               map[string]any `json:"config"`          // kind 专属非敏感配置
@@ -144,7 +144,7 @@ type Project struct {
 	Name         string   `json:"name"`
 	Description  string   `json:"description"`
 	CollabMode   string   `json:"collab_mode"`   // single | agent_as_tool | transfer
-	WorkflowMode string   `json:"workflow_mode"` // free | sequential | parallel | loop (P1)
+	WorkflowMode string   `json:"workflow_mode"` // free | sequential | parallel | loop | plan_execute（冻结——演进终点被 dag 取代 REQ-567）| dag（REQ-567/M374 计划生成随 REQ-552）
 	Constraints  string   `json:"constraints"`   // 项目级统一约束（P1）
 	LocalDir     string   `json:"local_dir"`     // 绑定的本地目录绝对路径（REQ-101 v0.17；空=未绑定）
 	// WorkspaceID REQ-550/M357 可选归属工作区（NULL=未归属存量行为不变；REFERENCES SET NULL——
@@ -222,6 +222,9 @@ type Conversation struct {
 	EnableSkills *bool `json:"enable_skills,omitempty"`
 	// InterruptState 中断挂起信息 JSON（ask_human 等 HIL 中断；空=无。M11 收尾）
 	InterruptState string `json:"interrupt_state,omitempty"`
+	// PauseState pause 安全点挂起信息 JSON（REQ-558/M365；{checkpoint_id,run_id,paused_at}——
+	// 独立列不复用 interrupt_state：Resume 强校验 TargetID，混用逼「无答复恢复」伪装审批答复）
+	PauseState string `json:"pause_state,omitempty"`
 	// ToolApproval 对话级工具审批覆盖（REQ-135②：nil=不改 | ''=跟随 Agent 级 | on | off）
 	ToolApproval *string `json:"tool_approval,omitempty"`
 	// ModelConnID 会话级模型连接覆盖（REQ-291：nil=不改 | ''=跟随智能体默认 | 连接 ID；

@@ -51,7 +51,7 @@ func TestBuiltinToolsUnion(t *testing.T) {
 	}
 	// 空提交=纯基座
 	if got := builtinToolsUnion(nil); len(got) != 10 {
-		t.Fatalf("空提交应得基座 10 工具：%v", got)
+		t.Fatalf("空提交应得基座 11 工具：%v", got)
 	}
 }
 
@@ -108,15 +108,15 @@ func TestEnsureAssistantTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ = s.Store.GetAgent("builtin-assistant")
-	if len(a.Tools) != 10 {
-		t.Fatalf("缺 L1/新基座应并入为 10 工具：%v", a.Tools)
+	if len(a.Tools) != 11 { // REQ-561：基座+platform_cli
+		t.Fatalf("缺 L1/新基座应并入为 11 工具：%v", a.Tools)
 	}
 	// 幂等：齐全时零写入
 	if err := s.Store.EnsureAssistantTools(); err != nil {
 		t.Fatal(err)
 	}
 	a2, _ := s.Store.GetAgent("builtin-assistant")
-	if len(a2.Tools) != 10 {
+	if len(a2.Tools) != 11 { // REQ-561 整合轮顺修：幂等后仍应为 11（原断言 10 系并行批首断言改 11 时漏改——api 包不在其测试清单且 push CI 已退役，合并后才暴露）
 		t.Fatalf("幂等调用不应重复追加：%v", a2.Tools)
 	}
 }

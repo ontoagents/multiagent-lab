@@ -20,7 +20,7 @@ import { isBuiltinVendor, providerOfName, vendorDisplayOf, vendorKeyOf, type Pro
 
 type Category = 'models' | 'connectors' | 'stats' | 'inference' | 'runtime' | 'security' | 'diag' | 'protocol'
 /** 统计维度：供应商为前端归并（后端无提供商实体），其余直接映射后端 group_by */
-type StatsDimension = 'model' | 'supplier' | 'agent' | 'project'
+type StatsDimension = 'model' | 'supplier' | 'agent' | 'project' | 'member'
 
 const fmtNum = (n?: number) => (n ?? 0).toLocaleString()
 
@@ -580,6 +580,25 @@ function StatsView() {
     let alive = true
     setLoading(true)
     setError(null)
+    if (apiGroupBy === 'member') {
+      // REQ-557/M364：成员维度行形态不同——归一到 UsageRow（calls=runs；token 双列 0/总）
+      void (async () => {
+        try {
+          const r: any = await api.usageStats('member' as any, { from, to })
+          if (!alive) return
+          const ls = (Array.isArray(r?.rows) ? r.rows : []).map((x: any) => ({
+            key: x.member, label: x.member, calls: x.runs ?? 0,
+            prompt_tokens: 0, completion_tokens: 0, total_tokens: x.total_tokens ?? 0,
+          }))
+          setRows(ls)
+        } catch (e: any) {
+          if (alive) { setError(e?.message ?? '请求失败'); setRows(null) }
+        } finally {
+          if (alive) setLoading(false)
+        }
+      })()
+      return
+    }
     api.usageStats(apiGroupBy, { from, to })
       .then((r) => { if (alive) setRows(Array.isArray(r.rows) ? r.rows : []) })
       .catch((e: any) => { if (alive) { setError(e?.message ?? '请求失败'); setRows(null) } })
@@ -652,6 +671,7 @@ function StatsView() {
             { label: '按供应商', value: 'supplier' },
             { label: '按智能体', value: 'agent' },
             { label: '按项目', value: 'project' },
+            { label: '按协作成员', value: 'member' }, // REQ-557/M364：过程账本成员维度（run 内含委派子成员）
           ]}
         />
         <DatePicker.RangePicker

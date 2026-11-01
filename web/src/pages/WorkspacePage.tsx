@@ -20,10 +20,20 @@ export default function WorkspacePage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [convs, setConvs] = useState<Conversation[]>([])
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  // REQ-495②段尾项：「存笔记本」未绑定引导「前往绑定」聚焦——一次性读取（命中即直开侧板配置=绑定入口）
+  const focusWs = (() => {
+    try {
+      const id = sessionStorage.getItem('eino.focus.workspace') || ''
+      if (id) sessionStorage.removeItem('eino.focus.workspace')
+      return id
+    } catch {
+      return ''
+    }
+  })()
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(focusWs || null)
   const [createOpen, setCreateOpen] = useState(false)
   // 工作区侧板（REQ-549：activity bar 范式沿 ProjectSidePanel；M1b 仅 config 视图）
-  const [sidePanelOpen, setSidePanelOpen] = useState(false)
+  const [sidePanelOpen, setSidePanelOpen] = useState(!!focusWs)
   const [panelView, setPanelView] = useState<WorkspacePanelView>('config')
 
   const reload = () => {

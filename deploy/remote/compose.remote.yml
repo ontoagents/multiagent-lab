@@ -1,0 +1,29 @@
+# REQ-556/M363 远程可访问部署参考档（107 号 §7.3）——与 deploy/docker-compose.yml 叠加使用：
+#   docker compose -f docker-compose.yml -f remote/compose.remote.yml up -d
+# 变化：①追加 Caddy（开源单二进制，D-O5）终结 TLS/ACME 并反代 backend:8080——外露面仅 80/443；
+# ②8090/8091/6333 永不进反代（16 号 §11.3-4：卫星零暴露——远程只需触达 :8080，API 反代收敛在
+# backend 内置）；③base 的 backend 127.0.0.1:8080 映射保留（宿主本机全权入口——讲解者用；
+# 外部访客经 Caddy 走 PLATFORM_TOKEN/PLATFORM_TOKEN_RO 凭证）。
+# 说明：compose override 对 ports 语义为合并——Caddy 80/443 即全部新增外露面；
+# SSE 直通 Caddy 默认满足（无需额外配置）；nginx 变体需 proxy_buffering off（见 README）。
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # 演示域名（Caddyfile 内 ACME 自动 HTTPS）；本地试验可改 Caddyfile 为 :80 纯 HTTP
+      DEMO_DOMAIN: ${DEMO_DOMAIN:-demo.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  caddy-data:
+  caddy-config:

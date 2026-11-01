@@ -171,6 +171,13 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
       return { text: `🧪 验证未通过 · ${d?.error ?? ''}`, warn: true }
     case 'connector.degraded':
       return { text: `🔌 连接器降级 · ${d?.connector ?? ''} · ${d?.reason ?? ''}`, warn: true }
+    // REQ-553/M360：方案分歧结构化识别与人工裁决（conflict 族三事件）
+    case 'review.submitted':
+      return { text: `📋 评审提交 · ${d?.agent_name ?? ''} · 立场 ${d?.position ?? ''}${d?.plan_summary ? ` · ${String(d.plan_summary).slice(0, 60)}` : ''}` }
+    case 'conflict.detected':
+      return { text: `⚔ 分歧命中 · 规则 ${d?.rule_id ?? ''}${d?.kind === 'event' ? '（event 点→待裁决）' : '（已挂起待人工裁决）'} · ${String(d?.summary ?? '').slice(0, 70)}`, warn: true }
+    case 'conflict.resolved':
+      return { text: `⚖ 分歧裁决 · ${d?.adopt === 'third' ? '第三案' : `采纳 ${String(d?.adopt ?? '').toUpperCase()} 案`} · decision_source=${d?.decision_source ?? 'manual'}` }
     // REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批
     case 'approval.request':
       return { text: `🔐 外部权限请求 · ${d?.tool_name ?? ''}${d?.kind ? ` · ${d.kind}` : ''}（等待你在下方卡片决议）`, warn: true }

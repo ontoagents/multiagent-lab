@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Badge, Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Button, Card, Checkbox, Empty, Popconfirm, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import { ExperimentOutlined, ReloadOutlined } from '@ant-design/icons'
 
 // ---------------------------------------------------------------------------
@@ -46,6 +46,24 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
   const [diagBusy, setDiagBusy] = useState(false)
   const [diagProgress, setDiagProgress] = useState('')
   const [diagMsg, setDiagMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+  // REQ-547/M354 第三信号开闸：with_benchmark 复选+数据集下拉（原 gate 固定发 '{}'——UI 从未
+  // 开启过第三信号；默认关维持——成本口径=双跑 2×N 题 LLM 调用，开启为显式动作）
+  const [withBench, setWithBench] = useState(false)
+  const [datasets, setDatasets] = useState<{ name: string; count: number }[]>([])
+  const [dataset, setDataset] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let alive = true
+    req('/api/ontology/cq-benchmark/datasets')
+      .then((r: any) => {
+        if (!alive) return
+        const ls = (r?.datasets ?? []) as { name: string; count: number }[]
+        setDatasets(ls)
+        if (ls.length > 0) setDataset((d) => d ?? ls[0].name)
+      })
+      .catch(() => { /* 清单不可达=下拉空态，门控仍可双信号跑（服务端回落默认集） */ })
+    return () => { alive = false }
+  }, [])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -98,7 +116,9 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
     setBusy(id)
     setActionErr(null)
     try {
-      await req(`/api/ontologies/${ontologyId}/evolution/candidates/${id}/gate`, { method: 'POST', body: '{}' })
+      // REQ-547：with_benchmark 显式开启第三信号（数据集下拉随复选联动；缺省双信号口径不变）
+      const body = withBench ? { with_benchmark: true, dataset: dataset || undefined } : {}
+      await req(`/api/ontologies/${ontologyId}/evolution/candidates/${id}/gate`, { method: 'POST', body: JSON.stringify(body) })
       load()
     } catch (e: any) {
       setActionErr(e.message)
@@ -146,6 +166,14 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
         passed: r.passed as boolean,
         base: r.base?.overall,
         patched: r.patched?.overall,
+        // REQ-547：第三信号块（with_benchmark 开启时透出——数据集/三率对照/回归判定）
+        bench: r.benchmark ?? null as null | {
+          dataset: string
+          total: number
+          regressed: boolean
+          base: { gold_aligned: number; rate: number }
+          patched: { gold_aligned: number; rate: number }
+        },
       }
     } catch {
       return null
@@ -165,6 +193,22 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
             </Button>
           ))}
         </Space>
+        {/* REQ-547：第三信号开闸（默认关维持——显式动作；成本=base/patched 双跑 2×N 题 LLM 调用） */}
+        <Tooltip title="门控时 base/patched 各跑一轮基准（2×N 题 LLM 调用）——gold 对齐率或白名单率回退即门控不过；含 case 案例级条目时按期望可答⊇/期望不可答零引用判定（REQ-382/REQ-547）">
+          <Checkbox checked={withBench} onChange={(e) => setWithBench(e.target.checked)} style={{ fontSize: 12 }}>
+            基准第三信号
+          </Checkbox>
+        </Tooltip>
+        {withBench && (
+          <Select
+            size="small"
+            style={{ minWidth: 170 }}
+            value={dataset}
+            onChange={setDataset}
+            placeholder="基准数据集"
+            options={datasets.map((d) => ({ value: d.name, label: `${d.name}（${d.count} 题）` }))}
+          />
+        )}
         <span style={{ flex: 1 }} />
         <Popconfirm
           title="发起一轮 AI 诊断？"
@@ -245,6 +289,14 @@ export default function EvolutionPane({ ontologyId }: { ontologyId: string }) {
                     <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                       质量分 {gi.base?.toFixed(2)} → {gi.patched?.toFixed(2)}
                     </Typography.Text>
+                    {gi.bench && (
+                      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                        基准第三信号 {gi.bench.dataset}（{gi.bench.total} 题）：gold 对齐{' '}
+                        {Number(gi.bench.base?.rate ?? 0).toFixed(2)} → {Number(gi.bench.patched?.rate ?? 0).toFixed(2)}
+                        （{gi.bench.base?.gold_aligned}/{gi.bench.total} → {gi.bench.patched?.gold_aligned}/{gi.bench.total}）
+                        {gi.bench.regressed ? ' · 回退' : ' · 无回退'}
+                      </Typography.Text>
+                    )}
                   </div>
                 )}
               </Card>

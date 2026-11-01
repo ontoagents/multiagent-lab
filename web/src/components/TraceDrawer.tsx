@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
-import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
+import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography, Upload} from 'antd'
+import { ReloadOutlined, RollbackOutlined, DownloadOutlined} from '@ant-design/icons'
 import { api } from '../api/client'
+import { useUI } from '../store/ui'
 import type { RunEventDTO } from '../api/types'
 import { describeEvent, levelGated, TRACE_GROUPS } from '../lib/eventRegistry'
 import DelegatesPanel from './DelegatesPanel'
@@ -59,6 +60,7 @@ export default function TraceDrawer({
   focusGroup?: string // REQ-406②/M202：打开时预选过滤组（如 companion——回放摘要行直达）
   onFocusGroupConsumed?: () => void
 }) {
+  const { showToast } = useUI()
   const [events, setEvents] = useState<RunEventDTO[]>([])
   // REQ-406②/M202：外部直达（伴生摘要行点击）——打开时预选过滤组，一次性消费
   useEffect(() => {
@@ -74,6 +76,13 @@ export default function TraceDrawer({
   const [keyword, setKeyword] = useState('')
   const [expandAll, setExpandAll] = useState(false)
   const [replayRun, setReplayRun] = useState<string | null>(null)
+  // REQ-555/M362：离线回放数据源（导入回放文件——纯本地渲染零 API 请求；不写本地库）
+  const [offlineEvents, setOfflineEvents] = useState<RunEventDTO[] | null>(null)
+  const [offlineTitle, setOfflineTitle] = useState<string>('')
+  // REQ-557/M364 过程账本：单 run 指标（参与度/介入/阶段——后端派生聚合，前端不复算）
+  const [metricsOpen, setMetricsOpen] = useState(false)
+  const [metrics, setMetrics] = useState<any>(null)
+  const [metricsErr, setMetricsErr] = useState<string | null>(null)
   // REQ-284②：时序条开关（默认开）
   const [showTimeline, setShowTimeline] = useState(true)
   // 界面优化批：运行块分页（最近置顶）——每页默认 5 条，可切 10/20
@@ -96,6 +105,62 @@ export default function TraceDrawer({
     if (open) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, conversationId])
+
+  // REQ-555：导出此运行（终态 run 回放文件——浏览器附件下载；进行中 409 人话由后端返回）
+  const exportRun = (runId: string) => {
+    window.open(`/api/conversations/${conversationId}/events/export?run_id=${encodeURIComponent(runId)}`, '_blank')
+  }
+
+  // REQ-555：导入回放文件（beforeUpload 校验 envelope——format/format_version/events 齐备；
+  // 超前大版本拒绝并提示而非崩溃；纯本地喂 Drawer 零 API 请求）
+  const importReplay = async (file: File): Promise<boolean> => {
+    try {
+      const text = await file.text()
+      const env = JSON.parse(text)
+      if (env?.format !== 'ontoagents-replay' || typeof env?.format_version !== 'number') {
+        throw new Error('不是 ontoagents 回放文件（缺 format 标识）')
+      }
+      if (env.format_version > 1) {
+        throw new Error(`回放文件版本超前（v${env.format_version} > 本端 v1）——请升级平台后导入`)
+      }
+      if (!Array.isArray(env.events) || env.events.length === 0) {
+        throw new Error('回放文件无事件（events 为空）')
+      }
+      const fid = env.fidelity ?? {}
+      const t = `离线回放 · ${env.source?.title ?? '（无标题）'} · ${env.events.length} 事件`
+      setOfflineTitle(t)
+      setOfflineEvents(env.events as RunEventDTO[])
+      setReplayRun('__none__')
+      showToast(`${t}${fid.message_delta === false ? '（未记录调试细节）' : ''}`)
+    } catch (e: any) {
+      showToast(e?.message ?? '回放文件解析失败', 'err')
+    }
+    return false // 阻断 antd Upload 自动上传
+  }
+
+  // REQ-557：拉取单 run 指标（选中 run 优先；缺省取最近含 run.finished 的运行）
+  const loadMetrics = () => {
+    const target =
+      replayRun && replayRun !== '__none__'
+        ? replayRun
+        : runs.find((r) => r.events.some((e) => e.type === 'run.finished'))?.runId
+    if (!target) {
+      setMetricsErr('暂无已落库的运行')
+      setMetrics(null)
+      return
+    }
+    fetch(`/api/stats/run/${encodeURIComponent(target)}/metrics`)
+      .then(async (r) => {
+        const j = await r.json().catch(() => null)
+        if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
+        setMetrics(j)
+        setMetricsErr(null)
+      })
+      .catch((e: any) => {
+        setMetricsErr(e?.message ?? '指标加载失败')
+        setMetrics(null)
+      })
+  }
 
   // 按运行分组（created_at 升序；run_id 空的散事件归「未分组」段）
   const runs = useMemo(() => {
@@ -156,10 +221,63 @@ export default function TraceDrawer({
             时序条 <Switch size="small" checked={showTimeline} onChange={setShowTimeline} />
           </span>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>刷新</Button>
+          {/* REQ-555/M362：导入回放文件（离线回放——纯本地渲染零 API 请求，不写本地库） */}
+          <Upload accept=".json,application/json" showUploadList={false} beforeUpload={importReplay}>
+            <Button size="small">导入回放</Button>
+          </Upload>
+          {/* REQ-557/M364：过程账本指标（参与度/介入/阶段——后端派生，前端不复算） */}
+          <Button size="small" onClick={() => { const next = !metricsOpen; setMetricsOpen(next); if (next) loadMetrics() }}>
+            指标
+          </Button>
         </Space>
       }
     >
       {/* REQ-336：原「显示设置/运行治理」两区退役（与头部过程面板/会话设置重合），轨迹页只呈现轨迹 */}
+      {metricsOpen && (
+        <div style={{ border: '1px solid var(--c-border, #eee)', borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 12 }}>
+          {metricsErr ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{metricsErr}</Typography.Text>
+          ) : !metrics ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>指标加载中…</Typography.Text>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>过程指标</span>
+                <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
+                  run {String(metrics.run_id ?? '').slice(0, 12)}… · {metrics.event_count} 事件 · 总耗时 {metrics.phases?.elapsed_ms ?? 0}ms
+                </Typography.Text>
+              </div>
+              {(metrics.participation ?? []).length > 0 && (
+                <div>
+                  <div style={{ color: 'var(--c-ink-2, #666)' }}>参与度（token 归因 · 工具调用 · 在位时长）</div>
+                  {(metrics.participation ?? []).map((p: any) => (
+                    <div key={p.agent} style={{ color: 'var(--c-ink-2, #666)' }}>
+                      {p.agent}：{p.total_tokens} tok · {p.tool_calls} 次工具 · {p.duration_ms}ms
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div>
+                <div style={{ color: 'var(--c-ink-2, #666)' }}>介入频次</div>
+                <div style={{ color: 'var(--c-ink-2, #666)' }}>
+                  审批 {metrics.interventions?.approval_requests ?? 0}（批准 {metrics.interventions?.approval_granted ?? 0}/拒绝 {metrics.interventions?.approval_denied ?? 0}）· 插话 {metrics.interventions?.steer_pushed ?? 0} · 守卫拦截 {metrics.interventions?.hook_denied ?? 0} · 抢占 {metrics.interventions?.run_preempted ?? 0}
+                  {metrics.interventions?.interrupted_by_kind && Object.keys(metrics.interventions.interrupted_by_kind).length > 0 && (
+                    <> · 挂起 {Object.entries(metrics.interventions.interrupted_by_kind).map(([k, v]) => `${k}×${v}`).join('、')}</>
+                  )}
+                </div>
+              </div>
+              {(metrics.phases?.workflow_nodes ?? []).length > 0 && (
+                <div>
+                  <div style={{ color: 'var(--c-ink-2, #666)' }}>工作流节点耗时</div>
+                  {(metrics.phases?.workflow_nodes ?? []).map((n: any, i: number) => (
+                    <div key={i} style={{ color: 'var(--c-ink-2, #666)' }}>{n.name}：{n.duration_ms}ms{n.open ? '（未闭合）' : ''}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* REQ-208/M42 余项：后台委派面板（可继续子 Agent——插话/打断/冷恢复人工动作面） */}
       <DelegatesPanel conversationId={conversationId} />
@@ -221,7 +339,8 @@ export default function TraceDrawer({
           <>
             {page.map((r, i) => (
               <RunBlock key={r.runId} run={r} index={totalRendered - 1 - (start + i)} showRaw={showRaw} expandAll={expandAll} showTimeline={showTimeline}
-                onReplay={() => setReplayRun(r.runId)} />
+                onReplay={() => { setOfflineEvents(null); setReplayRun(r.runId) }}
+                onExport={() => exportRun(r.runId)} />
             ))}
             {ordered.length > 0 && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -244,11 +363,12 @@ export default function TraceDrawer({
       {replayRun !== null && (
         <EventReplayDrawer
           conversationId={conversationId}
-          title={title}
+          title={offlineEvents ? offlineTitle || `${title}（离线回放）` : title}
           level={debugLevel}
-          runId={replayRun === '__none__' ? undefined : replayRun}
+          runId={offlineEvents ? undefined : replayRun === '__none__' ? undefined : replayRun}
+          offlineEvents={offlineEvents ?? undefined}
           open
-          onClose={() => setReplayRun(null)}
+          onClose={() => { setReplayRun(null); setOfflineEvents(null) }}
         />
       )}
     </Drawer>
@@ -416,6 +536,11 @@ function buildTimeline(events: RunEventDTO[]): { segs: TSegment[]; marks: TMark[
       marks.push({ lane: 3, at: t, color: chColor, tip: `${chLabel} 成员过程 ${d?.member ?? ''} · ${String(d?.proto_event ?? '')} · ${String(d?.summary ?? '').slice(0, 60)}` })
     } else if (e.type === 'connector.degraded' || e.type === 'hook.denied') {
       marks.push({ lane: 3, at: t, color: '#ff4d4f', tip: describeEvent(e.type, d).text })
+    } else if (e.type === 'conflict.detected') {
+      // REQ-553：冲突检测/裁决两点标记（检测=红，裁决=绿/第三案=青）
+      marks.push({ lane: 3, at: t, color: '#ff4d4f', tip: `分歧检测 · 规则 ${d?.rule_id ?? ''} · ${String(d?.summary ?? '').slice(0, 60)}` })
+    } else if (e.type === 'conflict.resolved') {
+      marks.push({ lane: 3, at: t, color: d?.adopt === 'third' ? '#13c2c2' : '#52c41a', tip: `分歧裁决 ${d?.adopt === 'third' ? '第三案' : `采纳 ${String(d?.adopt ?? '').toUpperCase()} 案`}（${d?.decision_source ?? 'manual'}）` })
     }
   }
   if (suspendStart != null) segs.push({ lane: 3, s: suspendStart, e: t1, color: '#faad14', tip: '挂起中（尚未恢复）' })
@@ -485,7 +610,7 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
 }
 
 function RunBlock({
-  run, index, showRaw, expandAll, showTimeline, onReplay,
+  run, index, showRaw, expandAll, showTimeline, onReplay, onExport,
 }: {
   run: { runId: string; events: RunEventDTO[]; allEvents: RunEventDTO[]; startedAt: string; finished?: RunEventDTO }
   index: number
@@ -493,6 +618,7 @@ function RunBlock({
   expandAll: boolean
   showTimeline: boolean
   onReplay: () => void
+  onExport: (runId: string) => void
 }) {
   const [openId, setOpenId] = useState<Record<string, boolean>>({})
   const [openSeg, setOpenSeg] = useState<Record<string, boolean>>({})
@@ -587,9 +713,12 @@ function RunBlock({
           </Tooltip>
         )}
         <span style={{ flex: 1 }} />
-        {/* REQ-488：重放操作灰图标化（hover 提示） */}
+        {/* REQ-488：重放操作灰图标化（hover 提示）；REQ-555 导出灰图标（终态 run 回放文件） */}
         <Tooltip title="重放此运行">
           <Button size="small" type="text" aria-label="重放此运行" icon={<RollbackOutlined />} onClick={onReplay} />
+        </Tooltip>
+        <Tooltip title="导出此运行（回放文件）">
+          <Button size="small" type="text" aria-label="导出此运行" icon={<DownloadOutlined />} onClick={() => onExport(run.runId)} />
         </Tooltip>
       </div>
       {showTimeline && <TimelineStrip events={run.allEvents} />}

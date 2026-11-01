@@ -27,6 +27,8 @@ import (
 )
 
 // 难度与题型枚举（REQ-367 双维分层；type 结构层沿 CQ4OE 保留）。
+// REQ-547/M354：kind 增 case 案例级——gold 语义扩展为「案例→期望命中概念集/期望不可答」
+// （105 号 P1-4 受控写回的案例回归信号；判定面=查询文本∪执行结果，对齐既有 containment 口径）。
 const (
 	DifficultyEasy   = "easy"
 	DifficultyMedium = "medium"
@@ -34,6 +36,7 @@ const (
 	KindFact         = "fact"
 	KindRelation     = "relation"
 	KindInference    = "inference"
+	KindCase         = "case"
 )
 
 // ValidDifficulty / ValidKind 标注枚举校验（LoadDataset 严格口径——基准集是产品资产，
@@ -43,17 +46,22 @@ func ValidDifficulty(v string) bool {
 }
 
 func ValidKind(v string) bool {
-	return v == KindFact || v == KindRelation || v == KindInference
+	return v == KindFact || v == KindRelation || v == KindInference || v == KindCase
 }
 
-// CQ 数据集单条（REQ-367：增 kind/difficulty 双维标注）。
+// CQ 数据集单条（REQ-367：增 kind/difficulty 双维标注；REQ-547：case 案例级标注）。
 type CQ struct {
 	ID         string   `json:"id"`
 	CQ         string   `json:"cq"`
 	Gold       []string `json:"gold"`
 	Type       string   `json:"type"`       // 结构层 R|E|I（CQ4OE 口径，沿 r1）
-	Kind       string   `json:"kind"`       // 题型 fact|relation|inference（r2 双维之一）
+	Kind       string   `json:"kind"`       // 题型 fact|relation|inference|case（r2 双维之一）
 	Difficulty string   `json:"difficulty"` // 难度 easy|medium|hard（r2 双维之二）
+	// REQ-547 case 专有（非 case 条目不得携带——LoadDataset 严格校验防标注漂移）：
+	// ExpectedAnswerable 期望可答（true=答案引用概念 ⊇ ExpectedConcepts；false=ExpectedConcepts
+	// 零引用——幻觉引用即判可答）；ExpectedConcepts 判定对象概念/关系名（种子 spec 命名口径）。
+	ExpectedConcepts   []string `json:"expected_concepts,omitempty"`
+	ExpectedAnswerable *bool    `json:"expected_answerable,omitempty"`
 }
 
 // Dataset 数据集文件（seeds/evaldata/ontology-cq/<name>.json，REQ-345 形态 + r2 分层）。
@@ -127,7 +135,22 @@ func LoadDataset(path string) (*Dataset, error) {
 			return nil, fmt.Errorf("%s: %s difficulty %q 非法（须 easy|medium|hard）", ds.Name, c.ID, c.Difficulty)
 		}
 		if !ValidKind(c.Kind) {
-			return nil, fmt.Errorf("%s: %s kind %q 非法（须 fact|relation|inference）", ds.Name, c.ID, c.Kind)
+			return nil, fmt.Errorf("%s: %s kind %q 非法（须 fact|relation|inference|case）", ds.Name, c.ID, c.Kind)
+		}
+		// REQ-547 case 案例级标注校验：expected_* 仅 case 可用且 case 必填齐备（判定有对象——
+		// 期望不可答也须点名「应缺失」的概念，否则判定退化为恒真）；case 判定不走 gold，gold 应留空。
+		if c.Kind == KindCase {
+			if c.ExpectedAnswerable == nil {
+				return nil, fmt.Errorf("%s: %s case 条目缺 expected_answerable（期望可答标注必填）", ds.Name, c.ID)
+			}
+			if len(c.ExpectedConcepts) == 0 {
+				return nil, fmt.Errorf("%s: %s case 条目缺 expected_concepts（判定对象必填）", ds.Name, c.ID)
+			}
+			if len(c.Gold) > 0 {
+				return nil, fmt.Errorf("%s: %s case 条目判定走 expected_*，gold 应留空", ds.Name, c.ID)
+			}
+		} else if c.ExpectedAnswerable != nil || len(c.ExpectedConcepts) > 0 {
+			return nil, fmt.Errorf("%s: %s expected_* 标注仅 case 条目可用（kind=%s）", ds.Name, c.ID, c.Kind)
 		}
 	}
 	return &ds, nil
@@ -156,9 +179,12 @@ type Signal struct {
 	// REQ-382/M178：执行级对齐证据（Executor 非 nil 时产出）
 	Executed     bool    `json:"executed,omitempty"`       // 查询已实际执行
 	ExecError    string  `json:"exec_error,omitempty"`     // 执行失败原因（对齐判定回落文本子串口径并如实标注）
-	GoldHitCount int     `json:"gold_hit_count,omitempty"` // gold URN 在执行结果集中出现数
-	GoldTotal    int     `json:"gold_total,omitempty"`     // gold URN 总数
+	GoldHitCount int     `json:"gold_hit_count,omitempty"` // gold URN 在执行结果集中出现数（case=expected 概念命中数）
+	GoldTotal    int     `json:"gold_total,omitempty"`     // gold URN 总数（case=expected_concepts 数）
 	GoldOverlap  float64 `json:"gold_overlap,omitempty"`   // 重合度=hit/total（0~1；执行级对齐率口径）
+	// REQ-547 case 案例级判定证据（kind=case 时产出）
+	CaseExpected *bool    `json:"case_expected,omitempty"`  // 期望可答标注透出
+	CaseMissing  []string `json:"case_missing,omitempty"`   // 期望可答路径未命中的期望概念（判定透明）
 }
 
 // Stratum 单档分层跑分（三率同总口径）。
@@ -257,13 +283,14 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 				// REQ-382/M178：执行级对齐——查询实际执行，gold URN 于结果集重合度；
 				// 执行通道不可用/执行失败回落文本子串口径并如实标注（零回归）
 				sig.GoldTotal = len(dc.Gold)
+				var hay string
 				if ro.executor != nil {
 					bindings, eerr := ro.executor(ctx, ontologyID, query)
 					if eerr != nil {
 						sig.ExecError = eerr.Error()
 					} else {
 						sig.Executed = true
-						hay := serializeBindings(bindings)
+						hay = serializeBindings(bindings)
 						aligned := 0
 						for _, g := range dc.Gold {
 							if strings.Contains(hay, SanitizeURN(g)) {
@@ -277,7 +304,21 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 						sig.GoldAligned = aligned > 0
 					}
 				}
-				if !sig.Executed {
+				if dc.Kind == KindCase {
+					// REQ-547 案例级判定（独立于 gold 机制；判定面=查询文本∪执行结果——对齐既有
+					// containment 口径）：期望可答=引用概念 ⊇ expected_concepts；期望不可答=零引用
+					//（幻觉引用即判可答）。翻译/白名单失败不进此分支=无法判定计不通过（门控保守侧）。
+					hits, missing := caseHits(dc, query, hay)
+					sig.CaseExpected = dc.ExpectedAnswerable
+					sig.CaseMissing = missing
+					sig.GoldTotal = len(dc.ExpectedConcepts)
+					sig.GoldHitCount = hits
+					if dc.ExpectedAnswerable != nil && *dc.ExpectedAnswerable {
+						sig.GoldAligned = len(dc.ExpectedConcepts) > 0 && hits == len(dc.ExpectedConcepts)
+					} else {
+						sig.GoldAligned = hits == 0
+					}
+				} else if !sig.Executed {
 					aligned := 0
 					for _, g := range dc.Gold {
 						if strings.Contains(query, SanitizeURN(g)) {
@@ -295,9 +336,20 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 		Translated:   "LLM 翻译产出非空 SELECT 查询即计通过（重试一次后仍失败计失败）",
 		Whitelist:    "词法级只读白名单（首关键词 SELECT+变更关键字黑名单，字符串字面量/IRI/注释不误伤）",
 		GoldAligned:  "查询文本引用基准 CQ gold 概念/关系 URN（任一命中即对齐）——非答案内容比对；跨域本体该率低为预期负信号非缺陷；全枚举型 CQ 不引用具体概念 IRI 与该口径结构性不适用（REQ-348 信号边界）",
-		Stratified:   "kind 题型（fact=模式枚举/relation=单跳关系/inference=多跳链或类层归约）×difficulty 难度（easy/medium/hard）双维分层；type 结构层（R/E/I）沿 CQ4OE 口径随信号透出",
+		Stratified:   "kind 题型（fact=模式枚举/relation=单跳关系/inference=多跳链或类层归约/case=案例回归 REQ-547）×difficulty 难度（easy/medium/hard）双维分层；type 结构层（R/E/I）沿 CQ4OE 口径随信号透出",
 		DatasetRev:   ds.Revision,
-		GeneratorVer: "r2-req367",
+		GeneratorVer: "r3-req547",
+	}
+	// REQ-547：数据集含 case 条目时追加案例级口径声明（判定面/期望不可答语义/无法判定保守侧）
+	hasCase := false
+	for _, c := range ds.CQs {
+		if c.Kind == KindCase {
+			hasCase = true
+			break
+		}
+	}
+	if hasCase {
+		rep.Note += "；case 案例级=期望可答判「答案引用概念 ⊇ expected_concepts」、期望不可答判「expected 概念零引用（幻觉引用即判可答）」，判定面=查询文本∪执行结果，翻译/白名单失败=无法判定计不通过"
 	}
 	// 口径按实测收敛：有任一信号真实执行→executed（个别执行失败以 exec_error 逐信号标注）；
 	// 通道缺失或全部执行失败→text-substring-fallback（诚实标注回落）
@@ -315,6 +367,20 @@ func Run(ctx context.Context, llm *llmcreate.Creator, target *pkgspec.Spec, onto
 		rep.MetricDefinition.GoldAlignMode = "text-substring-fallback"
 	}
 	return rep
+}
+
+// caseHits REQ-547 案例级判定：expected_concepts 逐词 containment（查询文本∪执行结果面）——
+// 返回命中数与未命中清单（期望可答路径的判定透明证据）。
+func caseHits(dc CQ, query, hay string) (hits int, missing []string) {
+	for _, c := range dc.ExpectedConcepts {
+		u := SanitizeURN(c)
+		if strings.Contains(query, u) || strings.Contains(hay, u) {
+			hits++
+		} else {
+			missing = append(missing, c)
+		}
+	}
+	return hits, missing
 }
 
 // serializeBindings bindings 结果集序列化（URN containment 判定的搜索面——IRI/字面量值统一入面）。

@@ -18,6 +18,9 @@ services:
       # REQ-534/M341：局域网部署必设（docker compose 用 .env 或 export PLATFORM_TOKEN=...）
       # PLATFORM_TOKEN: ${PLATFORM_TOKEN:?局域网部署必设 PLATFORM_TOKEN（本机访问免凭证）}
       PLATFORM_TOKEN: ${PLATFORM_TOKEN:-}
+      # REQ-556/M363（107 号 §7.2 实测缺陷②）：容器内须绑全接口——镜像默认回环经宿主发布端口不可达
+      # （容器内 healthcheck 打 localhost 仍绿=静默故障）；宿主侧收敛由 ports 127.0.0.1: 前缀承载
+      ADDR: ":8080"
       BUILD_SVC_URL: http://ontology-service:8091
       RUNTIME_MGR_URL: http://runtime-manager:8090
       # REQ-518/M325：显式补齐（代码侧已支持缺省自 RUNTIME_MGR_URL 派生 /mcp——双保险）

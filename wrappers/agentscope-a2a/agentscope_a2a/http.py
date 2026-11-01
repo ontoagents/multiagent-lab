@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .server import A2AServer, TERMINAL_STATES, _snapshot
@@ -22,10 +23,15 @@ class StreamHub:
     def __init__(self) -> None:
         self._mu = threading.Lock()
         self._subs: dict[str, list[queue.Queue]] = {}
+        # task_id → 最近一帧快照：stub 任务完成极快（毫秒级），迁移帧可能先于
+        # message/stream 处理线程 subscribe 到达——迟加入的订阅者补投最近一帧，不丢终态。
+        self._last: dict[str, dict] = {}
 
     def subscribe(self, task_id: str) -> queue.Queue:
         q: queue.Queue = queue.Queue()
         with self._mu:
+            if task_id in self._last:
+                q.put(self._last[task_id])
             self._subs.setdefault(task_id, []).append(q)
         return q
 
@@ -37,6 +43,7 @@ class StreamHub:
 
     def publish(self, task_id: str, snapshot: dict) -> None:
         with self._mu:
+            self._last[task_id] = snapshot
             for q in (self._subs.get(task_id) or []):
                 q.put(snapshot)
 
@@ -143,6 +150,7 @@ def serve(app: A2AServer) -> ThreadingHTTPServer:
     def bridge() -> None:
         last: dict[str, str] = {}
         while True:
+            time.sleep(0.2)  # 轮询节奏按注释口径 200ms（无 sleep 为热自旋，白烧核且加剧订阅竞态）
             with app.store._mu:
                 items = [(tid, dict(t["status"]), t) for tid, t in app.store._tasks.items()]
             for tid, status, t in items:

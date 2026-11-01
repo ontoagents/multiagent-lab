@@ -218,6 +218,8 @@ func (s *Server) routes() {
 
 	// Agents
 	// REQ-131/M18：Agent 对外 MCP 服务化——/mcp Streamable HTTP + 管理端点
+	// REQ-554/M361：KB 对外 MCP 提供方（/mcp/kb——鉴权沿 mcpAuth 同口径；平台既消费也提供）
+	m.Handle("/mcp/kb", s.mcpAuth(s.kbMcpHandler()))
 	m.Handle("/mcp", s.mcpAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 懒重建：mcp_serve 变更后 invalidateMCP() 生效，工具表按最新 enabled Agent 组装
 		s.mcpHandler().ServeHTTP(w, r)
@@ -353,8 +355,11 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/stop", s.stopConversation)
 	m.HandleFunc("POST /api/conversations/{id}/steer", s.steerConversation) // REQ-385/M181：运行中介入（TurnLoop 抢占式 steer）
 	m.HandleFunc("GET /api/conversations/{id}/run-events", s.runEvents)    // REQ-527/M334：事件回放（run_id 过滤+offset 增量轮询续看）
+	m.HandleFunc("GET /api/conversations/{id}/events/export", s.exportRunEvents) // REQ-555/M362：终态 run 回放文件导出（envelope+fidelity 自声明；零迁移）
 	m.HandleFunc("GET /api/search/messages", s.searchMessages)             // REQ-528/M335：会话内容检索（FTS5——跨会话按消息正文定位）
-	m.HandleFunc("POST /api/companion/ontologies/{id}/promote", s.promoteCompanion)            // REQ-529/M336：伴生图→正式本体晋升
+	m.HandleFunc("POST /api/companion/ontologies/{id}/promote", s.promoteCompanion)            // REQ-529/M336→REQ-546/M353：伴生图→正式本体晋升（改产 pending 提案）
+	m.HandleFunc("GET /api/companion/promotion-proposals", s.listPromotionProposals)           // REQ-546/M353：learning proposal 暂存区清单（裁决卡+审计回看）
+	m.HandleFunc("POST /api/companion/promotion-proposals/{id}/decide", s.decidePromotionProposal) // REQ-546/M353：提案裁决（approve 入库取交集/reject 留痕）
 	m.HandleFunc("POST /api/kb/{id}/import-project-file", s.importProjectFileToKB)             // REQ-529/M336：项目产物一键入库
 	m.HandleFunc("GET /api/conversations/{id}/export", s.exportConversation) // REQ-113①：对话导出 Markdown
 	m.HandleFunc("GET /api/docs/read", s.docRead)
@@ -367,6 +372,12 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/conversations/{id}/auto-name", s.autoNameConversation)        // REQ-136：对话自动命名
 	// M11 收尾：中断恢复（ask_human 答复定向续跑）
 	m.HandleFunc("POST /api/conversations/{id}/resume", s.resumeConversation)
+	m.HandleFunc("GET /api/conversations/{id}/conflicts", s.listConflicts)          // REQ-553/M360：分歧裁决清单（审计/回放）
+	m.HandleFunc("POST /api/conversations/{id}/pause", s.pauseConversation)    // REQ-558/M365：安全点挂起（非决策点——用户主动任意时点）
+	m.HandleFunc("POST /api/conversations/{id}/unpause", s.unpauseConversation) // REQ-558/M365：暂停恢复（无答复沿 checkpoint 续跑；instruction=redo 纠偏）
+	m.HandleFunc("POST /api/conversations/{id}/redo", s.redoConversation)       // REQ-558/M365：消息锚点重跑（截断+新 runID redo_of 溯源）
+	m.HandleFunc("GET /api/projects/{id}/files/{fid}/preview", s.previewProjectFile) // REQ-558/M365：HTML 产物内联沙箱预览（CSP sandbox）
+	m.HandleFunc("POST /api/conversations/{id}/conflicts/{cid}/resolve", s.resolveConflict) // REQ-553/M360：人工裁决（SSE——suspended 定向恢复/pending 回注新运行）
 	// REQ-224①：会话状态机读模型 + 变更留痕（状态族统一收口治理面）
 	m.HandleFunc("GET /api/conversations/{id}/state", s.conversationState)
 	m.HandleFunc("GET /api/conversations/{id}/state-log", s.conversationStateLog)
@@ -428,6 +439,7 @@ func (s *Server) routes() {
 	// 使用统计（按 model|agent|project 聚合 run_event）
 	m.HandleFunc("GET /api/stats/storage", s.storageOverview) // REQ-113②：数据量概览
 	m.HandleFunc("GET /api/stats/usage", s.usageStats)
+	m.HandleFunc("GET /api/stats/run/{run_id}/metrics", s.runMetrics) // REQ-557/M364：单 run 过程账本（参与度/介入/阶段三出料——事件派生零迁移）
 	// REQ-204/M39：进度产物人类侧导出 + 对话级定时续跑（进程内调度器，重启失效）
 	m.HandleFunc("GET /api/conversations/{id}/todo.md", s.exportTodo)
 	m.HandleFunc("POST /api/conversations/{id}/schedule", s.createSchedule)

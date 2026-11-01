@@ -6,14 +6,15 @@
 package api
 
 import (
-	"crypto/subtle"
-	"os"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -257,3 +258,44 @@ func (s *Server) normalizeMcpServe(a *store.Agent, prev store.Agent) bool {
 
 // mcpSync 由 handlers 在 Agent 增删改后调用：重建 /mcp 工具表。
 func (s *Server) mcpSync() { s.invalidateMCP() }
+
+// kbMcpHandler REQ-554/M361：/mcp/kb 平台 KB 对外 MCP 提供方（107 号 §5.3——平台既是消费方
+// 也是提供方；平台内智能体检索仍走 recallKB 注入链不变，本端点服务外部 MCP 客户端）。
+// 鉴权沿 mcpAuth 同口径（agent 级 token + PLATFORM_TOKEN）；未配置 PLATFORM_TOKEN 且无 agent
+// token 可用时 401 如实（fail-closed）。工具=kb_search（kb_id+query+top_k，检索命中投影 excerpt/doc/score）。
+func (s *Server) kbMcpHandler() http.Handler {
+	kbSrv := mcpserver.NewMCPServer("ontoagents-kb", "0.1.0")
+	search := mcp.NewTool("kb_search",
+		mcp.WithDescription("在指定知识库中检索（混合检索向量臂——返回命中文档/片段/分数；只读）"),
+		mcp.WithString("kb_id", mcp.Required(), mcp.Description("知识库 id")),
+		mcp.WithString("query", mcp.Required(), mcp.Description("检索问题或关键词")),
+		mcp.WithNumber("top_k", mcp.Description("返回条数（1~20，默认 5）")),
+	)
+	kbSrv.AddTool(search, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		a := req.GetArguments()
+		kbID, _ := a["kb_id"].(string)
+		query, _ := a["query"].(string)
+		if strings.TrimSpace(kbID) == "" || strings.TrimSpace(query) == "" {
+			return mcp.NewToolResultText("kb_id 与 query 必填"), nil
+		}
+		topK := 5
+		if v, ok := a["top_k"].(float64); ok && v >= 1 && v <= 20 {
+			topK = int(v)
+		}
+		kb, err := s.Store.GetKnowledgeBase(kbID)
+		if err != nil || kb == nil {
+			return mcp.NewToolResultText(fmt.Sprintf("知识库 %q 不存在", kbID)), nil
+		}
+		hits, err := s.KB.Search(ctx, kb, query, topK, 0)
+		if err != nil {
+			return mcp.NewToolResultText("检索失败: " + err.Error()), nil
+		}
+		out := make([]map[string]any, 0, len(hits))
+		for _, h := range hits {
+			out = append(out, map[string]any{"doc": h.Doc, "seq": h.Seq, "score": h.Score, "excerpt": h.Excerpt})
+		}
+		b, _ := json.Marshal(out)
+		return mcp.NewToolResultText(string(b)), nil
+	})
+	return mcpserver.NewStreamableHTTPServer(kbSrv)
+}

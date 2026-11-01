@@ -22,6 +22,7 @@ export default function EventReplayDrawer({
   runId,
   open,
   onClose,
+  offlineEvents,
 }: {
   conversationId: string
   title: string
@@ -29,6 +30,11 @@ export default function EventReplayDrawer({
   level?: number
   /** REQ-217②：轨迹面板「重放此运行」——按 run_id 过滤（空 = 全部，历史口径） */
   runId?: string
+  /**
+   * REQ-555/M362：离线回放数据源（传入即离线模式——跳过 api.listEvents，纯本地渲染，
+   * 断网可回放；在线路径零改动）。文件为只读快照：审批/Resume 决议动作不提供（只对活运行有效）。
+   */
+  offlineEvents?: RunEventDTO[]
   open: boolean
   onClose: () => void
 } & Pick<DrawerProps, 'open' | 'onClose'>) {
@@ -44,16 +50,22 @@ export default function EventReplayDrawer({
       setPlaying(false)
       return
     }
-    setLoading(true)
     setCursor(0)
     setPlaying(false)
+    // REQ-555：离线模式（文件导入）零 API 请求——断网可回放
+    if (offlineEvents) {
+      setEvents(offlineEvents)
+      setLoading(false)
+      return
+    }
+    setLoading(true)
     setEvents([])
     api
       .listEvents(conversationId)
       .then((r) => setEvents(r ?? []))
       .catch(() => setEvents([]))
       .finally(() => setLoading(false))
-  }, [open, conversationId])
+  }, [open, conversationId, offlineEvents])
 
   // REQ-149①：按当前展示级别过滤渲染（简洁档隐藏调试细节事件）；REQ-217② runId 过滤
   const gated = useMemo(

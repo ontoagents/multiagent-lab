@@ -11,7 +11,7 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	var enableKB, ontoEnabled, enableSkills int
 	var toolApproval, modelConnID sql.NullString
 	var compOntologyID, contextMode string
-	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &workspaceID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode)
+	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &workspaceID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &c.PauseState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	return &c, nil
 }
 
-const convCols = `id,scope,agent_id,project_id,workspace_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode`
+const convCols = `id,scope,agent_id,project_id,workspace_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,pause_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode`
 
 // ConversationFilter 会话列表过滤。
 type ConversationFilter struct {
@@ -183,8 +183,8 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 			// 归属工作区已删（SET NULL 竞态窗口）：静默回落零值——与未归属无异
 		}
 	}
-	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Scope, c.AgentID, c.ProjectID, c.WorkspaceID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride)
+	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Scope, c.AgentID, c.ProjectID, c.WorkspaceID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, "", c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +252,40 @@ func (s *Store) SetConversationInterruptState(id, stateJSON, reason string) erro
 	}
 	s.recordStateChange(id, "interrupt_state", prev, stateJSON, reason)
 	return nil
+}
+
+// SetConversationPauseState pause 安全点挂起状态（REQ-558/M365；"" = 清除/unpause）。
+// 走 recordStateChange 自动留痕（state_log 单源口径——验收①「state_log 有 pause_state 留痕」）。
+func (s *Store) SetConversationPauseState(id, stateJSON, reason string) error {
+	prev := s.conversationField(id, "pause_state")
+	res, err := s.DB.Exec(`UPDATE conversation SET pause_state=?,updated_at=? WHERE id=?`, stateJSON, now(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	s.recordStateChange(id, "pause_state", prev, stateJSON, reason)
+	return nil
+}
+
+// DeleteMessagesAfter 锚点之后消息截断（REQ-558 redo 消息锚点——anchor 之后按 created_at 删除；
+// run_event 追加式不删，原过程可回看）。返回删除条数。
+func (s *Store) DeleteMessagesAfter(convID, anchorMessageID string) (int64, error) {
+	var createdAt string
+	row := s.DB.QueryRow(`SELECT created_at FROM message WHERE id = ? AND conversation_id = ?`, anchorMessageID, convID)
+	if err := row.Scan(&createdAt); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	res, err := s.DB.Exec(`DELETE FROM message WHERE conversation_id = ? AND created_at >= ? AND id != ?`, convID, createdAt, anchorMessageID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // SaveConversationTodo 持久化 todo_write 任务清单（REQ-202/M38：模型自写进度，机器可读侧）。

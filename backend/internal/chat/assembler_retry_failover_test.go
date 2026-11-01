@@ -101,6 +101,8 @@ func TestBuildModelFailover_Req452(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// store 显式回收（Windows 文件锁：SQLite 句柄未关时 t.TempDir 清理 unlinkat 失败致测试红）
+	t.Cleanup(func() { _ = st.Close() })
 	box, err := secrets.LoadKeyFile(filepath.Join(t.TempDir(), ".secret"))
 	if err != nil {
 		t.Fatal(err)

@@ -179,6 +179,8 @@ func (s *Server) conversationState(w http.ResponseWriter, r *http.Request) {
 		} else {
 			phase = "waiting_human"
 		}
+	} else if conv.PauseState != "" { // REQ-558/M365：pause 挂起（区别于决策点挂起——用户主动安全点暂停）
+		phase = "paused"
 	}
 	todoHead := conv.TodoJSON
 	if n := len(todoHead); n > 300 {
@@ -232,6 +234,7 @@ func (s *Server) forkConversation(w http.ResponseWriter, r *http.Request) {
 	nc.CreatedAt = ""
 	nc.UpdatedAt = ""
 	nc.InterruptState = ""
+	nc.PauseState = "" // REQ-558/M365：fork 清空面扩展至 pause_state（沿 interrupt_state 现状）
 	nc.ContextState = ""
 	nc.TodoJSON = ""
 	nc.Title = strings.TrimSpace(body.Title)

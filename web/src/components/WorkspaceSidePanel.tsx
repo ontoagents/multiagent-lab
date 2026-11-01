@@ -33,9 +33,11 @@ const PANEL_BAR_WIDTH = 44
 
 /**
  * 工作区右侧侧边栏（REQ-549/M356 M1b；activity bar 范式沿 ProjectSidePanel）：
- * M1b 仅 config 视图（名称/描述/默认知识库/默认本体方案/默认智能体/笔记本绑定只读占位）；
+ * config 视图（名称/描述/默认知识库/默认本体方案/默认智能体/笔记本绑定）；
+ * REQ-495②段尾项：笔记本绑定自只读占位转正为绑定/换绑/解绑交互（PUT /api/notebooks 全量语义，
+ * 解绑空串后端归一 NULL）——「存笔记本」产物去向动作（ProjectSidePanel FilesView）按此绑定解析目标。
  * 目录绑定与 Git 视图刻意不做——那是项目（执行容器）职责（106 号 §四 IA 边界）。
- * M2 将增 projects 视图（归属项目管理）。
+ * M2 projects 视图已交付（REQ-550/M357 归属项目管理）。
  */
 export default function WorkspaceSidePanel({
   workspace,
@@ -175,7 +177,8 @@ export default function WorkspaceSidePanel({
 }
 
 // ---------------------------------------------------------------------------
-// 配置视图（REQ-549/M356）：名称/描述/默认知识库/默认本体方案/默认智能体 + 笔记本绑定只读
+// 配置视图（REQ-549/M356）：名称/描述/默认知识库/默认本体方案/默认智能体 + 笔记本绑定
+// （REQ-495②段尾项转正：绑定/换绑/解绑交互并持久化）
 // ---------------------------------------------------------------------------
 
 function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; agents: Agent[]; onChanged?: () => void }) {
@@ -187,6 +190,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
   const [notebooks, setNotebooks] = useState<Notebook[]>([])
   const [refsLoading, setRefsLoading] = useState(false)
+  const [bindSel, setBindSel] = useState('') // 待绑定笔记本选择
 
   useEffect(() => {
     form.setFieldsValue({
@@ -197,6 +201,11 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
       default_agent_id: workspace.default_agent_id || undefined,
     })
   }, [workspace.id, form])
+
+  // 笔记本清单独立可重载（绑定/解绑后刷新本区块；REQ-495②段尾项）
+  const loadNotebooks = () => {
+    api.listNotebooks().then(setNotebooks).catch(() => setNotebooks([]))
+  }
 
   useEffect(() => {
     setRefsLoading(true)
@@ -256,8 +265,34 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 
   // 106 号 §四：默认方案只列 running 状态（与本体 chip 同口径）
   const runningProfiles = profiles.filter((p) => p.status === 'running')
-  // REQ-495 笔记本绑定只读占位：一对多宿主端=workspace 实体（Q-24 拍板②）
+  // REQ-495②段尾项：绑定/换绑/解绑交互（一对多宿主端=workspace 实体，Q-24 拍板②；
+  // 写链=PUT /api/notebooks/{id} 全量语义，解绑空串由后端归一 NULL）
   const boundNotebooks = notebooks.filter((n) => n.workspace_id === workspace.id)
+  const availableNotebooks = notebooks.filter((n) => (n.workspace_id ?? '') !== workspace.id)
+
+  const bindNotebook = async (nbId: string) => {
+    const nb = notebooks.find((x) => x.id === nbId)
+    if (!nb) return
+    try {
+      await api.updateNotebook(nbId, { name: nb.name, description: nb.description, workspace_id: workspace.id })
+      showToast(`笔记本「${nb.name}」已绑定本工作区——对话产物「存笔记本」将写入这里`)
+      setBindSel('')
+      loadNotebooks()
+      onChanged?.()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
+  const unbindNotebook = async (nb: Notebook) => {
+    try {
+      await api.updateNotebook(nb.id, { name: nb.name, description: nb.description, workspace_id: '' })
+      showToast(`笔记本「${nb.name}」已解除绑定（页面保留，回落个人资产）`)
+      loadNotebooks()
+      onChanged?.()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    }
+  }
 
   return (
     <div className="proj-view-body">
@@ -308,20 +343,49 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
           />
         </Form.Item>
 
-        <Section>笔记本绑定（只读）</Section>
+        <Section>笔记本绑定</Section>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+          对话产物面板的「存笔记本」动作写入这里绑定的笔记本（一对多；自产成果资产层 REQ-495）。
+        </Typography.Text>
         {boundNotebooks.length === 0 ? (
-          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-            暂无笔记本——到「知识库」模块笔记本页签创建并绑定本工作区。
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }} data-testid="ws-bind-empty">
+            暂无绑定——从下方选择笔记本绑定，或先到「知识库」模块笔记本页签创建。
           </Typography.Text>
         ) : (
-          <ul className="proj-entries" style={{ margin: 0 }}>
+          <ul className="proj-entries" style={{ margin: 0 }} data-testid="ws-bound-notebooks">
             {boundNotebooks.map((n) => (
               <li key={n.id} className="proj-entry">
                 <span className="proj-entry-name" title={n.name}>{n.name}</span>
+                <Button size="small" type="text" aria-label={`解绑 ${n.name}`} data-testid={`ws-unbind-${n.name}`} onClick={() => unbindNotebook(n)}>
+                  解绑
+                </Button>
               </li>
             ))}
           </ul>
         )}
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }} data-testid="ws-bind-row">
+          <Select
+            size="small"
+            style={{ flex: 1 }}
+            allowClear
+            placeholder={availableNotebooks.length === 0 ? '暂无可绑定的笔记本' : '选择要绑定的笔记本…'}
+            loading={refsLoading}
+            value={bindSel || undefined}
+            onChange={(v) => setBindSel(v ?? '')}
+            options={availableNotebooks.map((n) => ({ value: n.id, label: n.workspace_id ? `${n.name}（已绑其他工作区）` : n.name }))}
+            data-testid="ws-bind-select"
+          />
+          <Button
+            size="small"
+            type="primary"
+            disabled={!bindSel}
+            aria-label="绑定笔记本"
+            data-testid="ws-bind-btn"
+            onClick={() => bindNotebook(bindSel)}
+          >
+            绑定
+          </Button>
+        </div>
       </Form>
 
       <div className="proj-view-actions">

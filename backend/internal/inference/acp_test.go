@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -76,10 +75,7 @@ process.stdin.on('end', () => process.exit(0))
 func stubOnPath(t *testing.T) (binPath string) {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "dsh")
-	if err := os.WriteFile(p, []byte(stubACP), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	p := writeStubExe(t, dir, "dsh", "node", stubACP)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return p
 }
@@ -169,6 +165,10 @@ func TestACPAdapterPermissionSelected(t *testing.T) {
 
 func TestACPAdapterResumeFlow(t *testing.T) {
 	stubOnPath(t)
+	// 预置 conv-r1 会话映射：resume 分支前置条件是「映射在案」（Run 内 acpSessions.get），
+	// 原先该前提依赖开发机残留的 gitignored data/acp_sessions.json（上轮测试第二半程落盘）——
+	// 清洁机首次运行映射缺失直接走 session/new 不告警。显式落映射使测试自洽（不依赖跨轮残留态）。
+	acpSessions.set("conv-r1", "stub-seed")
 	// 非首轮回退场景：resume 失败 → 告警 + 回退 session/new + BuildPrompt(false) 全量历史。
 	t.Setenv("RESUME_FAIL", "1")
 	evs, text := runStub(t, &RunRequest{

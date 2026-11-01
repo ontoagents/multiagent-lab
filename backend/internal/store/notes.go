@@ -62,6 +62,15 @@ func (s *Store) GetNotebook(id string) (*Notebook, error) {
 	return n, err
 }
 
+// wsBindVal 笔记本绑定值归一：空串视为「不绑定/解绑」写 NULL（REQ-495② 绑定 UI 轮修复；
+// DSN foreign_keys(1)——'' 不在 workspace(id) 会违反 FK，沿 SetProjectWorkspace 先例）。
+func wsBindVal(ws *string) any {
+	if ws == nil || *ws == "" {
+		return nil
+	}
+	return *ws
+}
+
 // CreateNotebook 新建笔记本（workspace_id 可空=个人资产不绑工作区；一对多绑定）。
 func (s *Store) CreateNotebook(n *Notebook) (*Notebook, error) {
 	if n.ID == "" {
@@ -76,14 +85,15 @@ func (s *Store) CreateNotebook(n *Notebook) (*Notebook, error) {
 		}
 	}
 	_, err := s.DB.Exec(`INSERT INTO notebook (`+notebookCols+`) VALUES (?,?,?,?,?,?)`,
-		n.ID, n.Name, n.Description, n.WorkspaceID, now(), now())
+		n.ID, n.Name, n.Description, wsBindVal(n.WorkspaceID), now(), now())
 	if err != nil {
 		return nil, err
 	}
 	return s.GetNotebook(n.ID)
 }
 
-// UpdateNotebook 更新名称/描述/工作区绑定（触碰同步语义：改名不改页）。
+// UpdateNotebook 更新名称/描述/工作区绑定（触碰同步语义：改名不改页；
+// workspace_id 空串=解绑归一 NULL——绑定/换绑/解绑 UI 直连本端点）。
 func (s *Store) UpdateNotebook(n *Notebook) (*Notebook, error) {
 	if n.Name == "" {
 		return nil, &HTTPError{Status: 400, Msg: "name required"}
@@ -94,7 +104,7 @@ func (s *Store) UpdateNotebook(n *Notebook) (*Notebook, error) {
 		}
 	}
 	res, err := s.DB.Exec(`UPDATE notebook SET name=?, description=?, workspace_id=?, updated_at=? WHERE id=?`,
-		n.Name, n.Description, n.WorkspaceID, now(), n.ID)
+		n.Name, n.Description, wsBindVal(n.WorkspaceID), now(), n.ID)
 	if err != nil {
 		return nil, err
 	}

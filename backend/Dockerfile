@@ -27,7 +27,8 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=build /out/backend ./backend
 COPY --from=web /web/dist ./web/dist
-ENV ADDR=127.0.0.1:8080 \ # REQ-534/M341：镜像默认回环（compose/helm 编排显式 ADDR 覆盖）
+# REQ-534/M341：镜像默认回环（compose/helm 编排显式 ADDR 覆盖）。REQ-556/M363 顺修：行内注移独立行——\ 后同行注释不构成续行，docker build 解析报错（107 号 §7.2 实测）
+ENV ADDR=127.0.0.1:8080 \
     WEB_DIST=/app/web/dist \
     DB_PATH=/app/data/platform.db \
     SECRET_KEY_FILE=/app/data/.secret \

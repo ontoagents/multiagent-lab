@@ -87,7 +87,8 @@ func (s *Store) EnsureBuiltinAssistantInstruction(defaultPrompt string) error {
 // ——「授权更多」的不可摘除部分（迁移 023 只 seed 了 L0，L1 三件 REQ-186 阶段一/三补注册时漏并入行）。
 // REQ-451：doc_list/doc_grep 入基座（平台知识阅读补全——目录发现/词法定位）。
 var assistantRequiredTools = []string{"doc_read", "doc_list", "doc_grep", "list_model_connections", "list_agents", "list_kbs",
-	"get_assistant_config", "sync_platform_kb", "search_platform_kb", "propose_assistant_config"}
+	"get_assistant_config", "sync_platform_kb", "search_platform_kb", "propose_assistant_config",
+	"platform_cli"} // REQ-561/M368：系统操作代理扩项（EnsureAssistantTools 并集自愈）
 
 // SyncBuiltinAssistantPrompt REQ-451 基座升级同步：内置行 instruction 精确等于某历史基座
 // （api.AssistantPromptHistory）时覆写为当前基座——治基座演进后存量库「prompt_tuned 误报 +

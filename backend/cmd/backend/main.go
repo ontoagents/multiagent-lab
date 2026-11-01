@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"os/exec"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -32,6 +33,13 @@ func main() {
 	addr := getenv("ADDR", ":8080")
 	dbPath := getenv("DB_PATH", "./data/platform.db")
 	keyFile := getenv("SECRET_KEY_FILE", "./data/.secret")
+
+	// REQ-561/M368：platform_cli 二进制解析（同目录 ontoapi 优先，PATH 兜底——缺失时工具诚实降级不装配）
+	if _, err := os.Stat(filepath.Join(filepath.Dir(os.Args[0]), "ontoapi"+exeSuffix())); err == nil {
+		tool.PlatformCLIBin = filepath.Join(filepath.Dir(os.Args[0]), "ontoapi"+exeSuffix())
+	} else if p, err := exec.LookPath("ontoapi"); err == nil {
+		tool.PlatformCLIBin = p
+	}
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -310,4 +318,12 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// exeSuffix Windows 可执行后缀（runtime.GOOS 判定—— ontoapi 同目录部署解析）。
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
 }

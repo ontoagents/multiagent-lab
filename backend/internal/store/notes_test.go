@@ -66,6 +66,42 @@ func TestNotebookCRUD(t *testing.T) {
 	}
 }
 
+// REQ-495②段尾项（绑定 UI 轮）：绑定/换绑/解绑走 UpdateNotebook（PUT 全量语义——UI 直连端点）。
+// 解绑空串必须归一 NULL：DSN foreign_keys(1) 下 '' 不在 workspace(id) 会 FK 违约 500（修复回归）。
+func TestNotebookBindUnbindViaUpdate(t *testing.T) {
+	st := newNoteTestStore(t)
+	wsA, _ := st.CreateWorkspace(&Workspace{Name: "A"})
+	wsB, _ := st.CreateWorkspace(&Workspace{Name: "B"})
+	n, err := st.CreateNotebook(&Notebook{Name: "成果笔记"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 绑定 A
+	aID := wsA.ID
+	bound, err := st.UpdateNotebook(&Notebook{ID: n.ID, Name: n.Name, WorkspaceID: &aID})
+	if err != nil || bound.WorkspaceID == nil || *bound.WorkspaceID != aID {
+		t.Fatalf("绑定 A 失真: %+v err=%v", bound, err)
+	}
+	// 换绑 B
+	bID := wsB.ID
+	moved, err := st.UpdateNotebook(&Notebook{ID: n.ID, Name: n.Name, WorkspaceID: &bID})
+	if err != nil || moved.WorkspaceID == nil || *moved.WorkspaceID != bID {
+		t.Fatalf("换绑 B 失真: %+v err=%v", moved, err)
+	}
+	// 解绑（空串→NULL，FK 不违约）
+	empty := ""
+	got, err := st.UpdateNotebook(&Notebook{ID: n.ID, Name: n.Name, WorkspaceID: &empty})
+	if err != nil {
+		t.Fatalf("解绑（空串）应归一 NULL 而非 FK 违约: %v", err)
+	}
+	if got.WorkspaceID != nil {
+		t.Fatalf("解绑后应为 NULL: %+v", got.WorkspaceID)
+	}
+	if boundList, _ := st.ListNotebooks(wsA.ID); len(boundList) != 0 {
+		t.Fatalf("解绑后 A 过滤应空: %v", boundList)
+	}
+}
+
 func TestNotePageCRUDAndTouch(t *testing.T) {
 	st := newNoteTestStore(t)
 	n, _ := st.CreateNotebook(&Notebook{Name: "nb"})

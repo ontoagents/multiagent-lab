@@ -253,6 +253,8 @@ export interface Conversation {
   enable_skills?: boolean
   /** 中断挂起信息 JSON（M11 收尾：ask_human 等待答复；空 = 无挂起） */
   interrupt_state?: string | null
+  /** REQ-558/M365：pause 安全点挂起（{checkpoint_id,run_id,paused_at} JSON——phase=paused 数据源） */
+  pause_state?: string | null
   /** REQ-135②：对话级工具审批覆盖（空=跟随智能体级 | on | off） */
   tool_approval?: string | null
   /** REQ-291：会话级模型连接覆盖（空=跟随智能体默认；合并序 请求级 > 会话级 > 智能体默认） */
@@ -309,7 +311,7 @@ export interface ProviderModelList {
  * 使用统计（ASSUMED 后端契约，接口可能尚未就绪）：
  * GET /api/stats/usage?group_by=model|agent|project
  */
-export type UsageGroupBy = 'model' | 'agent' | 'project'
+export type UsageGroupBy = 'model' | 'agent' | 'project' | 'member' // REQ-557/M364：过程账本成员维度
 
 export interface UsageRow {
   key: string
@@ -340,6 +342,8 @@ export interface RunEventDTO {
   type: string
   data?: string
   created_at: string
+  /** REQ-224/M52：事件契约版本（后端本就返回；REQ-555 导出文件同形状零变换） */
+  schema_version?: number
 }
 
 // ---- M6 知识库（02 文档 §5.1/§6.9/§8） ----
