@@ -1,7 +1,8 @@
 //go:build kbeval
 
-// REQ-526/M333（P08 两轮复核 verified）：真实语料检索质量基准——platform-knowledge 真实文档
-// 节选（README 收录规则+16 号部署段）20 题 gold，词法臂 Recall@5+MRR 离线确定性跑分。
+// REQ-526/M333（P08 两轮复核 verified）：真实语料检索质量基准——真实文档节选
+// （docs/research/README 收录规则〔原 platform-knowledge/README〕+docs/handbook 16 号部署段）
+// 20 题 gold，词法臂 Recall@5+MRR 离线确定性跑分。
 // 区别于种子语料（KB-14 教学构造）：真实文档结构（引用块/代码段/列表）下的检索质量量化；
 // 向量/混合臂经 KB_EVAL_DB 可选（KB-22 形态——指运行栈平台库取默认 embedding 连接），
 // 未配置时如实跳过（不伪造向量分数）。
@@ -44,7 +45,7 @@ func TestKBRealCorpusEval(t *testing.T) {
 	if err := st.InsertKnowledgeChunks(chunks); err != nil {
 		t.Fatalf("insert chunks: %v", err)
 	}
-	t.Logf("======== REQ-526 真实语料基准（platform-knowledge 节选 %d chunks / %d 题 gold）========", len(chunks), len(evaldata.RealQuestions))
+	t.Logf("======== REQ-526 真实语料基准（真实文档节选 %d chunks / %d 题 gold）========", len(chunks), len(evaldata.RealQuestions))
 
 	const topK = 5
 	var sumR, sumMRR float64

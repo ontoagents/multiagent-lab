@@ -7,7 +7,7 @@ kind: practice
 domain: agent
 prereq: ["08_实践_Harness装配链.md"]
 sources:
-  - platform-knowledge/02_智能体/55_Loop_设计实现与演进.md
+  - docs/handbook/02_智能体/55_Loop_设计实现与演进.md
   - backend/internal/chat/checkpoint.go
   - REQ-204
   - REQ-231

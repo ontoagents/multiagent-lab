@@ -8,7 +8,7 @@ domain: ontology
 prereq: ["11_实践_消费与审计三件套.md"]
 sources:
   - docs/03_本体_需求文档.md §2.56
-  - platform-knowledge/04_本体/08_调研预研/产品与设计分析/96_下一步规划综合分析与主线收敛建议_20261021.md
+  - docs/research/04_本体/08_调研预研/产品与设计分析/96_下一步规划综合分析与主线收敛建议_20261021.md
   - runtime-manager/internal/facade/facade_ops.go
   - REQ-366
 check:

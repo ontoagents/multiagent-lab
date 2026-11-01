@@ -7,8 +7,8 @@ kind: concept
 domain: bridge
 prereq: ["01_概念_知识三形态对照.md", "../../01_本体线/cards/05_三平面架构.md"]
 sources:
-  - platform-knowledge/04_本体/08_调研预研/方法论与理论/61_本体Agent开发上手指南.html
-  - platform-knowledge/08_调研预研/58_核心知识体系提取可行方案.md §4.2
+  - docs/research/04_本体/08_调研预研/方法论与理论/61_本体Agent开发上手指南.html
+  - docs/research/08_调研预研/58_核心知识体系提取可行方案.md §4.2
 check:
   - GraphRAG 与 Ontology-as-Tools 的本质区别是什么（知识供给 vs 能力供给）？
   - 「本体如何运行起来」对应哪几种模式？

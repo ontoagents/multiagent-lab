@@ -8,7 +8,7 @@ domain: ontology
 prereq: ["05_三平面架构.md"]
 sources:
   - docs/03_本体_需求文档.md §5
-  - platform-knowledge/04_本体/08_调研预研/方法论与理论/19_本体_semantica集成方案.md
+  - docs/research/04_本体/08_调研预研/方法论与理论/19_本体_semantica集成方案.md
   - REQ-110
 check:
   - D-O15 反转了什么、保留了什么？

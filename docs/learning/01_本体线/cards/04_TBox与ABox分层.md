@@ -7,7 +7,7 @@ kind: concept
 domain: ontology
 prereq: ["03_RDF_OWL_SPARQL三件套.md"]
 sources:
-  - platform-knowledge/04_本体/91_本体_专业概念手册.md
+  - docs/handbook/04_本体/91_本体_专业概念手册.md
   - ontology-service/internal/seed/examples/med_common.json
   - docs/03_本体_需求文档.md §2.33
 check:

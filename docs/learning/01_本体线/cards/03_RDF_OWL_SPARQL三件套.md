@@ -7,7 +7,7 @@ kind: concept
 domain: ontology
 prereq: ["01_本体与知识工程谱系.md"]
 sources:
-  - platform-knowledge/04_本体/91_本体_专业概念手册.md
+  - docs/handbook/04_本体/91_本体_专业概念手册.md
   - runtime-manager/internal/facade/sparql.go
   - REQ-151
   - REQ-366

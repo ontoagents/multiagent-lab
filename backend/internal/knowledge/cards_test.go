@@ -12,7 +12,8 @@ import (
 	"testing"
 )
 
-const ksRoot = "../../../platform-knowledge/09_知识体系"
+// REQ-570 四区收敛（2026-11-01）：知识体系树落点 platform-knowledge/09_知识体系 → docs/learning。
+const ksRoot = "../../../docs/learning"
 
 // cardFrontmatter 卡 frontmatter 的极简解析结构（行式 YAML 子集：key: value + 两空格缩进列表项）。
 type cardFrontmatter struct {
@@ -150,7 +151,7 @@ func validateCard(t *testing.T, line, cardsDir string, e os.DirEntry, registryTe
 	}
 	path := filepath.Join(cardsDir, e.Name())
 	fm := parseFrontmatter(t, path)
-	rel := "platform-knowledge/09_知识体系/" + line + "/cards/" + e.Name()
+	rel := "docs/learning/" + line + "/cards/" + e.Name()
 
 	// ① 必备字段与枚举
 	for _, k := range []string{"module", "topic", "desc", "synced", "kind", "domain", "sources", "check"} {

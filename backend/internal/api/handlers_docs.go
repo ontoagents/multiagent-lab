@@ -5,6 +5,9 @@
 // 平台知识页（原参考资料中心）目录化后，文档互引相对路径点击查看覆盖平台知识目录。
 // REQ-184 收尾（2026-10-22）：research/ 白名单分支退役（G-5 已全量并入 platform-knowledge，
 // research/ 目录删除）——旧路径显式 400 诚实指路，不静默 404。
+// REQ-570 四区收敛（2026-11-01）：platform-knowledge/ 分支退役（24 档迁 docs/handbook/、
+// 调研档迁 docs/research/、09_知识体系 迁 docs/learning/，platform-knowledge/ 目录删除）——
+// docs/ 前缀天然覆盖三子区零改动；旧路径显式 400 诚实指路，不静默 404。
 package api
 
 import (
@@ -28,9 +31,11 @@ func (s *Server) docRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 .md 文档"})
 		return
 	}
-	// 白名单目录：docs/（方案/需求事实源）+ platform-knowledge/（平台知识）；fsutil 双重防越界。
-	// REQ-184 收尾（2026-10-22）：research/ 分支退役——G-5（2026-09-27）已全量并入 platform-knowledge，
-	// 目录删除；旧路径不静默 404，显式 400 指路新位置。
+	// 白名单目录：docs/（方案/需求事实源 + handbook/research/learning 三子区，前缀天然覆盖）；
+	// fsutil 双重防越界。
+	// REQ-184 收尾（2026-10-22）：research/ 分支退役——G-5（2026-09-27）曾并入 platform-knowledge。
+	// REQ-570 四区收敛（2026-11-01）：platform-knowledge/ 分支退役——原树拆解至 docs/handbook|
+	// research|learning；旧路径不静默 404，显式 400 指路新位置。
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	const docsPrefix = "docs/"
 	const researchPrefix = "research/"
@@ -38,14 +43,15 @@ func (s *Server) docRead(w http.ResponseWriter, r *http.Request) {
 	var root, sub string
 	switch {
 	case strings.HasPrefix(clean, researchPrefix):
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "research/ 目录已退役（G-5 2026-09-27 并入 platform-knowledge/，REQ-184 收尾 2026-10-22 删除）——请改用 platform-knowledge/ 下的对应文档"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "research/ 目录已退役（G-5 2026-09-27 曾并入 platform-knowledge/；REQ-570 2026-11-01 四区收敛后调研档居 docs/research/）——请改用 docs/research/ 下的对应文档"})
 		return
 	case strings.HasPrefix(clean, docsPrefix):
 		root, sub = s.DocsRoot, strings.TrimPrefix(clean, docsPrefix)
 	case strings.HasPrefix(clean, knowledgePrefix):
-		root, sub = s.KnowledgeRoot, strings.TrimPrefix(clean, knowledgePrefix)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "platform-knowledge/ 目录已退役（REQ-570 2026-11-01 四区收敛：现状手册迁 docs/handbook/、调研档迁 docs/research/、知识体系迁 docs/learning/）——请改用 docs/ 下的对应文档"})
+		return
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 docs/ 或 platform-knowledge/ 目录下的文档"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "仅支持 docs/ 目录下的文档（含 handbook/research/learning 三子区）"})
 		return
 	}
 	if strings.Contains(clean, "..") {

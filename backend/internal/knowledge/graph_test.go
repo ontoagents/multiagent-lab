@@ -31,7 +31,7 @@ func graphFixture(t *testing.T) (*store.Store, string) {
 
 func TestIngestKnowledgeGraph(t *testing.T) {
 	st, root := graphFixture(t)
-	res, err := IngestKnowledgeGraph(root, "platform-knowledge/09_知识体系", st)
+	res, err := IngestKnowledgeGraph(root, "docs/learning", st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +52,11 @@ func TestIngestKnowledgeGraph(t *testing.T) {
 
 func TestLearningPathClosure(t *testing.T) {
 	st, root := graphFixture(t)
-	res, _ := IngestKnowledgeGraph(root, "platform-knowledge/09_知识体系", st)
+	res, _ := IngestKnowledgeGraph(root, "docs/learning", st)
 	_ = res
 	nodes, edges, _ := st.ListKnowledgeGraph()
 	// 目标 c：闭包 = a → b → c（依赖先行）
-	path, err := LearningPath(nodes, edges, "platform-knowledge/09_知识体系/01_本体线/cards/c.md")
+	path, err := LearningPath(nodes, edges, "docs/learning/01_本体线/cards/c.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestLearningPathClosure(t *testing.T) {
 		t.Fatalf("拓扑序不符: %v", path)
 	}
 	// 目标 a：单卡
-	path2, err := LearningPath(nodes, edges, "platform-knowledge/09_知识体系/01_本体线/cards/a.md")
+	path2, err := LearningPath(nodes, edges, "docs/learning/01_本体线/cards/a.md")
 	if err != nil || len(path2) != 1 {
 		t.Fatalf("单卡路径: %v %v", path2, err)
 	}
@@ -117,7 +117,7 @@ func TestIngestSkipsNonCardDocs(t *testing.T) {
 	extra("00_导读.md", "---\nmodule: 知识体系\nrole: home\ntopic: 导读\n---\n导读正文")
 	extra("01_本体线/00_本体线学习路径.md", "---\nmodule: 知识体系\ntopic: 学习路径\n---\n主档正文")
 	extra("README.md", "无 frontmatter 文档")
-	if _, err := IngestKnowledgeGraph(root, "platform-knowledge/09_知识体系", st); err != nil {
+	if _, err := IngestKnowledgeGraph(root, "docs/learning", st); err != nil {
 		t.Fatal(err)
 	}
 	nodes, _, err := st.ListKnowledgeGraph()
@@ -131,14 +131,14 @@ func TestIngestSkipsNonCardDocs(t *testing.T) {
 	}
 }
 
-// TestIngestNoDoublePrefix root 含 platform-knowledge 段（生产形态）时 id 不得双前缀。
+// TestIngestNoDoublePrefix root 含 docs/learning 段（生产形态，REQ-570 四区收敛后）时 id 不得双前缀。
 func TestIngestNoDoublePrefix(t *testing.T) {
 	st, _ := graphFixture(t)
-	root := filepath.Join(t.TempDir(), "platform-knowledge", "09_知识体系")
+	root := filepath.Join(t.TempDir(), "docs", "learning")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// 在带前缀 root 下重建 fixture（生产形态：root 路径含 platform-knowledge 段）
+	// 在带前缀 root 下重建 fixture（生产形态：root 路径含 docs/learning 段）
 	card := func(rel, fm string) {
 		p := filepath.Join(root, rel)
 		_ = os.MkdirAll(filepath.Dir(p), 0o755)
@@ -146,7 +146,7 @@ func TestIngestNoDoublePrefix(t *testing.T) {
 	}
 	card("01_本体线/cards/a.md", "---\nkind: concept\ntopic: 概念A\nprereq: []\n---\n正文")
 	card("01_本体线/cards/b.md", "---\nkind: decision\ntopic: 决策B\nprereq: [\"a.md\"]\n---\n正文")
-	if _, err := IngestKnowledgeGraph(root, "platform-knowledge", st); err != nil {
+	if _, err := IngestKnowledgeGraph(root, "docs/learning", st); err != nil {
 		t.Fatal(err)
 	}
 	nodes, edges, err := st.ListKnowledgeGraph()
@@ -157,12 +157,12 @@ func TestIngestNoDoublePrefix(t *testing.T) {
 		t.Fatalf("生产形态 root 应摄取 2 节点 1 边: %d %d", len(nodes), len(edges))
 	}
 	for _, n := range nodes {
-		if strings.Contains(n.ID, "platform-knowledge/platform-knowledge") {
+		if strings.Contains(n.ID, "docs/learning/docs/learning") {
 			t.Fatalf("节点 id 双前缀（修复回归）: %s", n.ID)
 		}
-		want := "platform-knowledge/09_知识体系/01_本体线/cards/" + filepath.Base(n.ID)
-		if filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(n.ID)))) != "09_知识体系" {
-			t.Fatalf("id 应为 platform-knowledge 前缀单层形态: %s（期望形如 %s）", n.ID, want)
+		want := "docs/learning/01_本体线/cards/" + filepath.Base(n.ID)
+		if filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(n.ID)))) != "learning" {
+			t.Fatalf("id 应为 docs/learning 前缀单层形态: %s（期望形如 %s）", n.ID, want)
 		}
 	}
 	// 边解析在单前缀 id 空间内成立
@@ -171,21 +171,22 @@ func TestIngestNoDoublePrefix(t *testing.T) {
 	}
 }
 
-// TestCardRelIDSegmentRoot root 以 platform-knowledge/ 开头（KNOWLEDGE_ROOT=./platform-knowledge
-// 经 Join 清 ./ 后的形态）时 id 不得丢段——repoRootOf i=0 边界（2026-10-28 冒烟实锤修复回归：
-// 全部节点 id 丢 platform-knowledge/09_知识体系 两段、跨线 path 查询不命中）。
+// TestCardRelIDSegmentRoot root 以 docs/ 开头（KNOWLEDGE_ROOT=./docs/handbook 派生的
+// ./docs/learning 经 Join 清 ./ 后的形态）时 id 不得丢段——repoRootOf i=0 边界（沿
+// 2026-10-28 冒烟实锤修复口径的形态迁移回归：全部节点 id 丢 docs/learning 两段、跨线
+// path 查询不命中）。
 func TestCardRelIDSegmentRoot(t *testing.T) {
-	root := filepath.ToSlash(filepath.Join("platform-knowledge", "09_知识体系")) // 无父段形态
+	root := filepath.ToSlash(filepath.Join("docs", "learning")) // 无父段形态
 	path := filepath.ToSlash(filepath.Join(root, "03_结合线", "cards", "x.md"))
-	got := cardRelID(root, "platform-knowledge", path)
-	want := "platform-knowledge/09_知识体系/03_结合线/cards/x.md"
+	got := cardRelID(root, "docs/learning", path)
+	want := "docs/learning/03_结合线/cards/x.md"
 	if got != want {
 		t.Fatalf("单段 root 形态 id 应保留全路径: got %q want %q", got, want)
 	}
 	// 双段形态（生产常态）回归不变
-	root2 := filepath.ToSlash(filepath.Join("..", "platform-knowledge", "09_知识体系"))
+	root2 := filepath.ToSlash(filepath.Join("..", "docs", "learning"))
 	path2 := filepath.ToSlash(filepath.Join(root2, "01_本体线", "cards", "y.md"))
-	if got2 := cardRelID(root2, "platform-knowledge", path2); got2 != "platform-knowledge/09_知识体系/01_本体线/cards/y.md" {
+	if got2 := cardRelID(root2, "docs/learning", path2); got2 != "docs/learning/01_本体线/cards/y.md" {
 		t.Fatalf("双段 root 形态 id 回归: got %q", got2)
 	}
 }
@@ -193,7 +194,7 @@ func TestCardRelIDSegmentRoot(t *testing.T) {
 // TestScanBroken 断链只读扫描（不写库）与摄取断链同口径。
 func TestScanBroken(t *testing.T) {
 	_, root := graphFixture(t)
-	broken, err := ScanBroken(root, "platform-knowledge/09_知识体系")
+	broken, err := ScanBroken(root, "docs/learning")
 	if err != nil {
 		t.Fatal(err)
 	}

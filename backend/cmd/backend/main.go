@@ -143,7 +143,10 @@ func main() {
 		log.Printf("[backend] ensure assistant tools: %v", err)
 	}
 	svc.Inference = infReg // M13/D-O13 §6.16：推理后端注册表（eino-adk + 外部 CLI；REQ-426 起与 Assembler 共用）
-	knowledgeRoot := getenv("KNOWLEDGE_ROOT", "../platform-knowledge")
+	// REQ-570 四区收敛（2026-11-01）：知识检索根由 platform-knowledge/ 切至 docs/handbook/
+	// （现状手册区；学习资产 docs/learning 与调研 docs/research 均居 DOCS_ROOT 下——前者由
+	// chat.SyncPlatformKB 以本值派生第二 walk 根并入检索面，后者经 docs/ 前缀被 doc_read 覆盖）。
+	knowledgeRoot := getenv("KNOWLEDGE_ROOT", "../docs/handbook")
 	srv := api.NewServer(st, box, svc, reg, kbSvc, asm.Ontology, dbPath, getenv("DOCS_ROOT", "../docs"), knowledgeRoot)
 	// REQ-186 阶段二：平台助手 L0 只读工具面（doc_read/doc_list/doc_grep/列表×3/查配置；写类工具不开放）
 	if err := chat.RegisterAssistantTools(reg, chat.AssistantDeps{Store: st, DocsRoot: getenv("DOCS_ROOT", "../docs"), KnowledgeRoot: knowledgeRoot, DefaultPrompt: api.AssistantDefaultPrompt}); err != nil {

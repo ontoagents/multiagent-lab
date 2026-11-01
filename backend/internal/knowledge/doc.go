@@ -1,5 +1,6 @@
 // Package knowledge REQ-372/M170：知识卡自动校验器（提取流水线第②步的常跑形态）。
-// 校验对象：platform-knowledge/09_知识体系/ 下的学习路径文档与三型知识卡——
+// 校验对象：docs/learning/（2026-11-01 REQ-570 四区收敛，原 platform-knowledge/09_知识体系/）
+// 下的学习路径文档与三型知识卡——
 //
 //	①卡模板：frontmatter 必备字段（module/topic/desc/synced/kind/domain/prereq/sources/check）
 //	  与枚举合法（kind=concept|decision|practice，domain=ontology|agent|kb|bridge）；

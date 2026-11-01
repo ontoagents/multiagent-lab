@@ -25,7 +25,7 @@ func (s *Server) knowledgeGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := map[string]any{"nodes": nodes, "edges": edges}
 	if len(nodes) == 0 && s.KnowledgeRoot != "" {
-		if _, rerr := knowledge.IngestKnowledgeGraph(root, "platform-knowledge", s.Store); rerr != nil {
+		if _, rerr := knowledge.IngestKnowledgeGraph(root, "docs/learning", s.Store); rerr != nil {
 			abs, _ := filepath.Abs(root)
 			resp["ingestError"] = fmt.Sprintf(
 				"图谱为空且自动摄取失败：知识目录 %s 不可达（可能原因：启动工作目录不含该相对路径，或 KNOWLEDGE_ROOT 配置错误）。请修正后点击「重新摄取」", abs)
@@ -37,7 +37,7 @@ func (s *Server) knowledgeGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.KnowledgeRoot != "" {
-		if broken, berr := knowledge.ScanBroken(root, "platform-knowledge"); berr == nil {
+		if broken, berr := knowledge.ScanBroken(root, "docs/learning"); berr == nil {
 			resp["broken"] = broken
 		}
 	}
@@ -73,7 +73,7 @@ func (s *Server) knowledgeGraphRefresh(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "知识目录未配置（KNOWLEDGE_ROOT）。请设置环境变量后重启后端再试"})
 		return
 	}
-	res, err := knowledge.IngestKnowledgeGraph(root, "platform-knowledge", s.Store)
+	res, err := knowledge.IngestKnowledgeGraph(root, "docs/learning", s.Store)
 	if err != nil {
 		abs, _ := filepath.Abs(root)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -91,7 +91,7 @@ func (s *Server) knowledgeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "知识目录未配置（KNOWLEDGE_ROOT）。请设置环境变量后重启后端再试"})
 		return
 	}
-	doc, err := knowledge.BuildLlmsDoc(knowledgeRootOf(s), "platform-knowledge")
+	doc, err := knowledge.BuildLlmsDoc(knowledgeRootOf(s), "docs/learning")
 	if err != nil {
 		abs, _ := filepath.Abs(knowledgeRootOf(s))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -102,11 +102,13 @@ func (s *Server) knowledgeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(doc))
 }
 
-// knowledgeRootOf 知识体系根目录（KnowledgeRoot 指向 platform-knowledge/；子目录 09_知识体系）。
+// knowledgeRootOf 知识体系根目录（REQ-570 四区收敛 2026-11-01：KnowledgeRoot 指向 docs/handbook/，
+// 学习资产树为其同级 docs/learning/——原 platform-knowledge/09_知识体系 整目录迁此；兼容直接
+// 以 learning/ 结尾的 KNOWLEDGE_ROOT 形态）。
 func knowledgeRootOf(s *Server) string {
 	base := strings.TrimRight(s.KnowledgeRoot, "/")
-	if strings.HasSuffix(base, "09_知识体系") {
+	if strings.HasSuffix(base, "learning") {
 		return base
 	}
-	return filepath.ToSlash(filepath.Join(base, "09_知识体系"))
+	return filepath.ToSlash(filepath.Join(base, "..", "learning"))
 }

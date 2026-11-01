@@ -7,7 +7,7 @@ kind: practice
 domain: agent
 prereq: ["03_概念_五层域总纲.md"]
 sources:
-  - platform-knowledge/02_智能体/53_Harness_设计实现与演进.md
+  - docs/handbook/02_智能体/53_Harness_设计实现与演进.md
   - backend/internal/chat/assembler.go
   - backend/internal/tool/hooks.go
 check:

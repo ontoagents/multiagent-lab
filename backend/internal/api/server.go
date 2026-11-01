@@ -41,7 +41,7 @@ type Server struct {
 	FilesRoot     string             // M11：项目文件根目录（上传/下载落盘）
 	DBPath        string             // REQ-113：SQLite 文件路径（数据与安全概览展示 DB 体积）
 	DocsRoot      string             // REQ-140：内部方案文档根目录（只读查看）
-	KnowledgeRoot string             // REQ-161：platform-knowledge/ 平台知识根目录（只读查看，2026-09-25 扩展）
+	KnowledgeRoot string             // REQ-161：平台知识根目录（REQ-570 2026-11-01 起=docs/handbook 现状手册区；知识图谱/llms.txt 面由其派生 docs/learning）
 	Companion     *companion.Service // REQ-170/M28：伴生本体旁路管线（Run/Resume 收尾触发，低侵入）
 	Memory        *memory.Service    // REQ-551/M358：工作区记忆旁路管线（收尾候选生成——可审计口径）
 	sched         *scheduler         // REQ-204/M39 C5：对话级定时续跑（REQ-224 起调度状态落库，重启 LoadSchedules 续装）

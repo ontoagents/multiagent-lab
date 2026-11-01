@@ -3,8 +3,10 @@ package chat
 // ---------------------------------------------------------------------------
 // REQ-186 阶段一/阶段三（M-O14 流水线队列）：平台知识 KB 化 + L1 写提案两段式。
 //
-// 阶段一 KB 化：EnsurePlatformKB（专用 rag 库，按名称幂等）+ SyncPlatformKB（扫描
-// platform-knowledge/**/*.md，mtime 增量对账：文件新于文档→重导入，文件消失→删文档）+
+// 阶段一 KB 化：EnsurePlatformKB（专用 rag 库，按名称幂等）+ SyncPlatformKB（扫描平台手册
+// docs/handbook/**/*.md 与学习资产 docs/learning/**/*.md 双根——2026-11-01 REQ-570 四区收敛，
+// 原 platform-knowledge/ 单根退役：handbook=KnowledgeRoot 本根、learning=同级派生第二根，
+// mtime 增量对账：文件新于文档→重导入，文件消失→删文档，旧前缀文档行亦按「文件已删除」清退）+
 // L0 工具 sync_platform_kb / search_platform_kb（KB 向量检索 topK=5；embedding 未配置时
 // 如实报错降级——doc_read 词法精读不受影响）。
 //
@@ -32,9 +34,10 @@ import (
 	"github.com/ontoagents/ontoagents/backend/internal/tool"
 )
 
-// PlatformKBName 平台知识专用 rag 库的固定名称（幂等键：按名称取/建；前端「官方库」徽标
-// 亦按此判定——api 层 official 字段单源。REQ-451 导出，原小写内部常量）。
-const PlatformKBName = "platform-knowledge 平台知识库"
+// PlatformKBName 平台手册与学习资产专用 rag 库的固定名称（幂等键：按名称取/建；前端「官方库」
+// 徽标亦按此判定——api 层 official 字段单源。REQ-451 导出；REQ-570 四区收敛去路径化改名，
+// 旧名「platform-knowledge 平台知识库」库行不迁移——同名新建后旧库由用户自行清理）。
+const PlatformKBName = "平台手册与学习资产"
 
 // EnsurePlatformKB 按名称取/建专用 rag 库（幂等）。
 func EnsurePlatformKB(ctx context.Context, st *store.Store) (*store.KnowledgeBase, error) {
@@ -45,7 +48,7 @@ func EnsurePlatformKB(ctx context.Context, st *store.Store) (*store.KnowledgeBas
 			}
 		}
 	}
-	k := &store.KnowledgeBase{Name: PlatformKBName, Description: "平台知识目录（platform-knowledge/）向量化镜像——search_platform_kb 检索源；由 sync_platform_kb 增量对账维护", Mode: "rag"}
+	k := &store.KnowledgeBase{Name: PlatformKBName, Description: "平台现状手册与学习资产的向量化镜像（模块机制/部署运维/调研结论/知识卡学习路径）——search_platform_kb 检索源；由 sync_platform_kb 增量对账维护", Mode: "rag"}
 	if _, err := st.CreateKnowledgeBase(k); err != nil {
 		return nil, err
 	}
@@ -63,8 +66,10 @@ type SyncResult struct {
 	Total    int      `json:"total"`
 }
 
-// SyncPlatformKB 扫描 platform-knowledge/**/*.md 与 KB 文档对账（mtime 增量）。
-// 返回对账结果；个别文件索引失败（如向量化不可用）计入 Failed/Errors 不阻断其余。
+// SyncPlatformKB 扫描平台手册与学习资产两根的 **/*.md 与 KB 文档对账（mtime 增量）。
+// 根一=knowledgeRoot（docs/handbook，主根缺失即报错）；根二=同级 docs/learning（学习卡片
+// 并入检索面，目录缺失容忍跳过——沿 docWalkAll IsNotExist 容忍先例）。返回对账结果；
+// 个别文件索引失败（如向量化不可用）计入 Failed/Errors 不阻断其余。
 func SyncPlatformKB(ctx context.Context, st *store.Store, kbSvc KBAdminSource, knowledgeRoot string) (*SyncResult, error) {
 	kbRow, err := EnsurePlatformKB(ctx, st)
 	if err != nil {
@@ -72,30 +77,39 @@ func SyncPlatformKB(ctx context.Context, st *store.Store, kbSvc KBAdminSource, k
 	}
 	res := &SyncResult{}
 
-	// ① 扫描文件（relpath → mtime）
+	// ① 扫描文件（relpath → mtime；rel=仓库相对形态，doc_read 可按其直接精读）
 	type entry struct {
 		rel   string
+		path  string
 		mtime time.Time
 	}
 	var files []entry
-	walkErr := filepath.WalkDir(knowledgeRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
+	walkRoot := func(root, prefix string) error {
+		return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
+				return nil
+			}
+			rel, rerr := filepath.Rel(root, path)
+			if rerr != nil {
+				return nil
+			}
+			info, _ := d.Info()
+			mt := time.Time{}
+			if info != nil {
+				mt = info.ModTime()
+			}
+			files = append(files, entry{rel: prefix + filepath.ToSlash(rel), path: path, mtime: mt})
 			return nil
-		}
-		rel, rerr := filepath.Rel(knowledgeRoot, path)
-		if rerr != nil {
-			return nil
-		}
-		info, _ := d.Info()
-		mt := time.Time{}
-		if info != nil {
-			mt = info.ModTime()
-		}
-		files = append(files, entry{rel: "platform-knowledge/" + filepath.ToSlash(rel), mtime: mt})
-		return nil
-	})
-	if walkErr != nil {
+		})
+	}
+	if walkErr := walkRoot(knowledgeRoot, relPrefixOf(knowledgeRoot)); walkErr != nil {
 		return nil, walkErr
+	}
+	learningRoot := filepath.Join(knowledgeRoot, "..", "learning")
+	if _, lerr := os.Stat(learningRoot); lerr == nil {
+		if walkErr := walkRoot(learningRoot, relPrefixOf(learningRoot)); walkErr != nil {
+			return nil, walkErr
+		}
 	}
 	res.Total = len(files)
 
@@ -115,7 +129,7 @@ func SyncPlatformKB(ctx context.Context, st *store.Store, kbSvc KBAdminSource, k
 			res.Skipped++
 			continue
 		}
-		content, rerr := os.ReadFile(filepath.Join(knowledgeRoot, strings.TrimPrefix(f.rel, "platform-knowledge/")))
+		content, rerr := os.ReadFile(f.path)
 		if rerr != nil {
 			res.Failed++
 			res.Errors = append(res.Errors, f.rel+": "+rerr.Error())
@@ -153,6 +167,14 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// relPrefixOf walk 根 → 文档标题用的虚拟 rel 前缀（<父目录名>/<根名>/ 形态）。四区收敛后
+// 两根均居 docs/ 下（../docs/handbook、../docs/learning），前缀即 docs/handbook/ 与
+// docs/learning/——与 doc_read 的 docs/ 白名单路径口径一致，助手按命中路径可直接精读。
+func relPrefixOf(root string) string {
+	clean := filepath.Clean(root)
+	return filepath.ToSlash(filepath.Join(filepath.Base(filepath.Dir(clean)), filepath.Base(clean))) + "/"
+}
+
 // SyncPlatformKBStartup REQ-451 启动自动同步（main.go 后台 goroutine 调用）：平台知识库
 // 同步原为对话内懒触发（sync_platform_kb），服务重启/新会话存在陈旧窗口——启动即对账消除之。
 // 失败只记日志不阻断启动（懒触发路径仍是兜底）；mtime 幂等对账，重复调用零副作用。
@@ -171,7 +193,7 @@ func assistantSyncPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entr
 	return &tool.Entry{
 		ID:          "sync_platform_kb",
 		Name:        "sync_platform_kb",
-		Description: "对 platform-knowledge/ 平台知识库做增量对账（扫描 md 文件与向量库差异并同步，幂等只镜像仓库内容）——回答平台知识类问题前建议先同步一次",
+		Description: "对平台手册与学习资产库做增量对账（扫描 md 文件与向量库差异并同步，幂等只镜像仓库内容）——回答平台知识类问题前建议先同步一次",
 		Source:      tool.SourceBuiltin,
 		Group:       ToolGroupPlatformKnowledge,
 		New: func(ctx context.Context) (einotool.BaseTool, error) {
@@ -186,7 +208,7 @@ func assistantSyncPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.Entr
 				}
 				return msg, nil
 			}
-			return utils.InferTool("sync_platform_kb", "对 platform-knowledge/ 平台知识库做增量对账（幂等只镜像仓库内容）——回答平台知识类问题前建议先同步一次", fn)
+			return utils.InferTool("sync_platform_kb", "对平台手册与学习资产库做增量对账（幂等只镜像仓库内容）——回答平台知识类问题前建议先同步一次", fn)
 		},
 	}
 }
@@ -211,7 +233,7 @@ func assistantSearchPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.En
 				return "", fmt.Errorf("平台知识库检索不可用（embedding 未配置或索引为空——可先调 sync_platform_kb 同步，或用 doc_read 词法精读）: %w", serr)
 			}
 			if len(hits) == 0 {
-				return "平台知识库无命中——可尝试其他关键词，或用 doc_read 直接精读 platform-knowledge/ 下文档。", nil
+				return "平台手册与学习资产库无命中——可尝试其他关键词，或用 doc_read 直接精读 docs/ 下文档（handbook 现状手册 / research 调研 / learning 学习资产三子区）。", nil
 			}
 			var b strings.Builder
 			b.WriteString(fmt.Sprintf("平台知识库命中 %d 条（topK=5）：\n", len(hits)))
@@ -221,12 +243,12 @@ func assistantSearchPlatformKB(deps AssistantDeps, kbSvc KBAdminSource) *tool.En
 			b.WriteString("（可对上述文档路径调 doc_read 精读全文）")
 			return b.String(), nil
 		}
-		return utils.InferTool("search_platform_kb", "检索 platform-knowledge/ 平台知识库（向量 topK=5），回答平台使用/功能/设计问题前的首选知识源。入参 query 为检索问题", fn)
+		return utils.InferTool("search_platform_kb", "检索平台手册与学习资产库（向量 topK=5），回答平台使用/功能/设计问题前的首选知识源。入参 query 为检索问题", fn)
 	}
 	return &tool.Entry{
 		ID:          "search_platform_kb",
 		Name:        "search_platform_kb",
-		Description: "检索 platform-knowledge/ 平台知识库（向量 topK=5）——平台使用/功能/设计问题的首选知识源",
+		Description: "检索平台手册与学习资产库（向量 topK=5）——平台使用/功能/设计问题的首选知识源",
 		Source:      tool.SourceBuiltin,
 		Group:       ToolGroupPlatformKnowledge,
 		New:         newFn,

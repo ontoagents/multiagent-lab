@@ -9,7 +9,7 @@ prereq: ["04_TBox与ABox分层.md"]
 sources:
   - pkg/ontology/spec/spec.go
   - docs/03_本体_需求文档.md §2.27
-  - platform-knowledge/04_本体/08_调研预研/方法论与理论/31_本体建模规范深入研究报告.md
+  - docs/research/04_本体/08_调研预研/方法论与理论/31_本体建模规范深入研究报告.md
   - REQ-292
   - REQ-293
 check:

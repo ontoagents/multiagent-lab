@@ -24,8 +24,10 @@ import (
 
 // AssistantDeps L0 工具的只读依赖（main.go 装配时注入；与 api 层 docRead 同源口径）。
 type AssistantDeps struct {
-	Store         *store.Store
-	DocsRoot      string
+	Store    *store.Store
+	DocsRoot string
+	// KnowledgeRoot REQ-570（2026-11-01）起=docs/handbook 平台手册根：doc_read 白名单已收敛
+	// 单根 docs/ 不再用它；sync/search_platform_kb 双根 walk 以它为主根（docs/learning 同级派生）。
 	KnowledgeRoot string
 	// DefaultPrompt REQ-213：内置提示词基座（api.AssistantDefaultPrompt 注入）——
 	// get_assistant_config 以「行内 instruction == 基座」判「未微调」（assistant_config 表退役后单源读行）。
@@ -56,8 +58,9 @@ func RegisterAssistantTools(r *tool.Registry, deps AssistantDeps) error {
 // ToolGroupPlatformKnowledge REQ-451：平台知识阅读工具组（管理 UI 分组标注 + /api/tools 透出）。
 const ToolGroupPlatformKnowledge = "平台知识"
 
-// resolveDocPath 白名单路径解析（doc_read/doc_list/doc_grep 共用）：仅 docs/ 与
-// platform-knowledge/ 两根（research/ 已退役，REQ-184），SafeJoin 防越界。
+// resolveDocPath 白名单路径解析（doc_read/doc_list/doc_grep 共用）：仅 docs/ 一根
+// （REQ-570 2026-11-01 四区收敛后 handbook/research/learning 三子区均居 docs/ 下，前缀天然
+// 覆盖；research/ 与 platform-knowledge/ 旧前缀退役并诚实指路），SafeJoin 防越界。
 func resolveDocPath(deps AssistantDeps, rel string) (string, error) {
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	if strings.Contains(clean, "..") {
@@ -66,28 +69,28 @@ func resolveDocPath(deps AssistantDeps, rel string) (string, error) {
 	var root, sub string
 	switch {
 	case strings.HasPrefix(clean, "research/"):
-		return "", fmt.Errorf("research/ 目录已退役（G-5 2026-09-27 并入 platform-knowledge/，REQ-184 收尾 2026-10-22 删除）——请改用 platform-knowledge/ 下的对应文档")
+		return "", fmt.Errorf("research/ 目录已退役（G-5 2026-09-27 曾并入 platform-knowledge/；REQ-570 2026-11-01 四区收敛后调研档居 docs/research/）——请改用 docs/research/ 下的对应文档")
 	case strings.HasPrefix(clean, "docs/"):
 		root, sub = deps.DocsRoot, strings.TrimPrefix(clean, "docs/")
 	case strings.HasPrefix(clean, "platform-knowledge/"):
-		root, sub = deps.KnowledgeRoot, strings.TrimPrefix(clean, "platform-knowledge/")
+		return "", fmt.Errorf("platform-knowledge/ 目录已退役（REQ-570 2026-11-01 四区收敛：现状手册迁 docs/handbook/、调研档迁 docs/research/、知识体系迁 docs/learning/）——请改用 docs/ 下的对应文档")
 	default:
-		return "", fmt.Errorf("仅支持 docs/ 或 platform-knowledge/ 目录下的文档")
+		return "", fmt.Errorf("仅支持 docs/ 目录下的文档（含 handbook/research/learning 三子区）")
 	}
 	return fsutil.SafeJoin(root, sub)
 }
 
-// assistantDocRead L0：读白名单目录（docs/ + platform-knowledge/）下的 .md。
+// assistantDocRead L0：读白名单目录（docs/，含 handbook/research/learning 三子区）下的 .md。
 // REQ-451 分段语义：默认全文（48KB 截断并提示总行数）；传 offset_line（1-based）则按行分页
 // （max_lines 缺省 400，单次仍受 48KB 上限）——大档（docs/01/02/03 等）此前后半不可达。
 // 与 api.docRead 同一白名单与防越界口径（REQ-140/161 语义，供助手精读引用）。
-// REQ-184 收尾（2026-10-22）：research/ 分支退役（G-5 并入 platform-knowledge，目录删除）——
-// 旧路径返回诚实指引（模型可自纠），不静默 404。
+// REQ-184 收尾（2026-10-22）：research/ 分支退役——旧路径返回诚实指引（模型可自纠），不静默 404。
+// REQ-570 四区收敛（2026-11-01）：platform-knowledge/ 分支同样退役。
 func assistantDocRead(deps AssistantDeps) *tool.Entry {
 	return &tool.Entry{
 		ID:          "doc_read",
 		Name:        "doc_read",
-		Description: "读取平台内部文档（docs/、platform-knowledge/ 下 .md，只读）——回答平台使用问题前先精读相关文档；长文档可传 offset_line 分段续读",
+		Description: "读取平台内部文档（docs/ 下 .md，含 handbook 现状手册/research 调研/learning 学习资产三子区，只读）——回答平台使用问题前先精读相关文档；长文档可传 offset_line 分段续读",
 		Source:      tool.SourceBuiltin,
 		Group:       ToolGroupPlatformKnowledge,
 		New: func(ctx context.Context) (einotool.BaseTool, error) {
@@ -146,7 +149,7 @@ func assistantDocRead(deps AssistantDeps) *tool.Entry {
 				}
 				return header + page, nil
 			}
-			return utils.InferTool("doc_read", "读取平台内部文档（docs/、platform-knowledge/ 下 .md）用于精读后回答平台使用问题。入参 path 如 platform-knowledge/02_智能体/智能体模块导读.md；长文档传 offset_line（1-based 起始行）分段续读，max_lines 控制每次行数（默认 400）", fn)
+			return utils.InferTool("doc_read", "读取平台内部文档（docs/ 下 .md，含 handbook/research/learning 三子区）用于精读后回答平台使用问题。入参 path 如 docs/handbook/02_智能体/00_智能体模块.md；长文档传 offset_line（1-based 起始行）分段续读，max_lines 控制每次行数（默认 400）", fn)
 		},
 	}
 }
@@ -154,7 +157,7 @@ func assistantDocRead(deps AssistantDeps) *tool.Entry {
 const docReadDefaultPageLines = 400
 
 type assistantDocReadIn struct {
-	Path       string `json:"path" jsonschema:"文档相对路径（docs/ 或 platform-knowledge/ 前缀，.md 结尾）"`
+	Path       string `json:"path" jsonschema:"文档相对路径（docs/ 前缀，含 handbook/research/learning 子区，.md 结尾）"`
 	OffsetLine int    `json:"offset_line,omitempty" jsonschema:"可选，1-based 起始行——长文档分段续读；缺省读全文（超 48KB 截断）"`
 	MaxLines   int    `json:"max_lines,omitempty" jsonschema:"可选，分段读时每次最多行数（默认 400，上限 1600）"`
 }
@@ -189,15 +192,16 @@ func trimLastRune(s string, maxBytes int) string {
 // REQ-451 平台知识阅读补全：doc_list（目录发现）/ doc_grep（词法定位）。
 // 治两个缺口——目录树此前只在基座 prompt 硬编码（漂移）；「知道关键词不知道路径」在
 // embedding 未配置时无解（search_platform_kb 降级链断裂）。路径口径与 doc_read 一致
-// （docs/ + platform-knowledge/ 前缀），命中可直接喂 doc_read。
+// （docs/ 前缀，REQ-570 四区收敛后含 handbook/research/learning 三子区），命中可直接喂 doc_read。
 // ---------------------------------------------------------------------------
 
-// docWalkAll 遍历白名单两根，返回虚拟相对路径（docs/…、platform-knowledge/…）升序清单（.md）。
+// docWalkAll 遍历白名单根，返回虚拟相对路径（docs/…）升序清单（.md）。
+// REQ-570（2026-11-01）：platform-knowledge/ 第二根退役——其内容已分拆至 docs/ 下三子区，
+// 单根 docs/ 即全量覆盖（保留 pairs 结构便于未来扩根；缺失目录容忍，沿旧例）。
 func docWalkAll(deps AssistantDeps) ([]string, error) {
 	var out []string
 	pairs := []struct{ prefix, root string }{
 		{"docs/", deps.DocsRoot},
-		{"platform-knowledge/", deps.KnowledgeRoot},
 	}
 	for _, p := range pairs {
 		werr := filepath.WalkDir(p.root, func(path string, d os.DirEntry, err error) error {
@@ -253,7 +257,7 @@ func docFrontmatter(abs string) (topic, desc string) {
 // assistantDocList L0：平台文档目录树（路径 + frontmatter topic/desc 摘要），可选 prefix 过滤。
 func assistantDocList(deps AssistantDeps) *tool.Entry {
 	type in struct {
-		Prefix string `json:"prefix,omitempty" jsonschema:"可选，按路径前缀过滤（如 platform-knowledge/04_本体）"`
+		Prefix string `json:"prefix,omitempty" jsonschema:"可选，按路径前缀过滤（如 docs/handbook/04_本体）"`
 	}
 	newFn := func(ctx context.Context) (einotool.BaseTool, error) {
 		fn := func(ctx context.Context, args in) (string, error) {
@@ -285,24 +289,24 @@ func assistantDocList(deps AssistantDeps) *tool.Entry {
 				}
 				fmt.Fprintf(&b, "- %s%s\n", p, meta)
 				if b.Len() > 24*1024 { // 目录清单防爆：约千行级截断，附过滤指引
-					b.WriteString(fmt.Sprintf("…（清单过长已截断，已列 %d 篇——传 prefix 缩小范围，如 platform-knowledge/04_本体）", n))
+					b.WriteString(fmt.Sprintf("…（清单过长已截断，已列 %d 篇——传 prefix 缩小范围，如 docs/handbook/04_本体）", n))
 					return b.String(), nil
 				}
 			}
 			if n == 0 {
 				if prefix != "" {
-					return "无匹配文档（检查 prefix 拼写，可用前缀：docs/ 或 platform-knowledge/）", nil
+					return "无匹配文档（检查 prefix 拼写，可用前缀：docs/handbook、docs/research、docs/learning）", nil
 				}
 				return "暂无平台文档", nil
 			}
 			return fmt.Sprintf("平台文档共 %d 篇（可用 doc_read 精读任意路径）：\n%s", n, b.String()), nil
 		}
-		return utils.InferTool("doc_list", "列出平台内部文档目录树（docs/、platform-knowledge/ 下 .md，含每篇主题摘要；只读）——不知道该读哪篇时先用它发现，可选 prefix 过滤子目录", fn)
+		return utils.InferTool("doc_list", "列出平台内部文档目录树（docs/ 下 .md，含 handbook/research/learning 三子区与根级编号档，附每篇主题摘要；只读）——不知道该读哪篇时先用它发现，可选 prefix 过滤子目录", fn)
 	}
 	return &tool.Entry{
 		ID:          "doc_list",
 		Name:        "doc_list",
-		Description: "列出平台内部文档目录树（docs/、platform-knowledge/ 下 .md，含主题摘要）——目录发现的正源，替代基座提示词静态目录",
+		Description: "列出平台内部文档目录树（docs/ 下 .md，含主题摘要）——目录发现的正源，替代基座提示词静态目录",
 		Source:      tool.SourceBuiltin,
 		Group:       ToolGroupPlatformKnowledge,
 		New:         newFn,
@@ -318,7 +322,7 @@ func assistantDocGrep(deps AssistantDeps) *tool.Entry {
 	)
 	type in struct {
 		Pattern string `json:"pattern" jsonschema:"required"`
-		Prefix  string `json:"prefix,omitempty" jsonschema:"可选，限定目录前缀（如 platform-knowledge/04_本体）"`
+		Prefix  string `json:"prefix,omitempty" jsonschema:"可选，限定目录前缀（如 docs/handbook/04_本体）"`
 	}
 	newFn := func(ctx context.Context) (einotool.BaseTool, error) {
 		fn := func(ctx context.Context, args in) (string, error) {
@@ -381,7 +385,7 @@ func assistantDocGrep(deps AssistantDeps) *tool.Entry {
 			}
 			return out, nil
 		}
-		return utils.InferTool("doc_grep", "在平台内部文档（docs/、platform-knowledge/ 下 .md）内容中按关键词/正则检索，返回 file:line:text 命中——知道关键词但不知道在哪篇时用；向量检索（search_platform_kb）不可用时的词法兜底", fn)
+		return utils.InferTool("doc_grep", "在平台内部文档（docs/ 下 .md，含 handbook/research/learning 三子区）内容中按关键词/正则检索，返回 file:line:text 命中——知道关键词但不知道在哪篇时用；向量检索（search_platform_kb）不可用时的词法兜底", fn)
 	}
 	return &tool.Entry{
 		ID:          "doc_grep",

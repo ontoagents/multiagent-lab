@@ -9,7 +9,8 @@ package chat
 //      （消息只追加，前缀状态长期有效，后续运行直接复用不重摘；已有状态下不再叠加压缩，退化为纯裁剪）；
 //   A4 上下文准入 Provider 链——见 runner.go recallChain；
 //   A5 工具结果剪枝——超长工具结果按首尾确定性剪枝（无模型），保留定位提示。
-// 设计依据：platform-knowledge/02_智能体/38_智能体演进路线建议_HarnessLoopGraph.md §2-A 与 36 号差距清单。
+// 设计依据：docs/research/02_智能体/38_智能体演进路线建议_HarnessLoopGraph.md §2-A 与 36 号差距清单
+// （REQ-570 四区收敛 2026-11-01 路径迁移，原 platform-knowledge/02_智能体/38_…）。
 
 import (
 	"context"

@@ -11,17 +11,17 @@ import (
 )
 
 func TestLlmsTxtInSync(t *testing.T) {
-	root := "../../../platform-knowledge/09_知识体系"
+	root := "../../../docs/learning"
 	if _, err := os.Stat(root); err != nil {
 		t.Skipf("知识体系目录不可达（%v）——仓库形态随迁", err)
 	}
-	got, err := BuildLlmsDoc(root, "platform-knowledge")
+	got, err := BuildLlmsDoc(root, "docs/learning")
 	if err != nil {
 		t.Fatalf("生成失败: %v", err)
 	}
 	wantPath := filepath.Join(root, llmsFileName)
 	if os.Getenv("KS_REGEN") == "1" {
-		if werr := RegenerateLlmsDoc(root, "platform-knowledge"); werr != nil {
+		if werr := RegenerateLlmsDoc(root, "docs/learning"); werr != nil {
 			t.Fatalf("重生成失败: %v", werr)
 		}
 		t.Logf("llms.md 已重生成（%d 字节）", len(got))
@@ -70,18 +70,18 @@ func TestBuildLlmsDocDeterministic(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "00_导读.md"), []byte("---\nmodule: 知识体系\ntopic: 导读\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d1, err := BuildLlmsDoc(root, "platform-knowledge")
+	d1, err := BuildLlmsDoc(root, "docs/learning")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d2, err := BuildLlmsDoc(root, "platform-knowledge")
+	d2, err := BuildLlmsDoc(root, "docs/learning")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d1 != d2 {
 		t.Fatal("同输入两次生成字节不一致（确定性破坏）")
 	}
-	for _, want := range []string{"共 2 卡：概念 1 · 决策 0 · 实践 1", "synced: 2026-10-28", "01_线X（2 卡）", "[卡A](platform-knowledge/01_线X/cards/a_卡A.md)", "前置 1·源指针 1"} {
+	for _, want := range []string{"共 2 卡：概念 1 · 决策 0 · 实践 1", "synced: 2026-10-28", "01_线X（2 卡）", "[卡A](docs/learning/01_线X/cards/a_卡A.md)", "前置 1·源指针 1"} {
 		if !strings.Contains(d1, want) {
 			t.Errorf("聚合输出缺预期片段: %q", want)
 		}

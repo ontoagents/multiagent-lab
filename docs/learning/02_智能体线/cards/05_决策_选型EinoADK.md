@@ -7,8 +7,8 @@ kind: decision
 domain: agent
 prereq: ["03_概念_五层域总纲.md"]
 sources:
-  - platform-knowledge/02_智能体/08_调研预研/方案与设计分析/51_本体对话Agent技术选型_Eino_vs_DeepSeekHarness.md
-  - platform-knowledge/02_智能体/08_调研预研/外部平台调研/44_Eino框架深度分析_实现原理与应用场景.md
+  - docs/research/02_智能体/08_调研预研/方案与设计分析/51_本体对话Agent技术选型_Eino_vs_DeepSeekHarness.md
+  - docs/research/02_智能体/08_调研预研/外部平台调研/44_Eino框架深度分析_实现原理与应用场景.md
 check:
   - 三条备选路线各自的胜负手是什么？
   - 选 Eino 后，「编排语义」的哪些部分仍要平台自己定案？

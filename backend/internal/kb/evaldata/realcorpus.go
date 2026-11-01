@@ -1,9 +1,12 @@
 package evaldata
 
-// REQ-526/M333（P08）：真实语料基准——platform-knowledge 真实文档节选（README 收录规则段+
-// 16 号部署段）+20 题 gold 标注（内容子串，离线词法臂确定性）。
+// REQ-526/M333（P08）：真实语料基准——真实文档节选（docs/research/README 收录规则段〔原
+// platform-knowledge/README〕+ docs/handbook/01_整体设计/16_部署与运行 部署段）+20 题 gold
+// 标注（内容子串，离线词法臂确定性）。
 // 区别于种子语料（教学构造）：真实文档结构（标题/列表/代码块/表格）下检索质量才可比；
 // 向量臂经 KB_EVAL_DB 形态可选（KB-22 先例），缺省词法臂离线跑。
+// 2026-11-01 路径迁移（REQ-570 四区收敛）——基准语料内容未变，仅地址更新（语料正文含
+// 「platform-knowledge/」字样为当时原文快照，gold 子串不受影响，勿改动）。
 
 // RealCorpus 真实语料（两文档拼接节选，~60 行——切分后 3~5 chunks）。
 const RealCorpus = `# 平台知识（Platform Knowledge）

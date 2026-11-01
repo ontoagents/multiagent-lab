@@ -26,7 +26,7 @@ type llmsCard struct {
 }
 
 // collectLlmsCards 扫描知识体系目录收集全部卡（kind 非空且位于 <线>/cards/ 两级下），按线分组。
-// 确定性：线与卡均按路径字典序。
+// 确定性：线与卡均按路径字典序。目录落点=docs/learning（REQ-570 四区收敛，原 09_知识体系 整迁）。
 func collectLlmsCards(root, repoRel string) (byLine map[string][]llmsCard, kinds map[string]int, maxSynced string, err error) {
 	byLine = map[string][]llmsCard{}
 	kinds = map[string]int{}
@@ -89,9 +89,9 @@ func BuildLlmsDoc(root, repoRel string) (string, error) {
 	if maxSynced != "" {
 		fmt.Fprintf(&b, "synced: %s\n", maxSynced)
 	}
-	b.WriteString("sources:\n  - platform-knowledge/08_调研预研/58_核心知识体系提取可行方案.md\n  - REQ-372\n---\n\n")
+	b.WriteString("sources:\n  - docs/research/08_调研预研/58_核心知识体系提取可行方案.md\n  - REQ-372\n---\n\n")
 	b.WriteString("# 平台核心知识体系（LLM 聚合视图）\n\n")
-	fmt.Fprintf(&b, "> REQ-372 知识工程三层资产：三型知识卡（概念/决策/实践）× 三线学习路径的机器可读聚合。本文件为生成物（勿手改）——卡 frontmatter 为事实源，改卡后 `KS_REGEN=1 go test ./internal/knowledge -run TestLlmsTxtInSync` 重新生成。人读入口 [00_导读.md](%s/09_知识体系/00_导读.md)。\n", repoRel)
+	fmt.Fprintf(&b, "> REQ-372 知识工程三层资产：三型知识卡（概念/决策/实践）× 三线学习路径的机器可读聚合。本文件为生成物（勿手改）——卡 frontmatter 为事实源，改卡后 `KS_REGEN=1 go test ./internal/knowledge -run TestLlmsTxtInSync` 重新生成。人读入口 [00_导读.md](%s/00_导读.md)。\n", repoRel)
 	fmt.Fprintf(&b, ">\n> 共 %d 卡：概念 %d · 决策 %d · 实践 %d ｜ 卡 synced 最新 %s\n\n",
 		kinds["concept"]+kinds["decision"]+kinds["practice"], kinds["concept"], kinds["decision"], kinds["practice"], maxSynced)
 	for _, l := range lines {

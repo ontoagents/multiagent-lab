@@ -23,17 +23,17 @@ func newDocFixture(t *testing.T) AssistantDeps {
 	t.Helper()
 	root := t.TempDir()
 	docs := filepath.Join(root, "docs")
-	knowledge := filepath.Join(root, "platform-knowledge")
-	for _, d := range []string{docs, filepath.Join(knowledge, "02_智能体"), filepath.Join(knowledge, "04_本体")} {
+	handbook := filepath.Join(docs, "handbook") // REQ-570 四区收敛：现状手册区居 docs/handbook
+	for _, d := range []string{docs, filepath.Join(handbook, "02_智能体"), filepath.Join(handbook, "04_本体")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	files := map[string]string{
 		filepath.Join(docs, "01_智能体_需求文档_PRD.md"): "# PRD\n关键词 needle 在这里\n第三行",
-		filepath.Join(knowledge, "02_智能体", "00_智能体模块.md"): "---\nmodule: 智能体\ntopic: 智能体模块导读\ndesc: 智能体域总览与文档地图\nsynced: 2026-10-27\n---\n# 智能体\nneedle 精读入口",
-		filepath.Join(knowledge, "04_本体", "90_底层实现原理.md"): "# 本体原理\n无关键词",
-		filepath.Join(knowledge, "04_本体", "notes.txt"): "txt 不应出现",
+		filepath.Join(handbook, "02_智能体", "00_智能体模块.md"): "---\nmodule: 智能体\ntopic: 智能体模块导读\ndesc: 智能体域总览与文档地图\nsynced: 2026-10-27\n---\n# 智能体\nneedle 精读入口",
+		filepath.Join(handbook, "04_本体", "90_底层实现原理.md"): "# 本体原理\n无关键词",
+		filepath.Join(handbook, "04_本体", "notes.txt"): "txt 不应出现",
 		filepath.Join(docs, "00_特殊字符.md"):             "占比100%示例行\n不含关键词",
 	}
 	for p, c := range files {
@@ -41,7 +41,7 @@ func newDocFixture(t *testing.T) AssistantDeps {
 			t.Fatal(err)
 		}
 	}
-	return AssistantDeps{DocsRoot: docs, KnowledgeRoot: knowledge}
+	return AssistantDeps{DocsRoot: docs, KnowledgeRoot: filepath.Join(docs, "handbook")}
 }
 
 func invoke(t *testing.T, e *tool.Entry, args string) (string, error) {
@@ -62,7 +62,7 @@ func TestDocReadPaged(t *testing.T) {
 	e := assistantDocRead(deps)
 
 	// 默认全文（无 offset）：旧行为保留
-	out, err := invoke(t, e, `{"path":"platform-knowledge/02_智能体/00_智能体模块.md"}`)
+	out, err := invoke(t, e, `{"path":"docs/handbook/02_智能体/00_智能体模块.md"}`)
 	if err != nil || !strings.Contains(out, "needle 精读入口") || strings.Contains(out, "第 1~") {
 		t.Fatalf("默认应全文且无分页头: %v %s", err, out)
 	}
@@ -110,7 +110,7 @@ func TestDocListTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"docs/01_智能体_需求文档_PRD.md", "platform-knowledge/02_智能体/00_智能体模块.md", "智能体模块导读", "智能体域总览", "共 4 篇"} {
+	for _, want := range []string{"docs/01_智能体_需求文档_PRD.md", "docs/handbook/02_智能体/00_智能体模块.md", "智能体模块导读", "智能体域总览", "共 4 篇"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("目录清单缺 %q：%s", want, out)
 		}
@@ -120,13 +120,13 @@ func TestDocListTool(t *testing.T) {
 	}
 
 	// prefix 过滤
-	out, err = invoke(t, e, `{"prefix":"platform-knowledge/04_本体"}`)
+	out, err = invoke(t, e, `{"prefix":"docs/handbook/04_本体"}`)
 	if err != nil || !strings.Contains(out, "90_底层实现原理.md") || strings.Contains(out, "00_智能体模块.md") {
 		t.Fatalf("prefix 过滤不符: %v %s", err, out)
 	}
 
 	// 无匹配话术
-	out, err = invoke(t, e, `{"prefix":"platform-knowledge/99_不存在"}`)
+	out, err = invoke(t, e, `{"prefix":"docs/handbook/99_不存在"}`)
 	if err != nil || !strings.Contains(out, "无匹配文档") {
 		t.Fatalf("无匹配话术不符: %v %s", err, out)
 	}
@@ -141,7 +141,7 @@ func TestDocGrepTool(t *testing.T) {
 
 	// 字面量命中（file:line:text，路径可直喂 doc_read）
 	out, err := invoke(t, e, `{"pattern":"needle"}`)
-	if err != nil || !strings.Contains(out, "docs/01_智能体_需求文档_PRD.md:2:") || !strings.Contains(out, "platform-knowledge/02_智能体/00_智能体模块.md:8:") {
+	if err != nil || !strings.Contains(out, "docs/01_智能体_需求文档_PRD.md:2:") || !strings.Contains(out, "docs/handbook/02_智能体/00_智能体模块.md:8:") {
 		t.Fatalf("词法命中形态不符: %v %s", err, out)
 	}
 	_ = out
@@ -152,9 +152,9 @@ func TestDocGrepTool(t *testing.T) {
 		t.Fatalf("正则非法应降级字面量: %v %s", err, out)
 	}
 
-	// prefix 限定
-	out, err = invoke(t, e, `{"pattern":"needle","prefix":"docs/"}`)
-	if err != nil || !strings.Contains(out, "命中 1 条") || strings.Contains(out, "platform-knowledge/") {
+	// prefix 限定（REQ-570 后夹具两处命中均在 docs/ 下——以 docs/handbook 限定期仅 handbook 命中）
+	out, err = invoke(t, e, `{"pattern":"needle","prefix":"docs/handbook"}`)
+	if err != nil || !strings.Contains(out, "命中 1 条") || strings.Contains(out, "01_智能体_需求文档_PRD.md") {
 		t.Fatalf("prefix 限定不符: %v %s", err, out)
 	}
 

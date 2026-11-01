@@ -7,8 +7,8 @@ kind: practice
 domain: agent
 prereq: ["03_概念_五层域总纲.md", "04_概念_外部智能体平台观察.md"]
 sources:
-  - platform-knowledge/02_智能体/56_Graph_设计实现与演进.md
-  - platform-knowledge/02_智能体/08_调研预研/方案与设计分析/78_多智能体与子智能体执行支持与调度编排分析_20261013.md
+  - docs/handbook/02_智能体/56_Graph_设计实现与演进.md
+  - docs/research/02_智能体/08_调研预研/方案与设计分析/78_多智能体与子智能体执行支持与调度编排分析_20261013.md
   - backend/internal/chat/assembler.go
 check:
   - 为什么 agent_as_tool 是主推而 transfer 只是对照？

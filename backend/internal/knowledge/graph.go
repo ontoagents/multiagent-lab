@@ -115,7 +115,7 @@ type IngestResult struct {
 }
 
 // IngestKnowledgeGraph 扫描知识体系目录 → 全量重建图谱投影。
-// root=知识体系目录（如 platform-knowledge/09_知识体系）；repoRel=root 的仓库相对前缀（节点 id 用）。
+// root=知识体系目录（如 docs/learning，四区收敛后落点）；repoRel=root 的仓库相对前缀（节点 id 用）。
 func IngestKnowledgeGraph(root, repoRel string, st *store.Store) (*IngestResult, error) {
 	res := &IngestResult{}
 	var nodes []store.KnowledgeNode
@@ -171,8 +171,8 @@ func IngestKnowledgeGraph(root, repoRel string, st *store.Store) (*IngestResult,
 }
 
 // cardRelID 卡节点 id（仓库相对路径）。rel 已含 repoRel 前缀时不再重复拼接——
-// 修复 2026-10-27 双前缀缺陷（root 含 platform-knowledge 段时 Rel 结果已带前缀，
-// 原 Join 再拼一次产生 platform-knowledge/platform-knowledge/...，前端按单前缀查询必失败）。
+// 修复 2026-10-27 双前缀缺陷（root 含 docs 段时 Rel 结果已带 docs/learning 前缀，
+// 原 Join 再拼一次产生 docs/learning/docs/learning/... 双前缀，前端按单前缀查询必失败）。
 func cardRelID(root, repoRel, path string) string {
 	rel, err := filepath.Rel(repoRootOf(root), path)
 	if err != nil {
@@ -186,16 +186,16 @@ func cardRelID(root, repoRel, path string) string {
 	return filepath.ToSlash(filepath.Join(prefix, relS))
 }
 
-// repoRootOf root 的仓库根上溯（root 形如 <repo>/platform-knowledge/09_知识体系——
-// 取 platform-knowledge 前一段作仓库相对基准；兼容直接给仓库相对路径的调用方）。
-// i=0（root 以 platform-knowledge/ 开头，如 KNOWLEDGE_ROOT=./platform-knowledge 经 Join
-// 清 ./ 后的形态）返回 "."——修复 2026-10-27 幂等修复未覆盖的单段边界：原 i>0 条件把
-// 该形态放行到「返回 root 本身」，节点 id 丢失 platform-knowledge/09_知识体系 两段
-// （冒烟实锤：隔离实例 cwd=仓库根全 30 节点 id 错位、跨线 path 查询不命中）。
+// repoRootOf root 的仓库根上溯（root 形如 <repo>/docs/learning——2026-11-01 四区收敛 REQ-570，
+// 原 <repo>/platform-knowledge/09_知识体系 整目录迁 docs/learning；取 docs 段前一段作仓库相对
+// 基准，rel 即含 docs/learning 两段的仓库相对 id；兼容直接给仓库相对路径的调用方）。
+// i=0（root 以 docs/ 开头，如 KNOWLEDGE_ROOT=./docs/handbook 派生的 ./docs/learning 形态）
+// 返回 "."——沿 2026-10-27 单段边界修复口径（原实现把该形态放行到「返回 root 本身」，
+// 节点 id 丢全前缀两段、跨线 path 查询不命中；旧 platform-knowledge 形态修复史见 git）。
 func repoRootOf(root string) string {
 	parts := strings.Split(filepath.ToSlash(root), "/")
 	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i] == "platform-knowledge" {
+		if parts[i] == "docs" {
 			if i == 0 {
 				return "."
 			}

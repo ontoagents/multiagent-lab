@@ -7,7 +7,7 @@ kind: practice
 domain: agent
 prereq: ["08_实践_Harness装配链.md"]
 sources:
-  - platform-knowledge/02_智能体/54_Context_设计实现与演进.md
+  - docs/handbook/02_智能体/54_Context_设计实现与演进.md
   - backend/internal/chat/context.go
   - REQ-201
   - REQ-210
