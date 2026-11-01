@@ -425,6 +425,12 @@ export interface QuizItem {
   question: string
   answer: string
   difficulty: string
+  /** REQ-545/M352：出题预检裁决（''=未预检 | answerable | not_answerable） */
+  coverage_verdict?: string
+  /** REQ-572/M380：题型（short_answer 简答=主观 LLM 批改 | choice 单选 | judge 判断=客观确定性判定） */
+  question_type?: string
+  /** REQ-572/M380：客观题选项（作答前可见；正确答案存 answer 作答后揭示） */
+  options?: string[]
 }
 
 /** REQ-246（M70）：wiki 页面（LLM 摄取生成的互链 Markdown 页面层） */

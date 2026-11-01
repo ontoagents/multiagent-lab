@@ -278,6 +278,15 @@ export const api = {
     req<{ score: number; verdict: 'correct' | 'partial' | 'wrong'; feedback: string; concepts: string[] }>(`/api/quiz/${ontologyId}/items/${itemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   quizMastery: (ontologyId: string) =>
     req<{ mastery: { concept_name: string; asked_count: number; correct_count: number; score: number }[] }>(`/api/quiz/${ontologyId}/mastery`),
+  /** REQ-572/M380：概念子图掌握度（spec concepts+relations × mastery_level 合并节点/边） */
+  quizMasteryGraph: (ontologyId: string) =>
+    req<{
+      nodes: { name: string; label: string; covered: boolean; score: number; asked: number; correct: number; parents?: string[] }[]
+      edges: { from: string; to: string; kind: 'relation' | 'parent'; rel?: string; rel_label?: string }[]
+    }>(`/api/quiz/${ontologyId}/mastery-graph`),
+  /** REQ-572/M380：批改落档审计面（每次提交一条，时间倒序+题目摘要联查） */
+  quizAttempts: (ontologyId: string) =>
+    req<{ attempts: { id: string; quiz_item_id: string; question: string; question_type: string; answer: string; score: number; verdict: string; feedback: string; concept_names: string[]; created_at: string }[] }>(`/api/quiz/${ontologyId}/attempts`),
   /** REQ-523/M330：KB 文档内容读取（chunk 按 seq 拼接）——溯源最后一跳命中下钻 */
   kbDocContent: (kbId: string, docId: string) =>
     req<{ doc: string; doc_id: string; chunks: { seq: number; content: string }[] }>(`/api/kb/${kbId}/docs/${docId}/content`),

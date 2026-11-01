@@ -5,6 +5,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -75,5 +77,201 @@ func TestQuizGenerateValidatesConcepts(t *testing.T) {
 	s.quizGenerate(rec, req)
 	if rec.Code != 502 {
 		t.Fatalf("构建平面不可达应 502，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// quizSpecStub 构建平面 spec 桩（httptest——REQ-572 出题定向/子图端点需可读 spec）。
+func quizSpecStub(t *testing.T, specJSON string) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(specJSON))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const quizStubSpec = `{"concepts":[
+	{"name":"订单","label":"订单","parents":["单据"]},
+	{"name":"单据","label":"单据"},
+	{"name":"客户","label":"客户"}],
+ "relations":[{"name":"下单","from":"客户","to":"订单","label":"下单"}]}`
+
+// TestQuizSubmitObjectiveDeterministic REQ-572：客观题确定性判定不走 LLM（choice 对/错两路）+
+// 批改落档 quiz_attempt 两路各一条。
+func TestQuizSubmitObjectiveDeterministic(t *testing.T) {
+	s, st := quizTestServer(t)
+	orig := quizLLM
+	t.Cleanup(func() { quizLLM = orig })
+	quizLLM = func(ctx context.Context, st *store.Store, box *secrets.Box, connID, system, user string, temperature *float64) (string, error) {
+		t.Fatal("客观题判定不应调用 LLM")
+		return "", context.Canceled
+	}
+	q, err := st.InsertQuizItem(&store.QuizItem{OntologyID: "oq2", ConceptNames: []string{"订单"},
+		Question: "订单状态有哪些?", Answer: "已下单", Difficulty: "basic",
+		QuestionType: "choice", Options: []string{"已下单", "已发货", "已收货"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(answer string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/x", strings.NewReader(`{"answer":"`+answer+`"}`))
+		req.SetPathValue("id", "oq2")
+		req.SetPathValue("qid", q.ID)
+		rec := httptest.NewRecorder()
+		s.quizSubmit(rec, req)
+		return rec
+	}
+	rec := post("已下单")
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Score   float64 `json:"score"`
+		Verdict string  `json:"verdict"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Score != 1 || out.Verdict != "correct" {
+		t.Fatalf("客观题答对应 correct/1: %+v", out)
+	}
+	rec = post("已发货")
+	var out2 struct {
+		Score    float64 `json:"score"`
+		Verdict  string  `json:"verdict"`
+		Feedback string  `json:"feedback"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out2)
+	if out2.Verdict != "wrong" || out2.Score != 0 || !strings.Contains(out2.Feedback, "已下单") {
+		t.Fatalf("客观题答错应 wrong/0 且反馈含正确答案: %+v", out2)
+	}
+	attempts, err := st.ListQuizAttempts("oq2", 10)
+	if err != nil || len(attempts) != 2 {
+		t.Fatalf("两次提交应落档两条: %v %d", err, len(attempts))
+	}
+	if attempts[0].Verdict != "wrong" || attempts[1].Verdict != "correct" {
+		t.Fatalf("落档序不符（时间倒序）: %+v", attempts)
+	}
+}
+
+// TestQuizGenerateDedupAndNormalize REQ-572：历史+本批题干归一禁重复、非法 choice 降级简答、
+// judge 归一、定向概念进提示词。
+func TestQuizGenerateDedupAndNormalize(t *testing.T) {
+	s, st := quizTestServer(t)
+	s.Ontology = ontology.NewService()
+	s.Ontology.BuildURL = quizSpecStub(t, quizStubSpec).URL
+	// 既有历史题（"什么是订单?"）+ 薄弱掌握度（订单 0.2）——定向与禁重复数据源
+	if _, err := st.InsertQuizItem(&store.QuizItem{OntologyID: "oq3", ConceptNames: []string{"订单"},
+		Question: "什么是订单?", Answer: "单据"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertMastery("oq3", "订单", false, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	var capturedUser string
+	orig := quizLLM
+	t.Cleanup(func() { quizLLM = orig })
+	quizLLM = func(ctx context.Context, st *store.Store, box *secrets.Box, connID, system, user string, temperature *float64) (string, error) {
+		capturedUser = user
+		return `[{"type":"short_answer","question":"什么是 订单?","answer":"同考点换说法","concepts":["订单"]},
+			{"type":"choice","question":"订单属于哪类?","answer":"不在选项里的答案","options":["单据","凭证"],"concepts":["订单"]},
+			{"type":"judge","question":"订单是单据的一种，对吗?","answer":"正确","options":["正确","错误"],"concepts":["订单","单据"]},
+			{"type":"short_answer","question":"客户的定义是什么?","answer":"参与下单的主体","concepts":["客户"]}]`, nil
+	}
+	req := httptest.NewRequest("POST", "/x", strings.NewReader(`{"count":4}`))
+	req.SetPathValue("id", "oq3")
+	rec := httptest.NewRecorder()
+	s.quizGenerate(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Items []*store.QuizItem `json:"items"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Items) != 3 {
+		t.Fatalf("重复题应被过滤（余 3 题）: %d", len(out.Items))
+	}
+	for _, it := range out.Items {
+		if it.Question == "什么是 订单?" {
+			t.Fatal("历史题换说法仍应被禁重复过滤")
+		}
+		if it.Question == "订单属于哪类?" && it.QuestionType != "short_answer" {
+			t.Fatalf("答案不在选项内的 choice 应降级 short_answer: %s", it.QuestionType)
+		}
+	}
+	if !strings.Contains(capturedUser, "订单") || !strings.Contains(capturedUser, "定向") {
+		t.Fatal("薄弱概念应进入定向提示词")
+	}
+	if !strings.Contains(capturedUser, "什么是订单?") {
+		t.Fatal("历史题干应进入禁重复提示段")
+	}
+}
+
+// TestQuizMasteryGraph REQ-572：spec concepts/relations 与 mastery 合并出节点/边
+// （covered/uncovered 标注+关系/父继承两族边+悬空关系防御）。
+func TestQuizMasteryGraph(t *testing.T) {
+	s, st := quizTestServer(t)
+	s.Ontology = ontology.NewService()
+	s.Ontology.BuildURL = quizSpecStub(t, quizStubSpec).URL
+	if err := st.UpsertMastery("oq4", "订单", true, 0.9); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.SetPathValue("id", "oq4")
+	rec := httptest.NewRecorder()
+	s.quizMasteryGraph(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Nodes []struct {
+			Name    string   `json:"name"`
+			Covered bool     `json:"covered"`
+			Score   float64  `json:"score"`
+			Parents []string `json:"parents"`
+		} `json:"nodes"`
+		Edges []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+			Kind string `json:"kind"`
+		} `json:"edges"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Nodes) != 3 {
+		t.Fatalf("3 概念 3 节点: %d", len(out.Nodes))
+	}
+	covered := map[string]bool{}
+	for _, n := range out.Nodes {
+		covered[n.Name] = n.Covered
+		if n.Name == "订单" && (!n.Covered || n.Score != 0.9) {
+			t.Fatalf("订单应 covered/0.9: %+v", n)
+		}
+	}
+	if covered["客户"] {
+		t.Fatal("客户从未考察应 uncovered")
+	}
+	if len(out.Edges) != 2 { // 下单 relation + 订单→单据 parent
+		t.Fatalf("应 2 边（relation+parent）: %+v", out.Edges)
+	}
+	kinds := map[string]int{}
+	for _, e := range out.Edges {
+		kinds[e.Kind]++
+	}
+	if kinds["relation"] != 1 || kinds["parent"] != 1 {
+		t.Fatalf("边族不符: %+v", out.Edges)
+	}
+}
+
+// TestQuizTargetConcepts REQ-572 定向选点纯函数：薄弱优先、从未考察次之、近期已出不再定向。
+func TestQuizTargetConcepts(t *testing.T) {
+	spec := &quizSpec{Concepts: []quizConcept{
+		{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "D"},
+	}}
+	mastery := []*store.MasteryLevel{
+		{ConceptName: "A", Score: 0.2},
+		{ConceptName: "B", Score: 0.9},
+	}
+	recent := []*store.QuizItem{{ConceptNames: []string{"C"}}} // C 已出未批改
+	targets := quizTargetConcepts(spec, mastery, recent)
+	if len(targets) != 2 || targets[0] != "A" || targets[1] != "D" {
+		t.Fatalf("薄弱 A+从未考察 D 应入选，B 已掌握/C 已出除外: %v", targets)
 	}
 }

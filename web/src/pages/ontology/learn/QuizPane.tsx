@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Progress, Select, Space, Tag, Typography } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Empty, Input, Progress, Radio, Select, Space, Tag, Typography } from 'antd'
+import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 import type { Ontology } from '../../../api/types'
+import MasteryGraph from './MasteryGraph'
 
 /**
- * 出题自测（REQ-524/M331——Q-23 衍生③ 转正交付，学习动线出题·批改·掌握度最小闭环）：
- * 选本体 → LLM 概念子图出题（难度/题数可选）→ 作答 → LLM 批改（对照参考答案评分+点评，
- * 作答后才展示参考答案）→ 概念级掌握度落表（0.7 旧+0.3 新加权，薄弱优先排序）。
- * 地基复用=平台模型代理（chat.GenerateText 直调）+构建平面 spec 概念面；与 REQ-512 打卡动作
- * 校验、REQ-508 冷启动建模统筹（姊妹件边界=构建面快筛 vs 学习面自测）。
+ * 出题自测（REQ-524/M331——Q-23 衍生③ 转正交付；REQ-572/M380 闭环化）：
+ * 选本体 → LLM 概念子图出题（定向=掌握度薄弱/从未考察概念优先+历史禁重复+题型混合：
+ * choice 单选/judge 判断=客观确定性判定，short_answer 简答=主观 LLM 批改）→ 作答 → 批改
+ * （客观=选项原文精确比对不走 LLM；主观=对照参考答案 rubric 评分+点评，作答后才展示参考答案）
+ * → 批改结果落档（批改记录审计面）→ 概念级掌握度落表（0.7 旧+0.3 新加权）→ 掌握度子图
+ * （MasteryGraph：概念节点按掌握度着色，下一轮出题定向即其消费面）。
  */
 
 interface QuizItem {
@@ -21,6 +23,10 @@ interface QuizItem {
   difficulty: string
   /** REQ-545/M352 出题预检裁决（''=未预检 | answerable | not_answerable——check_answerable 确定性预检） */
   coverage_verdict?: string
+  /** REQ-572/M380 题型（缺省=short_answer 兼容存量行） */
+  question_type?: string
+  /** REQ-572/M380 客观题选项 */
+  options?: string[]
 }
 
 interface MasteryLevel {
@@ -37,8 +43,22 @@ interface GradeResult {
   concepts: string[]
 }
 
+interface QuizAttempt {
+  id: string
+  quiz_item_id: string
+  question: string
+  question_type: string
+  answer: string
+  score: number
+  verdict: string
+  feedback: string
+  concept_names: string[]
+  created_at: string
+}
+
 const VERDICT_COLOR: Record<string, string> = { correct: 'green', partial: 'gold', wrong: 'red' }
 const VERDICT_TEXT: Record<string, string> = { correct: '答对', partial: '部分正确', wrong: '未答对' }
+const TYPE_TEXT: Record<string, string> = { short_answer: '简答', choice: '单选', judge: '判断' }
 
 export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   const [ontoId, setOntoId] = useState<string | null>(null)
@@ -51,6 +71,9 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   const [gradingId, setGradingId] = useState<string | null>(null)
   const [mastery, setMastery] = useState<MasteryLevel[] | null>(null)
   const [genErr, setGenErr] = useState<string | null>(null)
+  const [graphKey, setGraphKey] = useState(0) // 批改后子图刷新
+  const [attempts, setAttempts] = useState<QuizAttempt[] | null>(null)
+  const [showAttempts, setShowAttempts] = useState(false)
 
   const refreshMastery = (oid: string) => {
     api.quizMastery(oid).then((r) => setMastery(r.mastery)).catch(() => setMastery([]))
@@ -59,6 +82,10 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   useEffect(() => {
     if (ontoId) refreshMastery(ontoId)
   }, [ontoId])
+
+  const loadAttempts = (oid: string) => {
+    api.quizAttempts(oid).then((r) => setAttempts(r.attempts)).catch(() => setAttempts([]))
+  }
 
   const generate = async () => {
     if (!ontoId) return
@@ -86,6 +113,8 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
       setGrades((prev) => ({ ...prev, [q.id]: g }))
       setRevealed((prev) => ({ ...prev, [q.id]: true }))
       refreshMastery(ontoId)
+      setGraphKey((k) => k + 1)
+      if (showAttempts) loadAttempts(ontoId)
     } catch (e: any) {
       setGenErr(e?.message ?? '批改失败')
     } finally {
@@ -116,6 +145,8 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
               setOntoId(v)
               setItems(null)
               setMastery(null)
+              setAttempts(null)
+              setShowAttempts(false)
             }}
             options={ontologies.map((o) => ({ value: o.id, label: o.name }))}
           />
@@ -134,7 +165,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
         </Space>
       }
     >
-      {!ontoId && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一个本体开始出题自测（围绕概念定义与概念间关系出简答题，作答后 LLM 批改并累计概念掌握度）" />}
+      {!ontoId && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一个本体开始出题自测（题型混合：单选/判断客观判定+简答 LLM 批改，批改落档累计概念掌握度并驱动下一轮定向出题）" />}
 
       {ontoId && masterySummary && (
         <div style={{ marginBottom: 12 }}>
@@ -157,12 +188,57 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
         </div>
       )}
 
+      {ontoId && (
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>掌握度子图（绿 ≥0.8 / 金 ≥0.5 / 红 &lt;0.5 / 灰=从未考察；薄弱与未考察概念下一轮出题优先）</Typography.Text>
+          <div style={{ marginTop: 6 }}>
+            <MasteryGraph ontoId={ontoId} refreshKey={graphKey} />
+          </div>
+        </div>
+      )}
+
+      {ontoId && (
+        <div style={{ marginBottom: 12 }}>
+          <Button
+            type="text"
+            size="small"
+            icon={<HistoryOutlined />}
+            style={{ color: 'var(--c-text-secondary, #8a8fa3)', paddingInline: 4 }}
+            onClick={() => {
+              const next = !showAttempts
+              setShowAttempts(next)
+              if (next && ontoId) loadAttempts(ontoId)
+            }}
+          >
+            批改记录{attempts ? `（${attempts.length}）` : ''}
+          </Button>
+          {showAttempts && (
+            <div style={{ marginTop: 6 }}>
+              {attempts && attempts.length === 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无批改记录（提交作答后此处留档可回溯）</Typography.Text>
+              )}
+              {(attempts ?? []).map((a) => (
+                <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '3px 0', borderBottom: '1px dashed var(--c-border, #eef0f6)' }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{(a.created_at || '').replace('T', ' ').slice(0, 16)}</Typography.Text>
+                  <Tag color={VERDICT_COLOR[a.verdict] ?? 'default'} style={{ margin: 0, fontSize: 11 }}>{VERDICT_TEXT[a.verdict] ?? a.verdict} · {(a.score * 100).toFixed(0)}</Tag>
+                  <Typography.Text style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {(a.question || a.quiz_item_id).slice(0, 40)} → {a.answer || '（空）'}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>{TYPE_TEXT[a.question_type] ?? a.question_type}</Typography.Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {genErr && <Alert type="error" showIcon style={{ marginBottom: 10 }} title="出题/批改失败" description={genErr} />}
 
       {generating && <Typography.Text type="secondary">正在出题（LLM 生成中，约数秒）…</Typography.Text>}
 
       {(items ?? []).map((q) => {
         const g = grades[q.id]
+        const objective = q.question_type === 'choice' || q.question_type === 'judge'
         return (
           <Card
             key={q.id}
@@ -181,15 +257,24 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
               {(q.concept_names ?? []).map((c) => (
                 <Tag key={c} style={{ margin: '0 6px 0 0', fontSize: 11 }}>{c}</Tag>
               ))}
-              <Tag style={{ margin: 0, fontSize: 11 }} color="default">{q.difficulty === 'applied' ? '应用' : '基础'}</Tag>
+              <Tag style={{ margin: 0, fontSize: 11 }} color="default">{q.difficulty === 'applied' ? '应用' : '基础'} · {TYPE_TEXT[q.question_type ?? 'short_answer']}</Tag>
             </div>
-            <Input.TextArea
-              rows={3}
-              placeholder="写下你的回答…"
-              value={answers[q.id] ?? ''}
-              disabled={!!g}
-              onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-            />
+            {objective ? (
+              <Radio.Group
+                disabled={!!g}
+                value={answers[q.id] ?? ''}
+                onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                options={(q.options ?? []).map((o) => ({ value: o, label: o }))}
+              />
+            ) : (
+              <Input.TextArea
+                rows={3}
+                placeholder="写下你的回答…"
+                value={answers[q.id] ?? ''}
+                disabled={!!g}
+                onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+              />
+            )}
             <Space size={8} style={{ marginTop: 8 }}>
               {!g && (
                 <Button type="primary" size="small" disabled={!answers[q.id]?.trim()} loading={gradingId === q.id} onClick={() => submit(q)}>
@@ -214,7 +299,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
       })}
 
       {ontoId && items && items.length === 0 && !generating && (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本次未出出有效题目（模型输出解析失败）——点「出题」重试" />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="本次未出出有效题目（均与近期题目重复或解析失败）——点「出题」重试" />
       )}
     </Card>
   )
