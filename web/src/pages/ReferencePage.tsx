@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'r
 import { Alert, Button, Card, Menu, Select, Space, Spin, Splitter, Tag, Tooltip, Typography, message } from 'antd'
 import {
   ApartmentOutlined,
+  BookOutlined,
   FileTextOutlined,
   CompassOutlined,
   DatabaseOutlined,
@@ -20,18 +21,36 @@ import DocViewerModal from '../components/DocViewerModal'
 import { docFileOf, resolveRef } from '../lib/docref'
 import HintIcon from './settings/HintIcon'
 
-// 平台知识内容（REQ-116 / REQ-161 v2）：构建期内联扫描 platform-knowledge/ 全目录。
+// 平台知识页面内容（REQ-116 / REQ-161 v2；REQ-570 四区收敛 2026-11-01 换源）：构建期内联扫描三源——
+// docs/handbook/（现状手册 24 档，组=模块子目录，中文组名沿目录前缀直派）+ docs/learning/（学习资产整目录，单组）。
 // REQ-188 起全链目录驱动：目录即页面树——顶层目录=L1 组、子目录=L2、文档=主题页；
 // 组序/组内序均由名称数字前缀（NN_）决定，新增目录/文档落入即上页并自动入位，无需改本文件；
 // 未登记的新顶层目录兜底成组置尾（不丢档）。个别跨目录挂载见 TOPIC_MOUNT。
-const KB_RAW = import.meta.glob('../../../platform-knowledge/**/*.md', {
+const KB_RAW = import.meta.glob('../../../docs/handbook/**/*.md', {
   query: '?raw',
   import: 'default',
   eager: true,
 }) as Record<string, string>
 
-// REQ-184：docs/ 十编号文档挂载为 L1「需求与进度」组（需求/方案/治理/冒烟事实源直达）
-const DOCS_RAW = import.meta.glob('../../../docs/*.md', {
+// REQ-570：学习资产区（原 platform-knowledge/09_知识体系 整目录迁 docs/learning/）单列「学习资产」组
+// （组键 learning——派生组键取顶层 rel 前缀，中文组名/图标经 GROUP_LABELS/GROUP_ICONS 注册，沿 docs 组同款机制）
+const LEARNING_RAW = import.meta.glob('../../../docs/learning/**/*.md', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+
+// REQ-184：docs/ 根编号文档挂载为 L1「需求与进度」组（需求/方案/治理事实源直达）。
+// REQ-570 页面收录口径改为「页面与公开集一致」（原 REQ-184「页面与目录一致」不废止、公开集即其边界）：
+// 大账本档（02/18/18A/20，合计 ~1.8MB）glob 负模式排除内联——纯查档走 git/仓库，页面负载不减载入体验；
+// 04 号已迁 docs/handbook/04_本体/92 号（docs 根 glob 自动态外）
+const DOCS_RAW = import.meta.glob([
+  '../../../docs/*.md',
+  '!../../../docs/02_智能体_技术方案设计.md',
+  '!../../../docs/18_REQ编号注册表.md',
+  '!../../../docs/18A_REQ归档册.md',
+  '!../../../docs/20_回归冒烟清单.md',
+], {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -40,23 +59,23 @@ const DOCS_RAW = import.meta.glob('../../../docs/*.md', {
 // 「外部资源」主题页（REQ-109/162）：内容单源仍在 seeds/learning/external-resources.md，构建期内联挂载
 import EXTERNAL_RESOURCES_MD from '../../../seeds/learning/external-resources.md?raw'
 
-/** 图标表（可选定制，键 = 去前缀目录名；未登记目录用默认图标，补一行即生效） */
-/** REQ-184：docs 组显示名（目录驱动保持，仅展示层覆盖） */
-const GROUP_LABELS: Record<string, string> = { docs: '需求与进度' }
+/** 图标表（可选定制，键 = 组键=去前缀目录名；未登记组用默认图标，补一行即生效） */
+/** REQ-184：docs 组显示名（目录驱动保持，仅展示层覆盖）；REQ-570：learning 组显示名 */
+const GROUP_LABELS: Record<string, string> = {
+  docs: '需求与进度',
+  learning: '学习资产',
+}
 /** REQ-184：docs 组图标 */
 const GROUP_ICONS_EXT: Record<string, ReactNode> = { docs: <FileTextOutlined /> }
-/** REQ-184：docs 文件友好标题（编号文档名 → 页面标题） */
+/** REQ-184：docs 文件友好标题（编号文档名 → 页面标题）；
+ *  REQ-570：04 号迁 handbook/92、02/18/18A/20 大账本档排除内联后，仅收录仍挂载档（18A/19 从无条目，标题走派生） */
 const DOCS_TITLES: Record<string, string> = {
   '01_智能体_需求文档_PRD': '智能体需求文档（PRD）',
-  '02_智能体_技术方案设计': '智能体技术方案设计',
   '03_本体_需求文档': '本体需求文档',
-  '04_本体_方案设计': '本体方案设计',
   '11_知识库_需求文档': '知识库需求文档',
   '12_知识库_方案设计': '知识库方案设计',
   '14_本体_前端改造方案': '本体前端改造方案',
   '15_开源项目及论文登记簿': '开源项目及论文登记簿',
-  '18_REQ编号注册表': 'REQ 编号注册表',
-  '20_回归冒烟清单': '回归冒烟清单',
 }
 
 const GROUP_ICONS: Record<string, ReactNode> = {
@@ -67,6 +86,7 @@ const GROUP_ICONS: Record<string, ReactNode> = {
   知识库: <DatabaseOutlined />,
   技能: <ThunderboltOutlined />,
   设置: <SettingOutlined />,
+  learning: <BookOutlined />, // REQ-570：学习资产组（组键 learning，组名覆盖见 GROUP_LABELS）
 }
 const DEFAULT_ICON = <LinkOutlined />
 
@@ -111,17 +131,28 @@ function topicTitle(file: string, groupLabel: string): string {
 
 const TOPICS: Topic[] = (() => {
   const out: Topic[] = []
-  for (const [path, raw] of Object.entries({ ...KB_RAW, ...DOCS_RAW })) {
-    const marker = 'platform-knowledge/'
+  // REQ-570 三源归一：handbook 摘掉 docs/handbook/ 前缀（组=模块子目录）、learning 加 learning/ 前缀（单组）、
+  // docs 根加 docs/ 前缀（「需求与进度」组）。互引 base 按仓库真实目录（rootDir + rel 去末段）。
+  for (const [path, raw] of Object.entries({ ...KB_RAW, ...LEARNING_RAW, ...DOCS_RAW })) {
+    const hbMarker = '/docs/handbook/'
+    const lnMarker = '/docs/learning/'
     const docsMarker = '/docs/'
-    const di = path.indexOf(docsMarker)
-    const idx = path.indexOf(marker)
-    if (idx < 0 && di < 0) continue
-    const rel = idx >= 0
-      ? path.slice(idx + marker.length)
-      : 'docs/' + path.slice(di + docsMarker.length)
+    let rel: string
+    let rootDir: string
+    if (path.includes(hbMarker)) {
+      rel = path.slice(path.indexOf(hbMarker) + hbMarker.length)
+      rootDir = 'docs/handbook'
+    } else if (path.includes(lnMarker)) {
+      rel = `learning/${path.slice(path.indexOf(lnMarker) + lnMarker.length)}`
+      rootDir = 'docs'
+    } else {
+      const di = path.indexOf(docsMarker)
+      if (di < 0) continue
+      rel = `docs/${path.slice(di + docsMarker.length)}`
+      rootDir = 'docs'
+    }
     const slash = rel.indexOf('/')
-    if (slash < 0) continue // 根级 README.md 等不进页面
+    if (slash < 0) continue // 根级 README.md（handbook/README 等）不进页面
     const dir = rel.slice(0, slash)
     const file = rel.slice(slash + 1).replace(/\.md$/, '')
     const { label } = parsePrefix(dir)
@@ -135,7 +166,7 @@ const TOPICS: Topic[] = (() => {
       file,
       title: mount?.label ?? docTitle ?? topicTitle(file, label),
       md: raw,
-      base: `platform-knowledge/${dir}/${file}`.split('/').slice(0, -1).join('/'),
+      base: `${rootDir}/${rel}`.split('/').slice(0, -1).join('/'),
       group: effGroup,
       groupLabel: GROUP_LABELS[mount?.group ?? label] ?? mount?.group ?? label,
       icon: GROUP_ICONS[mount?.group ?? label] ?? GROUP_ICONS_EXT[mount?.group ?? label] ?? DEFAULT_ICON,
@@ -206,7 +237,8 @@ function parseFrontmatter(raw: string): { meta: Frontmatter; body: string } {
   return { meta, body: raw.slice(m[0].length) }
 }
 
-/** 源文档地图（frontmatter → 文末导读卡）：权威事实在 docs/ 与 platform-knowledge/，此处只做指路（research/ 已退役并入 platform-knowledge，REQ-184 收尾 2026-10-22） */
+/** 源文档地图（frontmatter → 文末导读卡）：权威事实在 docs/（含 handbook/research/learning 三子区），此处只做指路
+ *  （research/ 与 platform-knowledge/ 旧前缀已退役：直传路径由后端 doc_read 400 诚实指路承接，REQ-184 收尾 + REQ-570 四区收敛） */
 function SourceMap({ meta, onOpenDoc }: { meta: Frontmatter; onOpenDoc: (path: string) => void }) {
   const rows: { label: string; items: string[] }[] = [
     { label: '需求编号', items: meta.req ?? [] },
@@ -311,10 +343,10 @@ export default function ReferencePage() {
     localStorage.setItem(REF_DOC_KEY, key)
     setActive(key)
   }
-  // REQ-372 P2 修复轮：图谱面板卡点击直达——节点 id（platform-knowledge/ 前缀、.md 后缀）
-  // → 主题 key（TOPICS file 已去 .md 后缀，同去后匹配）
+  // REQ-372 P2 修复轮：图谱面板卡点击直达——节点 id（后端 docs/learning/ 前缀、.md 后缀，
+  // REQ-570 后知识卡根=docs/learning）→ 主题 key（learning/ rel 前缀 + 去 .md，同去后匹配）
   const openCardByID = (id: string) => {
-    const key = id.replace(/^platform-knowledge\//, '').replace(/\.md$/, '')
+    const key = id.replace(/^docs\/learning\//, 'learning/').replace(/\.md$/, '')
     if (TOPICS.some((t) => t.key === key)) activate(key)
   }
   const topic = group.topics.find((t) => t.key === active) ?? group.topics.find((t) => t.isHome) ?? group.topics[0]
@@ -399,7 +431,7 @@ export default function ReferencePage() {
             />
           </div>
           <div className="settings-note" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <HintIcon text="内容收录目录驱动（platform-knowledge/）；新增目录/文档按数字前缀落入后重建即生效（REQ-188）。" />
+            <HintIcon text="内容收录目录驱动（docs/handbook 现状手册、docs/learning 学习资产、docs 根需求与进度档）；新增目录/文档按数字前缀落入后重建即生效（REQ-188/REQ-570）。" />
             <span>目录驱动收录</span>
           </div>
         </aside>
@@ -408,8 +440,9 @@ export default function ReferencePage() {
       <Splitter.Panel className="content-panel">
         <div className="ref-main">
           {/* REQ-372 P2 修复轮：面板移入内容列（原顶层渲染成 .app-body 并列 flex 子项，
-              挤压页签与阅读区至 210px 宽——布局崩坏根因）；仅知识体系组挂载 */}
-          {group.label === '知识体系' && <KnowledgeGraphPanel onOpenCard={openCardByID} />}
+              挤压页签与阅读区至 210px 宽——布局崩坏根因）；仅学习资产组挂载
+              （REQ-570：原「知识体系」组随 09_知识体系 迁 docs/learning/ 并入 learning 组键） */}
+          {group.group === 'learning' && <KnowledgeGraphPanel onOpenCard={openCardByID} />}
           <div className="settings-head">
             <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
               <Space>{topic.icon}{topic.groupLabel}<Typography.Text type="secondary">/ {topic.title}</Typography.Text></Space>
@@ -559,7 +592,7 @@ function KnowledgeGraphPanel({ onOpenCard }: { onOpenCard: (id: string) => void 
             ) : (
               /* REQ-494：info Alert 降灰字一行（error 态保留） */
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
-                知识图谱为空（尚无卡节点）——知识体系目录下暂无可摄取的卡。按卡规范落档后点击右上「重新摄取」。
+                知识图谱为空（尚无卡节点）——学习资产目录下暂无可摄取的卡。按卡规范落档后点击右上「重新摄取」。
               </Typography.Text>
             )
           )}
