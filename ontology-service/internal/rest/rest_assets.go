@@ -503,6 +503,29 @@ func (s *Server) exportOntology(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Onto-Version", strconv.Itoa(o.Version))
 		w.Header().Set("X-Onto-Source", "spec_export") // REQ-328/C：数据源诚实标注（编辑后=投影+余量还原）
 		_, _ = w.Write([]byte(ttl))
+	case "dict_md", "dict_html":
+		// REQ-424/M384 业务文档导出——概念词典 markdown/HTML 两形态（业务可读：术语-同义词-
+		// 定义-层级表+关系表+数据属性表；沿 REQ-113 数据导出先例服务端直出）。头版本 spec 投影，
+		// version 参数不支持（沿「version 仅 turtle 版本化」同口径）。
+		raw, _, err := s.Store.GetArtifact(id, "spec_json")
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		var sp pkgspec.Spec
+		if err := json.Unmarshal([]byte(raw), &sp); err != nil {
+			writeErr(w, err)
+			return
+		}
+		if format == "dict_md" {
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d_dictionary.md", o.ID, o.Version))
+			_, _ = w.Write([]byte(importer.ExportDictionaryMarkdown(&sp)))
+		} else {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s_v%d_dictionary.html", o.ID, o.Version))
+			_, _ = w.Write([]byte(importer.ExportDictionaryHTML(&sp)))
+		}
 	case "vowljson":
 		// WebVOWL 对照视图数据源（2026-09-27 转换链重构）：spec → VOWL JSON 本服务直出，
 		// 替代不可用的浏览器端 owl2vowl（Java-only 无浏览器分发，见 importer/vowljson.go）

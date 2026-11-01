@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckCircleOutlined, CodeOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CodeOutlined, DownloadOutlined, FileTextOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../../../api/client'
 import type { ArtifactMeta, Ontology, ValidationError } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
@@ -149,6 +149,13 @@ export function ExportPane({ ontology }: { ontology: Ontology }) {
         </Button>
         <Button icon={<CodeOutlined />} href={api.ontologyExportUrl(ontology.id, 'spec_json')} download>
           导出 spec_json（备份/分享）
+        </Button>
+        {/* REQ-424/M384：业务文档导出——概念词典 markdown/HTML（业务可读，术语-同义词-定义-层级+关系+数据属性） */}
+        <Button icon={<FileTextOutlined />} href={api.ontologyExportUrl(ontology.id, 'dict_md')} onClick={() => showToast('已开始下载概念词典（Markdown）')}>
+          概念词典（Markdown）
+        </Button>
+        <Button icon={<FileTextOutlined />} href={api.ontologyExportUrl(ontology.id, 'dict_html')} onClick={() => showToast('已开始下载概念词典（HTML）')}>
+          概念词典（HTML）
         </Button>
         {/* REQ-258/M382：spec→oo 单向升级桥——导出 Turtle 经导入审查底座复核入库为 oo 轨资产 */}
         <UpgradeOoPane ontology={ontology} />
