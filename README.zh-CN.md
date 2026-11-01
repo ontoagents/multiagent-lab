@@ -50,7 +50,7 @@
 - **协议级开放** —— 每个 Agent 都是 MCP Server；MCP + A2A 接入外部智能体；执行后端可插拔（进程内 / Docker / Kubernetes）。
 - **单机与桌面** —— 一条命令启动、零 Python 运行时依赖；Windows / macOS 安装包；数据、密钥、本体不出个人掌控。
 
-每条详情在下节[探索详情](#-探索详情)折叠展开；模块级导读见 [platform-knowledge/](platform-knowledge/README.md)。
+每条详情在下节[探索详情](#-探索详情)折叠展开；模块级导读见 [docs/handbook/](docs/handbook/README.md)。
 
 ## 🧭 探索详情
 
@@ -115,7 +115,7 @@ Linux / macOS：
 - Windows —— 见 [deploy/windows/README.md](deploy/windows/README.md)
 - macOS —— 见 [deploy/macos/README.md](deploy/macos/README.md)
 
-Docker Compose / Helm / 环境变量见[部署指南](platform-knowledge/01_整体设计/16_部署与运行.md)。
+Docker Compose / Helm / 环境变量见[部署指南](docs/handbook/01_整体设计/16_部署与运行.md)。
 
 ## 💻 开发模式（前端热更新）
 
@@ -145,9 +145,11 @@ hooks/               Git 钩子（pre-commit doccheck 门禁；启用一次：gi
 wrappers/            外部智能体接入包装（如 AgentScope A2A）
 data/ logs/          本地运行数据与日志（gitignore，首次启动生成）
 website/             项目官网（GitHub Pages；推送 main 自动部署）
-platform-knowledge/  平台知识（产品设计 / 技术原理 / 模块导读，应用内渲染）
-docs/                需求与设计文档（事实源，见下方索引）
-seeds/learning/      技能包与示例本体内容单源
+docs/                需求与进度区（根级编号档事实源，见下方索引）
+docs/handbook/       现状手册（页面「平台知识」主树 + 助手 RAG 检索面）
+docs/research/       过程调研区（退出页面与向量检索）
+docs/learning/       学习资产（页面「学习资产」组 + RAG）
+seeds/learning/      技能包与示例本体内容单源——平台终端用户教学内容（与 docs/learning/ 平台自身知识学习资产消歧，两不相涉）
 deploy/              Docker Compose + Helm + 桌面端构建脚本
 tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 ```
@@ -163,9 +165,9 @@ tools/ research/ smoke/   工具脚本、调研记录、冒烟测试套件
 | [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md) | 开源项目与论文台账（本项目全部外部参考的全局登记） |
 | [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) | REQ 编号唯一分配权威 |
 | [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) | 回归冒烟清单 |
-| [platform-knowledge/](platform-knowledge/README.md) | 模块导读（产品设计 / 技术原理 / 调研，按模块组织） |
-| [platform-knowledge/01_整体设计/17_产品_信息架构与界面设计.md](platform-knowledge/01_整体设计/17_产品_信息架构与界面设计.md) | 界面 / 信息架构口径事实源 |
-| [platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md](platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md) | Claude Desktop / Cursor 直连配置 |
+| [docs/handbook/](docs/handbook/README.md) | 现状手册 / 模块导读（页面「平台知识」+ 助手 RAG；过程调研档在 [docs/research/](docs/research/README.md)） |
+| [docs/handbook/01_整体设计/17_产品_信息架构与界面设计.md](docs/handbook/01_整体设计/17_产品_信息架构与界面设计.md) | 界面 / 信息架构口径事实源 |
+| [docs/research/02_智能体/27_外部MCP客户端直连验证包.md](docs/research/02_智能体/27_外部MCP客户端直连验证包.md) | Claude Desktop / Cursor 直连配置 |
 | [AGENTS.md](AGENTS.md) | AI 编码助手项目引导 |
 
 方向性概览见下节[发展前景](#-发展前景)；需求状态细节以 **docs/02 §12** 与 **docs/18** 为准——本 README 有意不重复维护状态。
@@ -258,7 +260,7 @@ OntoAgents 站在开源社区与学术工作的肩膀上——直接依赖按各
 
 | 项目 / 来源 | 链接 | 借鉴情况 |
 | --- | --- | --- |
-| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [论文](https://arxiv.org/abs/2604.26962) | Agent-native 个人学习工作台（40k★/9 个月）——产品叙事参照与 **Q-23 定位三修正的直接输入**：场景锐利>引擎通用性；其学习闭环（出题·批改·掌握度）结构借鉴，差异化走**本体驱动**（出题覆盖度保证+概念子图掌握度 vs 纯 LLM 直出题）；冷启动建模成本=胜负手。调研详见 [91 号对标档](platform-knowledge/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
+| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [论文](https://arxiv.org/abs/2604.26962) | Agent-native 个人学习工作台（40k★/9 个月）——产品叙事参照与 **Q-23 定位三修正的直接输入**：场景锐利>引擎通用性；其学习闭环（出题·批改·掌握度）结构借鉴，差异化走**本体驱动**（出题覆盖度保证+概念子图掌握度 vs 纯 LLM 直出题）；冷启动建模成本=胜负手。调研详见 [91 号对标档](docs/research/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
 | Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | 同定位本体学习站：渐进式领域路径、示例本体库、成就激励等学习中心设计对照 |
 
 ### 论文与标准

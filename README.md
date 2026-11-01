@@ -50,7 +50,7 @@ Self-hosted — data, keys and knowledge stay under your control: data lives in 
 - **Open by protocol** — every agent is itself an MCP server; MCP + A2A connect external agents; execution backends are pluggable (in-process / Docker / Kubernetes).
 - **Single-machine & desktop** — one command to start, zero Python runtime dependency; Windows / macOS installers; data, keys and ontologies never leave the machine.
 
-Each point unfolds below in [Explore](#-explore); module-level guides live in [platform-knowledge/](platform-knowledge/README.md).
+Each point unfolds below in [Explore](#-explore); module-level guides live in [docs/handbook/](docs/handbook/README.md).
 
 ## 🧭 Explore
 
@@ -115,7 +115,7 @@ The shell starts the local services and opens the platform window:
 - Windows — see [deploy/windows/README.md](deploy/windows/README.md)
 - macOS — see [deploy/macos/README.md](deploy/macos/README.md)
 
-For Docker Compose, Helm and environment variables, see the [deployment guide](platform-knowledge/01_整体设计/16_部署与运行.md).
+For Docker Compose, Helm and environment variables, see the [deployment guide](docs/handbook/01_整体设计/16_部署与运行.md).
 
 ## 💻 Development Mode (frontend hot reload)
 
@@ -145,9 +145,11 @@ hooks/               Git hooks (pre-commit doccheck gate; enable once: git confi
 wrappers/            External agent integration wrappers (e.g. AgentScope A2A)
 data/ logs/          Local runtime data & logs (gitignored, created on first run)
 website/             Project website (GitHub Pages; auto-deploys on push to main)
-platform-knowledge/  In-app platform knowledge (product design / principles / module guides)
-docs/                Requirements & design documents (source of truth, see index below)
-seeds/learning/      Single source for skill packs & sample ontology content
+docs/                Requirements & progress area (numbered source-of-truth docs, see index below)
+docs/handbook/       Current-state manual — in-app "platform knowledge" page tree + assistant RAG
+docs/research/       Process research archive (off the page & vector index)
+docs/learning/       Learning assets — in-app "learning assets" group + RAG
+seeds/learning/      Single source for skill packs & sample ontology content — end-user teaching content (distinct from docs/learning/, the platform's own knowledge assets)
 deploy/              Docker Compose + Helm + desktop build scripts
 tools/ research/ smoke/   Utilities, research notes, smoke-test suites
 ```
@@ -163,9 +165,9 @@ tools/ research/ smoke/   Utilities, research notes, smoke-test suites
 | [docs/15_开源项目及论文登记簿.md](docs/15_开源项目及论文登记簿.md) | Open-source projects & papers registry (global ledger of every external reference) |
 | [docs/18_REQ编号注册表.md](docs/18_REQ编号注册表.md) | REQ number allocation authority |
 | [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) | Regression smoke-test checklist |
-| [platform-knowledge/](platform-knowledge/README.md) | Module guides (product design / principles / research, per module) |
-| [platform-knowledge/01_整体设计/17_产品_信息架构与界面设计.md](platform-knowledge/01_整体设计/17_产品_信息架构与界面设计.md) | UI / information-architecture source of truth |
-| [platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md](platform-knowledge/02_智能体/27_外部MCP客户端直连验证包.md) | Connecting Claude Desktop / Cursor |
+| [docs/handbook/](docs/handbook/README.md) | Current-state manual / module guides (in-app "platform knowledge" page + assistant RAG; process research archive in [docs/research/](docs/research/README.md)) |
+| [docs/handbook/01_整体设计/17_产品_信息架构与界面设计.md](docs/handbook/01_整体设计/17_产品_信息架构与界面设计.md) | UI / information-architecture source of truth |
+| [docs/research/02_智能体/27_外部MCP客户端直连验证包.md](docs/research/02_智能体/27_外部MCP客户端直连验证包.md) | Connecting Claude Desktop / Cursor |
 | [AGENTS.md](AGENTS.md) | Guide for AI coding assistants |
 
 A directional overview follows in [Roadmap](#-roadmap); requirement status details live in **docs/02 §12** and **docs/18** — they are intentionally not duplicated here.
@@ -258,7 +260,7 @@ OntoAgents stands on the shoulders of the open-source community and academic wor
 
 | Project / source | Links | What was borrowed |
 | --- | --- | --- |
-| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [paper](https://arxiv.org/abs/2604.26962) | Agent-native personal learning workspace (40k★/9 months) — product-narrative reference and the direct input to the Q-23 positioning: scene sharpness beats engine generality; its learning loop (quiz · grading · mastery) is borrowed while differentiation comes from **ontology-grounded** coverage guarantees and concept-graph mastery (vs pure LLM quiz generation); cold-start modeling cost is the make-or-break. Full analysis: [调研档 91 号](platform-knowledge/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
+| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [paper](https://arxiv.org/abs/2604.26962) | Agent-native personal learning workspace (40k★/9 months) — product-narrative reference and the direct input to the Q-23 positioning: scene sharpness beats engine generality; its learning loop (quiz · grading · mastery) is borrowed while differentiation comes from **ontology-grounded** coverage guarantees and concept-graph mastery (vs pure LLM quiz generation); cold-start modeling cost is the make-or-break. Full analysis: [调研档 91 号](docs/research/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
 | Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | A same-position ontology learning site: progressive domain paths, sample catalogs and gamification as learning-center design references |
 
 ### Papers & standards

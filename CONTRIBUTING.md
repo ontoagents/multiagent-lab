@@ -2,7 +2,7 @@
 
 感谢关注 OntoAgents——面向专业个人的工作学习助手（以本体为知识底座，单机自部署）。
 
-> **English speakers welcome.** Issues, PRs and comments in English are absolutely fine — replies may be bilingual. Deep documents under `docs/` and `platform-knowledge/` are Chinese-first **by design** (a deliberate trade-off to keep maintenance cost on the product); README, this guide and the code are the English-adjacent surface.
+> **English speakers welcome.** Issues, PRs and comments in English are absolutely fine — replies may be bilingual. Deep documents under `docs/` (handbook / research / learning) are Chinese-first **by design** (a deliberate trade-off to keep maintenance cost on the product); README, this guide and the code are the English-adjacent surface.
 >
 > 参与本项目请遵守[行为准则](CODE_OF_CONDUCT.md)；**安全漏洞请勿开公开 issue**，走 [SECURITY.md](SECURITY.md) 的私密上报通道。
 
@@ -25,7 +25,7 @@
   git config core.hooksPath hooks   # 之后每次 commit 自动跑 doccheck
   ```
 
-- 部署/环境变量/安全边界：`platform-knowledge/01_整体设计/16_部署与运行.md`；仓库结构速览见 [README 目录结构](README.zh-CN.md#-目录结构)。
+- 部署/环境变量/安全边界：`docs/handbook/01_整体设计/16_部署与运行.md`；仓库结构速览见 [README 目录结构](README.zh-CN.md#-目录结构)——`docs/` 根级编号档=需求与进度区，子区 `docs/handbook/` 现状手册（页面「平台知识」主树）、`docs/research/` 过程调研、`docs/learning/` 学习资产。
 
 ## 提交前必查
 
@@ -40,7 +40,7 @@
 
 - 新功能先查 `docs/18_REQ编号注册表.md` 领号（REQ 编号唯一分配权威），开放需求机读队列见 `docs/19_REQ状态索引.md`——**常规通道由维护者立项时完成，轻量通道贡献者无需自办**；
 - 需求详录落归属档（01 智能体/03 本体/11 知识库）迭代表 + `docs/20` 冒烟清单两处（G-7 单源口径）——合入时由维护者代回写；
-- 平台知识文档（`platform-knowledge/`）发生语义级变更时同步对应模块导读页（源指针 frontmatter）。
+- 现状手册文档（`docs/handbook/`）发生语义级变更时同步对应模块导读页；模块行为级改动的 handbook 现状档更新由维护者合入时代管（AGENTS 纪律 7）；`docs/research/` 为过程调研区，外部贡献一般无需触碰。
 
 ## PR 口径
 
