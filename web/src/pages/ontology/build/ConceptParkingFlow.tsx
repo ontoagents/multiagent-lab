@@ -13,7 +13,13 @@ import { invalidateOntos } from '../shared/useOntoList'
 // 进 CustomBuildFlow S2（经 eino.onto.build.customOnto/customStep 键跳转，S2 形态=既有编辑步；
 // 结构优先双形态随 REQ-501）。复用：OntoChat 阶段②确认卡勾选/改名行形态 + 阶段③文件导入
 // ≤2MB 通道；后端 ai-concept-park 异步 job（aiDraftJob 同口轮询）。
-// 基底：7ebcfce（BuildPathGrid/BuildPage 本轮领取时声明，防并行覆写）。
+// REQ-573/M381 冷启动建模体验（定位胜负手——四段串联单动线，逐段既有能力复用不新建引擎）：
+// 段③骨架生成升级=确认后经 ai-draft-async 既有链补结构（层级/关系），**概念锚定人工确认集**
+// （交集合并：concepts=勾选集、relations/parents 仅取两端都在勾选集内的 AI 结果——LLM 不稀释
+// 人工确认铁律 REQ-269）；AI 失败/超时 90s 回退平铺骨架如实提示。段④KB 同步入库=勾选后
+// createKB（kg_ontology_id 挂新本体=KG 抽取约束词表联动）+uploadKBDoc 收录材料原文——失败不
+// 阻断本体交付（best-effort 如实提示）。
+// 基底：be34f40c（本轮领取时声明，防并行覆写）。
 // ---------------------------------------------------------------------------
 
 /** 停车场行 = 候选 + 人工勾选态（沿 CqCandidateCard CqDraftRow 形态） */
@@ -21,6 +27,8 @@ type ParkRow = ConceptCandidate & { checked: boolean }
 
 const MATERIAL_MAX_BYTES = 2 * 1024 * 1024
 const MATERIAL_MAX_CHARS = 30000
+/** REQ-573 段③ aiDraft 补结构轮询上限（约 90s——超时回退平铺骨架不阻塞交付） */
+const STRUCTURE_POLL_TICKS = 45
 
 export default function ConceptParkingFlow({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (ontologyId: string) => void }) {
   const { showToast } = useUI()
@@ -32,6 +40,9 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
   const [progress, setProgress] = useState('')
   const [busy, setBusy] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [creatingLabel, setCreatingLabel] = useState('创建骨架')
+  // REQ-573 段④：KB 同步入库（默认开——「KB 接近零努力」；失败不阻断）
+  const [withKB, setWithKB] = useState(true)
   // 轮询票据：关闭弹窗/重新生成即作废在途轮询（组件常驻，open 切换不重置已铺清单）
   const pollTicket = useRef(0)
   const openRef = useRef(open)
@@ -106,6 +117,37 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
 
   const pickedCount = rows.filter((r) => r.checked && r.name.trim()).length
 
+  // REQ-573 段③：aiDraft 补结构（best-effort）——返回合并后 relations/parents 映射；失败/超时返 null
+  const draftStructure = async (picked: ParkRow[]): Promise<{ relations: Spec['relations']; parents: Map<string, string[]> } | null> => {
+    const names = picked.map((r) => r.name.trim())
+    const description = [ontoName.trim() || '材料起步本体', material.trim().slice(0, 2000)].filter(Boolean).join('\n')
+    const hint = `学习者已在概念停车场人工确认以下概念为最终概念清单（共 ${names.length} 个）：${names.join('、')}。请只围绕这些概念补全建模：给出概念间关系（relations）与上下位层级（parents）；不要新增清单之外的概念。`
+    try {
+      const { job_id } = await api.aiDraftOntologyAsync(description, hint)
+      const ticket = pollTicket.current
+      for (let i = 0; i < STRUCTURE_POLL_TICKS; i++) {
+        if (ticket !== pollTicket.current || !openRef.current) return null
+        await new Promise((r) => window.setTimeout(r, 2000))
+        const j = await api.aiDraftJob(job_id)
+        if (j.status === 'done' && j.result?.spec) {
+          const nameSet = new Set(names)
+          const draft = j.result.spec
+          const relations = (draft.relations ?? []).filter((rel) => nameSet.has(rel.from) && nameSet.has(rel.to))
+          const parents = new Map<string, string[]>()
+          for (const c of draft.concepts ?? []) {
+            const ps = (c.parents ?? []).filter((p) => nameSet.has(p) && p !== c.name)
+            if (ps.length) parents.set(c.name, ps)
+          }
+          return { relations, parents }
+        }
+        if (j.status === 'failed') return null
+      }
+      return null // 超时
+    } catch {
+      return null
+    }
+  }
+
   const createSkeleton = async () => {
     const picked = rows.filter((r) => r.checked && r.name.trim())
     if (!picked.length) {
@@ -113,24 +155,55 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
       return
     }
     setCreating(true)
+    let kbNote = ''
     try {
       const nm = ontoName.trim() || '材料起步本体'
+      // REQ-573 段③：AI 补结构（失败/超时/弹窗关闭=回退平铺骨架，如实提示不冒充）
+      setCreatingLabel('AI 补全层级与关系中…')
+      const structure = await draftStructure(picked)
+      const concepts = picked.map((r) => {
+        const ps = structure?.parents.get(r.name.trim()) ?? []
+        return {
+          name: r.name.trim(),
+          label: r.label?.trim() || undefined,
+          definition: r.definition?.trim() || undefined,
+          ...(ps.length ? { parents: ps } : {}),
+        }
+      })
+      const relations = structure?.relations ?? []
       const spec: Spec = {
         name: nm,
         description: material.trim().slice(0, 120) || undefined,
         // 原句引用（origin）仅停车场呈现面，不入 spec——概念级备注随版本留痕归 REQ-510
-        concepts: picked.map((r) => ({
-          name: r.name.trim(),
-          label: r.label?.trim() || undefined,
-          definition: r.definition?.trim() || undefined,
-        })),
-        relations: [],
+        concepts,
+        relations,
         instances: [],
       }
+      setCreatingLabel('创建本体…')
       const created = await api.createOntology({ name: nm, description: spec.description })
       await api.saveSpec(created.id, spec)
       invalidateOntos() // REQ-467：单源清单失效广播
-      showToast(`骨架已创建（${picked.length} 个概念），进入编辑`)
+      // REQ-573 段④：KB 同步入库（best-effort——失败不阻断本体交付；同名库复用不重建造免 409）
+      if (withKB) {
+        try {
+          setCreatingLabel('创建知识库并收录材料…')
+          const kbs = await api.listKBs()
+          const existing = (kbs ?? []).find((k) => k.name === nm)
+          const kb = existing
+            ? await api.updateKB(existing.id, { ...existing, kg_ontology_id: created.id } as any) // PUT 全量更新——带既有字段防零值覆盖
+            : await api.createKB({ name: nm, description: `冷启动动线随本体创建（REQ-573）；KG 抽取约束=${nm}`, kg_ontology_id: created.id } as any)
+          await api.uploadKBDoc(kb.id, { name: `${nm} · 学习材料`, content: material.trim() })
+          kbNote = `；知识库「${nm}」${existing ? '已复用（挂本本体为 KG 约束）并' : '已建并'}收录材料`
+        } catch (e: any) {
+          kbNote = `；知识库入库失败（${e?.message ?? '未知错误'}）——可稍后在知识库页手动创建`
+        }
+      }
+      const structNote = relations.length
+        ? `，AI 补全 ${relations.length} 条关系${structure ? '' : ''}`
+        : structure
+          ? '（AI 未补出关系，为概念清单形态，可在编辑页继续补）'
+          : '（AI 结构补全未成功，为概念清单形态，可在编辑页继续补）'
+      showToast(`骨架已创建（${picked.length} 个概念${structNote}）${kbNote}，进入编辑`)
       onClose()
       onCreated(created.id)
     } catch (e: any) {
@@ -138,6 +211,7 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
       else showToast(e?.message ?? '创建失败', 'err')
     } finally {
       setCreating(false)
+      setCreatingLabel('创建骨架')
     }
   }
 
@@ -159,7 +233,7 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
           <Space>
             <Button onClick={() => setStage('input')}>返回改材料</Button>
             <Button type="primary" loading={creating} disabled={pickedCount === 0} onClick={createSkeleton} data-testid="material-create-skeleton">
-              用 {pickedCount} 个概念创建骨架
+              {creating ? creatingLabel : `用 ${pickedCount} 个概念创建骨架`}
             </Button>
           </Space>
         )
@@ -168,7 +242,7 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
       {stage === 'input' ? (
         <>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            粘贴或上传一段学习材料（≤2MB / 3 万字），AI 铺出候选概念清单——逐条勾选、改名后一键生成本体骨架进入编辑；清单仅为候选，最终以人工确认为准。
+            粘贴或上传一段学习材料（≤2MB / 3 万字），AI 铺出候选概念清单——逐条勾选、改名后一键生成本体骨架（AI 顺手补全层级与关系）并可同步创建知识库收录材料；清单仅为候选，最终以人工确认为准。
           </Typography.Paragraph>
           <Input.TextArea
             data-testid="material-input"
@@ -201,7 +275,7 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
               {truncated > 0 && <Tag style={{ fontSize: 11 }}>已去重/截断 {truncated} 条（上限 30）</Tag>}
             </Space>
             <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-              勾选 {pickedCount}/{rows.length} 条 · 灰字为 AI 定义与材料原句引用（原句仅此呈现，不入骨架）
+              勾选 {pickedCount}/{rows.length} 条 · 灰字为 AI 定义与材料原句引用（原句仅此呈现，不入骨架）· 创建时 AI 按勾选清单补全层级与关系（概念以人工勾选为准）
             </Typography.Text>
           </Space>
           <div data-testid="material-candidates" style={{ maxHeight: 360, overflowY: 'auto' }}>
@@ -221,9 +295,15 @@ export default function ConceptParkingFlow({ open, onClose, onCreated }: { open:
               </div>
             ))}
           </div>
-          <Button size="small" style={{ marginTop: 4 }} onClick={() => setRows([...rows, { name: '', checked: true }])}>
-            手动添加
-          </Button>
+          <Space style={{ marginTop: 4 }} size={12}>
+            <Button size="small" onClick={() => setRows([...rows, { name: '', checked: true }])}>
+              手动添加
+            </Button>
+            {/* REQ-573 段④：KB 同步入库开关（默认开；失败不阻断本体交付） */}
+            <Checkbox checked={withKB} onChange={(e) => setWithKB(e.target.checked)} data-testid="material-with-kb">
+              同时创建知识库并收录材料（KG 抽取挂本本体为约束）
+            </Checkbox>
+          </Space>
         </>
       )}
     </Modal>
