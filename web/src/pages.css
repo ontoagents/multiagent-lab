@@ -559,6 +559,24 @@ tr.onto-diff-row-only-b > td { background: rgba(250, 173, 20, 0.12) !important; 
 .proj-view-toolbar { display: flex; align-items: center; gap: 6px; }
 .proj-view-actions { margin-top: auto; display: flex; gap: 8px; }
 
+/* ---- 面板节奏件（AgentSidePanel 重设计）：三层节奏统一 ----
+   页头（页名+一句话定位）→ 分区标题（sec：发丝 Divider+可选一行 hint）→ 表单分区；
+   字号三档 = 13（页头标题）/ 12（分区标题）/ 11~11.5（注记与说明）。
+   仅作用于 .apanel 根（AgentSidePanel aside），与项目侧板共享的 .proj-* 选择器互不串扰。 */
+.apanel .ap-head { min-width: 0; }
+.apanel .ap-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.apanel .ap-head-title { font-size: 13px; font-weight: 600; color: var(--c-ink); }
+.apanel .ap-head-desc { margin-top: 3px; font-size: 11.5px; line-height: 1.6; color: var(--c-ink-3); }
+.apanel .ap-sec-divider.ant-divider-horizontal.ant-divider-with-text { margin: 2px 0 8px; }
+.apanel .ap-sec-divider .ant-divider-plain-text { font-size: 12px; font-weight: 600; color: var(--c-ink-2); }
+.apanel .ap-sec-hint { margin: -4px 0 8px; font-size: 11px; line-height: 1.6; color: var(--c-ink-3); }
+.apanel .ap-note { font-size: 11.5px; line-height: 1.6; color: var(--c-ink-3); }
+.apanel .ap-info { margin-left: 4px; color: var(--c-ink-3); cursor: help; }
+.apanel .ap-block { padding: 2px 0; }
+.apanel .ap-conn-name { font-size: 12px; }
+.apanel .ap-preview-head { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 4px; }
+.apanel .ap-preview-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--c-ink-3); }
+
 /* 面包屑（根 / 子目录，可点击下钻） */
 .proj-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 12px; }
 .proj-crumb {

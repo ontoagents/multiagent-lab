@@ -21,12 +21,12 @@ import { useUI, type PageKey } from '../store/ui'
 // REQ-326①：全局导航自顶部横排（TopNav，已退役）迁左侧可收缩侧边栏——
 // web/客户端同一 SPA（REQ-321/324 WebView 直载 127.0.0.1:8080），客户端窗口可缩，
 // 顶部横排导航不可收缩、窄窗退化最重；左置后全站收敛「左全局导航（可收）+ 模块内容区」。
-//   展开态：品牌区 + 六模块（图标 + 名称；REQ-326 迭代三：一句话定位小字退役——
+//   展开态：品牌区（仅图标，词标/副标题已随界面瘦身退役）+ 五模块（图标 + 名称；REQ-326 迭代三：一句话定位小字退役——
 //     开发者反馈「模块名下小字描述太杂乱」，模块定位语义由 17 号 IA 档与各模块首屏承载）；
 //   收起态：48px 图标列（沿 CollapsedRail 基建形态，Tooltip 右置）；
-//   底部工具区：主题切换 + 设置（VS Code 齿轮惯例，原顶栏右端入口迁此）；
+//   底部工具区：主题切换 + 平台知识（低频阅读入口自主导航组移此）+ 设置（VS Code 齿轮惯例，原顶栏右端入口迁此）；
 //   窄窗自适应：<1080px 强制收起（transient 不写记忆，宽窗恢复用户偏好）。
-//   REQ-111 五项导航组织语义不变（六入口 + 设置同一批），仅承载形态演进。
+//   REQ-111 五项导航组织语义不变（六入口 + 设置同一批；界面瘦身：平台知识移底部工具区，入口集合不变），仅承载形态演进。
 // ---------------------------------------------------------------------------
 
 const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
@@ -35,7 +35,6 @@ const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
   { key: 'ontology', label: '本体', icon: <ApartmentOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ThunderboltOutlined /> },
-  { key: 'reference', label: '平台知识', icon: <BookOutlined /> },
 ]
 
 const COLLAPSE_KEY = 'eino.globalnav.collapsed'
@@ -68,7 +67,6 @@ function ThemeToggle({ collapsed }: { collapsed: boolean }) {
       type="button"
       className="gn-item gn-foot-btn"
       aria-label={dark ? '切换为亮色' : '切换为暗色'}
-      title={dark ? '切换为亮色' : '切换为暗色'}
       onClick={toggleTheme}
     >
       <span className="gn-item-icon">{dark ? <SunOutlined /> : <MoonOutlined />}</span>
@@ -77,6 +75,7 @@ function ThemeToggle({ collapsed }: { collapsed: boolean }) {
       }</span>}
     </button>
   )
+  // 评审修正：收起态提示单源走 Tooltip（原生 title 会与 Tooltip 叠出双提示，foot 三钮一致）
   return collapsed ? <Tooltip title={dark ? '切换为亮色' : '切换为暗色'} placement="right">{btn}</Tooltip> : btn
 }
 
@@ -109,14 +108,9 @@ export default function GlobalNav() {
       data-testid="global-nav"
       data-collapsed={collapsed ? '1' : '0'}
     >
+      {/* 界面瘦身：词标/副标题退役，品牌区只留图标 + 收起钮（模块语义由页面首屏承载） */}
       <div className="gn-brand">
         <BrandMark />
-        {!collapsed && (
-          <span className="brand-text">
-            <span className="brand-name">OntoAgents</span>
-            <span className="brand-sub">智能体构建平台</span>
-          </span>
-        )}
         {/* REQ-326 迭代：收起钮自「导航区满宽行」收编为品牌行右侧轻量图标钮（低对比 hover 显现，
             桌面惯例——框架操作不占导航项位）；收起态顶部同位展开钮（rail 首位，Tooltip 承载语义） */}
         {!narrow &&
@@ -164,6 +158,29 @@ export default function GlobalNav() {
 
       <div className="gn-foot">
         <ThemeToggle collapsed={collapsed} />
+        {/* 界面瘦身：平台知识（低频阅读入口）自主导航组移入底部工具区，设置上方同组；
+            Tooltip/aria 语义沿原导航项不变（收起态 Tooltip 右置、data-page/aria-current 保留） */}
+        {(() => {
+          const active = page === 'reference'
+          const btn = (
+            <button
+              type="button"
+              className={`gn-item${active ? ' active' : ''}`}
+              aria-label="平台知识"
+              aria-current={active ? 'page' : undefined}
+              data-page="reference"
+              onClick={() => setPage('reference')}
+            >
+              <span className="gn-item-icon">{<BookOutlined />}</span>
+              {!collapsed && <span className="gn-item-text">平台知识</span>}
+            </button>
+          )
+          return collapsed ? (
+            <Tooltip title="平台知识" placement="right">{btn}</Tooltip>
+          ) : (
+            btn
+          )
+        })()}
         {(() => {
           const active = page === 'settings'
           const btn = (
@@ -173,7 +190,6 @@ export default function GlobalNav() {
               aria-label="设置"
               aria-current={active ? 'page' : undefined}
               data-page="settings"
-              title={collapsed ? '设置（模型管理等）' : undefined}
               onClick={() => setPage('settings')}
             >
               <span className="gn-item-icon">{<SettingOutlined />}</span>

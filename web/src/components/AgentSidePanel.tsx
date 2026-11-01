@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Badge, Breadcrumb, Button, Card, Checkbox, Collapse, Divider, Empty, Form, FormInstance, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Badge, Breadcrumb, Button, Checkbox, Collapse, Divider, Empty, Form, FormInstance, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography } from 'antd'
 import {
   ApiOutlined,
   ApartmentOutlined,
@@ -78,6 +78,14 @@ const FORM_TAB_OF: Partial<Record<PanelView, string[]>> = {
   ability: ['ability'],
 }
 
+/** 面板重设计（节奏统一）：直挂表单视图页头——页名+一句话定位（三层节奏第一层；
+ *  exec/对外集成二级段位视图的页头一句话复用 *EXEC/INTEGRATION*_SEGMENTS desc，不在此表） */
+const FORM_HEAD: Record<string, { title: string; desc: string }> = {
+  basic: { title: '智能体配置', desc: '名称、描述与系统提示词——智能体的身份与行为基线' },
+  model: { title: '模型与参数', desc: '模型连接与备援、采样参数、推理后端' },
+  ability: { title: '能力', desc: '技能挂载、工具白名单与本体增强开关' },
+}
+
 /** REQ-264：存量 localStorage 视图值迁移（context/harness/loop→执行段位记忆；connectors/serve→对外集成段位；graph→配置） */
 const LEGACY_VIEW_OF: Record<string, { view: PanelView; seg?: string }> = {
   context: { view: 'exec', seg: 'context' },
@@ -95,17 +103,18 @@ const EXEC_SEGMENTS = [
   { key: 'loop', tab: 'loop', label: 'Loop', desc: '循环层——ReAct 迭代上限、挂起恢复与长任务推进' },
 ]
 
-/** REQ-264：对外集成入口内层两段（client/server 双向闭环，REQ-131/214） */
+/** REQ-264：对外集成入口内层两段（client/server 双向闭环，REQ-131/214）；desc=页头一句话定位 */
 const INTEGRATION_SEGMENTS = [
-  { key: 'connectors', tab: 'connectors', label: '连接器', desc: '作为客户端调用外部能力（REQ-214）；与对外服务构成双向闭环' },
-  { key: 'serve', tab: 'serve', label: '对外服务', desc: '作为 MCP 工具暴露给外部客户端（REQ-131，server 侧）' },
+  { key: 'connectors', tab: 'connectors', label: '连接器', desc: '作为客户端调用外部能力；与对外服务构成双向闭环' },
+  { key: 'serve', tab: 'serve', label: '对外服务', desc: '作为 MCP 工具暴露给外部客户端（server 侧）' },
 ]
 
-/** REQ-214/M46：连接器类型徽标（产品层只呈现「连接器」，MCP 为交付驱动之一） */
-const CONNECTOR_KINDS: { value: Connector['kind']; label: string; color: string }[] = [
-  { value: 'mcp', label: '自定义 MCP', color: 'blue' },
-  { value: 'kubernetes', label: 'Kubernetes', color: 'purple' },
-  { value: 'ssh', label: 'SSH', color: 'cyan' },
+/** REQ-214/M46：连接器类型徽标（产品层只呈现「连接器」，MCP 为交付驱动之一）；
+ *  面板重设计：kind Tag 灰字化后分色退役（REQ-493 口径），color 字段随之删除 */
+const CONNECTOR_KINDS: { value: Connector['kind']; label: string }[] = [
+  { value: 'mcp', label: '自定义 MCP' },
+  { value: 'kubernetes', label: 'Kubernetes' },
+  { value: 'ssh', label: 'SSH' },
 ]
 const kindMeta = (k: string) => CONNECTOR_KINDS.find((x) => x.value === k) ?? CONNECTOR_KINDS[0]
 
@@ -221,7 +230,7 @@ export default function AgentSidePanel({
     window.addEventListener('mouseup', onUp)
   }
   return (
-    <aside className="proj-panel" style={{ width: collapsed ? PANEL_BAR_WIDTH : panelWidth }}>
+    <aside className="proj-panel apanel" style={{ width: collapsed ? PANEL_BAR_WIDTH : panelWidth }}>
       {!collapsed && (
         <div
           className="proj-panel-resizer"
@@ -409,17 +418,19 @@ function SegmentedFormView({
   const cur = segments.find((s) => s.key === value) ?? segments[0]
   return (
     <div className="proj-view-body">
-      {segments.length > 1 && (
-        <Segmented
-          block
-          size="small"
-          style={{ marginBottom: 8 }}
-          value={cur.key}
-          onChange={(v) => onChange(v as string)}
-          options={segments.map((s) => ({ value: s.key, label: s.label }))}
-        />
-      )}
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>{cur.desc}</Typography.Text>
+      {/* 页头层=切换标签+一句话定位（REQ-264 口径：标签置顶、大标题不回归；desc 复用 segments 现成文案） */}
+      <div className="ap-head">
+        {segments.length > 1 && (
+          <Segmented
+            block
+            size="small"
+            value={cur.key}
+            onChange={(v) => onChange(v as string)}
+            options={segments.map((s) => ({ value: s.key, label: s.label }))}
+          />
+        )}
+        <div className="ap-head-desc">{cur.desc}</div>
+      </div>
       <AgentConfigForm agent={agent} onChanged={onChanged} visibleTabs={[cur.tab]} embedded />
     </div>
   )
@@ -560,26 +571,26 @@ function AgentCompanionView({ agent, onChanged }: { agent: Agent; onChanged?: ()
   return (
     <div className="proj-view-body">
       {/* REQ-195：两页各带标题+一句话说明（页切换右置），替代裸 Segmented 孤行 */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <Typography.Text strong style={{ fontSize: 13 }}>{page === 'config' ? '伴生配置' : '伴生管理'}</Typography.Text>
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+      <div className="ap-head">
+        <div className="ap-head-row">
+          <div style={{ minWidth: 0 }}>
+            <span className="ap-head-title">{page === 'config' ? '伴生配置' : '伴生管理'}</span>
+            <div className="ap-head-desc">
               {page === 'config'
-                ? '绑定伴生本体与抽取字段（REQ-216）；保存后下次运行生效'
-                : '本智能体跨会话候选确认流（铺平视图）；入图写入绑定本体伴生子图'}
-            </Typography.Text>
+                ? '绑定伴生本体与抽取字段；保存后下次运行生效'
+                : '本智能体跨会话候选确认流；入图写入绑定本体伴生子图'}
+            </div>
           </div>
+          <Segmented
+            size="small"
+            value={page}
+            onChange={(v) => setPage(v as typeof page)}
+            options={[
+              { value: 'config', label: '伴生配置' },
+              { value: 'manage', label: '伴生管理' },
+            ]}
+          />
         </div>
-        <Segmented
-          size="small"
-          value={page}
-          onChange={(v) => setPage(v as typeof page)}
-          options={[
-            { value: 'config', label: '伴生配置' },
-            { value: 'manage', label: '伴生管理' },
-          ]}
-        />
       </div>
       {page === 'config' ? (
         <Form form={form} layout="vertical" requiredMark={false} size="small">
@@ -766,8 +777,46 @@ const fmtAgentSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFi
  */
 
 // ---------------------------------------------------------------------------
-// 配置视图（REQ-132：四分类页签；字段/校验/提交逻辑不变）
+// 面板节奏件（面板重设计；配置视图 REQ-132 四分类页签字段/校验/提交逻辑不变）：
+// 全文件统一三层节奏 = 页头（页名+一句话定位）→ 分区标题（sec）→ 表单分区；
+// 三档尺度由 .ap-* 类承载（pages.css 面板节奏件段落，.apanel 作用域），
+// 表单字段沿用 .item-inline 行内化体系。长说明收敛：一行内归分区 hint，多行收 Tooltip/折叠。
 // ---------------------------------------------------------------------------
+
+/** 第一层：页头——页名 + 一句话定位（extra=右侧动作位，如伴生页切换标签） */
+function PageHead({ title, desc, extra }: { title: string; desc?: React.ReactNode; extra?: React.ReactNode }) {
+  return (
+    <div className="ap-head">
+      <div className="ap-head-row">
+        <div style={{ minWidth: 0 }}>
+          <span className="ap-head-title">{title}</span>
+          {desc != null && <div className="ap-head-desc">{desc}</div>}
+        </div>
+        {extra}
+      </div>
+    </div>
+  )
+}
+
+/** 第二层：分区标题——发丝 Divider + 可选一行说明（原散落表单中间的说明性文字收敛至此） */
+const sec = (label: string, hint?: React.ReactNode) => (
+  <div className="ap-sec">
+    <Divider titlePlacement="left" plain className="ap-sec-divider">{label}</Divider>
+    {hint != null && <div className="ap-sec-hint">{hint}</div>}
+  </div>
+)
+
+/** 注记行：灰字小注 + 可选 Tooltip 图标（多行说明收进 Tooltip，不再占表单版面） */
+const Note = ({ children, tip }: { children: React.ReactNode; tip?: string }) => (
+  <div className="ap-note">
+    {children}
+    {tip != null && (
+      <Tooltip title={tip}>
+        <InfoCircleOutlined className="ap-info" />
+      </Tooltip>
+    )}
+  </div>
+)
 
 /** REQ-360/M161：「对话建本体」开关+默认模式组合控件（Form.Item 受控——value=onchat_mode 字符串）。
  *  开关语义在后端装配层：onchat_mode 非空 → 自动并入 ontochat_* 四工具+注入内置纪律段（03 §2.54 A），
@@ -839,7 +888,7 @@ function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInst
 
   return (
     <>
-      <Divider titlePlacement="left" plain style={{ margin: '4px 0 12px' }}>对话建本体（OntoChat 能力开关，REQ-360）</Divider>
+      {sec('对话建本体')}
       <div data-testid="onchat-section">
         <Form.Item name="onchat_mode" style={{ marginBottom: 6 }}>
           <OnchatModeControl />
@@ -847,11 +896,11 @@ function OnchatCapabilitySection({ agent, form }: { agent: Agent; form: FormInst
       </div>
       {on && (
         <div data-testid="onchat-sessions" style={{ marginTop: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+          <div className="ap-note" style={{ marginBottom: 4 }}>
             产出清单：进行中 {ongoing} · 已入库 {saved}
             {sessions && sessions.length === 0 ? '（暂无构建会话——对话中说「帮我构建一个本体」即可开始）' : ''}
             {!sessions ? '（清单加载失败，稍后重试）' : ''}
-          </Typography.Text>
+          </div>
           {(sessions ?? []).slice(0, 5).map((s) => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', minWidth: 0 }}>
               {/* REQ-488：状态彩 Tag 灰字化（done 非告警态不入色）；渠道标注灰字；操作钮灰图标 hover */}
@@ -1039,15 +1088,12 @@ function AgentConfigForm({
     }
   }
 
-  /** 小节分隔（页签内二级标题） */
-  const sec = (label: string) => (
-    <Divider titlePlacement="left" plain style={{ margin: '4px 0 12px' }}>
-      {label}
-    </Divider>
-  )
+  // 页头层（直挂视图：配置/模型/能力；embedded 二级段位视图的页头由 SegmentedFormView 承载）
+  const head = !embedded ? (FORM_HEAD[visibleTabs?.[0] ?? 'basic'] ?? FORM_HEAD.basic) : null
 
   const body = (
     <>
+      {head && <PageHead title={head.title} desc={head.desc} />}
       {isBuiltin && <AssistantProposalBanner onChanged={onChanged} />}
       <Form form={form} layout="vertical" initialValues={agent} requiredMark={false} size="small">
         <Tabs
@@ -1203,13 +1249,10 @@ function AgentConfigForm({
                       ]}
                     />
                   </Form.Item>
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-                    压缩/召回/剪枝策略进程内固定（观察项）：超预算先 LLM 摘要再尾半裁剪；知识库与伴生召回按序注入；工具结果超 4k 截断。
-                  </Typography.Text>
-                  {/* REQ-311 A6：生效口径显性化——档位即生效值（无运行时改写）；每轮实际账单见对话流「🧾 上下文账单」事件卡 */}
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                    生效口径：未设置=标准档（约 24k tokens）；紧凑=约 6k；完整=不限量。每轮运行的实际账单（历史量/裁剪/注入明细）见对话流「上下文账单」事件卡与调用轨迹「运行始末」。
-                  </Typography.Text>
+                  {/* 面板重设计：原两段长注记收敛为一行生效口径+Tooltip（策略细节/账单入口不占表单版面） */}
+                  <Note tip="压缩/召回/剪枝策略进程内固定（观察项）：超预算先 LLM 摘要再尾半裁剪；知识库与伴生召回按序注入；工具结果超 4k 截断。每轮运行的实际账单（历史量/裁剪/注入明细）见对话流「上下文账单」事件卡与调用轨迹「运行始末」。">
+                    生效口径：未设置=标准档（约 24k tokens）· 紧凑=约 6k · 完整=不限量
+                  </Note>
                 </>
               ),
             },
@@ -1219,15 +1262,11 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  {/* REQ-264：层级介绍自页签内迁「执行」视图头 */}
+                  {/* REQ-264：层级介绍自页签内迁「执行」视图头；面板重设计：info Alert 降为灰字注记（REQ-494 口径） */}
                   {isExternalBackend && (
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 8 }}
-                      message={`外部推理后端（${inferenceBackend}）：harness 治理由外部自治`}
-                      description="运行后端/沙箱资源/验证命令不生效（已禁用）；工作目录仍为平台文件视图根；工具审批仅 DeepSeek Harness·ACP 生效（权限请求转平台审批）。"
-                    />
+                    <Note>
+                      外部推理后端（{inferenceBackend}）：harness 治理由外部自治——运行后端/沙箱资源/验证命令不生效（已禁用），工作目录仍为平台文件视图根；工具审批仅 DeepSeek Harness·ACP 生效（权限请求转平台审批）。
+                    </Note>
                   )}
                   {sec('运行后端（在哪儿跑）')}
                   <Form.Item name="runtime_backend" label="运行后端" className="item-inline" initialValue="inprocess" tooltip={isBuiltin ? '内置助手固定进程内执行' : isExternalBackend ? '由外部 harness 自治，平台侧配置不生效' : 'inprocess=进程内；docker=容器沙箱；k8s=Pod 沙箱；auto=自动检测（k8s 优先→docker→进程内兜底，需配置 SANDBOX_IMAGE）'}>
@@ -1257,7 +1296,7 @@ function AgentConfigForm({
                       <SandboxPanel agent={agent} form={form} />
                     </>
                   )}
-                  {sec('文件原语安全根与验证背压（REQ-202，自「能力」迁入）')}
+                  {sec('文件原语安全根与验证背压')}
                   <Form.Item
                     name="work_dir"
                     label="工作目录"
@@ -1274,7 +1313,7 @@ function AgentConfigForm({
                   >
                     <Input allowClear disabled={isBuiltin || isExternalBackend} placeholder="如 go build ./...（空=不验证）" />
                   </Form.Item>
-                  {sec('工具调用人工审批（REQ-231/M58 三档精细化）')}
+                  {sec('工具调用人工审批')}
                   <Form.Item
                     name="tool_approval"
                     label="审批策略"
@@ -1314,27 +1353,24 @@ function AgentConfigForm({
                     <InputNumber min={0} max={168} step={1} style={{ width: '100%' }} disabled={isBuiltin} placeholder="0（不限）" />
                   </Form.Item>
                   <ToolPreviewCard approval={Form.useWatch('tool_approval', form) ?? ''} tools={previewTools} notes={previewNotes} masked={previewMasked} />
-                  {sec('防护 hooks（进程内确定性层，REQ-232 可配置）')}
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                  {sec('防护 hooks')}
+                  <Note tip="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策；拒绝走 hook.denied 结构化事件">
                     {isExternalBackend
                       ? '外部推理后端不走平台装配链，防护 hooks 不生效（由外部 harness 自治）。'
                       : hooksInfo.length > 0
                         ? hooksInfo.map((h) => `${h.name}（${h.active ? '启用' : '停用'}）`).join(' · ')
                         : 'hook 清单加载中…'}
-                    <Tooltip title="hook 只放行/拒绝、不改写参数与结果——确定性检查不进模型上下文决策；拒绝走 hook.denied 结构化事件">
-                      <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--c-ink-3)' }} />
-                    </Tooltip>
-                  </Typography.Text>
+                  </Note>
                   {!isExternalBackend && (
                     <>
                       {/* REQ-232①：agent 级 fetchGuard 开关 */}
                       <Form.Item name="hooks_fetch_guard_disabled" label="fetchGuard 内网预检" className="item-inline" valuePropName="checked" tooltip="开启=http_fetch 执行前做内网/环回地址预检（SSRF 粗防，默认）；关闭=跳过该预检（自担风险）">
                         <Switch checkedChildren="启用" unCheckedChildren="停用" disabled={isBuiltin} />
                       </Form.Item>
-                      {/* REQ-232②：自定义 deny 规则（工具名 glob + 参数子串） */}
-                      <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-                        自定义 deny 规则（工具名 glob 如 mcp__* · web_*；参数子串大小写不敏感；命中即拒绝并回喂原因）
-                      </Typography.Text>
+                      {/* REQ-232②：自定义 deny 规则（工具名 glob + 参数子串）；写法说明收 Tooltip */}
+                      <Note tip="工具名 glob 如 mcp__* · web_*；参数子串大小写不敏感；命中即拒绝并回喂模型原因。">
+                        自定义 deny 规则
+                      </Note>
                       <Form.List name="hooks_deny_rules">
                         {(fields, { add, remove }) => (
                           <>
@@ -1364,7 +1400,7 @@ function AgentConfigForm({
                     </>
                   )}
                   {/* REQ-311 B2/M115：Harness 审计跨会话聚合——审批挂起/决议、hook 拦截、verify 背压 */}
-                  {sec('审计历史（跨会话聚合，REQ-311 B2）')}
+                  {sec('审计历史')}
                   <HarnessAuditSection agentId={agent.id} />
                 </>
               ),
@@ -1383,9 +1419,9 @@ function AgentConfigForm({
                   <Form.Item name="delegate_timeout_seconds" label="委派超时（秒）" className="item-inline" tooltip="REQ-319：本智能体作为项目成员被协调者委派调用时，单次执行的超时秒数；0=不限（默认，存量行为）。超时以结构化错误回喂协调者（可改道/重试），不会终止整个运行">
                     <InputNumber min={0} max={86400} style={{ width: '100%' }} placeholder="0 = 不限" />
                   </Form.Item>
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                  <Note>
                     挂起恢复与定时续跑为会话级（对话窗口配置，checkpoint 持久化重启可恢复）；进度产物 todo.md，usage 随运行事件落库。
-                  </Typography.Text>
+                  </Note>
                 </>
               ),
             },
@@ -1470,7 +1506,7 @@ function AgentConfigForm({
                   <OnchatCapabilitySection agent={agent} form={form} />
 
                   {/* REQ-366/M164：本体操作工具能力开关分区（默认关；写类触发审批） */}
-                  <Divider titlePlacement="left" plain style={{ margin: '4px 0 12px' }}>本体操作工具（OntoOps 能力开关，REQ-366）</Divider>
+                  {sec('本体操作工具')}
                   <div data-testid="ontoops-section">
                     <Form.Item name="onto_ops" style={{ marginBottom: 6 }}>
                       <OntoOpsControl />
@@ -1487,10 +1523,7 @@ function AgentConfigForm({
               forceRender: true,
               children: (
                 <>
-                  {sec('外部连接器（勾选 = 授权本智能体使用）')}
-                  <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
-                    自定义 MCP / Kubernetes / SSH；凭据服务端绑定不进模型上下文，连接失败降级不阻断运行。
-                  </Typography.Text>
+                  {sec('外部连接器', '自定义 MCP / Kubernetes / SSH；勾选 = 授权本智能体使用。凭据服务端绑定不进模型上下文，连接失败降级不阻断运行')}
                   {unreachableAuthorized.length > 0 && (
                     <Alert
                       style={{ marginBottom: 8 }}
@@ -1511,12 +1544,13 @@ function AgentConfigForm({
                         return (
                           <Checkbox key={c.id} value={c.id}>
                             <Tooltip title={tip}>
-                              <span style={{ fontSize: 12 }}>
-                                <Tag color={meta.color} style={{ marginInlineEnd: 4 }}>{meta.label}</Tag>
+                              {/* 面板重设计：kind/内置/可达 Tag 灰字化（REQ-493 口径，异常态不可达留红） */}
+                              <span className="ap-conn-name">
+                                <Tag style={{ marginInlineEnd: 4 }}>{meta.label}</Tag>
                                 {c.name}
                                 {c.is_builtin && <Tag style={{ marginInlineEnd: 0 }}>内置</Tag>}
                                 {c.status === 'error' && <Tag color="red" style={{ marginInlineEnd: 0 }}>不可达</Tag>}
-                                {c.status === 'ok' && <Tag color="green" style={{ marginInlineEnd: 0 }}>可达</Tag>}
+                                {c.status === 'ok' && <Tag style={{ marginInlineEnd: 0 }}>可达</Tag>}
                               </span>
                             </Tooltip>
                           </Checkbox>
@@ -1525,9 +1559,9 @@ function AgentConfigForm({
                     </Checkbox.Group>
                   </Form.Item>
                   {connectors.length === 0 && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                    <Note>
                       暂无连接器——在设置页「连接器」分区创建（MCP / Kubernetes / SSH）。
-                    </Typography.Text>
+                    </Note>
                   )}
                   <Button size="small" icon={<SettingOutlined />} onClick={goConnectorSettings}>
                     管理连接器
@@ -1618,19 +1652,17 @@ function SandboxPanel({ agent, form }: { agent: Agent; form: FormInstance }) {
   }
 
   if (!st?.enabled) {
+    // 面板重设计：info Alert 降灰字注记（REQ-494 口径）
     return (
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        title="沙箱后端未启用"
-        description="平台未配置 SANDBOX_IMAGE——配置后此处可管理该智能体的 agentd 容器。"
-      />
+      <Note>
+        沙箱后端未启用——平台未配置 SANDBOX_IMAGE，配置后此处可管理该智能体的 agentd 容器。
+      </Note>
     )
   }
   const running = st.state === 'running'
+  // 面板重设计：沙箱卡去框——状态行+操作行内联（Badge 状态为唯一强调位）
   return (
-    <Card size="small" style={{ marginBottom: 12 }}>
+    <div className="ap-block">
       <Space size={8} wrap style={{ marginBottom: 6 }}>
         <Badge status={running ? 'success' : 'default'} text={running ? '容器运行中' : st.state === 'error' ? `异常：${st.detail ?? ''}` : '容器未运行'} />
         {st.memory || st.cpus ? (
@@ -1667,7 +1699,7 @@ function SandboxPanel({ agent, form }: { agent: Agent; form: FormInstance }) {
           每 Agent 一个 agentd 容器（agt-{agentId.slice(0, 8)}…）；对话时自动拉起，此处可手动管理
         </Typography.Text>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -1725,7 +1757,7 @@ function McpServeTab({ agent }: { agent: Agent }) {
           items={[
             {
               key: 'access',
-              label: <span className="event-link">接入信息（端点 / Token / 调用示例）</span>,
+              label: <span style={{ fontSize: 12 }}>接入信息（端点 / Token / 调用示例）</span>,
               children: (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div className="proj-kv">
@@ -1846,6 +1878,7 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
     // 空 work_dir 引导态：手工输入路径设为工作目录
     return (
       <div className="proj-view-body">
+        <PageHead title="文件" desc="设置工作目录后，文件工具与浏览均以此为安全根" />
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description="未设置工作目录——设置后文件工具（grep/glob/read/write）以此为安全根"
@@ -1875,6 +1908,7 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
   const crumbs = path ? path.split('/') : []
   return (
     <div className="proj-view-body">
+      <PageHead title="文件" desc="以工作目录为安全根浏览；「设为工作目录」持久化当前目录" />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         <FolderOutlined />
         <Breadcrumb
@@ -1920,11 +1954,15 @@ function AgentFilesView({ agent, onChanged }: { agent: Agent; onChanged?: () => 
         )
       ) : null}
       {previewErr && <Alert type="warning" showIcon title={previewErr} style={{ marginTop: 8 }} />}
+      {/* 面板重设计：预览卡去框——路径行+发丝预览（.proj-preview 复用），Card 头退役 */}
       {preview && (
-        <Card size="small" title={preview.path} style={{ marginTop: 10 }}
-          extra={<Button size="small" type="text" onClick={() => setPreview(null)}>关闭</Button>}>
-          <pre style={{ margin: 0, maxHeight: 320, overflow: 'auto', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{preview.content}</pre>
-        </Card>
+        <div className="ap-block">
+          <div className="ap-preview-head">
+            <span className="ap-preview-path" title={preview.path}>{preview.path}</span>
+            <Button size="small" type="text" onClick={() => setPreview(null)}>关闭</Button>
+          </div>
+          <pre className="proj-preview" style={{ maxHeight: 320 }}>{preview.content}</pre>
+        </div>
       )}
     </div>
   )
@@ -1947,7 +1985,8 @@ function ToolPreviewCard({ approval, tools, notes, masked }: { approval: string;
       .map((t) => t.name)
   }, [tools])
   return (
-    <div style={{ border: '1px solid var(--ant-color-border, #ddd)', borderRadius: 6, padding: '8px 10px', marginBottom: 10 }}>
+    // 面板重设计：预览卡去框（REQ-491 口径）——分区留白承载；危险清单橙 Tag 为唯一强调位
+    <div className="ap-block">
       <Typography.Text strong style={{ fontSize: 12 }}>运行时工具预览（{tools.length}）</Typography.Text>
       <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', margin: '2px 0 6px' }}>
         审批策略生效：{approval === '' ? '关闭' : approval === 'danger' ? '危险工具档' : approval === 'all' ? '全部工具' : approval || '跟随 agent'}{danger.length > 0 && approval !== '' ? ` · 危险清单 ${danger.length} 项将挂起审批` : ''}
@@ -1960,7 +1999,7 @@ function ToolPreviewCard({ approval, tools, notes, masked }: { approval: string;
         ))}
       </div>
       {(notes ?? []).length > 0 && (
-        <Typography.Text type="secondary" style={{ fontSize: 10.5, display: 'block', marginTop: 6 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
           {notes!.join('；')}
         </Typography.Text>
       )}
@@ -2042,23 +2081,18 @@ function ConfigVersionCard({ agentId, onRolled }: { agentId: string; onRolled?: 
   }
 
   return (
-    <Card
-      size="small"
-      style={{ marginTop: 10 }}
-      title={
-        <span style={{ fontSize: 12 }}>
-          配置版本（保存即版本，REQ-226）
-          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>保留最近 50 版</Typography.Text>
+    // 面板重设计：版本卡去框——分区标题+内容直排（REQ-491 口径），Card 头/extra 退役
+    <div className="ap-block">
+      {sec('配置版本', (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          保存即版本 · 保留最近 50 版
+          <Button size="small" type="text" icon={<ReloadOutlined />} onClick={load} aria-label="刷新配置版本" style={{ height: 20, width: 20 }} />
         </span>
-      }
-      extra={
-        <Button size="small" icon={<ReloadOutlined />} onClick={load} aria-label="刷新配置版本" />
-      }
-    >
+      ))}
       {loading ? (
         <Spin size="small" />
       ) : versions.length === 0 ? (
-        <Typography.Text type="secondary" style={{ fontSize: 11 }}>暂无历史版本——下次保存配置后自动生成（保存前状态入版本）</Typography.Text>
+        <Note>暂无历史版本——下次保存配置后自动生成（保存前状态入版本）</Note>
       ) : (
         <>
           <Select
@@ -2106,7 +2140,7 @@ function ConfigVersionCard({ agentId, onRolled }: { agentId: string; onRolled?: 
           )}
         </>
       )}
-    </Card>
+    </div>
   )
 }
 
@@ -2116,12 +2150,13 @@ function ConfigVersionCard({ agentId, onRolled }: { agentId: string; onRolled?: 
 // 「挂起触达」顺带覆盖：挂起中的 approval.request 在列表即时可见。
 // v1 范围=agent 直聊会话（项目会话成员执行审计在各会话轨迹内——后端 ListHarnessAudit 边界注）。
 // ---------------------------------------------------------------------------
-const HARNESS_AUDIT_META: Record<string, { color: string; label: string }> = {
-  'approval.request': { color: 'gold', label: '审批挂起' },
-  'approval.granted': { color: 'green', label: '批准' },
+/** 面板重设计：事件 Tag 灰字化（REQ-488 色墙退役口径）——异常态（拒绝/拦截/验证未通过）留色，其余灰 Tag */
+const HARNESS_AUDIT_META: Record<string, { color?: string; label: string }> = {
+  'approval.request': { label: '审批挂起' },
+  'approval.granted': { label: '批准' },
   'approval.denied': { color: 'red', label: '拒绝' },
   'hook.denied': { color: 'orange', label: '拦截' },
-  'verify.completed': { color: 'blue', label: '验证通过' },
+  'verify.completed': { label: '验证通过' },
   'verify.failed': { color: 'red', label: '验证未通过' },
 }
 
@@ -2170,7 +2205,7 @@ function HarnessAuditSection({ agentId }: { agentId: string }) {
         key: 'a',
         label: (
           <span style={{ fontSize: 12 }}>
-            审批 / 拦截 / 验证事件（跨会话倒序{total > 0 ? `，共 ${total} 条` : ''}；点开展开）
+            审批 / 拦截 / 验证事件（跨会话倒序{total > 0 ? `，共 ${total} 条` : ''}）
           </span>
         ),
         children: (
@@ -2185,15 +2220,15 @@ function HarnessAuditSection({ agentId }: { agentId: string }) {
               </Typography.Text>
             )}
             {(rows ?? []).map((r) => {
-              const meta = HARNESS_AUDIT_META[r.type] ?? { color: 'default', label: r.type }
+              const meta = HARNESS_AUDIT_META[r.type] ?? { label: r.type }
               return (
                 <div key={r.id} className="harness-audit-row" style={{ display: 'flex', gap: 6, alignItems: 'baseline', padding: '3px 0', borderBottom: '1px dashed var(--c-line)', fontSize: 12 }}>
                   <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
                     {new Date(r.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                   </Typography.Text>
-                  <Tag color={meta.color} style={{ margin: 0, flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{meta.label}</Tag>
+                  <Tag color={meta.color} style={{ margin: 0, flexShrink: 0, fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>{meta.label}</Tag>
                   <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{describeHarnessAudit(r.type, r.data)}</span>
-                  <Typography.Text type="secondary" style={{ fontSize: 10.5, flexShrink: 0, maxWidth: 120 }} ellipsis={{ tooltip: r.conversation_title }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0, maxWidth: 120 }} ellipsis={{ tooltip: r.conversation_title }}>
                     {r.conversation_title || r.conversation_id}
                   </Typography.Text>
                 </div>

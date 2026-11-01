@@ -16,6 +16,7 @@ import LoadErrorAlert from './LoadErrorAlert'
 import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { confirmAction } from '../lib/antd'
+import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 import NameModal from './NameModal'
 
 interface TreeNode {
@@ -33,7 +34,9 @@ interface TreeNode {
  *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点，行加「·工作区」灰字标注区分；
  * - mode=project：项目节点同样结构，其下挂项目对话；
  * - mode=workspace：工作区节点（REQ-549/M356 M1b），其下挂 scope=agent 且归属本工作区的直挂对话；
- * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）。
+ * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）；
+ * - 整栏可收起为 48px 图标 rail（界面瘦身：沿 Settings/Reference 同款收起基建，记忆 key eino.sidebar.collapsed——
+ *   三变体共用、纯视觉收起，不改各模式树语义）。
  */
 export default function Sidebar({
   mode,
@@ -81,6 +84,9 @@ export default function Sidebar({
   onRetry?: () => void
 }) {
   const { currentConvId, setCurrentConv, bumpData, showToast } = useUI()
+  // 界面瘦身：整栏可收起为 48px 图标 rail（沿 REQ-240① Settings/Reference 同款基建），
+  // localStorage 记忆（用户偏好跨 agent/project/workspace 三变体共用——纯视觉收起，不改各模式树语义）
+  const rail = useSidebarCollapse('eino.sidebar.collapsed')
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [renaming, setRenaming] = useState<Conversation | null>(null)
   // REQ-409/M205：跨会话搜索——标题子串过滤（前端内存过滤）
@@ -206,6 +212,11 @@ export default function Sidebar({
     }
   }
 
+  // 收起态：48px 图标 rail（仅展开钮）——面板收窄由既有 .sidebar-panel:has 兜底规则承接
+  if (rail.collapsed) {
+    return <CollapsedRail onExpand={rail.toggle} ariaLabel="会话侧栏（已收起）" />
+  }
+
   return (
     <div className="sidebar">
       <div className="side-head">
@@ -221,6 +232,8 @@ export default function Sidebar({
           aria-label={`新建${isAgent ? '智能体' : isWorkspace ? '工作区' : '项目'}`}
           onClick={isAgent ? onNewAgent : isWorkspace ? (onNewWorkspace ?? (() => {})) : onNewProject}
         />
+        {/* 界面瘦身：整栏收起为 48px 图标 rail（同 Settings/Reference 侧栏基建，状态记忆 eino.sidebar.collapsed） */}
+        <SidebarCollapseButton onClick={rail.toggle} />
       </div>
 
       {/* REQ-409/M205：会话搜索（标题子串过滤+节点收敛；内容级检索随 KB FTS 演进） */}
@@ -269,37 +282,37 @@ export default function Sidebar({
               title="创建第一个智能体"
               steps={[
                 '起个名称，一句话描述职责',
-                '模型连接可留空（跟随全局默认）',
-                '需要执行动作就勾选工具',
+                '模型连接可留空',
+                '要执行动作就勾选工具',
               ]}
               actionLabel="＋ 新建智能体"
               onAction={onNewAgent}
-              footer="创建后点节点上的 ＋ 新建对话即可开始。"
+              footer="创建后点节点上的 ＋ 新建对话。"
             />
           ) : isWorkspace ? (
             // REQ-549/M356：工作区空态引导（领域容器——默认值免每会话重选）
             <EmptyGuide
               title="创建第一个工作区"
               steps={[
-                '起个名称，一句话描述领域场景',
-                '可选设默认知识库/本体方案/智能体',
-                '新会话免选即继承默认值',
+                '起个名称，一句话描述场景',
+                '可选设默认知识库/方案/智能体',
+                '新会话自动继承',
               ]}
               actionLabel="＋ 新建工作区"
               onAction={onNewWorkspace ?? (() => {})}
-              footer="创建后点节点上的 ＋ 新建对话即可开始。"
+              footer="创建后点节点上的 ＋ 新建对话。"
             />
           ) : (
             <EmptyGuide
               title="创建第一个项目"
               steps={[
                 '起个名称，选择协作模式',
-                '可绑定本地目录（产物写入，文件/Git 可见）',
+                '可绑本地目录，产物与 Git 可见',
                 '配置成员与主智能体',
               ]}
               actionLabel="＋ 新建项目"
               onAction={onNewProject}
-              footer="项目会话由成员智能体协作处理。"
+              footer="项目会话由成员智能体协作完成。"
             />
           )
           )
@@ -363,7 +376,7 @@ export default function Sidebar({
           )
         })}
 
-        {nodes.length > 0 && <div className="empty-hint">展开节点后点 ＋ 新建对话</div>}
+        {nodes.length > 0 && <div className="empty-hint">点 ＋ 新建对话</div>}
       </div>
 
       {renaming && (
