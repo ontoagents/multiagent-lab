@@ -69,30 +69,14 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | MCP 工具清单装配缓存（FetchMCPToolsWithHeaders 进程内缓存：key=serverName+URL+认证头 FNV-1a 指纹〔凭据变更即失效〕/TTL 60s MCPTOOLS_TTL 可调/失败不缓存降级语义沿旧/上限 64；ontology facade 与 Agent 级连接器同一装载函数双双受益；诚实边界=listChanged 长连接订阅不做 TTL 收敛） | REQ-356 | M156 | ✅（2026-10-21 清账批：stub MCP server 单测 3 组=TTL 内零握手/过期重拉/换头失效+失败不缓存） | 单测 3 组+18 包绿 |
 | 伴生图语义检索工具+自动入图基准门控（companion_search 内置工具〔browse/resolve 式：NL→语义匹配→实体+邻域；默认关 92 号 §5.2，Caller 缺省解析伴生绑定；tool→companion 环经装配闭包破 REQ-355 R2〕+Service.AutoIngestGate 钩子〔nil=零变化，主链路 diff=一个 nil 分支〕+evaldata RecallFloorGate 冻结验证集地板门控〔τ∈[0.60,0.80] 默认 0.60，COMPANION_BENCHMARK_GATE 显式开启；任意域无信号诚实放行〕+迁移 051 reject_reason 归因；EvoOntology 借鉴 D-O26 署名 93 号 §7.4） | REQ-358 | M158 | ✅（2026-10-21 清账批：A 基准跑落词法 0.033/向量 0.967/向量+2跳 1.000〔31 号三轮挂账清账〕+真机 delta 5 干扰候选注入 0.600→0.300 判负向） | 门控 stub 单测 4 断言+store 归因+18 包绿+真机 eval |
 | 对话建本体能力产品化（**能力开关**：Agent.OnchatMode 字段+侧板分区〔开关/默认模式/产出清单〕+装配自动并入四工具与手勾并集+**内置纪律段注入**〔instruction segment source=onchat 沿本体指引段先例，防误触发纪律内置〕——引导段手工粘贴退役；**页面渠道流程**：OntoChat 新建入口「在智能体对话中构建」显式选项〔channel-first 会话由智能体 start 保审计归因+预填不代发〕+中途携 session_id 转对话+渠道列表兜底〔已具能力置顶/平台助手/一键新建本体工程师预设〕；**平台助手默认挂载四件**〔92 号 §5.2 原则②默认关修订：显式引导面〕+**本体工程师预设智能体**〔演进位=内置本体专业能力触发驱动〕；产出清单=构建平面 List 增 agent_id 过滤；会话级工具注入不做〔方案 2/4 独立形态退役，与 REQ-336 收敛相逆〕） | REQ-360 | M161 | ✅（2026-10-21「拉取最新代码，领取需求开发」批：迁移 050 onchat_mode+装配自动并入四工具〔onchat 来源标注，与手勾并集〕+内置纪律段注入〔REQ-311 透镜 source=onchat〕；页面渠道 AgentChannelModal build/handoff 双模式+eino.chat.preset 预填不代发；平台助手内置行迁移默认 guided〔白名单放行可关〕+本体工程师预设一键新建；ListByAgent agent_id 过滤+侧板产出清单+继续深链；顺修 buildPath 一次性迁移吃深链〔ToolLine 深链同病〕；headless 29/29 smoke/req360/+真机 GLM 5/5 live〔ontochat_start 装配并入+审计归因 agent_chat+一次一问纪律实锤〕） | 单测 7 组+17+17 包绿+headless 29/29+真机 5/5 |
-| 平台助手管理面 CLI 化（manifest 驱动 ontoapi 单二进制+platform_cli 工具接线——ro 直行/rw danger 审批/deny 默认拒绝沿 REQ-186 口径；免沙箱直 exec 可信二进制；对话执行任何页面管理面操作；REQ-360 对话建本体四工具的泛化形态） | REQ-561 | M368 | 📋 立项待领取（方案 111 号） | — |
+| 平台助手管理面 CLI 化（manifest 驱动 ontoapi 单二进制+platform_cli 工具接线——ro 直行/rw danger 审批/deny 默认拒绝沿 REQ-186 口径；免沙箱直 exec 可信二进制；对话执行任何页面管理面操作；REQ-360 对话建本体四工具的泛化形态） | REQ-561 | M368 | ✅（2026-11-01 交付：ontoapi 单二进制 manifest 26 端点三档分级〔ro 直行/rw danger 审批/deny 拒绝〕+platform_cli 直 exec 免沙箱+EnsureAssistantTools 基座 11 工具） | chat/api 单测+真机 |
 | 外部 harness 治理面（页签诚实降维+dsh 权限转审批） | REQ-206 余项 | M41 真机联调轮 | 📋 归 REQ-206 扩注 | — |
-| MCP 工具清单装配缓存（每轮消息装配重做 MCP 连接+Initialize+tools/list 的开销与失败面治理〔runner.go:261 每轮 Assemble→assembler.go:577 facade FetchTools+Agent 级连接器〕；FetchMCPTools 进程内缓存 serverName+URL+认证头指纹键·TTL 60s 起步·失败回退直连，降级/ontology__ 改名/审批面零变化；观察项=tool annotations/2025-06-18 structured output） | REQ-356 | M156 | ✅（2026-10-21 清账批交付，与上行同 REQ——本行为立项期陈旧行，2026-10-24 顺修标注） | — |
 | 工具失败容错回喂（执行失败不炸 run——错误转结构化 JSON tool result 回喂〔hint 含截断调参指引〕+run.warning 留痕；中断类〔审批/ask_human〕与 context.Canceled 原样透传保挂起/停止语义；流式工具保 StreamableTool 断言、调用期与流中途错误同口径；沿 REQ-319 A1 委派降级先例推广到全部工具；TodoCard 超长清单限高+折叠同轮） | 报障迭代 2026-10-20 | — | ✅ | chat 单测 6 组+UI headless 10/10 smoke/toolerr-iter/ |
 | 执行期超时统一入口+连接器周期探测 | 51 号 W6 | — | ⏳ 需求池观察条目 | — |
 
-## 二.5 体检结论归档（51 号，2026-10-01 清理轮吸收；原档已清理，本节为唯一留存）
+## 二.5 体检结论归档（51 号 → 指针）
 
-| # | 体检结论（2026-10-01 时点） | 归并终局 |
-| --- | --- | --- |
-| P-H1 | 审批粒度两档过粗（off/all，read-only 也挂起；GLM todo_write 先写习惯放大摩擦） | ✅ REQ-231① 三档 danger（M58） |
-| P-H2 | 生效策略不可见（agent 级×会话级装配期合并，对话内无显示） | ✅ REQ-231④ 生效透出（M58） |
-| P-H3 | 外部 CLI 后端时 Harness 页签静默失效 | REQ-206 扩注（51 号 W5 定案：UI 标注+保存校验，随 M41 真机轮） |
-| P-H4 | 运行时工具清单无确定性预览（四源遮蔽仅 debug 快照可见） | ✅ REQ-231⑤ tool-preview（M58） |
-| P-H5 | hooks 说明卡静态文案 | ✅ REQ-231⑥ /api/hooks 后端读取（M58） |
-| P-H6 | 审批挂起无超时与触达 | ✅ REQ-231③ 超时自动 deny（M58）；主动触达残留（55 号 Loop 开放问题 3） |
-| A-H1 | 沙箱执行世界与文件原语割裂（docker/k8s 零 volume 实证） | REQ-225①（M53 触发驱动） |
-| A-H2 | 治理动作无结构化审计事件 | ✅ REQ-224③④（M52：hook.denied/approval.granted·denied） |
-| A-H3 | tool.result 落库无截断 | ✅ REQ-224⑤ 32KB 头尾截断（M52） |
-| A-H4 | hooks 硬编码不可扩展；fetchGuard 只护 http_fetch | REQ-232（M59 触发驱动；cmdGuard 绑 REQ-225②） |
-| A-H5 | 执行期超时/重试编码期固定 | ⏳ W6 需求池观察条目 |
-| A-H6 | 连接器运行期健康无事件化 | ✅ REQ-224 connector.degraded（M52）；周期探测在 W6 |
-
-（39 号全局体检的 harness 相关项：A-2 事件契约未治理、A-4 沙箱纵深——同上归并终局。）
+> 51 号 Harness 体检 12 项结论（P-H1~6/A-H1~6）**已全部吸收**：✅ 项由 REQ-224/231/232 交付承载（M52~M59），余项现役于上方 §二（REQ-225/REQ-206 余项/W6 行）与 §三。逐项归并表原文见 git 历史（2026-11-01 整理轮指针化，纪律 8——现状区不留过程档案）。
 
 ## 三、开放问题与诚实边界
 
@@ -106,5 +90,5 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 ## 四、维护约定
 
 - 本档为 harness 域**新增演进的默认落点**：新 REQ 立项/交付后更新「实现现状」表与「开放问题」；里程碑状态以 docs/02 §12 为权威，本表只做域内速览。
-- 51 号体检档内容已由本档与 REQ-231/224 交付吸收，按调研预研收录规则待整理轮归档；38 号保持历史档不动。
+- 51 号体检已指针化（§二.5，原文 git 历史可查）；38 号保持历史档不动。
 - 理论补充（五层模型、外部 harness 对比）继续沉淀 36/37/38 号体系，不在本档重复。

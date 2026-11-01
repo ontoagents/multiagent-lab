@@ -32,9 +32,10 @@ synced: 2026-11-01
 | C1 持久化 checkpoint/C2 todo.md/C5 定时续跑/C6 usage | REQ-204 | M39 | ✅（核心四项） | 真机 9/9 |
 | C5 调度持久化（重启失效收口） | REQ-224 | M52 | ✅ | 迁移 038+DB 往返 |
 | 挂起超时自动 deny | REQ-231③ | M58 | ✅ | 真机 danger 链（超时判定=恢复重入时） |
+| 运行生命周期 pause/redo（安全点挂起〔pause_state 独立列迁移 086〕/无答复恢复 ResumePaused/消息锚点 redo 重发/CSP 产物预览） | REQ-558 | M365 | ✅ | pause e2e 单测钉桩（逐件详 00 总表 M365 行） |
 | Loop 页签（五层视角） | REQ-219 | M50 | ✅ | headless 16/16 |
 | 迭代进度与生效值透出（run.started/resume max_iteration_effective+头部迭代 k/N chip+TraceDrawer 迭代≤N） | REQ-311 A4 | M115 | ✅ | API 生效上限=7 断言+UI chip smoke/req311/ |
-| C3 LongRun 有界增量 | REQ-204→REQ-385 | 后置→📋 立项待领取 | 2026-10-24 评审立项批（M181）：TurnLoop 原语+delegate 底盘汇流 | — |
+| C3 LongRun 有界增量（TurnLoop 引擎接入主链+轮界产物即刷持久化+主会话 steer=Push 抢占+delegate 底盘汇流） | REQ-385 | M181 | ✅（2026-10-29 专项重构轮；详 §三.5） | chat 单测+真机 |
 | C4 Evaluator 评估器 | REQ-204→REQ-388 | 后置→📋 触发驱动 | 2026-10-24 立项（M184）：触发=C3 落地后质量归因诉求；复用 REQ-223 Judge 契约 | — |
 
 ## 三、开放问题与诚实边界
