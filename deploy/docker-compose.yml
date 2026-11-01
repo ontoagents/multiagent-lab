@@ -1,7 +1,8 @@
 # ontoagents 服务器单机部署（Docker Compose）
 # 用法：cd deploy && docker compose up -d --build
 #       需要知识库向量检索：docker compose --profile qdrant up -d
-# 文档：platform-knowledge/01_整体设计/16_部署与运行.md（REQ-518：指针自已退役的 docs/13 修正）
+# 文档：docs/handbook/01_整体设计/16_部署与运行.md（REQ-518：指针自已退役的 docs/13 修正；
+# REQ-570 随四区收敛自 platform-knowledge/ 迁入 handbook）
 # 服务间编址契约表见 16 号 §3.0（REQ-518/M325——compose 与代码 getenv 对账单源）
 name: ontoagents
 

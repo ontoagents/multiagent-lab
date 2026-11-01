@@ -6,14 +6,15 @@ import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // 部署运行页（REQ-238）：平台三种部署运行方式——桌面客户端 / 数据中心服务端（web 访问）/
-// 本地运行（浏览器访问），外加版本发布与运维速览。事实源 = platform-knowledge/
-// 01_整体设计/16_部署与运行.md（v0.16），本页为面向访客的摘编；安装包发布面 = public 仓
+// 本地运行（浏览器访问），外加版本发布与运维速览。事实源 = docs/handbook/
+// 01_整体设计/16_部署与运行.md（v0.16；REQ-570 四区收敛自 platform-knowledge/ 迁入），
+// 本页为面向访客的摘编；安装包发布面 = public 仓
 // ontoagents/multiagent-lab（REQ-327，与开发主仓解耦）。
 // REQ-360：全页文案中英双份（zh 为事实源）；命令块保持通用，注释行随语言。
 // ---------------------------------------------------------------------------
 
 const RELEASES_URL = 'https://github.com/ontoagents/multiagent-lab/releases'
-const DEPLOY_DOC_URL = `https://github.com/ontoagents/multiagent-lab/blob/main/platform-knowledge/01_整体设计/16_部署与运行.md`
+const DEPLOY_DOC_URL = `https://github.com/ontoagents/multiagent-lab/blob/main/docs/handbook/01_整体设计/16_部署与运行.md`
 
 const WAYS: {
   icon: ReactNode

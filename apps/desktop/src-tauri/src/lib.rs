@@ -251,7 +251,9 @@ fn spawn_services(
         .env("WEB_DIST", res("web-dist"))
         .env("KB_VECTOR_BACKEND", "sqlite")
         .env("DOCS_ROOT", res("docs"))
-        .env("KNOWLEDGE_ROOT", res("platform-knowledge"))
+        // REQ-570 四区收敛：handbook 主根（learning 由后端按 ../learning 同级派生，
+        // research 经 DOCS_ROOT docs/ 前缀被 doc_read 覆盖；原 platform-knowledge/ 退役）
+        .env("KNOWLEDGE_ROOT", res("docs/handbook"))
         .env("BUILD_SVC_URL", ports.ontology_url())
         .env("RUNTIME_MGR_URL", ports.runtime_url());
     set_hidden(&mut be, &log("backend.log"));

@@ -5,7 +5,7 @@ import type { L10n } from '../locale'
 
 // ---------------------------------------------------------------------------
 // 开源生态页（REQ-238 官网）：把 docs/15《开源项目及论文登记簿》转成站点可读版。
-// 内容单源：全部条目与结论提炼自 docs/15（v2.35）与 platform-knowledge/08_调研预研；
+// 内容单源：全部条目与结论提炼自 docs/15（v2.35）与 docs/research/08_调研预研；
 // 本页只做"图谱 + 对比表"的整理呈现，登记/状态以 docs/15 台账为准。
 // REQ-360：页面 chrome 与条目「关系注记」中英双份（zh 为事实源）；
 // 项目名 / 许可证 / 技术栈字段保持原文。
@@ -155,7 +155,7 @@ const STATS: { num: string; label: L10n<string>; sub: L10n<string> }[] = [
   { num: '60+', label: { zh: '调研登记项目', en: 'Projects researched' }, sub: { zh: 'docs/15 七类台账', en: 'docs/15, seven categories' } },
   { num: '15', label: { zh: '生产在用', en: 'In production' }, sub: { zh: '✅ 已集成 / 已用作', en: '✅ Integrated / in use' } },
   { num: '25+', label: { zh: '论文与标准', en: 'Papers & standards' }, sub: { zh: 'T1×10 · T2×6 · T3×9', en: 'T1×10 · T2×6 · T3×9' } },
-  { num: '40+', label: { zh: '专项调研档', en: 'Research docs' }, sub: { zh: 'platform-knowledge/08', en: 'platform-knowledge/08' } },
+  { num: '40+', label: { zh: '专项调研档', en: 'Research docs' }, sub: { zh: 'docs/research/08', en: 'docs/research/08' } },
 ]
 
 // ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ const COPY = {
     leadMid3: '按七类选取许可证、技术栈、关联状态等关键特征呈现异同。完整台账（含状态流转与变更记录）见 ',
     leadLink15: 'docs/15 登记簿',
     leadMid4: '，每个项目的深度调研档见 ',
-    leadLinkPk: 'platform-knowledge/08_调研预研',
+    leadLinkPk: 'docs/research/08_调研预研',
     leadPost: '。',
     g1Eyebrow: '01 · Relation Graph',
     g1Title: '项目关联图谱',
@@ -422,7 +422,7 @@ const COPY = {
     leadMid3: ' presents similarities and differences across seven categories by license, stack and relation status. The full registry (with status lifecycle and change history): ',
     leadLink15: 'docs/15',
     leadMid4: '; per-project deep research docs: ',
-    leadLinkPk: 'platform-knowledge/08_调研预研',
+    leadLinkPk: 'docs/research/08_调研预研',
     leadPost: '.',
     g1Eyebrow: '01 · Relation Graph',
     g1Title: 'Project relation graph',
@@ -473,7 +473,7 @@ export default function EcosystemPage() {
               {c.leadLink15}
             </a>
             {c.leadMid4}
-            <a href={`${REPO_URL}/tree/main/platform-knowledge`} target="_blank" rel="noreferrer">
+            <a href={`${REPO_URL}/tree/main/docs/research/08_调研预研`} target="_blank" rel="noreferrer">
               {c.leadLinkPk}
             </a>
             {c.leadPost}

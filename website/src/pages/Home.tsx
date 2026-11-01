@@ -21,7 +21,7 @@ import type { L10n } from '../locale'
 import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
-// 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / platform-knowledge/
+// 首页（REQ-238）：项目概览。内容源=README / AGENTS 项目定位 / docs/handbook/
 // 01_整体设计/17_产品_信息架构与界面设计（摘编口径，深入阅读走模块页，避免双源）。
 // 新人导览：Hero 后紧跟产品预览与"30 秒了解"五步导览，覆盖 长什么样→是什么→
 // 能做什么→如何工作→上手。
@@ -507,7 +507,7 @@ export default function HomePage() {
               <pre className="qs-code">{c.qs2Code}</pre>
               <p className="qs-note">
                 {c.qs2NotePre}
-                <a href={`${REPO_URL}/blob/main/platform-knowledge/01_整体设计/16_部署与运行.md`} target="_blank" rel="noreferrer">
+                <a href={`${REPO_URL}/blob/main/docs/handbook/01_整体设计/16_部署与运行.md`} target="_blank" rel="noreferrer">
                   {c.qs2NoteLink}
                 </a>
                 {c.qs2NotePost}

@@ -35,7 +35,6 @@
       "resources/web-dist": "web-dist",
       "resources/migrations": "migrations",
       "resources/docs": "docs",
-      "resources/platform-knowledge": "platform-knowledge",
       "resources/tools": "tools"
     },
     "externalBin": [

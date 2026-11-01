@@ -216,7 +216,9 @@ func buildServices(root, dataDir string) []service {
 				{"WEB_DIST", p(root, "web", "dist")},
 				{"KB_VECTOR_BACKEND", "sqlite"}, // 单机零依赖默认（README 注明 qdrant 覆盖方式）
 				{"DOCS_ROOT", p(root, "docs")},
-				{"KNOWLEDGE_ROOT", p(root, "platform-knowledge")},
+				// REQ-570 四区收敛：handbook 主根（learning 由后端按 ..\learning 同级派生，
+				// research 经 DOCS_ROOT docs/ 前缀被 doc_read 覆盖；原 platform-knowledge\ 退役）
+				{"KNOWLEDGE_ROOT", p(root, "docs", "handbook")},
 				{"BUILD_SVC_URL", ontURL},
 				{"RUNTIME_MGR_URL", rtURL},
 			},

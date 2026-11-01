@@ -76,8 +76,9 @@ Step "组装迁移脚本与内容目录"
 Copy-Item "$repo\ontology-service\migrations\*.sql" "$staging\migrations\ontology-service\"
 Copy-Item "$repo\runtime-manager\migrations\*.sql"  "$staging\migrations\runtime-manager\"
 Copy-Item "$repo\tools\rdf-sidecar\sidecar.py"      "$staging\tools\rdf-sidecar\"
+# REQ-570 四区收敛：docs/ 一处即覆盖 handbook（现状手册）/research（调研）/learning
+#（学习资产）三子区——原 platform-knowledge\ 拷贝退役（launcher KNOWLEDGE_ROOT 指 docs\handbook）
 Copy-Item -Recurse -Force "$repo\docs"               "$staging\docs"
-Copy-Item -Recurse -Force "$repo\platform-knowledge" "$staging\platform-knowledge"
 Copy-Item "$here\staging-assets\README.txt"          "$staging\README.txt"
 
 # ---- 6. 中文语言包（官方 Unofficial ChineseSimplified.isl，缓存于 build\；缺失回退英文向导）----
@@ -95,12 +96,13 @@ if ($StageOnly) { Step "StageOnly：staging 组装完成，跳过安装包编译
 
 # ---- 7. Tauri 壳打包（-Shell tauri：NSIS per-user，REQ-321 定案壳技术）----
 if ($Shell -eq "tauri") {
-    Step "组装 Tauri 资源（src-tauri\resources\：web-dist/migrations/docs/平台知识；bin\ 外部三服务）"
+    Step "组装 Tauri 资源（src-tauri\resources\：web-dist/migrations/docs；bin\ 外部三服务）"
     $tsrc = "$repo\apps\desktop\src-tauri"
     $tres = "$tsrc\resources"
-    # 整目录资源（web-dist/docs/platform-knowledge）不预建目录：Copy-Item -Recurse 的目标目录
+    # 整目录资源（web-dist/docs）不预建目录：Copy-Item -Recurse 的目标目录
     # 已存在时会把源目录整个拷进去（web-dist\dist\ 双层嵌套 → WEB_DIST 指向处无 index.html，/ 404），
-    # 目标缺席时才是「拷贝并改名」语义
+    # 目标缺席时才是「拷贝并改名」语义。resources\platform-knowledge 仅清 REQ-570 迁移前
+    # 旧构建残留（不再拷贝；tauri.conf.json resources 映射已同轮退役）
     foreach ($d in @("resources\web-dist", "resources\docs", "resources\platform-knowledge")) {
         if (Test-Path "$tsrc\$d") { Remove-Item -Recurse -Force "$tsrc\$d" }
     }
@@ -113,8 +115,9 @@ if ($Shell -eq "tauri") {
     Copy-Item "$repo\ontology-service\migrations\*.sql" "$tres\migrations\ontology-service\"
     Copy-Item "$repo\runtime-manager\migrations\*.sql"  "$tres\migrations\runtime-manager\"
     Copy-Item "$repo\tools\rdf-sidecar\sidecar.py"      "$tres\tools\rdf-sidecar\"
+    # REQ-570 四区收敛：docs/ 一处即覆盖 handbook/research/learning 三子区——原
+    # platform-knowledge\ 拷贝退役（launcher KNOWLEDGE_ROOT 指 docs\handbook）
     Copy-Item -Recurse -Force "$repo\docs"               "$tres\docs"
-    Copy-Item -Recurse -Force "$repo\platform-knowledge" "$tres\platform-knowledge"
     Copy-Item "$staging\bin\backend.exe"    "$tsrc\bin\backend-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\ontologyd.exe"  "$tsrc\bin\ontologyd-x86_64-pc-windows-msvc.exe"
     Copy-Item "$staging\bin\runtimed.exe"   "$tsrc\bin\runtimed-x86_64-pc-windows-msvc.exe"

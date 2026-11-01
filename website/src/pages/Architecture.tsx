@@ -5,7 +5,7 @@ import { useCopy, useLocale } from '../i18n'
 import type { L10n } from '../locale'
 
 // ---------------------------------------------------------------------------
-// 整体架构页（REQ-238 扩展）：三平面 + 双代理总图（SVG 内联，源=platform-knowledge/
+// 整体架构页（REQ-238 扩展）：三平面 + 双代理总图（SVG 内联，源=docs/handbook/
 // 01_整体设计/00_整体设计.md §2/§3 + docs/02 §1/§2/§7 + 16_部署与运行）。
 // REQ-360：全页文案中英双份（zh 为事实源）；架构图内文字随语言切换（diagrams.tsx）。
 // REQ-496 内容口径（2026-10-29）：本页只讲「整体架构设计」——三平面职责 / 技术栈 /
@@ -349,7 +349,7 @@ export default function ArchitecturePage() {
           </div>
           <p className="learn-hint">
             {c.hintPre}
-            <a href={`${REPO_URL}/blob/main/platform-knowledge/01_整体设计/16_部署与运行.md`} target="_blank" rel="noreferrer">
+            <a href={`${REPO_URL}/blob/main/docs/handbook/01_整体设计/16_部署与运行.md`} target="_blank" rel="noreferrer">
               {c.hintLink}
             </a>
             {c.hintPost}
@@ -361,7 +361,7 @@ export default function ArchitecturePage() {
           <h2>{c.readTitle}</h2>
           <div className="tech-strip">
             <Tag style={{ margin: 0, padding: '6px 12px' }}>
-              <a href={`${REPO_URL}/blob/main/platform-knowledge/01_整体设计/00_整体设计.md`} target="_blank" rel="noreferrer">
+              <a href={`${REPO_URL}/blob/main/docs/handbook/01_整体设计/00_整体设计.md`} target="_blank" rel="noreferrer">
                 {c.readDesign}
               </a>
             </Tag>
@@ -371,7 +371,7 @@ export default function ArchitecturePage() {
               </a>
             </Tag>
             <Tag style={{ margin: 0, padding: '6px 12px' }}>
-              <a href={`${REPO_URL}/blob/main/platform-knowledge/01_整体设计/17_产品_信息架构与界面设计.md`} target="_blank" rel="noreferrer">
+              <a href={`${REPO_URL}/blob/main/docs/handbook/01_整体设计/17_产品_信息架构与界面设计.md`} target="_blank" rel="noreferrer">
                 {c.readIA}
               </a>
             </Tag>

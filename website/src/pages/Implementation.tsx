@@ -9,7 +9,7 @@ import type { L10n } from '../locale'
 //   关键实现要点 → 三张核心机制图 → 五层执行视角 → 本体与知识机制 →
 //   设计原则 → 理论与实践依据 → 源码入口 → 延伸阅读。
 // 页内目录用 scrollIntoView（不能用 #hash 锚点，会与 hash 路由冲突）。
-// 事实口径 = docs/02 §6/§7/§8 + docs/03/04 + platform-knowledge/ 整体设计、
+// 事实口径 = docs/02 §6/§7/§8 + docs/03/04 + docs/handbook/ 整体设计、
 // 02_智能体/53~56、04_本体/02~04、05_知识库/00 + docs/15 登记簿；本页只做可读版转述。
 // REQ-360：全页文案中英双份（zh 为事实源）；机制图内文字随语言切换。
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ const POINTS: { i18n: L10n<{ title: string; desc: string }> }[] = [
   },
 ]
 
-/** 五层视角：智能体执行模型的五个正交切面（源自 platform-knowledge/02_智能体/53~56） */
+/** 五层视角：智能体执行模型的五个正交切面（源自 docs/handbook/02_智能体/53~56） */
 const LAYERS: { key: string; i18n: L10n<{ title: string; scope: string; points: string[] }> }[] = [
   {
     key: 'Model',
@@ -209,7 +209,7 @@ const LAYERS: { key: string; i18n: L10n<{ title: string; scope: string; points: 
   },
 ]
 
-/** 本体工程机制（源自 platform-knowledge/04_本体/02~04 与整体设计） */
+/** 本体工程机制（源自 docs/handbook/04_本体/02~04 与整体设计） */
 const ONTOLOGY: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     i18n: {
@@ -285,7 +285,7 @@ const ONTOLOGY: { i18n: L10n<{ title: string; desc: string }> }[] = [
   },
 ]
 
-/** 知识增强机制（源自 platform-knowledge/05_知识库/00） */
+/** 知识增强机制（源自 docs/handbook/05_知识库/00） */
 const KNOWLEDGE: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     i18n: {
@@ -325,7 +325,7 @@ const KNOWLEDGE: { i18n: L10n<{ title: string; desc: string }> }[] = [
   },
 ]
 
-/** 设计原则四条（源自 platform-knowledge/01_整体设计/00 §7） */
+/** 设计原则四条（源自 docs/handbook/01_整体设计/00 §7） */
 const PRINCIPLES: { i18n: L10n<{ title: string; desc: string }> }[] = [
   {
     i18n: {

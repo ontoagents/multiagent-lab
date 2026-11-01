@@ -122,8 +122,9 @@ if [ "$SHELL_KIND" = "go" ]; then
   cp -R "$REPO/web/dist" "$RES/web/dist"
   cp -R "$REPO/ontology-service/migrations" "$RES/migrations/ontology-service"
   cp -R "$REPO/runtime-manager/migrations" "$RES/migrations/runtime-manager"
+  # REQ-570 四区收敛：docs/ 一处即覆盖 handbook（现状手册）/research（调研）/learning
+  #（学习资产）三子区——原 platform-knowledge/ 拷贝退役（launcher KNOWLEDGE_ROOT 指 docs/handbook）
   cp -R "$REPO/docs" "$RES/docs"
-  cp -R "$REPO/platform-knowledge" "$RES/platform-knowledge"
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$RES/tools/rdf-sidecar/sidecar.py"
   cp "$MACOS_DIR/staging-assets/README.txt" "$RES/README.txt"
 
@@ -143,8 +144,9 @@ else
   cp "$REPO/ontology-service/migrations/"*.sql "$TRES/migrations/ontology-service/"
   cp "$REPO/runtime-manager/migrations/"*.sql "$TRES/migrations/runtime-manager/"
   cp "$REPO/tools/rdf-sidecar/sidecar.py" "$TRES/tools/rdf-sidecar/"
+  # REQ-570 四区收敛：docs/ 一处即覆盖 handbook/research/learning 三子区——
+  # 原 platform-knowledge/ 拷贝退役（launcher KNOWLEDGE_ROOT 指 docs/handbook）
   cp -R "$REPO/docs" "$TRES/docs"
-  cp -R "$REPO/platform-knowledge" "$TRES/platform-knowledge"
   TRIPLE="$(rustc -vV 2>/dev/null | awk '/^host/{print $2}')"
   [ -n "$TRIPLE" ] || TRIPLE="$(uname -m)-apple-darwin"
   for svc in backend ontologyd runtimed oxigraph; do

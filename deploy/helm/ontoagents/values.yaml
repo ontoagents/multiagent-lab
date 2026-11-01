@@ -1,5 +1,5 @@
 # ontoagents Helm values
-# 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 platform-knowledge/01_整体设计/16_部署与运行.md）
+# 三个服务均为 SQLite 单文件存储：replicaCount 必须为 1（多副本需换存储，见 docs/handbook/01_整体设计/16_部署与运行.md）
 # REQ-518/M325：components.enabled 旗标（缺省 true）——休眠组件置 false 即从 deployments/services/pvc 三模板过滤；
 # 服务间编址契约表见 16 号 §3.0（ONTOLOGY_MCP_URL 缺省自 RUNTIME_MGR_URL 派生 /mcp——此处显式双保险）
 
