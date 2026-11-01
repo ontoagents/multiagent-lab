@@ -42,6 +42,16 @@
 - 需求详录落归属档（01 智能体/03 本体/11 知识库）迭代表 + `docs/20` 冒烟清单两处（G-7 单源口径）——合入时由维护者代回写；
 - 现状手册文档（`docs/handbook/`）发生语义级变更时同步对应模块导读页；模块行为级改动的 handbook 现状档更新由维护者合入时代管（AGENTS 纪律 7）；`docs/research/` 为过程调研区，外部贡献一般无需触碰。
 
+## AI 代理开发工作流（skill）
+
+本仓随库附带项目级 skill：[`.agents/skills/onto-dev/SKILL.md`](.agents/skills/onto-dev/SKILL.md)——把「需求立项领号 → 方案档落位 → 实现纪律 → 交付回写 → 文档四区归区」整套流程蒸馏为代理可执行的操作手册，供维护者与使用 AI 代理的外部协作者对齐开发流程：
+
+- **zcode / 其他支持 `.agents/skills/` 约定的工具**：clone 后自动发现；对话涉及立项、交付回写、文档归区时自动触发，也可显式调用（`/onto-dev`）；
+- **Claude Code**：可直接读 `.agents/skills/onto-dev/SKILL.md`，或复制到 `.claude/skills/onto-dev/` 获得同款自动发现；
+- **其他工具 / 不使用代理**：把 SKILL.md 当作流程 runbook 直接阅读即可——它就是本仓「一套逻辑」的最短完整版。
+
+规则权威仍是 [AGENTS.md](AGENTS.md) 硬性纪律（skill 为其操作蒸馏；规则变更先落 AGENTS.md，skill 随轮跟进）。外部贡献者注意：**轻量通道无需自办领号与回写**（维护者代管，见上节）——skill 主要服务维护者流程与常规通道的协作对齐。
+
 ## PR 口径
 
 - commit message 概述变更要点（feat/fix/docs/eval + 模块前缀）；
