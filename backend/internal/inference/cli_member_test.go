@@ -6,19 +6,109 @@ package inference
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// writeStubExe 平台自适应落 stub 可执行（REQ-321 Windows 沿例，同 runtime/docker_test 口径）：
+// 正文脚本原样落盘（unix 直接可执行；Windows 下 bash exec "$@" 链内层解析也按此无扩展名文件
+// 走 shebang）；Windows 的 exec.LookPath 按 PATHEXT 解析、无扩展名脚本不可直接执行——外补
+// 同名 .cmd 垫片（interpreter 解释执行同一正文）补上 PATH 入口，返回 LookPath 可见路径。
+// bash 档 shim 额外前置 Git usr/bin 到子进程 PATH：正文里的外部命令（tr 等）在无 Git PATH
+// 环境下也要可解析（gate 环境实证）。
+func writeStubExe(t *testing.T, dir, name, interpreter, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		return p
+	}
+	var shimBody string
+	if interpreter == "bash" {
+		bash := stubBashPath(t)
+		shimBody = stubShimBody(bash, p)
+	} else {
+		interp, err := exec.LookPath(interpreter)
+		if err != nil {
+			t.Fatalf("stub 解释器 %q 不可达: %v", interpreter, err)
+		}
+		shimBody = "@\"" + interp + "\" \"" + p + "\" %*\r\n"
+	}
+	shim := filepath.Join(dir, name+".cmd")
+	if err := os.WriteFile(shim, []byte(shimBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return shim
+}
+
+// stubBashPath Windows 下 stub 解释器定位：PATH 里的 bash 常为 WSL 启动器（System32\bash.exe，
+// 无发行版时 execvpe(/bin/bash) 报错，gate 环境实证）——拒收后由 git.exe 反推 Git for
+// Windows 安装根，再常见安装位置兜底。
+func stubBashPath(t *testing.T) string {
+	if p, err := exec.LookPath("bash"); err == nil && !stubIsWSLBash(p) {
+		return p
+	}
+	if gp, err := exec.LookPath("git"); err == nil {
+		root := filepath.Dir(filepath.Dir(gp)) // …\Git\cmd\git.exe → …\Git
+		for _, rel := range []string{`bin\bash.exe`, `usr\bin\bash.exe`} {
+			if c := filepath.Join(root, rel); c != gp {
+				if _, err := os.Stat(c); err == nil {
+					return c
+				}
+			}
+		}
+	}
+	for _, c := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+		`C:\Program Files (x86)\Git\bin\bash.exe`,
+	} {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	t.Fatal("stub 解释器 bash 不可达（PATH 仅 WSL 启动器且未找到 Git for Windows）")
+	return ""
+}
+
+func stubIsWSLBash(p string) bool {
+	lp := strings.ToLower(p)
+	return strings.Contains(lp, `\system32\`) || strings.Contains(lp, `\windowsapps\`)
+}
+
+// stubShimBody .cmd 垫片内容：bash 档先把同安装 usr/bin 前置进子进程 PATH（tr 等外部命令随取）。
+func stubShimBody(bash, script string) string {
+	var b strings.Builder
+	if usrBin := stubUsrBin(bash); usrBin != "" {
+		b.WriteString("@set \"PATH=" + usrBin + ";%PATH%\"\r\n")
+	}
+	b.WriteString("@\"" + bash + "\" \"" + script + "\" %*\r\n")
+	return b.String()
+}
+
+// stubUsrBin bash 同安装的 POSIX 工具目录（…\Git\usr\bin）；定位不到返回 ""（不前置）。
+func stubUsrBin(bash string) string {
+	bin := filepath.Dir(bash)
+	usrBin := bin
+	if strings.EqualFold(filepath.Base(bin), "bin") && !strings.EqualFold(filepath.Base(filepath.Dir(bin)), "usr") {
+		usrBin = filepath.Join(filepath.Dir(bin), "usr", "bin")
+	}
+	if _, err := os.Stat(filepath.Join(usrBin, "tr.exe")); err != nil {
+		return ""
+	}
+	return usrBin
+}
 
 // stubCLIBin 临时 stub 可执行：claude-code stream-json 形态（assistant 文本 + result 行）。
 func stubCLIBin(t *testing.T, name, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	p := writeStubExe(t, dir, name, "bash", "#!/bin/sh\n"+body)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return p
 }
@@ -74,7 +164,7 @@ exit 3
 func TestCLILookPathCandidates(t *testing.T) {
 	stubCLIBin(t, "stubreal", "exit 0")
 	ca := &cliAdapter{name: "stub", bin: []string{"no-such-bin-xyz", "stubreal"}}
-	if p, err := ca.LookPath(); err != nil || !strings.HasSuffix(p, "stubreal") {
+	if p, err := ca.LookPath(); err != nil || !stubPathHit(p) {
 		t.Fatalf("候选名应依次尝试: p=%q err=%v", p, err)
 	}
 	ca2 := &cliAdapter{name: "stub", bin: []string{"no-such-bin-xyz", "no-such-bin-abc"}}
@@ -83,13 +173,21 @@ func TestCLILookPathCandidates(t *testing.T) {
 	}
 }
 
+// stubPathHit LookPath 命中判定（平台自适应）：unix 命中即无扩展名原名；Windows 经 PATHEXT
+// 命中垫片（.cmd，REQ-321）——同一「stubreal 被 LookPath 命中」语义，仅后缀形态平台差异。
+func stubPathHit(p string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.HasSuffix(p, "stubreal.cmd")
+	}
+	return strings.HasSuffix(p, "stubreal")
+}
+
 // ---- REQ-427/M223：CLIMemberRunInDocker 沙箱执行——argv 构造/绑定目录/凭据 env 注入/解析层复用 ----
 
 // stubDockerBin 仿真 docker CLI：跳过 run --rm/-v/-w/-e 旗标后取镜像与命令并 exec（argv 落 $ARGS_FILE）。
 func stubDockerBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "docker")
 	script := `#!/bin/bash
 shift
 img=""
@@ -104,9 +202,7 @@ while [ $# -gt 0 ]; do
 done
 exit 9
 `
-	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	p := writeStubExe(t, dir, "docker", "bash", script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return p
 }

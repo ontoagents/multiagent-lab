@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,6 +22,84 @@ import (
 	"github.com/ontoagents/ontoagents/backend/internal/secrets"
 	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
+
+// writeStubExe 平台自适应落 stub 可执行（REQ-321 Windows 沿例）：正文脚本原样落盘（unix 直接
+// 可执行）；Windows 的 exec.LookPath 按 PATHEXT 解析、无扩展名脚本不可直接执行——外补同名
+// .cmd 垫片（bash 解释执行同一正文）补上 PATH 入口，返回 LookPath 可见路径。垫片先前置 Git
+// usr/bin 到子进程 PATH：正文里的外部命令（tr 等）在无 Git PATH 环境下也要可解析。
+func writeStubExe(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		return p
+	}
+	shim := filepath.Join(dir, name+".cmd")
+	if err := os.WriteFile(shim, []byte(stubShimBody(stubBashPath(t), p)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return shim
+}
+
+// stubBashPath Windows 下 stub 解释器定位：PATH 里的 bash 常为 WSL 启动器（System32\bash.exe，
+// 无发行版时 execvpe(/bin/bash) 报错，gate 环境实证）——拒收后由 git.exe 反推 Git for
+// Windows 安装根，再常见安装位置兜底。
+func stubBashPath(t *testing.T) string {
+	if p, err := exec.LookPath("bash"); err == nil && !stubIsWSLBash(p) {
+		return p
+	}
+	if gp, err := exec.LookPath("git"); err == nil {
+		root := filepath.Dir(filepath.Dir(gp)) // …\Git\cmd\git.exe → …\Git
+		for _, rel := range []string{`bin\bash.exe`, `usr\bin\bash.exe`} {
+			if c := filepath.Join(root, rel); c != gp {
+				if _, err := os.Stat(c); err == nil {
+					return c
+				}
+			}
+		}
+	}
+	for _, c := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+		`C:\Program Files (x86)\Git\bin\bash.exe`,
+	} {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	t.Fatal("stub 解释器 bash 不可达（PATH 仅 WSL 启动器且未找到 Git for Windows）")
+	return ""
+}
+
+func stubIsWSLBash(p string) bool {
+	lp := strings.ToLower(p)
+	return strings.Contains(lp, `\system32\`) || strings.Contains(lp, `\windowsapps\`)
+}
+
+// stubShimBody .cmd 垫片内容：bash 档先把同安装 usr/bin 前置进子进程 PATH（tr 等外部命令随取）。
+func stubShimBody(bash, script string) string {
+	var b strings.Builder
+	if usrBin := stubUsrBin(bash); usrBin != "" {
+		b.WriteString("@set \"PATH=" + usrBin + ";%PATH%\"\r\n")
+	}
+	b.WriteString("@\"" + bash + "\" \"" + script + "\" %*\r\n")
+	return b.String()
+}
+
+// stubUsrBin bash 同安装的 POSIX 工具目录（…\Git\usr\bin）；定位不到返回 ""（不前置）。
+func stubUsrBin(bash string) string {
+	bin := filepath.Dir(bash)
+	usrBin := bin
+	if strings.EqualFold(filepath.Base(bin), "bin") && !strings.EqualFold(filepath.Base(filepath.Dir(bin)), "usr") {
+		usrBin = filepath.Join(filepath.Dir(bin), "usr", "bin")
+	}
+	if _, err := os.Stat(filepath.Join(usrBin, "tr.exe")); err != nil {
+		return ""
+	}
+	return usrBin
+}
 
 func newCLITool(t *testing.T, run func(ctx context.Context, task string) (string, int, error)) einotool.InvokableTool {
 	t.Helper()
@@ -152,9 +232,7 @@ func stubClaudeBin(t *testing.T) {
 		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"stub\"}]}}'\n" +
 		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"read_file\",\"input\":{\"path\":\"a.go\"}}]}}'\n" +
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"stub \u7ed3\u679c REQ427_TEST_ENV='\"$REQ427_TEST_ENV\"'\"}'" + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeStubExe(t, dir, "claude", script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
@@ -557,9 +635,7 @@ func stubClaudeEchoBin(t *testing.T) {
 	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-stub 9.9.9'; exit 0; fi\n" +
 		`T=$(printf '%s' "$2" | tr '\n' ' ')` + "\n" +
 		`echo '{"type":"result","subtype":"success","result":"ECHO:'"$T"'"}'` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeStubExe(t, dir, "claude", script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 

@@ -5,6 +5,7 @@ package a2a
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -74,10 +75,11 @@ func TestTaskMapEvictionAndRetention(t *testing.T) {
 	svc.RunFunc = func(ctx context.Context, conv *store.Conversation, a *store.Agent, runID, input string) (string, error) {
 		return "ok", nil
 	}
-	// 预置 245 条终态任务（模拟长期运行驻留）
+	// 预置 245 条终态任务（模拟长期运行驻留）。键确定性编号（原 time.Now().Format 纳秒键在
+	// Windows 粗时钟下 245 次快写塌缩为同值，键碰撞吞掉前置量 → before≤240 恒失败）
 	svc.mu.Lock()
 	for i := 0; i < 245; i++ {
-		svc.tasks["old-"+string(rune('a'+i%26))+"-"+time.Now().Format("150405.000000000")+string(rune(i%26+'a'))] = &Task{ID: "x", State: "completed"}
+		svc.tasks[fmt.Sprintf("old-%04d", i)] = &Task{ID: "x", State: "completed"}
 	}
 	nBefore := len(svc.tasks)
 	svc.mu.Unlock()

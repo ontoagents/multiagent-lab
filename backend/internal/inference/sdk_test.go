@@ -80,10 +80,7 @@ process.stdin.on('end', () => process.exit(0))
 func stubSDKOnPath(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "dsh")
-	if err := os.WriteFile(p, []byte(stubSDK), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeStubExe(t, dir, "dsh", "node", stubSDK)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	logPath := filepath.Join(dir, "reqs.jsonl")
 	t.Setenv("SDK_STUB_LOG", logPath) // stub 经继承 env 读取；req.Env 透传断言另行覆盖
