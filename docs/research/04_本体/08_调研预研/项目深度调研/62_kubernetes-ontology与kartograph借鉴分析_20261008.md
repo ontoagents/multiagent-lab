@@ -9,7 +9,7 @@ synced: 2026-10-08
 
 > **触发**：开发者指令「结合当前项目背景，分别调研 github.com/Colvin-Y/kubernetes-ontology 和 github.com/openshift-hyperfleet/kartograph 项目，分析当前项目可以借鉴哪些」。
 > **数据获取方式**：沙箱网络无法 clone，采用 **GitHub API（元数据/recursive tree）+ raw 文件直读**（README / AI_CONTRACT / RelationSpec 源码 / OWL 导出 / specs 规格目录 / 引擎与安全源码）。结论优先基于一手文件，**未做全量代码统计**，涉及 star/活跃度处已单独标注。
-> **方法**：以「本体模块五栏现状（[00_本体模块](docs/handbook/04_本体/00_本体模块.md) 各子模块实现状态文档 + [04_方案设计](docs/04_本体_方案设计.md)）」为基准，做**已覆盖 / 可借鉴 / 不建议**三档判定，借鉴点编号 K（kubernetes-ontology）与 G（Kartograph）。
+> **方法**：以「本体模块五栏现状（[00_本体模块](docs/handbook/04_本体/00_本体模块.md) 各子模块实现状态文档 + [04_方案设计](docs/handbook/04_本体/92_本体_方案设计_架构现状.md)）」为基准，做**已覆盖 / 可借鉴 / 不建议**三档判定，借鉴点编号 K（kubernetes-ontology）与 G（Kartograph）。
 
 ---
 
@@ -48,7 +48,7 @@ synced: 2026-10-08
 | # | 借鉴点 | 一手证据 | 我们的缺口（现状对照） | 建议落点与优先级 |
 | --- | --- | --- | --- | --- |
 | **K1** | **关系/断言的「溯源 + 断言态」声明层** | `EdgeProvenance{SourceType,State,Resolver}`；7 种来源类型 × 3 种状态枚举；inferred 不等于真相 | spec_json 的 `Relation{name,label,definition,from,to}` 与 `InstanceRel{rel,target}` **只有正确性、没有来源与可信度**；OWL 有损导入的「丢什么/推什么」目前仅在导入报告里作 lossy 计数，未落到元素级 | spec_json 增**可选**溯源声明（来源类型/推导规则 id/状态），存量资产零迁移；口径上「导入=asserted、LLM 推理=inferred、规则推导=rule:X/v1」；消费侧按状态排序证据。**P2**（与 REQ-235 lossy 动线同轮） |
-| **K2** | **AI 消费契约（契约文档 + 响应级 additive 元数据）** | AI_CONTRACT.md 全文：schemaVersion / A 级保证 vs B 级尽力 / partial+warnings+degradedSources+budgets+rankedEvidence+conflicts+freshness / 契约演进规则 | 我们有 **guide 紧凑口径**（运行栏 facade）与 onto_* 6 只读工具，但**没有一份「本体消费契约」文档**，响应无「截断/降级/冲突/新鲜度」结构化字段；「本体命中→回答贡献」度量亦缺（05 号演进项） | 提炼《本体消费契约》（版本号 + 稳定/尽力两级 + additive 元数据清单）落 `docs/04` 附录或 04_本体 模块根；facade 响应加 additive 字段（不破坏 6 工具既有形态）。**P2** |
+| **K2** | **AI 消费契约（契约文档 + 响应级 additive 元数据）** | AI_CONTRACT.md 全文：schemaVersion / A 级保证 vs B 级尽力 / partial+warnings+degradedSources+budgets+rankedEvidence+conflicts+freshness / 契约演进规则 | 我们有 **guide 紧凑口径**（运行栏 facade）与 onto_* 6 只读工具，但**没有一份「本体消费契约」文档**，响应无「截断/降级/冲突/新鲜度」结构化字段；「本体命中→回答贡献」度量亦缺（05 号演进项） | 提炼《本体消费契约》（版本号 + 稳定/尽力两级 + additive 元数据清单）落 `docs/handbook/04_本体/92_本体_方案设计_架构现状.md`（原 docs/04）附录或 04_本体 模块根；facade 响应加 additive 字段（不破坏 6 工具既有形态）。**P2** |
 | **K3** | **canonicalId 身份脊（身份与存储 ID 解耦）** | `canonicalId` 为唯一身份键、**后端 ID 禁止进入下游逻辑**；身份生成确定性 | 我们已有确定性 URN（`URIPrefix/Sanitize`，导出与查询翻译共用），但**身份键与人类名同名**，导致概念/实例同名歧义只能靠跨域查重拦截（REQ-249） | 命名空间化身份：`concept:名` / `instance:名` / `attr:名` 作为对外身份键（URI 已是此形态，**spec 层身份键与 URI 对齐**）；根治 REQ-249 并让 onto_* 精确匹配无歧义。**P2**（REQ-249 同轮） |
 | **K4** | **RelationSpec 单一事实源 → 多出口生成** | 一份 `relationSpecs` 派生：边的默认溯源 + OWL 对象属性（domain/range/inverse）+ JSON Schema + 文档 | 我们的 relations **内联在 spec_json**（定义与使用一体，57 号 V2 已记）；domain/range 已在（from/to），但 **inverse、默认来源、解析器提示无处声明**，导出与校验各写一遍 | 关系规格「声明集中、导出与校验共用」——落地= spec 关系加 `inverse`/可选溯源字段，TTL 导出与 qualitygate **读同一份声明**（对齐 REQ-268 数据属性的「声明与使用统一」做法）。**P2**（与 K1/G3 同轮） |
 | **K5** | **语义内核五阶段演进路线**（作为外部验证与里程碑参照） | 五阶段 + 四条风险（ontology-database-first 漂移 / 工具专用漂移 / 层间纠缠 / 强事实与弱证据无边界） | 我们的 ontology runtime 主线正在「加载并运行预构建 ontology」阶段，**尚无公开的演进阶梯**；04 号 §3 有现状但缺「下一阶段是什么」的表述 | **不立项**：作为本体运行主线的**外部参照档**（其 Phase 4「语义映射层长在内核之上、不得扭曲事实模型」= D-O1 的第三方背书；风险 1/4 对应我们「本体=模型层」边界与 K1/K2）。档内引用即可 |
@@ -148,5 +148,5 @@ synced: 2026-10-08
 - **运行时与消费面**：[39 本体运行时与 MCP 服务开源方案调研](../综述与赛道/39_本体运行时与MCP服务开源方案调研.md)（我们已有 6 只读 onto_* 工具的来路）/ [34 open-ontologies 借鉴与引入分析](../../10_OpenOntology专题/34_open-ontologies借鉴与引入分析.md)（119 MCP 工具对照）/ [90 本体_底层实现原理](docs/handbook/04_本体/90_本体_底层实现原理.md)
 - **缺口来源**：[52 本体模块产品与架构演进分析](../产品与设计分析/52_本体模块产品与架构演进分析_20261001.md) / [60 多渠道高质量本体平台缺口分析](../产品与设计分析/60_多渠道高质量本体平台缺口分析_20261002.md)（H1~H12）
 - **实现状态**：[00_本体模块](docs/handbook/04_本体/00_本体模块.md) 及其 [01 学习中心](docs/handbook/04_本体/01_学习中心.md) / [02 构建](docs/handbook/04_本体/02_构建.md) / [03 资产](docs/handbook/04_本体/03_资产.md) / [04 运行](docs/handbook/04_本体/04_运行.md) / [05 消费与审计](docs/handbook/04_本体/05_消费与审计.md)
-- **架构权威**：[04_本体_方案设计](docs/04_本体_方案设计.md)（§3 运行平面 / §4 消费审计 / §6.3 已知边界）、[03_本体_需求文档](docs/03_本体_需求文档.md)（§5 决策 D-O1/D-O5/D-O15/D-O19）
+- **架构权威**：[04_本体_方案设计](docs/handbook/04_本体/92_本体_方案设计_架构现状.md)（§3 运行平面 / §4 消费审计 / §6.3 已知边界）、[03_本体_需求文档](docs/03_本体_需求文档.md)（§5 决策 D-O1/D-O5/D-O15/D-O19）
 - **登记**：[15 开源项目及论文登记簿](docs/15_开源项目及论文登记簿.md) 第七类（两项均 🔭 对照参考）

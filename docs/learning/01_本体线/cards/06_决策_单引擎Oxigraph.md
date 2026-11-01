@@ -8,7 +8,7 @@ domain: ontology
 prereq: ["05_三平面架构.md"]
 sources:
   - docs/03_本体_需求文档.md §5
-  - docs/04_本体_方案设计.md §4
+  - docs/handbook/04_本体/92_本体_方案设计_架构现状.md §4
   - REQ-325
 check:
   - 单引擎决策的代价是什么？平台用什么对冲？
