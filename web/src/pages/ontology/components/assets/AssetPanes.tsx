@@ -6,6 +6,7 @@ import { api } from '../../../../api/client'
 import type { ArtifactMeta, Ontology, ValidationError } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
 import { ERR_COLUMNS, type ValidationState } from '../../shared'
+import { UpgradeOoPane } from './UpgradeOoPane'
 
 // ---------------------------------------------------------------------------
 // 资产详情辅助页签三件（B1 拆分，REQ-145）：校验 / 产物清单 / TTL 导出
@@ -137,7 +138,7 @@ export function ExportPane({ ontology }: { ontology: Ontology }) {
       <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
         从零创建的本体经此导出 Turtle 形态，可在 SPARQL 型运行方案（Oxigraph/Fuseki）中加载运行；消费与审计见「消费与审计」栏。
       </Typography.Text>
-      <Space>
+      <Space wrap>
         <Button
           type="primary"
           icon={<DownloadOutlined />}
@@ -149,6 +150,8 @@ export function ExportPane({ ontology }: { ontology: Ontology }) {
         <Button icon={<CodeOutlined />} href={api.ontologyExportUrl(ontology.id, 'spec_json')} download>
           导出 spec_json（备份/分享）
         </Button>
+        {/* REQ-258/M382：spec→oo 单向升级桥——导出 Turtle 经导入审查底座复核入库为 oo 轨资产 */}
+        <UpgradeOoPane ontology={ontology} />
       </Space>
       <p className="onto-detail-empty" style={{ marginTop: 10 }}>
         导出地址：<Typography.Text code style={{ fontSize: 12 }}>{api.ontologyExportUrl(ontology.id, 'turtle')}</Typography.Text>
