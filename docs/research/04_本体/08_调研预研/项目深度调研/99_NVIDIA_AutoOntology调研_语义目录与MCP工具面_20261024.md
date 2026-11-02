@@ -1,10 +1,10 @@
 ---
 module: 本体
 topic: NVIDIA Auto Ontology 调研（语义目录与 MCP 工具面）
-desc: 开发者指令「调研这篇文章中涉及到的项目」——DataFun《NVIDIA 开源 Auto Ontology，本体创建时间缩短 90%》（2026-10-23）：NVIDIA 2026-10-21 开源的语义目录（semantic catalog）框架（Agent Knowledge Foundation 首件），FastAPI+Next.js+pgvector+NIM 栈，Discover/Ground/Validate/Expose/Learn 五环节，九只读 MCP 工具（术语中心+ask_question+可回答性预检），定义 candidate/reviewed/certified 三态认证；与 Palantir（74 号 E10）/Snowflake（74 号专档）/Databricks 三方格局对比（新增多源中立开源目录层选手）；与本项目十项映射（6 ✅ 同构 / 2 🟡 粒度差 / 2 缺口→借鉴决策 D1 预检工具·D2 实体级认证状态）
-synced: 2026-10-24
-状态: v1.1 调研归档（🔭 对照参考不引入——Python/NIM 重栈 D-O15 不符；**D1 已立项 REQ-415/M211**〔2026-10-24 开发者指令「按建议立项」；撞号注：REQ-408~414/M204~210 被并行实用化批占用顺延〕；D2 观察池——前置 REQ-405 已交付就绪；O1 并入 REQ-415 搭车；L1/L2 学习素材本档承载）
-动因: 开发者指令「调研这篇文章中涉及到的项目，已有调研文档的项目在原文档中扩充，不要新建重复文档。分析当前项目可以借鉴的地方」（2026-10-24，文章 https://mp.weixin.qq.com/s/DXdqHAA-5enaRKvY5bkt-g）
+desc: 开发者指令「调研这篇文章中涉及到的项目」——DataFun《NVIDIA 开源 Auto Ontology，本体创建时间缩短 90%》（2026-10-23）：NVIDIA 2026-10-21 开源的语义目录（semantic catalog）框架（Agent Knowledge Foundation 首件），FastAPI+Next.js+pgvector+NIM 栈，Discover/Ground/Validate/Expose/Learn 五环节，九只读 MCP 工具（术语中心+ask_question+可回答性预检），定义 candidate/reviewed/certified 三态认证；与 Palantir（74 号 E10）/Snowflake（74 号专档）/Databricks 三方格局对比（新增多源中立开源目录层选手）；与本项目十项映射（6 ✅ 同构 / 2 🟡 粒度差 / 2 缺口→借鉴决策 D1 预检工具·D2 实体级认证状态）+**v1.2（2026-11-02）**：语义编译管线（Discover 生成段）源码级深挖（§9）+手法级借鉴 A1~A6+D3 由数据源构建路径→REQ-595 立项
+synced: 2026-11-02
+状态: v1.2 调研归档+立项依据档（🔭 总判断不变——栈不引入；D1 已交付 REQ-415 ✅ M211〔2026-10-24 立项，撞号注 REQ-408~414 顺延在案〕；**D3 已立项 REQ-595 📋 M406**〔2026-11-02 开发者指令「落档，将由数据源构建路径立项」——由数据源构建本体·第八构建路径，详设 03 §2.74〕；D2 观察池维持；O1 已随 REQ-415；L1/L2 学习素材本档承载；v1.2 增补=§9 管线深挖+手法清单 A1~A6）
+动因: 开发者指令「调研这篇文章中涉及到的项目，已有调研文档的项目在原文档中扩充，不要新建重复文档。分析当前项目可以借鉴的地方」（2026-10-24，文章 https://mp.weixin.qq.com/s/DXdqHAA-5enaRKvY5bkt-g）；v1.2 动因=开发者指令「落档，将由数据源构建路径立项」（2026-11-02，本会话源码级深挖后拍板）
 ---
 
 # NVIDIA Auto Ontology 调研（语义目录与 MCP 工具面）
@@ -16,6 +16,8 @@ synced: 2026-10-24
 **Auto Ontology 一句话**：在**已有数据之上**构建一层「可审核的语义目录」（术语/指标的可信业务定义 + 映射到物理列/SQL 属性），经 MCP/CLI/API 以**九个只读工具**暴露给任意 agent harness——它是 NVIDIA Agent Knowledge Foundation（Agent Toolkit 生态）的开源首件，Apache-2.0，2026-10-21 官宣。
 
 **对本项目映射结论**：十项映射 **6 项同构已有**（含两个路线更强的：Learn 环节=REQ-207 进化闭环且我们的 Evidence 锚定+人工采纳链更严；不搬数据建目录层=D-O1 哲学同源）、**2 项粒度差**（定义认证状态停在资产/版本级 vs 其实体级；工具面纪律差一个握手 instructions）、**2 项真缺口**——①`check_answerable` 形态的**可回答性预检工具**（我们 facade 20 工具全是执行类，无「先判断本体能否回答」的便宜预检）②**实体级定义认证**（candidate/reviewed/certified）。核心判断：**该项目验证了我们两条主线**——「本体作为 Agent 可信上下文 + MCP 薄暴露」的形态，与「Learn=认证纠正回流」的自进化方向；其差异化在**业务术语/指标语义层**（BI 域），与本项目知识本体域不同赛道，整体 🔭 对照参考不引入（Python/FastAPI/NIM 重栈与 D-O15 单机纯 Go 冲突）。
+
+**v1.2 增补（2026-11-02）**：本轮源码级深挖其 **Discover 语义编译管线**（生成段——v1.1 未覆盖部分，宣称「创建时间缩短 90%」的真实实现），沉淀手法级借鉴清单 **A1~A6**（§9.2，栈无关）并新立决策 **D3**：由数据源构建本体路径（第八构建路径）→ **REQ-595/M406 立项**（见 §5/§9）；总判断「🔭 对照参考不引入」不变——借形态与手法，不引代码与栈（R1 不接受外部贡献+D-O15）。
 
 ---
 
@@ -99,6 +101,7 @@ synced: 2026-10-24
 | E4 | 2026-10-21 开源官宣/纳入 Agent Knowledge Foundation/「90% 缩短」官方叙事/三方对比叙述/定义三态认证 | [DataFun 文章](https://mp.weixin.qq.com/s/DXdqHAA-5enaRKvY5bkt-g)（2026-10-23，二手转述） | 新 | medium（二手；关键事实与 E1/E2 互证，三态认证与 90% 声明未在一手 README 逐字核对） |
 | E5 | 79★/13 forks/22 open issues/1,329 commits 仓库现状 | E1 页面侧栏 | 新 | high（时点值） |
 | E6 | Palantir/Snowflake/Databricks 对比细节 | 文章（E4）+ 74 号 E8/E10 交叉 | 中 | medium（Databricks 部分未深查） |
+| E7 | 语义编译管线源码级事实（v1.2）：六步管线/列画像与采样熔断器/FK 三级级联/Term 提取消毒回退/有序提交队列/字段级认证聚合/模型交换 YAML/publication 治理技能档/双臂 eval | auto_ontology/semantic/（pipeline·visit_enter·term_extractor·deterministic·fk_suggester·semantic_fk·bridge_tables）+ dal/terms·dal/model_interchange + skills/nvidia-ontology-management/references/publication.md + NVIDIA/auto-ontology-eval README（一手源码 @ main，2026-11-02） | 新 | high |
 
 ---
 
@@ -118,6 +121,7 @@ synced: 2026-10-24
 | M8 | 定义三态认证（candidate/reviewed/certified，实体级） | 资产级发布态+版本级候选 vN-cK（REQ-207/239） | 🟡 粒度差 | **D2 借鉴点**：实体级认证粒度 |
 | M9 | 工具面纪律（截断/双超时/握手 instructions/术语中心分层） | limit 200/10s/truncated 已有；guide 紧凑指引（REQ-215/357） | 🟡 小增量 | O1：guide 补「建议调用序」一句话 |
 | M10 | 不搬数据建目录层（多源连接器） | D-O1 仓库=唯一事实源+original 直挂（REQ-328 运行双源） | ✅ 同哲学 | 业界同构验证（「语义层不绑单一仓」=74 号 E8 跨系统批评的回应方向） |
+| M11 | Discover 生成管线（画像→FK 级联→Term 提取→有序提交，v1.2 深挖） | 六路径生成段（llmcreate 生成-校验循环/MaterialConcepts/buildFromKB 三策略）——功能同构但**手法粒度差**：画像证据注入/消毒回退/采样熔断/有序提交四手法缺位 | 🟡 手法差 | **A1~A6 清单（§9.2）+D3 转正 REQ-595**——来源象限缺口=活结构化数据源（v1.1 M2 系叙事层结论，管线层精化见 §9.5） |
 
 **映射结论**：🆕 0 个模块级引入、2 个借鉴决策（D1 入池候选 / D2 观察池）、1 个零立项顺修级小增量（O1）、2 项学习素材（L1/L2）。
 
@@ -137,6 +141,13 @@ synced: 2026-10-24
 - **借鉴点**：candidate/reviewed/certified 三态落到**每个术语/定义**（实体级），消费时可声明「答案基于已认证定义」。
 - **对位差距**：我们的治理状态停在资产级（发布态）与版本级（进化候选 vN-cK、qualitygate 版本档案）；概念/数据属性级无认证标记。
 - **评估时机**：待 REQ-405（构建路径决策化）交付、构建动线稳定后，随「消费侧溯源声明」诉求一起评估；当前 qualitygate Findings+Evidence 三档（REQ-295）已部分承载「定义可信度」信号，不急。
+- **v1.2 实现参照注**：D2 对应物已在其源码中定位到真实实现——字段级布尔（`name_certified`/`description_certified`/属性级 `certified`）聚合为 **certified/partial/pending** 三态（`dal/terms.py:156 _certification`，不可认证态字段不计入分母）；将来评估 D2 粒度时不必自创模型，有现成参照（仅形态参照，不引代码）。
+
+### D3（🆕 已立项 REQ-595/M406，2026-11-02）：由数据源构建本体路径（第八构建路径）
+
+- **借鉴点**：Discover 生成管线形态——连接关系库（schema+活数据画像）半自动起草本体：内省→列画像采样→规则铺骨架（确定性快路）→LLM 窄调用补显示名/业务描述/隐含 FK 建议→人工确认落资产（管线六步与手法 A1~A6 详拆见 §9）。
+- **对位缺口**：构建路径分类学（handbook 17 §2.2）活跃五路径输入均为文本/知识资产（描述/材料/知识库/权威库/方法论）；**活结构化数据源为唯一缺位来源象限**（现有 buildFromStructured 仅 CSV/JSON 规则推导无画像无 LLM；CsvIngestPane 只灌实例不建模）。
+- **立项状态（2026-11-02）**：开发者指令「落档，将由数据源构建路径立项」——**REQ-595/M406**（详设 03 §2.74，P2 📋 待领取）；一期=SQLite（Go 标准库驱动零新依赖），MySQL/Postgres 需新驱动依赖留二期触发驱动；诚实边界=LLM 路径不产出公理（REQ-269）/FK 建议必须人审不静默落库/采样只读凭据不落库/不对标「90%」营销口径（L2）。
 
 ### O1（顺修级，零立项）：guide 补「建议调用序」
 
@@ -175,6 +186,7 @@ Auto Ontology 五环节把 Learn 列为一等环节（认证纠正回流本体�
 | 优先级 | 问题 | 影响 | 需要谁确认 |
 | --- | --- | --- | --- |
 | P2 | ~~D1（可回答性预检）是否入 03 需求池~~ **已拍板：REQ-415/M211（2026-10-24「按建议立项」）** | 唯一立项决策点已决 | ✅ |
+| P2 | ~~D3（由数据源构建本体路径）是否立项~~ **已拍板：REQ-595/M406（2026-11-02「落档，将由数据源构建路径立项」）** | 第二个立项决策点已决 | ✅ |
 | P3 | Databricks Genie/Metric Views 是否值得专档（当前被 74 号+本档对比节覆盖） | 对比面完整性 | 有真实对标诉求再议 |
 
 ---
@@ -185,3 +197,40 @@ Auto Ontology 五环节把 Learn 列为一等环节（认证纠正回流本体�
 | --- | --- | --- |
 | v1.0 | 2026-10-24 | 初版：全景（架构/五环节/九工具/安全）+ 三方对比（引用 74 号防重复）+ 证据台账六条 + 十项映射 + D1/D2/O1/L1/L2 决策 + 不做清单；74 号同步增补 §9；15 号登记第七类 |
 | v1.1 | 2026-10-24 | D1 转正 REQ-415/M211（开发者指令「按建议立项」；撞号顺延注）；D2 观察池前置就绪注（REQ-405 已交付）；O1 并入 REQ-415 搭车；frontmatter/§5/§7/§8 同步；03 v1.91/18 v4.38/02 v0.301 同批 |
+| v1.2 | 2026-11-02 | **语义编译管线（Discover 生成段）源码级深挖（§9 新增）+手法级借鉴清单 A1~A6+映射 M11+证据 E7+决策 D3 转正 REQ-595/M406**（开发者指令「落档，将由数据源构建路径立项」）；frontmatter/§0/§3/§4/§5/§7 同步；03 v2.87（§2.74 新节）/18 v6.62/19 号/02 v0.505（M406 行）/handbook 00_本体模块 文档地图/AGENTS 置顶 同批 |
+
+---
+
+## 9. v1.2 增补（2026-11-02）：语义编译管线（Discover 生成段）源码级深挖
+
+> 深挖范围：`auto_ontology/semantic/` 全目录（pipeline/visit_enter/term_extractor/deterministic/fk_suggester/semantic_fk/bridge_tables/models/compile）+ `dal/terms.py`/`dal/model_interchange.py` + publication 技能档 + auto-ontology-eval。这是其宣称「本体创建时间缩短 90%」的真实实现；v1.1 只覆盖了消费段（目录/MCP 工具面），生成段是本轮新增。
+
+### 9.1 管线六步（每表 3 并发，`semantic/compile.py:126` 入口）
+
+| # | 步骤 | 实现（仓库路径锚点） | 要点 |
+| --- | --- | --- | --- |
+| 1 | 摄取 | `connectors/` 13 种连接器 + `catalog/`（ingest/normalize/sqlglot 解析） | 只读内省 schema/列/声明 FK 入目录；PII 检测/zone 可见性裁剪/query_stats 查询日志回流（Learn 环节的输入侧） |
+| 2 | 列画像 | `semantic/visit_enter.py:406 calculate_columns_profiling` | `SELECT * LIMIT 1000` 采样；每列 top-5 高频值/`is_unique`/日期格式逐值 strptime 推断（可裁决 `13/07/2011` 日优先；混合格式显式告警）/低基数 DISTINCT 探测 ≤25 取全量枚举/JSONB 嵌套键+单位标记渐进注解；**采样熔断器**（`visit_enter.py:166`：连续 3 次基础设施失败→该库本次跳过采样继续编译；权限/类型错误不计数——注释留有 86 表×120s≈3 小时白等的爬坑实录） |
+| 3 | FK 三级级联 | `semantic/fk_suggester.py:28` 提示词 + `semantic_fk.py` 算法头 | 声明 FK 快路→LLM 建议（保守提示：`_id` 后缀+`is_unique` 证据+显式排除度量/名称/时间戳列；输出白名单过滤；UUID 非 PK 非 unique 走确定性兜底规则不靠 LLM）→LLM 弃权时回退实库样本值重叠探针；junction 判定=LLM 判断 **∧** 结构证据 ≥2 FK 角色 |
+| 4 | LLM 术语提取 | `semantic/term_extractor.py:33` | **默认一表一 Term**（真 junction 才两个）；同义词独立窄调用且「只取明示禁止推断」；**严格消毒+确定性回退**（非法名→表名 camel 切分 `deterministic.py:43`；幻觉列名丢弃；未分配列兜底归首 Term；**LLM 失败整表回退确定性结果，批永不中断**）；列描述 15 列/批防超时、已有描述跳过 LLM；温度全 0；REASONING/NON_REASONING 模型分工（抽取用轻模型） |
+| 5 | 有序提交 | `semantic/pipeline.py:30 _OrderedCommitQueue` | LLM 并行提取、落库按规范表序串行——名称冲突「谁拥有不带限定名」**确定性仲裁**（冲突名自动限定）；LLM 提取与提交解耦，取消时整队列秒级排空 |
+| 6 | 内联嵌入 | `semantic/embed.py` | Term+属性实时入 pgvector，供检索与后续 FK 向量匹配 |
+
+**配套四件**：①模型交换 YAML（`dal/model_interchange.py`，1749 行——目录/FK/join/Term/语义 FK/SQL 属性全量导出导入+校验+ID 重映射）②字段级认证聚合（`dal/terms.py:156`：`name_certified`/`description_certified`/属性级 `certified` 布尔聚合为 certified/partial/pending——**D2 对应物的真实实现**）③publication 治理技能档（staged apply→精确 readback→比对→回滚发布契约；「`success:true` 不证明持久化对等」；无授权写路径时诚实停在回执；已知缺陷 fail-closed 清单）④auto-ontology-eval 双臂对照（schema-only 裸 LLM 对照臂 vs 本体增强臂+**确定性执行匹配判定、无 LLM judge**——与 REQ-351 四臂协议/cqbench kind=case 同构互证）。
+
+### 9.2 手法级借鉴清单 A1~A6（栈无关，任何 LLM 生成路径适用）
+
+| # | 手法 | 本项目落点 |
+| --- | --- | --- |
+| A1 | **画像证据注入**：采样值/唯一性/枚举集喂进 prompt，不让 LLM 猜 | aiDraft/概念停车场/KB 策略 A 的 prompt 可加材料统计证据；REQ-595 直接复用 |
+| A2 | **消毒+确定性回退**：LLM 输出逐项白名单校验，失败回退规则结果，批不中断 | llmcreate 3 轮失败目前转人工；可加「第 4 级=确定性骨架兜底」而非直接失败 |
+| A3 | **确定性优先级联**：声明/规则快路→LLM→实证探针，LLM 只是补充 | 概念停车场同名查重已近似；CSV 推导链可升格「规则先铺、LLM 补描述」 |
+| A4 | **保守 prompt 范式**：默认单概念/显式排除清单/「只取明示禁止推断」/Be conservative | 术语提取类 prompt 模板参考，与 REQ-269「不产公理」诚实边界同向 |
+| A5 | **窄职责小调用拆分**：同义词/分类单独一次调用互不污染 | MaterialConcepts 一次调用干多事的形态可对照优化 |
+| A6 | **采样熔断器**：连续基础设施失败→跳过该环节继续，权限类失败不计数 | KB 批量重建/kgRebuild 容错参考 |
+
+### 9.3 与既有判断的衔接
+
+- **v1.1 总判断不变**：「🔭 对照参考不引入」——D3 借鉴形态与手法，不引代码与栈（R1 不接受外部贡献+D-O15 不接 Python）。
+- **M2 结论精化**：v1.1「Discover≈六路径已有且更全」系**叙事层**结论；管线层看，本项目所有生成路径输入均为文本/知识资产，**活结构化数据源是唯一缺位来源象限**——D3 补该象限（详设 03 §2.74）。
+- **管线层不做清单（补充 §5 不做清单）**：Postgres+pgvector 目录存储（SQLite+自研 KG 已有）/Text-to-SQL 查询生成执行主线（REQ-94 确定性翻译路线不变）/模型交换 YAML 全量档案格式（spec_json+TTL+对账块已承载）/NIM 三元组与 REASONING-NON_REASONING 分工（单模型连接现状；分工手法留观察）。
