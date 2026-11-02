@@ -148,6 +148,8 @@ export default function KnowledgePage() {
   const [kbs, setKbs] = useState<KnowledgeBase[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  // REQ-594：笔记本新建弹窗 open 态上移壳承载（页签行「新建笔记本」与侧栏空态引导同源一入口）
+  const [nbCreateOpen, setNbCreateOpen] = useState(false)
   /** 跨模块聚焦 handoff（消费与审计「前往知识库治理」）+ 建库后聚焦，消费后置空 */
   const [focusId, setFocusId] = useState<string | null>(null)
 
@@ -220,9 +222,14 @@ export default function KnowledgePage() {
           </Tooltip>
         ))}
         <span className="module-tabs-spacer" />
-        {view !== 'notes' && (
+        {/* REQ-594：四页签添加钮同位同型——笔记本页签行主钮替代原侧栏右上角 text + 图标钮 */}
+        {view !== 'notes' ? (
           <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             新建库
+          </Button>
+        ) : (
+          <Button type="primary" size="small" icon={<PlusOutlined />} data-testid="notebook-new" aria-label="新建笔记本" onClick={() => setNbCreateOpen(true)}>
+            新建笔记本
           </Button>
         )}
       </div>
@@ -241,7 +248,7 @@ export default function KnowledgePage() {
         ) : view === 'wiki' ? (
           <WikiPage {...pageProps} />
         ) : view === 'notes' ? (
-          <NotesPage />
+          <NotesPage createOpen={nbCreateOpen} onCreate={() => setNbCreateOpen(true)} onCreateClose={() => setNbCreateOpen(false)} />
         ) : (
           <RagPage {...pageProps} />
         )}
