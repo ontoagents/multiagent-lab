@@ -1,4 +1,5 @@
 import type {
+  ProjectFile,
   RunEvaluationDTO,
   AgentConfigVersion,
   Agent,
@@ -203,6 +204,9 @@ export const api = {
   listProjectDirFiles: (id: string, path?: string) =>
     req<ProjectDirListing>(`/api/projects/${id}/dir-files${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   /** REQ-102：读取目录内文件文本内容（≤1MB；超限 → 400） */
+  /** REQ-586/M401：file_id 反查产物元数据（工作区直挂产物存笔记本 content 链第一步） */
+  getProjectFileByID: (fid: string) =>
+    req<ProjectFile & { project_id: string }>(`/api/project-files/${encodeURIComponent(fid)}`),
   getProjectDirFile: (id: string, path: string) =>
     reqText(`/api/projects/${id}/dir-file?path=${encodeURIComponent(path)}`),
   // REQ-102 深度版：Git 视图（提交历史 / 分支 / 变更明细）

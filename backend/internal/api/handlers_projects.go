@@ -374,6 +374,17 @@ func (s *Server) listDirFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // getDirFile GET /api/projects/{id}/dir-file?path=<rel>：读取绑定目录内文件文本预览（REQ-102）。
+// getProjectFileByID REQ-586/M401：GET /api/project-files/{fid}——按 file_id 反查产物元数据
+// （工作区直挂产物「存笔记本」content 读取链第一步；前端据 project_id 走项目 dir-file 读盘）。
+func (s *Server) getProjectFileByID(w http.ResponseWriter, r *http.Request) {
+	f, err := s.Store.GetProjectFileByID(r.PathValue("fid"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "产物不存在（file_id 有误或已清理）"})
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
 func (s *Server) getDirFile(w http.ResponseWriter, r *http.Request) {
 	proj, err := s.Store.GetProject(r.PathValue("id"))
 	if err != nil {

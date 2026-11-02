@@ -245,6 +245,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/projects/pick-dir", s.pickProjectDir)
 	m.HandleFunc("GET /api/projects/{id}/dir-files", s.listDirFiles)
 	m.HandleFunc("GET /api/projects/{id}/dir-file", s.getDirFile)
+	m.HandleFunc("GET /api/project-files/{fid}", s.getProjectFileByID) // REQ-586/M401：file_id 反查（存笔记本 content 链）
 	// M12 REQ-102 深度版：Git 视图（提交历史 / 分支 / 变更明细）
 	m.HandleFunc("GET /api/projects/{id}/git-log", s.gitProjectLog)
 	m.HandleFunc("GET /api/projects/{id}/git-branches", s.gitProjectBranches)

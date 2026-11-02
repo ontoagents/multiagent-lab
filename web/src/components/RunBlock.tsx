@@ -11,6 +11,7 @@
  *   回放块体内无分步正文，仅过程事件时间线+最终回答，诚实边界）。
  */
 import { useState } from 'react'
+import { Button } from 'antd'
 import type { CSSProperties, ReactNode } from 'react'
 import './run-block.css'
 
@@ -26,7 +27,7 @@ export interface RunBlockSummary {
   paused?: boolean // run.finished(reason=interrupted)
   err?: boolean // run.error
   warn?: boolean // verify_failed
-  files?: { name?: string; path?: string; size?: number }[] // REQ-478②：artifact.saved 聚合（save_file 平台内写盘产物，按 path 去重保末次）
+  files?: { name?: string; path?: string; size?: number; file_id?: string }[] // REQ-478②：artifact.saved 聚合（save_file 平台内写盘产物，按 path 去重保末次；REQ-586 增 file_id 供存笔记本反查）
   endedAt?: string // REQ-478②：run 收尾时刻（终态事件 ts——live=本地时钟，回放=事件 created_at）
 }
 
@@ -49,7 +50,7 @@ function buildSummary(body: any[], terminal: any): RunBlockSummary {
   let failedTools = 0
   let reasoningChars = 0
   const byName = new Map<string, { n: number; ms: number }>()
-  const files = new Map<string, { name?: string; path?: string; size?: number }>()
+  const files = new Map<string, { name?: string; path?: string; size?: number; file_id?: string }>()
   const countCall = (name: string, source: string) => {
     tools++
     if (source.startsWith('agent:')) {
@@ -90,7 +91,7 @@ function buildSummary(body: any[], terminal: any): RunBlockSummary {
     if (b.evType === 'reasoning') reasoningChars += b.reasoning?.length ?? 0
     // REQ-478②：本轮 save_file 产物聚合（artifact.saved 按 path 去重，同路径保末次 size）
     if (b.evType === 'artifact.saved' && b.evData?.path) {
-      files.set(String(b.evData.path), { name: b.evData.name, path: b.evData.path, size: b.evData.size })
+      files.set(String(b.evData.path), { name: b.evData.name, path: b.evData.path, size: b.evData.size, file_id: b.evData.file_id })
     }
   }
   const delegates = [...byName.entries()].map(([name, v]) => `${name}×${v.n}${v.ms > 0 ? `·${fmtMs(v.ms)}` : ''}`).join('、')
@@ -247,7 +248,7 @@ const fmtSize = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? 
 
 /** REQ-478②：轮次元信息条（done 轮最终回答下方一行）——文件 N（artifact.saved 聚合，可展开明细）/
  *  耗时/tokens/收尾时刻；无任何信息时不渲染（纯问答轮不出现）。 */
-export function RunMetaLine({ summary }: { summary: RunBlockSummary }) {
+export function RunMetaLine({ summary, onSaveNotebook }: { summary: RunBlockSummary; onSaveNotebook?: (file: { name: string; path?: string; size?: number }) => void }) {
   const [filesOpen, setFilesOpen] = useState(false)
   const s = summary
   const parts: string[] = []
@@ -288,6 +289,18 @@ export function RunMetaLine({ summary }: { summary: RunBlockSummary }) {
               <span className="msg-meta-fname">{f.name || f.path}</span>
               {f.path && f.name && f.path !== f.name ? <span className="msg-meta-fpath">{f.path}</span> : null}
               {typeof f.size === 'number' && f.size > 0 ? <span className="msg-meta-fsize">{fmtSize(f.size)}</span> : null}
+              {/* REQ-586/M401：直挂产物「存笔记本」消费动作（SaveToNotebookModal 按 workspace_id 解析绑定） */}
+              {onSaveNotebook && (
+                <Button
+                  size="small"
+                  type="text"
+                  style={{ marginLeft: 6, color: 'var(--c-ink-3)', fontSize: 11 }}
+                  data-testid={`save-nb-${f.name || f.path}`}
+                  onClick={() => onSaveNotebook({ ...f, name: f.name || f.path || '' })}
+                >
+                  存笔记本
+                </Button>
+              )}
             </li>
           ))}
         </ul>

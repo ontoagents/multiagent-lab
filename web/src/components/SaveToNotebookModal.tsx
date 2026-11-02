@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Modal, Select, Typography } from 'antd'
 import { api } from '../api/client'
-import type { Notebook, Project } from '../api/types'
+import type { Notebook, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 
 /**
@@ -49,16 +49,22 @@ export const gotoProjectSettings = (projectId?: string) => {
 
 export interface SaveTargetFile {
   name: string
-  path: string
+  path?: string
   size?: number
+  /** REQ-586/M401：产物 file_id（artifact.saved 聚合携带——工作区直挂模式 content 反查链） */
+  file_id?: string
 }
 
 export default function SaveToNotebookModal({
   project,
+  workspace,
   file,
   onClose,
 }: {
-  project: Project
+  /** REQ-495②：项目会话模式（归属工作区解析绑定） */
+  project?: Project
+  /** REQ-586/M401：工作区直挂模式（workspace_id 直解绑定——跳过归属步骤） */
+  workspace?: Workspace
   file: SaveTargetFile
   onClose: () => void
 }) {
@@ -77,16 +83,38 @@ export default function SaveToNotebookModal({
   useEffect(() => {
     let alive = true
     ;(async () => {
-      // ① 解析工作区：项目归属（REQ-550）优先；未归属 → 引导先归属
+      // REQ-586/M401：工作区直挂模式——workspace_id 直解（跳过归属步骤）
+      if (workspace) {
+        const nbs = await api.listNotebooks(workspace.id).catch(() => [])
+        if (!alive) return
+        if (nbs.length === 0) {
+          setGuide({
+            title: '当前工作区尚未绑定笔记本',
+            body: '产物保存到笔记本由工作区的笔记本绑定决定：请在右侧侧板「配置」视图的「笔记本绑定」区块绑定后重试。',
+            focusWorkspace: workspace.id,
+          })
+          setPhase('guide')
+          return
+        }
+        setBound(nbs)
+        setNbId(nbs[0]?.id ?? '')
+        setPhase('form')
+        return
+      }
+      // ① 解析工作区：项目归属（REQ-550）优先；未归属 → 引导先归属（两模式互斥下 project 必在）
+      if (!project) {
+        if (alive) setFatal('缺少保存目标上下文（无项目/工作区）')
+        return
+      }
       const wsId = project.workspace_id ?? ''
       if (!wsId) {
         if (!alive) return
         setGuide({
           title: '先归属工作区，再保存到笔记本',
-          body: `项目「${project.name}」尚未归属工作区。笔记本按工作区绑定解析保存目标：
+          body: `项目「${project?.name ?? ''}」尚未归属工作区。笔记本按工作区绑定解析保存目标：
 第一步：把本项目归属到一个工作区（下方按钮直达本项目侧板「配置」视图的归属设置）；
 第二步：到「项目」模块「工作区」页签选中该工作区，在右侧侧板「配置」视图绑定笔记本（完成后重试保存）。`,
-          focusProject: project.id,
+          focusProject: project?.id,
           steps: ['去项目设置归属', '绑定后重试'],
         })
         setPhase('guide')
@@ -119,9 +147,10 @@ export default function SaveToNotebookModal({
     return () => {
       alive = false
     }
-  }, [project.id, project.workspace_id, project.name])
+  }, [project?.id, project?.workspace_id, project?.name])
 
   const save = async () => {
+    if (!workspace && !project) return // 两模式互斥兜底（TS 收窄）
     const nb = bound.find((x) => x.id === nbId)
     if (!nb) return
     const t = title.trim()
@@ -131,7 +160,19 @@ export default function SaveToNotebookModal({
     }
     setSaving(true)
     try {
-      const content = await api.getProjectDirFile(project.id, file.path)
+      // REQ-586/M401：工作区直挂模式——file_id 反查 project_id 后经项目 dir-file 读盘（content 链）
+      let content: string
+      if (workspace) {
+        if (!file.path) {
+          showToast('产物无路径信息，无法读取内容', 'err')
+          setSaving(false)
+          return
+        }
+        const meta = await api.getProjectFileByID(file.file_id ?? '')
+        content = await (await fetch(`/api/projects/${meta.project_id}/dir-file?path=${encodeURIComponent(meta.path)}`)).text()
+      } else {
+        content = await api.getProjectDirFile(project!.id, file.path!)
+      }
       const page = await api.createNotePage(nb.id, { title: t, content_md: content, source: 'manual' })
       showToast(`已保存到笔记本「${nb.name}」：页面「${page.title}」（可在「知识库」模块笔记本页签查看）`)
       bumpData()

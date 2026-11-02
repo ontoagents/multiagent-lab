@@ -29,6 +29,7 @@ import type {
 } from '../api/types'
 import { useUI } from '../store/ui'
 import KBContentModal from './KBContentModal'
+import SaveToNotebookModal from './SaveToNotebookModal'
 import { COLLAB_MODE_LABEL, RUNTIME_BACKEND_LABEL } from '../lib/labels'
 // REQ-401/M197 拆分：事件注册表单源与五域辅助件（行为零变更；四份事件清单收敛 lib/eventRegistry）
 import { describeEvent, eventSource, fmtNum, injectSourceLabel, isKeyGranularity, levelGated } from '../lib/eventRegistry'
@@ -1171,7 +1172,23 @@ export default function ChatWindow({
               })
             }
             // REQ-478②：轮次元信息条（文件 N/耗时/tokens/收尾时刻）——回答之下、下一问之上
-            out.push({ key: `${prefix}rbm${bi}`, role: 'event', content: <RunMetaLine summary={it.summary} /> })
+            out.push({
+              key: `${prefix}rbm${bi}`,
+              role: 'event',
+              content: (
+                <RunMetaLine
+                  summary={it.summary}
+                  onSaveNotebook={
+                    conversation.workspace_id && workspaces?.length
+                      ? (f) => {
+                          const w = workspaces.find((x) => x.id === conversation.workspace_id)
+                          if (w) setNbSaveTarget({ workspace: w, file: f })
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            })
           } else {
             walk(it.body) // live/ended：按时间顺序平铺（时间交错呈现）
           }
@@ -1307,6 +1324,8 @@ export default function ChatWindow({
   const [iterStat, setIterStat] = useState<{ k: number; n: number | null } | null>(null)
   // REQ-579/M394：本轮记忆候选数——REST 兜底拉取（不依赖实时事件）+SSE candidates 增量+终态刷新
   const [memCandCount, setMemCandCount] = useState(0)
+  // REQ-586/M401：直挂产物存笔记本（工作区直挂模式 SaveToNotebookModal）
+  const [nbSaveTarget, setNbSaveTarget] = useState<{ workspace: Workspace; file: { name: string; path?: string; size?: number } } | null>(null)
   const wsIdForMem = conversation.workspace_id
   useEffect(() => {
     if (!wsIdForMem) return
@@ -2224,6 +2243,14 @@ export default function ChatWindow({
         />
       )}
       <DelegatePanel conversationId={conversation.id} open={delegatesOpen} onClose={() => setDelegatesOpen(false)} />
+      {/* REQ-586/M401：直挂产物「存笔记本」（工作区直挂模式——按 workspace_id 解析绑定；未绑定引导前往绑定入口） */}
+      {nbSaveTarget && (
+        <SaveToNotebookModal
+          workspace={nbSaveTarget.workspace}
+          file={nbSaveTarget.file}
+          onClose={() => setNbSaveTarget(null)}
+        />
+      )}
     </div>
   )
 }

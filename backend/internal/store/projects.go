@@ -196,6 +196,19 @@ func (s *Store) ApplyWorkspaceDefaultsToProject(projectID string) (int, error) {
 
 // ---- 项目文件（M11 §5.2 project_file）----
 
+// GetProjectFileByID REQ-586/M401：按 file_id 反查产物元数据（工作区直挂产物「存笔记本」
+// content 读取链——file_id=project_file 主键，反查 project_id 后经项目 dir-file 读盘）。
+func (s *Store) GetProjectFileByID(fileID string) (*ProjectFile, error) {
+	var f ProjectFile
+	var convID string
+	err := s.DB.QueryRow(`SELECT id,project_id,IFNULL(conversation_id,''),name,path,IFNULL(size,0),IFNULL(mime,''),IFNULL(source,'artifact'),IFNULL(created_at,'') FROM project_file WHERE id = ?`, fileID).
+		Scan(&f.ID, &f.ProjectID, &convID, &f.Name, &f.Path, &f.Size, &f.Mime, &f.Source, &f.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
 // InsertProjectFile 写入文件元数据，返回 ID。
 func (s *Store) InsertProjectFile(pf *ProjectFile) (string, error) {
 	if pf.ID == "" {

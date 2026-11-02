@@ -192,6 +192,19 @@ export interface ProjectDirEntry {
   git_status?: string | null
 }
 
+/** REQ-586/M401：对话产物元数据（project_file 表——file_id 反查供存笔记本 content 链） */
+export interface ProjectFile {
+  id: string
+  project_id: string
+  conversation_id?: string
+  name: string
+  path: string
+  size: number
+  mime?: string
+  source: string
+  created_at?: string
+}
+
 export interface ProjectDirListing {
   path: string
   entries: ProjectDirEntry[] | null
