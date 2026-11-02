@@ -128,9 +128,21 @@ export function describeEvent(type: string, d: any): { text: string; err?: boole
         // 17 号⑦术语分层：用户可见文案以「伴生本体」为主语
         return { text: `🧩 伴生本体召回 · ${n} 实体` }
       }
+      // REQ-576/M391：工作区记忆来源单列（runner 发 count 非 hits——读错字段曾显「知识召回 · 0 条」假象）
+      if (d?.source === 'memory') {
+        return { text: `🧠 工作区记忆 · ${typeof d?.count === 'number' ? d.count : 0} 条` }
+      }
       const n = Array.isArray(d?.hits) ? d.hits.length : 0
       return { text: `📚 知识召回 · ${n} 条` }
     }
+    // REQ-576/M391：工作区记忆抽取事件族人话（对照 companion.extract 范式；memory/service.go 发射）
+    case 'memory.extract': {
+      if (d?.phase === 'started') return { text: `🧠 记忆抽取 · 收尾触发（${d?.fresh ?? 0} 条新消息）` }
+      if (d?.phase === 'error') return { text: `🧠 记忆抽取失败 · ${d?.message ?? '未知错误'}`, err: true }
+      return { text: '🧠 记忆抽取 · 抽取中…' }
+    }
+    case 'memory.candidates':
+      return { text: `🧠 记忆候选 · 新增 ${d?.count ?? 0} 条（共抽取 ${d?.total_extracted ?? 0}）` }
     // REQ-281：伴生沉淀过程事件族（抽取/候选/入图判定/拒绝——收尾后旁路产生，经轮询或回放进流）
     case 'companion.extract': {
       if (d?.phase === 'started') return { text: `🧩 伴生沉淀 · 收尾触发（${d?.fresh ?? 0} 条新消息 · ${d?.windows ?? 0} 窗${d?.pending_windows ? ` · 积压 ${d.pending_windows} 窗待续` : ''}${d?.window_budget ? ` · 每窗预算 ${d.window_budget}s` : ''}）` }
@@ -214,6 +226,7 @@ export function injectSourceLabel(src?: string): string {
     case 'companion': return '伴生本体召回'
     case 'ontology_guide': return '本体方案指引'
     case 'project_dir': return '项目本地目录'
+    case 'memory': return '工作区记忆' // REQ-576：消英文裸词「memory」
     default: return src || '其他来源'
   }
 }

@@ -479,7 +479,8 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			inj["trimmed"] = true
 			inj["trimmed_messages"] = n
 			s.emitAndRecord(runCtx, conv, runID, newEvent("run.warning", runID, map[string]any{
-				"message": fmt.Sprintf("上下文超预算（%s 档 %d tokens）——召回注入「%s」%d 条已截断（本轮不参与装配，落库副本续轮仍可见）", contextModeLabel(ctxMode), budgetTokens, inj["source"], n),
+				// REQ-576/M391：源名人话映射（消「召回注入"memory"」英文裸词——与前端 injectSourceLabel 同口径）
+				"message": fmt.Sprintf("上下文超预算（%s 档 %d tokens）——召回注入「%s」%d 条已截断（本轮不参与装配，落库副本续轮仍可见）", contextModeLabel(ctxMode), budgetTokens, injectSourceLabelCN(fmt.Sprintf("%v", inj["source"])), n),
 			}), emit)
 		}
 	}
@@ -2139,4 +2140,22 @@ func (s *Service) recallCompanion(ctx context.Context, conv *store.Conversation,
 		"entities":        entities,
 	}), emit)
 	return append(histMsgs, schema.SystemMessage(text))
+}
+
+// injectSourceLabelCN 注入源中文标签（REQ-576 截断警告人话——与前端 eventRegistry.injectSourceLabel 同口径）。
+func injectSourceLabelCN(src string) string {
+	switch src {
+	case "kb":
+		return "知识库召回"
+	case "companion":
+		return "伴生本体召回"
+	case "ontology_guide":
+		return "本体方案指引"
+	case "project_dir":
+		return "项目本地目录"
+	case "memory":
+		return "工作区记忆"
+	default:
+		return src
+	}
 }
