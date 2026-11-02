@@ -60,10 +60,14 @@ export default function WorkspacePage() {
       setLoadErr(e?.message ?? '工作区列表加载失败')
     })
     api.listAgents().then(setAgents).catch(() => setAgents([]))
-    api.listConversations().then(setConvs).catch(() => setConvs([]))
+    // REQ-587/M402：服务端过滤接线（listConversations({workspace_id})——工作区页载荷仅含当前
+    // 工作区数据；activeWorkspaceId 变化时重拉；空=全量（归位守卫语义保留））
+    api.listConversations(activeWorkspaceId ? { workspace_id: activeWorkspaceId } : {})
+      .then(setConvs)
+      .catch(() => setConvs([]))
   }
 
-  useEffect(reload, [dataVersion])
+  useEffect(reload, [dataVersion, activeWorkspaceId])
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null
   const currentConv = useMemo(() => convs.find((c) => c.id === currentConvId) ?? null, [convs, currentConvId])

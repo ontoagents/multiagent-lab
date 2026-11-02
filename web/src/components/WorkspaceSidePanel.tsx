@@ -538,7 +538,12 @@ function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChange
 
   const load = () => {
     setLoading(true)
-    api.listProjects().then(setProjects).catch(() => setProjects([])).finally(() => setLoading(false))
+    // REQ-587/M402：服务端过滤接线（listProjects({workspace_id})——客户端 filter 退化兜底）
+    api
+      .listProjects({ workspace_id: workspace.id })
+      .then((ps) => setProjects(ps.filter((p) => p.workspace_id === workspace.id)))
+      .catch(() => setProjects([]))
+      .finally(() => setLoading(false))
   }
   useEffect(load, [workspace.id])
 
