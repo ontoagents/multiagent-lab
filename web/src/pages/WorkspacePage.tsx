@@ -155,6 +155,7 @@ export default function WorkspacePage() {
                 projects={[]}
                 onConversationUpdated={reload}
                 onToggleSidePanel={() => setSidePanelOpen(!sidePanelOpen)}
+                onFocusWorkspaceMemory={() => { setSidePanelOpen(true); setPanelView('memory') }}
               />
             ) : (
               // REQ-488 空态灰字语言：单列一行 + 显式新建钮（选中工作区时）

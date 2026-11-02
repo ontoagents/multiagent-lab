@@ -125,6 +125,7 @@ export default function ChatWindow({
   workspaces,
   onConversationUpdated,
   onToggleSidePanel,
+  onFocusWorkspaceMemory,
   initialDraft,
 }: {
   conversation: Conversation
@@ -132,6 +133,8 @@ export default function ChatWindow({
   projects: Project[]
   /** REQ-577/M392：工作区清单（直挂对话头部徽标解析工作区名；页面层已拉取传入） */
   workspaces?: Workspace[]
+  /** REQ-579/M394：流尾记忆候选行动信号点击——直达工作区侧板记忆视图（focus 协议扩展） */
+  onFocusWorkspaceMemory?: () => void
   onConversationUpdated: () => void
   /** REQ-336：侧板开合（⋮会话设置「智能体配置」入口复用；由页面持有状态与面板） */
   onToggleSidePanel?: () => void
@@ -1302,6 +1305,20 @@ export default function ChatWindow({
   // 运行/恢复共用的事件翻译（send 与 resume 的 SSE 处理一致；归约见模块级 applyRunEvent）
   // REQ-311 A4：迭代进度——k=模型调用步累计（model.step），N=协调者生效迭代上限（run.started 透出）
   const [iterStat, setIterStat] = useState<{ k: number; n: number | null } | null>(null)
+  // REQ-579/M394：本轮记忆候选数——REST 兜底拉取（不依赖实时事件）+SSE candidates 增量+终态刷新
+  const [memCandCount, setMemCandCount] = useState(0)
+  const wsIdForMem = conversation.workspace_id
+  useEffect(() => {
+    if (!wsIdForMem) return
+    let live = true
+    const pull = () => api.listMemories(wsIdForMem, 'candidate').then((r) => { if (live) setMemCandCount((r ?? []).length) }).catch(() => {})
+    pull()
+    window.addEventListener('ws-memory-refresh', pull)
+    return () => {
+      live = false
+      window.removeEventListener('ws-memory-refresh', pull)
+    }
+  }, [conversation.id, wsIdForMem])
   const handleRunEvent = ({ event, data }: { event: string; data: any }) => {
     const payload = data?.data ?? {}
     if (event === 'run.interrupted') {
@@ -1320,6 +1337,11 @@ export default function ChatWindow({
     if (event === 'run.started') setIterStat({ k: 0, n: typeof payload.max_iteration_effective === 'number' ? payload.max_iteration_effective : null })
     if (event === 'model.step') setIterStat((p) => ({ k: (p?.k ?? 0) + 1, n: p?.n ?? null }))
     if (event === 'run.finished' || event === 'run.error') setIterStat(null)
+    // REQ-579/M394：记忆候选行动信号——candidates 事件记数；终态后广播侧板刷新 Badge
+    if (event === 'memory.candidates' && typeof payload.count === 'number') setMemCandCount(payload.count)
+    if (event === 'run.finished' || event === 'run.error') {
+      window.dispatchEvent(new CustomEvent('ws-memory-refresh'))
+    }
     setItems((prev) => applyRunEvent(prev, event, payload, runKeyRef.current))
   }
 
@@ -1959,6 +1981,20 @@ export default function ChatWindow({
           </>
         )}
         {/* REQ-483③：悬浮「停止生成」与「工作中」胶囊退役——计时行入流（listItems 尾）、停止由 Sender 加载态内建钮承接 */}
+        {/* REQ-579/M394：流尾记忆候选行动信号（灰字行——点击直达侧板记忆视图；无候选零打扰） */}
+        {memCandCount > 0 && onFocusWorkspaceMemory && (
+          <div style={{ padding: '2px 4px' }} data-testid="mem-cand-row">
+            <Button
+              type="text"
+              size="small"
+              style={{ color: 'var(--c-ink-3)', paddingInline: 4, fontSize: 12 }}
+              icon={<span aria-hidden>🧠</span>}
+              onClick={onFocusWorkspaceMemory}
+            >
+              本轮抽取 {memCandCount} 条记忆候选 · 待确认——点击前往侧板记忆视图
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* REQ-206/M41 S2：外部推理后端（deepseek-harness-acp）权限转审批卡——

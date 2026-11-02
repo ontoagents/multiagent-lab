@@ -39,6 +39,8 @@ const PANEL_BAR_WIDTH = 44
  * 目录绑定与 Git 视图刻意不做——那是项目（执行容器）职责（106 号 §四 IA 边界）。
  * M2 projects 视图已交付（REQ-550/M357 归属项目管理）。
  */
+let wsMemoryRefreshBound = false
+
 export default function WorkspaceSidePanel({
   workspace,
   agents,
@@ -80,6 +82,19 @@ export default function WorkspaceSidePanel({
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
+    // REQ-579/M394：记忆候选数行动信号（run.finished 后经 ws-memory-refresh 事件触发拉取；采纳后消减）
+  const [memCandidates, setMemCandidates] = useState(0)
+  const refreshMemCandidates = () => {
+    api.listMemories(workspace.id, 'candidate').then((r) => setMemCandidates((r ?? []).length)).catch(() => {})
+  }
+  useEffect(() => {
+    refreshMemCandidates()
+    if (!wsMemoryRefreshBound) {
+      wsMemoryRefreshBound = true
+      window.addEventListener('ws-memory-refresh', refreshMemCandidates as EventListener)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.id])
   const [collapsed, setCollapsed] = useState(true)
   useEffect(() => {
     setCollapsed(!open)
@@ -133,16 +148,27 @@ export default function WorkspaceSidePanel({
           </button>
         </Tooltip>
         {/* REQ-551/M358：记忆候选确认（三桶列表沿伴生范式；可审计口径） */}
-        <Tooltip title="记忆" placement="left">
+        <Tooltip title={`记忆${memCandidates > 0 ? `（${memCandidates} 条候选待确认）` : ''}`} placement="left">
           <button
             type="button"
             className={`proj-bar-btn${view === 'memory' && !collapsed ? ' active' : ''}`}
-            aria-label="记忆"
+            aria-label={`记忆${memCandidates > 0 ? `（${memCandidates} 条候选待确认）` : ''}`}
             aria-selected={view === 'memory' && !collapsed}
             role="tab"
             onClick={() => switchView('memory')}
+            style={{ position: 'relative' }}
+            data-testid="ws-memory-btn"
           >
             <HistoryOutlined />
+            {/* REQ-579/M394：候选数行动信号（run.finished 后拉取 REST 计数，不依赖实时事件；采纳后消减） */}
+            {memCandidates > 0 && (
+              <span
+                style={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, borderRadius: 7, background: '#faad14', color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center', padding: '0 3px' }}
+                data-testid="ws-memory-badge"
+              >
+                {memCandidates > 99 ? '99+' : memCandidates}
+              </span>
+            )}
           </button>
         </Tooltip>
         <span className="proj-bar-spacer" />
