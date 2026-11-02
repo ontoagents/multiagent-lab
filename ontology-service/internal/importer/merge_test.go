@@ -108,13 +108,13 @@ func TestBuildMergedRename(t *testing.T) {
 	if cur == nil || cur.Definition != "现行定义" || ext == nil || ext.Definition != "导入定义" {
 		t.Fatalf("merge 应保留现行并重命名并入: %+v %+v", cur, ext)
 	}
-	// 实例关系/概念引用改写：ext_aspirin 应指向 ext_Disease？——原实例 aspirin 冲突重命名为 ext_aspirin，其 concept=Disease 不变（Disease 现行保留）
+	// 导入实例引用导入侧概念；目标实例与目标概念的引用保持不变。
 	var renamedInst bool
 	for _, in := range pv.MergedSpec.Instances {
 		if in.Name == "ext_aspirin" {
 			renamedInst = true
-			if in.Concept != "Disease" {
-				t.Fatalf("实例类型引用应指向现行实体: %+v", in)
+			if in.Concept != "ext_Disease" {
+				t.Fatalf("导入实例类型引用应随导入概念改名: %+v", in)
 			}
 		}
 	}

@@ -107,6 +107,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 		TargetName: target.Name,
 		MergedSpec: merged,
 	}
+	conceptStart, relationStart, instanceStart := len(merged.Concepts), len(merged.Relations), len(merged.Instances)
 
 	// ---- 概念 ----
 	cIdx := map[string]int{}
@@ -132,8 +133,6 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 				newName := uniquify(prefix+"_"+in.Name, cIdx)
 				renamed := in
 				renamed.Name = newName
-				// 指向该概念的父子引用一并改写（保持层级语义）
-				rewireConceptRefs(pv.MergedSpec, in.Name, newName)
 				renamedConcepts[in.Name] = newName
 				pv.MergedSpec.Concepts = append(pv.MergedSpec.Concepts, renamed)
 				cIdx[newName] = len(pv.MergedSpec.Concepts) - 1
@@ -259,8 +258,6 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 				renamedRelations[in.Name] = newName
 				renamed := in
 				renamed.Name = newName
-				// 实例断言引用该关系名的改写
-				rewireRelationRefs(pv.MergedSpec, in.Name, newName)
 				pv.MergedSpec.Relations = append(pv.MergedSpec.Relations, renamed)
 				rIdx[newName] = len(pv.MergedSpec.Relations) - 1
 				conf.Resolution = "renamed"
@@ -279,6 +276,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 
 	// ---- 实例 ----
 	iIdx := map[string]int{}
+	renamedInstances := map[string]string{}
 	for i, in := range pv.MergedSpec.Instances {
 		iIdx[in.Name] = i
 	}
@@ -300,8 +298,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 				newName := uniquify(prefix+"_"+in.Name, iIdx)
 				renamed := in
 				renamed.Name = newName
-				// 他者实例断言指向该实例的 target 改写
-				rewireInstanceRefs(pv.MergedSpec, in.Name, newName)
+				renamedInstances[in.Name] = newName
 				pv.MergedSpec.Instances = append(pv.MergedSpec.Instances, renamed)
 				iIdx[newName] = len(pv.MergedSpec.Instances) - 1
 				conf.Resolution = "renamed"
@@ -316,6 +313,11 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 			pv.Added = append(pv.Added, "instance:"+in.Name)
 			pv.Stats.InstancesAdded++
 		}
+	}
+	if strategy == StrategyMerge {
+		// Only imported objects follow imported renames. Each original reference is
+		// looked up once after all names are allocated, including forward references.
+		rewireMergedIncoming(pv.MergedSpec, conceptStart, relationStart, instanceStart, renamedConcepts, renamedRelations, renamedInstances)
 	}
 	pv.MergedSpec.Decisions = mergeDecisions(target.Decisions, incoming.Decisions, strategy, prefix, renamedConcepts, renamedRelations)
 	// REQ-295②：人话 notes（证据故事带数字，非扣分表）
@@ -342,6 +344,39 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 	// 只报告不做自动合并（详设口径）；三选项策略行为零变化。
 	pv.SemanticConflicts = semanticConflicts(target, incoming)
 	return pv, nil
+}
+
+func rewireMergedIncoming(sp *pkgspec.Spec, conceptStart, relationStart, instanceStart int, concepts, relations, instances map[string]string) {
+	rename := func(name string, names map[string]string) string {
+		if to, ok := names[name]; ok {
+			return to
+		}
+		return name
+	}
+	for i := conceptStart; i < len(sp.Concepts); i++ {
+		c := &sp.Concepts[i]
+		for j := range c.Parents {
+			c.Parents[j] = rename(c.Parents[j], concepts)
+		}
+		for j := range c.Restrictions {
+			c.Restrictions[j].Target = rename(c.Restrictions[j].Target, concepts)
+			c.Restrictions[j].Property = rename(c.Restrictions[j].Property, relations)
+		}
+	}
+	for i := relationStart; i < len(sp.Relations); i++ {
+		r := &sp.Relations[i]
+		r.From = rename(r.From, concepts)
+		r.To = rename(r.To, concepts)
+		r.InverseOf = rename(r.InverseOf, relations)
+	}
+	for i := instanceStart; i < len(sp.Instances); i++ {
+		in := &sp.Instances[i]
+		in.Concept = rename(in.Concept, concepts)
+		for j := range in.Relations {
+			in.Relations[j].Rel = rename(in.Relations[j].Rel, relations)
+			in.Relations[j].Target = rename(in.Relations[j].Target, instances)
+		}
+	}
 }
 
 // uniquify 前缀协调：重命名后仍冲突则追加 _2/_3…

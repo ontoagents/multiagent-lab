@@ -3,6 +3,7 @@ package importer
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
@@ -45,11 +46,18 @@ func mergeDecisions(target, incoming []pkgspec.Decision, strategy, prefix string
 	for _, value := range incoming {
 		d := cloneDecision(value)
 		if strategy == StrategyMerge {
-			for old, to := range concepts {
-				rewireDecisionSources([]pkgspec.Decision{d}, "concept", old, to)
-			}
-			for old, to := range relations {
-				rewireDecisionSources([]pkgspec.Decision{d}, "relation", old, to)
+			for i := range d.RequiredSlots {
+				kind, name, _ := strings.Cut(d.RequiredSlots[i].Source, ":")
+				var renamed string
+				switch kind {
+				case "concept":
+					renamed = concepts[name]
+				case "relation":
+					renamed = relations[name]
+				}
+				if renamed != "" {
+					d.RequiredSlots[i].Source = kind + ":" + renamed
+				}
 			}
 		}
 		if i, conflict := taken[d.ID]; conflict {

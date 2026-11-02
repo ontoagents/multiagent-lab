@@ -132,13 +132,17 @@ func (s *Server) mergePreview(w http.ResponseWriter, r *http.Request) {
 	if strategy == "" {
 		strategy = importer.StrategyReplace
 	}
-	raw, _, gerr := s.Store.GetArtifact(id, "spec_json")
+	snapshot, gerr := s.Store.ReadSpecSnapshot(id)
 	if gerr != nil {
 		writeErr(w, gerr)
 		return
 	}
+	if snapshot.SpecJSON == "" {
+		writeErr(w, repo.ErrNotFound)
+		return
+	}
 	target := &pkgspec.Spec{}
-	if err := json.Unmarshal([]byte(raw), target); err != nil {
+	if err := json.Unmarshal([]byte(snapshot.SpecJSON), target); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "现行 spec_json 解析失败: " + err.Error()})
 		return
 	}
@@ -151,9 +155,7 @@ func (s *Server) mergePreview(w http.ResponseWriter, r *http.Request) {
 	// 支撑「补录→重跑对账」动线；此前 wrapper 形态与前端裸 MergePreview 消费错位，一并归一）
 	pv.ImportReport = imp
 	// REQ-293②：回预览时点版本号——apply 回传做三重防陈旧（任一不符 409 要求重新验证）
-	if o, gerr := s.Store.GetOntology(id); gerr == nil {
-		pv.BaseVersion = o.Version
-	}
+	pv.BaseVersion = snapshot.Version
 	writeJSON(w, http.StatusOK, pv)
 }
 

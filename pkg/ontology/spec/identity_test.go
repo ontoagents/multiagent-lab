@@ -38,3 +38,31 @@ func TestValidateDistinctNamesAndNamespaces(t *testing.T) {
 		t.Fatalf("distinct RDF identities should remain valid: %v", errs)
 	}
 }
+
+func TestValidateFreeAttributeIdentity(t *testing.T) {
+	for _, declared := range []bool{false, true} {
+		sp := &Spec{Name: "attributes", Concepts: []Concept{{Name: "A"}}, Instances: []Instance{
+			{Name: "one", Concept: "A", Attributes: map[string]any{"A/B": 1}},
+			{Name: "two", Concept: "A", Attributes: map[string]any{"A_B": 2}},
+		}}
+		if declared {
+			sp.DataProperties = []DataProperty{{Name: "A_B"}}
+		}
+		found := false
+		for _, err := range sp.Validate() {
+			if strings.Contains(err.Message, "IRI") && strings.Contains(err.Path, ".attributes") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("declared=%v: free attribute collision accepted: %v", declared, sp.Validate())
+		}
+	}
+	sp := &Spec{Name: "valid", Concepts: []Concept{{Name: "A"}}, DataProperties: []DataProperty{{Name: "value"}}, Instances: []Instance{
+		{Name: "one", Concept: "A", Attributes: map[string]any{"value": 1, "free": true}},
+		{Name: "two", Concept: "A", Attributes: map[string]any{"value": 2, "free": false}},
+	}}
+	if errs := sp.Validate(); len(errs) > 0 {
+		t.Fatalf("same raw keys and free attributes must remain valid: %v", errs)
+	}
+}

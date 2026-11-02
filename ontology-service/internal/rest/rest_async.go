@@ -239,11 +239,19 @@ func (s *Server) aiDraftJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	draftJobsMu.Lock()
 	job, ok := draftJobs[id]
-	draftJobsMu.Unlock()
 	if ok {
-		writeJSON(w, http.StatusOK, job)
+		// Capture nested results and progress under the writer lock, then release
+		// it before sending the response so slow polling clients cannot block jobs.
+		snapshot, err := json.Marshal(job)
+		draftJobsMu.Unlock()
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, json.RawMessage(snapshot))
 		return
 	}
+	draftJobsMu.Unlock()
 	if s.Store != nil {
 		if row, gerr := s.Store.GetAsyncJob(id); gerr == nil && row != nil {
 			var j draftJob

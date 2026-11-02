@@ -1,11 +1,16 @@
 package rest
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/ontoagents/ontoagents/ontology-service/internal/importer"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
@@ -44,6 +49,94 @@ func TestAtomicHTTPConcurrentSave(t *testing.T) {
 	}
 	if head.Version != 3 || head.SpecJSON != version {
 		t.Fatalf("head/history mismatch: %+v %s", head, version)
+	}
+}
+
+func TestAtomicMergePreviewMatchesContentVersion(t *testing.T) {
+	srv, st := newPublishTestServer(t)
+	content := func(v int) string {
+		return fmt.Sprintf(`{"name":"test","concepts":[{"name":"概念A","label":"%d"}]}`, v)
+	}
+	if _, err := st.SaveSpecSnapshot("ontest", repo.SpecWrite{ExpectedVersion: 2, SpecJSON: content(3)}); err != nil {
+		t.Fatal(err)
+	}
+	incoming := pkgspec.Spec{Name: "incoming"}
+	for n := 0; n < 128; n++ {
+		incoming.Concepts = append(incoming.Concepts, pkgspec.Concept{Name: fmt.Sprintf("incoming%d", n)})
+	}
+	body, err := json.Marshal(map[string]any{"spec": incoming, "strategy": "merge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	writer := make(chan error, 1)
+	go func() {
+		<-start
+		for v := 3; v < 131; v++ {
+			if _, err := st.SaveSpecSnapshot("ontest", repo.SpecWrite{ExpectedVersion: v, SpecJSON: content(v + 1)}); err != nil {
+				writer <- err
+				return
+			}
+		}
+		writer <- nil
+	}()
+	results := make(chan error, 4)
+	var readers sync.WaitGroup
+	for n := 0; n < 4; n++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			<-start
+			for n := 0; n < 20; n++ {
+				resp, err := http.Post(srv.URL+"/api/ontologies/ontest/merge/preview", "application/json", strings.NewReader(string(body)))
+				if err != nil {
+					results <- err
+					return
+				}
+				var pv importer.MergePreview
+				err = json.NewDecoder(resp.Body).Decode(&pv)
+				resp.Body.Close()
+				if err != nil || resp.StatusCode != http.StatusOK {
+					results <- fmt.Errorf("preview status=%d decode=%v", resp.StatusCode, err)
+					return
+				}
+				if pv.MergedSpec == nil || len(pv.MergedSpec.Concepts) == 0 || pv.MergedSpec.Concepts[0].Label != strconv.Itoa(pv.BaseVersion) {
+					label := "missing"
+					if pv.MergedSpec != nil && len(pv.MergedSpec.Concepts) > 0 {
+						label = pv.MergedSpec.Concepts[0].Label
+					}
+					results <- fmt.Errorf("preview mixes content version %s and base_version %d", label, pv.BaseVersion)
+					return
+				}
+			}
+			results <- nil
+		}()
+	}
+	close(start)
+	readers.Wait()
+	if err := <-writer; err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 4; n++ {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+	// A preview of an older head must be refused after another save.
+	resp, out := doJSON(t, "POST", srv.URL+"/api/ontologies/ontest/merge/apply", `{"spec":{"name":"incoming","concepts":[{"name":"B"}]},"strategy":"merge","base_version":130}`, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("stale preview accepted: status=%d body=%v", resp.StatusCode, out)
+	}
+}
+
+func TestMergePreviewMissingArtifactRemainsNotFound(t *testing.T) {
+	srv, st := newPublishTestServer(t)
+	if _, err := st.CreateOntology("empty-preview", "empty", ""); err != nil {
+		t.Fatal(err)
+	}
+	resp, out := doJSON(t, "POST", srv.URL+"/api/ontologies/empty-preview/merge/preview", `{"spec":{"name":"incoming","concepts":[{"name":"B"}]},"strategy":"merge"}`, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing artifact status=%d want=404: %v", resp.StatusCode, out)
 	}
 }
 

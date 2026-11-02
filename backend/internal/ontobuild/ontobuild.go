@@ -507,60 +507,10 @@ func ValidateBuildSpec(spec *buildSpec) *SpecReport {
 	if len(spec.Concepts) == 0 {
 		fail("concepts", "至少需要一个概念")
 	}
-	cset := map[string]bool{}
-	for i, c := range spec.Concepts {
-		if strings.TrimSpace(c.Name) == "" {
-			fail(fmt.Sprintf("concepts[%d].name", i), "概念名必填")
-			continue
-		}
-		if cset[c.Name] {
-			fail(fmt.Sprintf("concepts[%d].name", i), "概念名重复: "+c.Name)
-		}
-		cset[c.Name] = true
-	}
-	rset := map[string]bool{}
-	for i, r := range spec.Relations {
-		if strings.TrimSpace(r.Name) == "" {
-			fail(fmt.Sprintf("relations[%d].name", i), "关系名必填")
-		}
-		if !cset[r.From] {
-			fail(fmt.Sprintf("relations[%d].from", i), "from 引用不存在的概念: "+r.From)
-		}
-		if !cset[r.To] {
-			fail(fmt.Sprintf("relations[%d].to", i), "to 引用不存在的概念: "+r.To)
-		}
-		rset[r.Name] = true
-	}
-	for i, c := range spec.Concepts {
-		for _, p := range c.Parents {
-			if !cset[p] {
-				fail(fmt.Sprintf("concepts[%d].parents", i), "parents 引用不存在的概念: "+p)
-			}
-		}
-	}
-	dn := map[string]bool{}
-	for i, dp := range spec.DataProperties {
-		if strings.TrimSpace(dp.Name) == "" {
-			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名必填")
-			continue
-		}
-		if dn[dp.Name] {
-			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名重复: "+dp.Name)
-		}
-		dn[dp.Name] = true
-		if dp.Domain != "" && !cset[dp.Domain] {
-			fail(fmt.Sprintf("data_properties[%d].domain", i), "domain 引用不存在的概念: "+dp.Domain)
-		}
-	}
-	for i, inst := range spec.Instances {
-		if !cset[inst.Concept] {
-			fail(fmt.Sprintf("instances[%d].concept", i), "concept 引用不存在的概念: "+inst.Concept)
-		}
-		for _, ir := range inst.Relations {
-			if !rset[ir.Rel] {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf("instances[%d] 关系 %q 未在 relations 声明（构建平面可能拒绝）", i, ir.Rel))
-			}
-		}
+	// Draft reports and repair feedback use the same structure/identity rules as
+	// formal saves. Name and nonempty concepts above are KB-specific requirements.
+	for _, err := range spec.Validate() {
+		fail(err.Path, err.Message)
 	}
 	return rep
 }

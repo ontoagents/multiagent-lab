@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -353,6 +354,14 @@ func (s *Spec) Validate() []ValidationError {
 	in := map[string]int{}
 	for i, it := range s.Instances {
 		p := fmt.Sprintf("instances[%d]", i)
+		keys := make([]string, 0, len(it.Attributes))
+		for key := range it.Attributes {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			checkIdentity("attr", key, fmt.Sprintf("%s.attributes[%q]", p, key))
+		}
 		if strings.TrimSpace(it.Name) == "" {
 			add(p+".name", "实例名不能为空")
 			continue

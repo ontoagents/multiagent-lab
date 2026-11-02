@@ -170,3 +170,41 @@ func TestBuildCQModePreservesSelectedIntent(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildValidationIncludesFormalRules(t *testing.T) {
+	sp := &buildSpec{Name: "test", Concepts: []buildConcept{{Name: "A/B"}, {Name: "A_B"}}}
+	report := ValidateBuildSpec(sp)
+	if report.OK || len(report.Errors) == 0 || !strings.Contains(report.Errors[0].Message, "IRI") {
+		t.Fatalf("draft validation differs from formal save: %+v", report)
+	}
+	// KB-only rules still reject an empty name and an empty concept list.
+	if report := ValidateBuildSpec(&buildSpec{}); report.OK || len(report.Errors) != 2 {
+		t.Fatalf("KB requirements lost: %+v", report)
+	}
+}
+
+func TestBuildRepairsFormalIdentityConflict(t *testing.T) {
+	svc, conn := modelBuildFixture(t, []string{
+		`{"name":"test","cq":["original CQ"],"concepts":[{"name":"A/B"},{"name":"A_B"}]}`,
+		`{"name":"test","concepts":[{"name":"A/B"},{"name":"B"}]}`,
+	})
+	k, err := svc.Store.CreateKnowledgeBase(&store.KnowledgeBase{Name: "corpus", Mode: "rag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := svc.Store.CreateKnowledgeDoc(&store.KnowledgeDoc{KBID: k.ID, Title: "doc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Store.InsertKnowledgeChunks([]*store.KnowledgeChunk{{KBID: k.ID, DocID: d.ID, Seq: 0, Content: "A/B and B are distinct concepts."}}); err != nil {
+		t.Fatal(err)
+	}
+	svc.BuildPlaneURL = "http://127.0.0.1:1"
+	res, err := svc.BuildFromKB(context.Background(), k.ID, "chunk-llm", "auto", nil, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Rounds != 2 || !res.Report.OK || len(res.Spec.Validate()) != 0 || res.Spec.Concepts[1].Name != "B" || !reflect.DeepEqual(res.CQs, []string{"original CQ"}) {
+		t.Fatalf("formal validation did not repair draft consistently: %+v", res)
+	}
+}
