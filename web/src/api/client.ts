@@ -1,4 +1,5 @@
 import type {
+  RunEvaluationDTO,
   AgentConfigVersion,
   Agent,
   ConversationDelegate,
@@ -278,6 +279,11 @@ export const api = {
     req<{ score: number; verdict: 'correct' | 'partial' | 'wrong'; feedback: string; concepts: string[] }>(`/api/quiz/${ontologyId}/items/${itemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   quizMastery: (ontologyId: string) =>
     req<{ mastery: { concept_name: string; asked_count: number; correct_count: number; score: number }[] }>(`/api/quiz/${ontologyId}/mastery`),
+  /** REQ-388/M387：C4 运行质量评估（终态门禁——Judge 契约复用；落档 run_evaluation） */
+  evaluateRun: (conversationId: string, runId: string, connId?: string) =>
+    req<RunEvaluationDTO>(`/api/conversations/${conversationId}/runs/${runId}/evaluate`, { method: 'POST', body: JSON.stringify({ conn_id: connId ?? '' }) }),
+  listRunEvaluations: (conversationId: string, runId: string) =>
+    req<{ evaluations: RunEvaluationDTO[] }>(`/api/conversations/${conversationId}/runs/${runId}/evaluations`),
   /** REQ-572/M380：概念子图掌握度（spec concepts+relations × mastery_level 合并节点/边） */
   quizMasteryGraph: (ontologyId: string) =>
     req<{

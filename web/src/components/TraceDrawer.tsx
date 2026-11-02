@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Drawer, Input, Pagination, Select, Space, Switch, Tag, Tooltip, Typography, Upload} from 'antd'
-import { ReloadOutlined, RollbackOutlined, DownloadOutlined} from '@ant-design/icons'
+import { AuditOutlined, ReloadOutlined, RollbackOutlined, DownloadOutlined} from '@ant-design/icons'
 import { api } from '../api/client'
 import { useUI } from '../store/ui'
-import type { RunEventDTO } from '../api/types'
+import type { RunEvaluationDTO, RunEventDTO } from '../api/types'
 import { describeEvent, levelGated, TRACE_GROUPS } from '../lib/eventRegistry'
 import DelegatesPanel from './DelegatesPanel'
 import EventReplayDrawer from './EventReplayDrawer'
@@ -340,7 +340,8 @@ export default function TraceDrawer({
             {page.map((r, i) => (
               <RunBlock key={r.runId} run={r} index={totalRendered - 1 - (start + i)} showRaw={showRaw} expandAll={expandAll} showTimeline={showTimeline}
                 onReplay={() => { setOfflineEvents(null); setReplayRun(r.runId) }}
-                onExport={() => exportRun(r.runId)} />
+                onExport={() => exportRun(r.runId)}
+                onEvaluate={!offlineEvents && conversationId ? (runId) => api.evaluateRun(conversationId, runId) : undefined} />
             ))}
             {ordered.length > 0 && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
@@ -610,7 +611,7 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
 }
 
 function RunBlock({
-  run, index, showRaw, expandAll, showTimeline, onReplay, onExport,
+  run, index, showRaw, expandAll, showTimeline, onReplay, onExport, onEvaluate,
 }: {
   run: { runId: string; events: RunEventDTO[]; allEvents: RunEventDTO[]; startedAt: string; finished?: RunEventDTO }
   index: number
@@ -619,9 +620,28 @@ function RunBlock({
   showTimeline: boolean
   onReplay: () => void
   onExport: (runId: string) => void
+  /** REQ-388/M387 C4：终态 run 质量评估（Judge 契约复用）；缺省不显钮 */
+  onEvaluate?: (runId: string) => Promise<RunEvaluationDTO | null>
 }) {
   const [openId, setOpenId] = useState<Record<string, boolean>>({})
   const [openSeg, setOpenSeg] = useState<Record<string, boolean>>({})
+  // REQ-388：C4 评估态（evaluating 加载/evalRes 结果/evalErr 人话——409 未终态等）
+  const [evaluating, setEvaluating] = useState(false)
+  const [evalRes, setEvalRes] = useState<RunEvaluationDTO | null>(null)
+  const [evalErr, setEvalErr] = useState<string | null>(null)
+  const doEvaluate = async () => {
+    if (!onEvaluate || evaluating) return
+    setEvaluating(true)
+    setEvalErr(null)
+    try {
+      const res = await onEvaluate(run.runId)
+      if (res) setEvalRes(res)
+    } catch (e: any) {
+      setEvalErr(e?.message ?? '评估失败')
+    } finally {
+      setEvaluating(false)
+    }
+  }
   useEffect(() => {
     if (expandAll) {
       const m: Record<string, boolean> = {}
@@ -720,7 +740,26 @@ function RunBlock({
         <Tooltip title="导出此运行（回放文件）">
           <Button size="small" type="text" aria-label="导出此运行" icon={<DownloadOutlined />} onClick={() => onExport(run.runId)} />
         </Tooltip>
+        {onEvaluate && run.finished && (
+          <Tooltip title="质量评估（C4——Judge 三维归因，落档可回溯）">
+            <Button size="small" type="text" aria-label="质量评估" loading={evaluating} icon={<AuditOutlined />} onClick={doEvaluate} />
+          </Tooltip>
+        )}
       </div>
+      {/* REQ-388：C4 评估结果行（灰字——沿 REQ-494 视觉语言） */}
+      {evalRes && (
+        <div style={{ padding: '2px 10px 4px', display: 'flex', gap: 6, alignItems: 'baseline' }} data-testid={`run-eval-${run.runId}`}>
+          <Tag color={evalRes.verdict === 'pass' ? 'green' : evalRes.verdict === 'partial' ? 'gold' : 'red'} style={{ margin: 0, fontSize: 10 }}>
+            {evalRes.verdict === 'pass' ? '通过' : evalRes.verdict === 'partial' ? '部分' : '未过'} · {evalRes.score}/2
+          </Tag>
+          <Typography.Text type="secondary" style={{ fontSize: 11, flex: 1 }}>{evalRes.reason}</Typography.Text>
+        </div>
+      )}
+      {evalErr && (
+        <div style={{ padding: '2px 10px 4px' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>{evalErr}</Typography.Text>
+        </div>
+      )}
       {showTimeline && <TimelineStrip events={run.allEvents} />}
       <div style={{ padding: '4px 0' }}>
         {segs.map((seg, si) => {

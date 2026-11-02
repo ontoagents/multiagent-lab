@@ -417,6 +417,20 @@ export interface KBHit {
   sources?: { doc?: string; doc_id?: string; seq: number }[]
 }
 
+/** REQ-388/M387：C4 运行质量评估（Judge 三值；评估时点末轮 goal/answer 快照+工具轨迹） */
+export interface RunEvaluationDTO {
+  id: string
+  run_id: string
+  conversation_id: string
+  goal: string
+  answer: string
+  score: number
+  verdict: 'pass' | 'partial' | 'fail'
+  reason: string
+  tools: string[]
+  created_at: string
+}
+
 /** REQ-524/M331：学习自测出题（概念子图——answer 作答后才展示） */
 export interface QuizItem {
   id: string

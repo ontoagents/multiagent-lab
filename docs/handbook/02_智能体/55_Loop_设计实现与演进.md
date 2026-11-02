@@ -36,7 +36,7 @@ synced: 2026-11-01
 | Loop 页签（五层视角） | REQ-219 | M50 | ✅ | headless 16/16 |
 | 迭代进度与生效值透出（run.started/resume max_iteration_effective+头部迭代 k/N chip+TraceDrawer 迭代≤N） | REQ-311 A4 | M115 | ✅ | API 生效上限=7 断言+UI chip smoke/req311/ |
 | C3 LongRun 有界增量（TurnLoop 引擎接入主链+轮界产物即刷持久化+主会话 steer=Push 抢占+delegate 底盘汇流） | REQ-385 | M181 | ✅（2026-10-29 专项重构轮；详 §三.5） | chat 单测+真机 |
-| C4 Evaluator 评估器 | REQ-204→REQ-388 | 后置→📋 触发驱动 | 2026-10-24 立项（M184）：触发=C3 落地后质量归因诉求；复用 REQ-223 Judge 契约 | — |
+| C4 Evaluator 评估器 | REQ-204→REQ-388 | **✅（M387，2026-11-01）** | agenteval.EvaluateRun（Judge 契约复用三维 rubric）+POST/GET …/runs/{run_id}/evaluate·evaluations（终态门禁沿 REQ-555）+迁移 089 run_evaluation 落档+TraceDrawer 终态 run 评估钮/结果行；评估输入=message 末轮 goal/answer 快照+run_event 工具轨迹双源 | backend/internal/agenteval/evalrun.go；handlers_evalrun.go |
 
 ## 三、开放问题与诚实边界
 
