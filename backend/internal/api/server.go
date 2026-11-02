@@ -311,6 +311,8 @@ func (s *Server) routes() {
 	// REQ-550/M357：项目归属工作区（PUT 归属/解除+POST 应用到现有会话幂等批量）
 	m.HandleFunc("PUT /api/projects/{id}/workspace", s.setProjectWorkspace)
 	m.HandleFunc("POST /api/projects/{id}/workspace/apply", s.applyProjectWorkspace)
+	m.HandleFunc("GET /api/workspaces/{id}/direct-defaults-count", s.workspaceDirectDefaultsCount) // REQ-583/M398 第一小步：count 只读
+	m.HandleFunc("POST /api/workspaces/{id}/apply", s.applyWorkspaceDefaultsDirect)                // REQ-583/M398 第二小步：显式追赶
 	m.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)
 
 	// Conversations

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { Button, Divider, Form, Input, Popconfirm, Segmented, Select, Tooltip, Typography } from 'antd'
+import { Button, Divider, Form, Input, Popconfirm, Segmented, Select, Tooltip, Typography, Modal } from 'antd'
 import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -265,9 +265,29 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
         default_profile_id: v.default_profile_id ?? '',
         default_agent_id: v.default_agent_id ?? '',
       })
-      showToast('已保存')
       bumpData()
       onChanged?.()
+      // REQ-583/M398：作用范围提示+显式追赶（「改默认不自动追溯已建会话」拍板不反转——追赶为用户显式点击）
+      try {
+        const { total, stale } = await api.workspaceDirectDefaultsCount(workspace.id)
+        if (stale > 0) {
+          Modal.confirm({
+            title: `区内 ${total} 个直挂会话中 ${stale} 个仍为创建时默认值`,
+            content: '把当前默认知识库/本体方案应用到这些会话？（只填充仍为空的项——显式关闭/改选过的会话不被触碰）',
+            okText: `应用到 ${stale} 个会话`,
+            cancelText: '暂不',
+            onOk: async () => {
+              const r = await api.applyWorkspaceDefaultsDirect(workspace.id)
+              showToast(`已应用 ${r.updated} 个会话`)
+              bumpData()
+            },
+          })
+        } else {
+          showToast('已保存（区内直挂会话均已继承或显式设置，无需追赶）')
+        }
+      } catch {
+        showToast('已保存')
+      }
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {

@@ -280,3 +280,25 @@ func (s *Server) searchMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
 }
+
+// workspaceDirectDefaultsCount REQ-583/M398 第一小步：GET /api/workspaces/{id}/direct-defaults-count
+// → {total, stale}（零写操作——「区内 N 个直挂会话中 M 个仍为创建时默认值」作用范围提示数据源）。
+func (s *Server) workspaceDirectDefaultsCount(w http.ResponseWriter, r *http.Request) {
+	total, stale, err := s.Store.CountStaleDirectDefaults(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total": total, "stale": stale})
+}
+
+// applyWorkspaceDefaultsDirect REQ-583/M398 第二小步：POST /api/workspaces/{id}/apply
+// 沿 REQ-550 applyProjectWorkspace 同构（幂等；只覆写仍处创建时继承值的行；用户显式动作）。
+func (s *Server) applyWorkspaceDefaultsDirect(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Store.ApplyWorkspaceDefaultsToDirectConversations(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"updated": n})
+}

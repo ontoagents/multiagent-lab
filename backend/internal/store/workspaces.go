@@ -92,3 +92,54 @@ func (s *Store) DeleteWorkspace(id string) error {
 	}
 	return nil
 }
+
+// ApplyWorkspaceDefaultsToDirectConversations REQ-583/M398：「应用到直挂会话」幂等批量——
+// 沿 ApplyWorkspaceDefaultsToProject 先例（同构判定：只覆写 KB/方案仍为空的直挂会话行=创建时
+// 继承值未被显式覆盖；不复活显式关闭的 chip——enable_kb 不在此处强行开启空 KB 场景）。
+// 返回补齐会话数；「改默认不自动追溯已建会话」拍板不反转——追赶必须是用户显式动作（本端点即显式动作）。
+func (s *Store) ApplyWorkspaceDefaultsToDirectConversations(workspaceID string) (int, error) {
+	ws, err := s.GetWorkspace(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	convs, err := s.ListConversations(ConversationFilter{WorkspaceID: workspaceID})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range convs {
+		changed := false
+		if (c.KBID == nil || *c.KBID == "") && ws.DefaultKBID != "" {
+			if _, kerr := s.GetKnowledgeBase(ws.DefaultKBID); kerr == nil {
+				if _, uerr := s.DB.Exec(`UPDATE conversation SET kb_id=?, enable_kb=1, updated_at=? WHERE id=?`, ws.DefaultKBID, now(), c.ID); uerr == nil {
+					changed = true
+				}
+			}
+		}
+		if (c.RuntimeProfileID == nil || *c.RuntimeProfileID == "") && ws.DefaultProfileID != "" {
+			if _, uerr := s.DB.Exec(`UPDATE conversation SET runtime_profile_id=?, ontology_enabled=1, updated_at=? WHERE id=?`, ws.DefaultProfileID, now(), c.ID); uerr == nil {
+				changed = true
+			}
+		}
+		if changed {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// CountStaleDirectDefaults REQ-583/M398 第一小步：直挂会话中 KB/方案仍为空（创建时默认值未被
+// 覆写）的个数——「区内 N 个直挂会话中 M 个仍为创建时默认值」作用范围提示数据源（零写操作）。
+func (s *Store) CountStaleDirectDefaults(workspaceID string) (total int, stale int, err error) {
+	convs, err := s.ListConversations(ConversationFilter{WorkspaceID: workspaceID})
+	if err != nil {
+		return 0, 0, err
+	}
+	total = len(convs)
+	for _, c := range convs {
+		if (c.KBID == nil || *c.KBID == "") && (c.RuntimeProfileID == nil || *c.RuntimeProfileID == "") {
+			stale++
+		}
+	}
+	return total, stale, nil
+}

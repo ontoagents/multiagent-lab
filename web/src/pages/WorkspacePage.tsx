@@ -161,7 +161,7 @@ export default function WorkspacePage() {
               // REQ-488 空态灰字语言：单列一行 + 显式新建钮（选中工作区时）
               <div className="page" style={{ padding: '48px 40px' }}>
                 <Typography.Text type="secondary" style={{ fontSize: 13 }} data-testid="workspaces-empty-quiet">
-                  在左侧选择工作区，与其开始对话；新对话自动继承工作区默认知识库与本体方案。工作区宜少而精——一个业务场景一个工作区即可，不必为每个项目单建。工作区宜少而精——一个业务场景一个工作区即可，不必为每个项目单建。
+                  在左侧选择工作区，与其开始对话；新对话自动继承工作区默认知识库与本体方案。工作区宜少而精——一个业务场景一个工作区即可，不必为每个项目单建。
                 </Typography.Text>
                 {activeWorkspace && (
                   <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>

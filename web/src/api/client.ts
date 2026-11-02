@@ -223,6 +223,11 @@ export const api = {
   gitWorking: (id: string) => req<{ files: GitWorkingFile[] }>(`/api/projects/${id}/git-working`),
 
   // conversations
+  /** REQ-583/M398：工作区维度作用范围提示（count 只读）+显式追赶（沿 project apply 同构） */
+  workspaceDirectDefaultsCount: (id: string) =>
+    req<{ total: number; stale: number }>(`/api/workspaces/${encodeURIComponent(id)}/direct-defaults-count`),
+  applyWorkspaceDefaultsDirect: (id: string) =>
+    req<{ updated: number }>(`/api/workspaces/${encodeURIComponent(id)}/apply`, { method: 'POST' }),
   listConversations: (q: { scope?: string; agent_id?: string; project_id?: string; workspace_id?: string } = {}) => {
     const params = new URLSearchParams()
     if (q.scope) params.set('scope', q.scope)
