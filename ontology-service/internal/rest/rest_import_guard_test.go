@@ -96,6 +96,31 @@ func TestImportLimitDisabled(t *testing.T) {
 	}
 }
 
+// REQ-596 默认阈值放大：无 env 时体限=256MB、对象限=500000（EDAM 级数万注释公理留余量）；
+// env 调小收紧与 =0 解除（体限 -1）两态保持。
+func TestImportLimitDefaultsRaised(t *testing.T) {
+	t.Setenv("IMPORT_MAX_BODY_MB", "")
+	t.Setenv("IMPORT_MAX_SPEC_OBJECTS", "")
+	limit, objs := importLimits()
+	if limit != 256<<20 {
+		t.Fatalf("默认体限期望 256MB，得 %d", limit)
+	}
+	if objs != 500_000 {
+		t.Fatalf("默认对象限期望 500000，得 %d", objs)
+	}
+	t.Setenv("IMPORT_MAX_BODY_MB", "0")
+	limit, _ = importLimits()
+	if limit != -1 {
+		t.Fatalf("IMPORT_MAX_BODY_MB=0 期望解除（-1），得 %d", limit)
+	}
+	t.Setenv("IMPORT_MAX_BODY_MB", "8")
+	t.Setenv("IMPORT_MAX_SPEC_OBJECTS", "42")
+	limit, objs = importLimits()
+	if limit != 8<<20 || objs != 42 {
+		t.Fatalf("env 收紧期望 8MB/42，得 %d/%d", limit, objs)
+	}
+}
+
 // 正常回归：小 spec_json 默认阈值下导入 201，响应含 ontology 与 report。
 func TestImportNormalSmallRegression(t *testing.T) {
 	s := newImportGuardServer(t)

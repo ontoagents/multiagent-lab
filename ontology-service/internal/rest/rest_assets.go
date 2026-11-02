@@ -284,9 +284,9 @@ func (s *Server) qualityConfigPut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ontology_id": id, "strict": o.QualityStrict, "reasoning_check": o.ReasoningCheck})
 }
 
-// importLimits 导入防线阈值（REQ-305）：拒绝语义取代历史 64MB LimitReader 的静默截断。
-// IMPORT_MAX_BODY_MB：请求体上限 MB（默认 64，与历史硬顶一致——只改「超了怎么办」不改「多大能进」；<=0 不限制）；
-// IMPORT_MAX_SPEC_OBJECTS：归一化 spec 五层元素总数上限（默认 50000，真实资产误伤极小；<=0 不限制）。
+// importLimits 导入防线阈值（REQ-305 立防线；REQ-596 放大默认值）：拒绝语义取代历史 64MB LimitReader 的静默截断。
+// IMPORT_MAX_BODY_MB：请求体上限 MB（默认 256——EDAM/ChEBI 级真实本体覆盖；<=0 不限制）；
+// IMPORT_MAX_SPEC_OBJECTS：归一化 spec 五层元素总数上限（默认 500000——EDAM 级数万注释公理留足余量；<=0 不限制）。
 
 func (s *Server) artifacts(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.ListArtifacts(r.PathValue("id"))

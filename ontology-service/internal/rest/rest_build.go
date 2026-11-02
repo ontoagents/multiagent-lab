@@ -250,14 +250,17 @@ type sidecarReasonOut struct {
 
 // reasonCheck 导出 TTL 内容经 sidecar reason 跑一致性检测（不落库，报告旁路）。
 
+// importLimits 导入防线阈值（REQ-305 立防线；REQ-596 放大默认值——EDAM 级真实本体（数万注释公理）
+// 撞 5 万对象闸与 64MB 体限，单机自部署放大留余量：体 64→256MB、五层对象 5 万→50 万；
+// env 仍可调小收紧或 <=0 解除（单机自部署资源自担）。
 func importLimits() (bodyLimit int64, maxObjects int) {
-	mb := 64
+	mb := 256
 	if v := os.Getenv("IMPORT_MAX_BODY_MB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			mb = n
 		}
 	}
-	objs := 50_000
+	objs := 500_000
 	if v := os.Getenv("IMPORT_MAX_SPEC_OBJECTS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			objs = n
@@ -283,7 +286,7 @@ func captureMinTriples() int {
 
 func importTooLarge(w http.ResponseWriter, bodyLimit int64) {
 	writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
-		"error": fmt.Sprintf("导入内容超过体积上限（%d MB）：请拆分或清洗后重试", bodyLimit>>20),
+		"error": fmt.Sprintf("导入内容超过体积上限（%d MB）：请拆分或清洗后重试；单机自部署可设 IMPORT_MAX_BODY_MB=0 解除限制后重启生效", bodyLimit>>20),
 	})
 }
 
@@ -377,7 +380,7 @@ func (s *Server) importOntology(w http.ResponseWriter, r *http.Request) {
 	// 规模校验（REQ-305）：归一化 spec 五层元素总数上限——在 CreateOntology 之前拒绝，无脏数据
 	if maxObjects > 0 && specObjectCount(sp) > maxObjects {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("导入规模超过上限（%d 个对象 > %d）：请拆分成本体或先行清洗合并后导入", specObjectCount(sp), maxObjects),
+			"error": fmt.Sprintf("导入规模超过上限（%d 个对象 > %d）：请拆分成本体或先行清洗合并后导入；单机自部署可设 IMPORT_MAX_SPEC_OBJECTS=0 解除限制后重启生效", specObjectCount(sp), maxObjects),
 		})
 		return
 	}
