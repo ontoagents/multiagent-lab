@@ -346,6 +346,9 @@ body { font-size: 14px; background: var(--c-bg); }
 .event-card.err { background: var(--c-err-weak); color: var(--c-err); border-color: transparent; border-left-color: var(--c-err); }
 .event-card.warn { background: #fffbeb; color: #b45309; border-color: transparent; border-left-color: #d97706; }
 .event-card .ant-collapse-header { padding: 2px 0 !important; }
+/* REQ-592①：context.stats 账单行与「上下文账单明细」入口同行（原竖排两行占高）；窄屏 wrap 降级换行 */
+.event-card-inline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.event-card-inline > .ant-collapse { flex: 0 1 auto; min-width: 0; }
 .event-side { margin-left: calc(8px + var(--sub-depth, 0) * 14px); max-width: 640px; }
 .event-link { font-size: 11.5px; color: var(--ant-color-primary, #4f46e5); }
 /* 事件卡补充说明（如 ontology.unavailable 的 detail） */

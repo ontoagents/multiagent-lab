@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, ReactNode, SVGProps } from 'react'
 import { Alert, Button, Collapse, Dropdown, Input, Modal, Popover, Segmented, Space, Splitter, Switch, Tag, Tooltip, Typography } from 'antd'
-import { AlignLeftOutlined, BookOutlined, BranchesOutlined, ClusterOutlined, CopyOutlined, EditOutlined, EllipsisOutlined, LoadingOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { BookOutlined, BranchesOutlined, ClusterOutlined, CopyOutlined, EditOutlined, EllipsisOutlined, LoadingOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { Bubble, Welcome } from '@ant-design/x'
 import type { BubbleListProps } from '@ant-design/x'
 import XMarkdown from '@ant-design/x-markdown'
@@ -38,6 +38,13 @@ import { CompanionCapsule, summarizeCompanionPhases, type CompanionSummaryItem }
 import { TodoCard } from './chat/TodoCard'
 import { BLANK_PANE, BUBBLE_ROLES, ChatChip, SEG_COLORS, SEG_LABELS, type PaneSel } from './chat/bits'
 import DelegatePanel from './chat/DelegatePanel'
+
+// REQ-592③：「引用到输入框」改引号图标——antd 图标集无 quote 字形，内联 SVG（双引号块形，currentColor 随钮）
+const QuoteIcon = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true" {...props}>
+    <path d="M6 17h3l2-4V7H5v6h3l-2 4zm8 0h3l2-4V7h-6v6h3l-2 4z" />
+  </svg>
+)
 
 /**
  * 中间对话窗口（原型 06 §3.1 / §3.2，Ant Design X Bubble/Sender）：
@@ -1003,7 +1010,8 @@ export default function ChatWindow({
         ? `${it.evData.pruned_count} 条${it.evData?.summarized ? '（LLM 压缩摘要持久化）' : '（直接裁剪，原文仍在对话记录）'}`
         : '未发生'
       return (
-        <div key={i} className="event-card src-builtin" style={depthStyle(it.subDepth)}>
+        // REQ-592①：账单行与「上下文账单明细」入口同行（原竖排两行占高；窄屏 flex-wrap 降级换行）
+        <div key={i} className="event-card src-builtin event-card-inline" style={depthStyle(it.subDepth)}>
           <span>{it.eventText}</span>
           <Collapse
             ghost
@@ -1500,7 +1508,7 @@ export default function ChatWindow({
             {/* REQ-483④：操作行图标化——灰色小图标+Tooltip（原常驻蓝色链接×4） */}
             <Space size={0} className="msg-actions ai-actions">
               <Button type="text" size="small" icon={<CopyOutlined />} title="复制" aria-label="复制" data-testid="ai-copy" onClick={() => copyMessage(text)} />
-              <Button type="text" size="small" icon={<AlignLeftOutlined />} title="引用到输入框" aria-label="引用" data-testid="quote-btn" onClick={() => quoteMessage(text)} />
+              <Button type="text" size="small" icon={<QuoteIcon />} title="引用到输入框" aria-label="引用" data-testid="quote-btn" onClick={() => quoteMessage(text)} />
               {!isProjectScope && (
                 <Button type="text" size="small" icon={<BranchesOutlined />} title="派生会话（拷贝当前历史继续对话）" aria-label="派生会话" data-testid="fork-btn" disabled={forking} onClick={forkSession} />
               )}

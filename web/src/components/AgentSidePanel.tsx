@@ -1537,13 +1537,16 @@ function AgentConfigForm({
                       {connectors.map((c) => {
                         const meta = kindMeta(c.kind)
                         // REQ-214 P2②：工具集提示——授权前知道模型将得到什么工具
+                        // REQ-592②：截断到前 8 个+总数——原全量拼接在工具多时撑爆浮层；maxWidth 兜底长名换行
+                        const tools = c.tools ?? []
+                        const toolTxt = tools.length > 8 ? `${tools.slice(0, 8).join('、')} 等 ${tools.length} 个` : tools.join('、')
                         const tip =
-                          (c.tools?.length ?? 0) > 0
-                            ? `工具集：${c.tools.join('、')}${c.tested_at ? `（${new Date(c.tested_at).toLocaleString()} 测试）` : ''}`
+                          tools.length > 0
+                            ? `工具集：${toolTxt}${c.tested_at ? `（${new Date(c.tested_at).toLocaleString()} 测试）` : ''}`
                             : '尚未测试——设置页「测试」后显示工具集'
                         return (
                           <Checkbox key={c.id} value={c.id}>
-                            <Tooltip title={tip}>
+                            <Tooltip title={tip} overlayStyle={{ maxWidth: 360 }}>
                               {/* 面板重设计：kind/内置/可达 Tag 灰字化（REQ-493 口径，异常态不可达留红） */}
                               <span className="ap-conn-name">
                                 <Tag style={{ marginInlineEnd: 4 }}>{meta.label}</Tag>
