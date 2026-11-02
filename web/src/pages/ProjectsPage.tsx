@@ -14,7 +14,6 @@ import DevTeamTemplate from '../components/DevTeamTemplate'
 import WorkspacePage from './WorkspacePage'
 
 /** REQ-549/M356：模块内页签选中记忆（切走再切回不丢位置；沿 eino.onto.sidebar 先例） */
-const PROJ_TAB_KEY = 'eino.proj.tab'
 type ProjTab = 'project' | 'workspace'
 
 /**
@@ -22,10 +21,11 @@ type ProjTab = 'project' | 'workspace'
  * 导航六项不动、ui.ts/App.tsx 零改动——106 号 mustFix-3 终值），页签下为两套页面体。
  */
 export default function ProjectsPage() {
-  const [tab, setTab] = useState<ProjTab>(() => (localStorage.getItem(PROJ_TAB_KEY) === 'workspace' ? 'workspace' : 'project'))
+  // REQ-584/M399：PROJ_TAB_KEY 跨会话持久化退役——导航「项目」点击恒落项目页签（毛刺修复；
+  // 会话内页签切换仍随点随切，仅不再跨会话记忆）。REQ-580 深链（eino.focus.project）不受影响。
+  const [tab, setTab] = useState<ProjTab>('project')
   const selectTab = (t: ProjTab) => {
     setTab(t)
-    try { localStorage.setItem(PROJ_TAB_KEY, t) } catch { /* 配额满静默（沿 REQ-509 本地存档口径） */ }
   }
   // REQ-495②段尾项：「保存到笔记本」未绑定引导的「前往绑定」直达（SaveToNotebookModal 派发）
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { Button, Divider, Form, Input, Popconfirm, Segmented, Select, Tooltip, Typography, Modal } from 'antd'
+import { Button, Divider, Form, Input, Popconfirm, Segmented, Select, Tooltip, Typography, Modal, Space } from 'antd'
 import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -208,7 +208,7 @@ export default function WorkspaceSidePanel({
 // ---------------------------------------------------------------------------
 
 function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; agents: Agent[]; onChanged?: () => void }) {
-  const { showToast, bumpData } = useUI()
+  const { showToast, bumpData, setPage } = useUI()
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -295,14 +295,53 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
     }
   }
 
+  // REQ-584/M399：删除前实时枚举名下资产（直挂对话/已确认记忆/候选/归属项目/笔记本绑定——五项 count）；
+  // 删除完成 toast 升级「查看回落对话」直达（eino.focus.conv+eino:goto.agents——AgentsPage 选中回落会话）
+  const [delModalOpen, setDelModalOpen] = useState(false)
+  const [delStats, setDelStats] = useState<{ convs: number; accepted: number; candidates: number; projects: number; notebooks: number } | null>(null)
+  const [delStatsLoading, setDelStatsLoading] = useState(false)
+  const [fallbackConvId, setFallbackConvId] = useState('')
+
+  const openDeleteModal = async () => {
+    setDelModalOpen(true)
+    setDelStatsLoading(true)
+    try {
+      const convs = await api.listConversations({ workspace_id: workspace.id }).catch(() => [])
+      const mems = await api.listMemories(workspace.id).catch(() => [])
+      const projects = await api.listProjects({ workspace_id: workspace.id }).catch(() => [])
+      const nbs = await api.listNotebooks(workspace.id).catch(() => [])
+      setFallbackConvId(convs[0]?.id ?? '')
+      setDelStats({
+        convs: convs.length,
+        accepted: mems.filter((m) => m.status === 'accepted').length,
+        candidates: mems.filter((m) => m.status === 'candidate').length,
+        projects: projects.length,
+        notebooks: nbs.length,
+      })
+    } catch {
+      setDelStats(null)
+    } finally {
+      setDelStatsLoading(false)
+    }
+  }
+
   const remove = async () => {
     setDeleting(true)
     try {
       await api.deleteWorkspace(workspace.id)
-      // REQ-581/M396：结果 toast 补记忆面后果（CASCADE 语义如实透出）
+      // REQ-581/M396：结果 toast 补记忆面后果（CASCADE 语义如实透出）+REQ-584「查看回落对话」直达
       showToast('已删除（其对话已回落智能体页，消息资产保留；该工作区的记忆与候选条目已一并删除）')
       bumpData()
       onChanged?.()
+      setDelModalOpen(false)
+      if (fallbackConvId) {
+        // 直达：置 focus.conv 并切导航到智能体页（AgentsPage 挂载后 convs 载入 effect 选中回落会话；
+        // 事件派发在跨页场景收不到——AgentsPage 此刻未挂载）
+        try {
+          sessionStorage.setItem('eino.focus.conv', fallbackConvId)
+          setPage('agents')
+        } catch { /* 静默 */ }
+      }
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {
@@ -446,18 +485,42 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
         <Button type="primary" size="small" loading={saving} onClick={save}>
           保存
         </Button>
-        <Popconfirm
+        {/* REQ-584/M399：删除前实时枚举名下资产 Modal（沿 REQ-507 两段流先例；CASCADE/SET NULL 语义零改动仅枚举不拦截） */}
+        <Button danger size="small" loading={deleting} onClick={openDeleteModal} data-testid="ws-del-open">
+          删除工作区
+        </Button>
+        <Modal
+          open={delModalOpen}
+          onCancel={() => setDelModalOpen(false)}
           title={`删除工作区「${workspace.name}」？`}
-          description="其直挂对话将回落智能体页（消息资产保留）；该工作区已确认的记忆与候选条目将一并删除。"
           okText="删除"
-          okButtonProps={{ danger: true }}
+          okButtonProps={{ danger: true, loading: deleting, disabled: delStatsLoading }}
           cancelText="取消"
-          onConfirm={remove}
+          width={460}
         >
-          <Button danger size="small" loading={deleting}>
-            删除工作区
-          </Button>
-        </Popconfirm>
+          {delStatsLoading || !delStats ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>正在统计名下资产…</Typography.Text>
+          ) : (
+            <div data-testid="ws-del-stats">
+              <Typography.Text type="secondary" style={{ fontSize: 12.5, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+                删除后其直挂对话将回落智能体页（消息资产保留）；该工作区已确认的记忆与候选条目将一并删除（CASCADE）。名下资产：
+              </Typography.Text>
+              <ul style={{ fontSize: 12.5, lineHeight: 2, margin: '0 0 8px', paddingLeft: 18 }}>
+                <li>直挂对话：{delStats.convs} 个（回落保留）</li>
+                <li>已确认记忆：{delStats.accepted} 条（一并删除）</li>
+                <li>记忆候选：{delStats.candidates} 条（一并删除）</li>
+                <li>归属项目：{delStats.projects} 个（解除归属保留）</li>
+                <li>笔记本绑定：{delStats.notebooks} 个（随笔记本保留、解绑）</li>
+              </ul>
+              <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button size="small" onClick={() => setDelModalOpen(false)}>取消</Button>
+                <Button danger size="small" loading={deleting} onClick={remove} disabled={delStatsLoading}>
+                  {delStats.convs + delStats.accepted + delStats.candidates + delStats.projects + delStats.notebooks > 0 ? '确认删除' : '确认删除（空工作区）'}
+                </Button>
+              </Space>
+            </div>
+          )}
+        </Modal>
       </div>
     </div>
   )

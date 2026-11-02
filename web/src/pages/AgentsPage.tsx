@@ -40,6 +40,28 @@ export default function AgentsPage() {
   useEffect(() => {
     api.listWorkspaces().then((r) => setWorkspaces(r ?? [])).catch(() => {})
   }, [])
+  // REQ-584/M399：删除工作区「查看回落对话」直达（eino.focus.conv——convs 载入后选中该会话+归属智能体）
+  useEffect(() => {
+    if (convs.length === 0) return
+    const convId = sessionStorage.getItem('eino.focus.conv')
+    if (!convId) return
+    const conv = convs.find((c) => c.id === convId)
+    if (conv) {
+      sessionStorage.removeItem('eino.focus.conv')
+      if (conv.agent_id) setActiveAgentId(conv.agent_id)
+      setCurrentConv(conv.id)
+    }
+  }, [convs])
+  useEffect(() => {
+    const gotoAgents = () => {
+      try {
+        sessionStorage.setItem('eino.focus.conv', sessionStorage.getItem('eino.focus.conv.pending') ?? '')
+        sessionStorage.removeItem('eino.focus.conv.pending')
+      } catch { /* 静默 */ }
+    }
+    window.addEventListener('eino:goto.agents', gotoAgents)
+    return () => window.removeEventListener('eino:goto.agents', gotoAgents)
+  }, [])
   // REQ-461/M261：被引用面板深链（eino.agents.focus）——agents 载入后自动选中
   useEffect(() => {
     if (agents.length === 0) return
