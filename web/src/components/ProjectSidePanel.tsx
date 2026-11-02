@@ -737,7 +737,7 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
   const changeWorkspace = async (wsId: string) => {
     try {
       await api.setProjectWorkspace(project.id, wsId)
-      showWsToast(wsId ? '已归属工作区（新会话起继承默认值）' : '已解除归属（已建会话不受影响）')
+      showWsToast(wsId ? '已归属工作区（新会话起继承默认值）' : '已解除归属：已建会话的库/方案默认值保持不变；跨会话记忆自下轮起不再注入') // REQ-581/M396
       wsBump()
       onChanged?.()
     } catch (e: any) {

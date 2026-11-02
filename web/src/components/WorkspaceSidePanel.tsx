@@ -279,7 +279,8 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
     setDeleting(true)
     try {
       await api.deleteWorkspace(workspace.id)
-      showToast('已删除（其对话已回落智能体页，消息资产保留）')
+      // REQ-581/M396：结果 toast 补记忆面后果（CASCADE 语义如实透出）
+      showToast('已删除（其对话已回落智能体页，消息资产保留；该工作区的记忆与候选条目已一并删除）')
       bumpData()
       onChanged?.()
     } catch (e: any) {
@@ -427,7 +428,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
         </Button>
         <Popconfirm
           title={`删除工作区「${workspace.name}」？`}
-          description="其直挂对话将回落智能体页（消息资产保留）。"
+          description="其直挂对话将回落智能体页（消息资产保留）；该工作区已确认的记忆与候选条目将一并删除。"
           okText="删除"
           okButtonProps={{ danger: true }}
           cancelText="取消"
@@ -476,7 +477,8 @@ function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChange
     setBusy(p.id)
     try {
       await api.setProjectWorkspace(p.id, '')
-      showToast(`项目「${p.name}」已解除归属（已建会话不受影响）`)
+      // REQ-581/M396：补记忆面后果（库/方案默认值保持不变——写时复制已固化；记忆注入自下轮起停）
+      showToast(`项目「${p.name}」已解除归属：已建会话的库/方案默认值保持不变；跨会话记忆自下轮起不再注入`)
       bumpData()
       onChanged?.()
       load()
