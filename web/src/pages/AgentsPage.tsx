@@ -20,7 +20,20 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
-  const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  // REQ-536/M390 现场恢复：选中智能体进 sessionStorage（eino.agent.active）
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('eino.agent.active')
+    } catch {
+      return null
+    }
+  })
+  useEffect(() => {
+    try {
+      if (activeAgentId) sessionStorage.setItem('eino.agent.active', activeAgentId)
+      else sessionStorage.removeItem('eino.agent.active')
+    } catch {}
+  }, [activeAgentId])
   // REQ-461/M261：被引用面板深链（eino.agents.focus）——agents 载入后自动选中
   useEffect(() => {
     if (agents.length === 0) return

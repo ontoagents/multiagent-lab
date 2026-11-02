@@ -40,6 +40,17 @@ interface UIState {
 // 初始 page 从 URL 恢复（刷新保持在当前页面）
 const initialPage = pageFromPath(window.location.pathname)
 
+// REQ-536/M390 会话现场恢复：currentConvId 进 sessionStorage（eino.conv.current）——
+// 刷新后停留原会话（验收口径）；setCurrentConv(null) 即清除。
+const CONV_KEY = 'eino.conv.current'
+const initialConvId = (): string | null => {
+  try {
+    return sessionStorage.getItem(CONV_KEY)
+  } catch {
+    return null
+  }
+}
+
 export const useUI = create<UIState>((set) => ({
   page: initialPage,
   setPage: (p) => {
@@ -49,8 +60,14 @@ export const useUI = create<UIState>((set) => ({
     }
     set({ page: p })
   },
-  currentConvId: null,
-  setCurrentConv: (id) => set({ currentConvId: id }),
+  currentConvId: initialConvId(),
+  setCurrentConv: (id) => {
+    try {
+      if (id) sessionStorage.setItem(CONV_KEY, id)
+      else sessionStorage.removeItem(CONV_KEY)
+    } catch {}
+    set({ currentConvId: id })
+  },
   dataVersion: 0,
   bumpData: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
   showToast: (msg, kind = 'ok') => toast(msg, kind),

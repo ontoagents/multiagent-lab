@@ -297,12 +297,12 @@ export default function TraceDrawer({
         {/* REQ-224/M52（51 号 W1）：harness 视角预置过滤器——治理面一键聚焦 */}
         <Space size={4} wrap style={{ marginBottom: 4 }}>
           <a
-            style={{ fontSize: 11 }}
+            style={{ fontSize: "var(--fs-caption)" }}
             onClick={() => setTypeGroups(['harness', 'approval', 'warning'])}
           >
             harness 视角
           </a>
-          <a style={{ fontSize: 11 }} onClick={() => setTypeGroups([])}>全部</a>
+          <a style={{ fontSize: "var(--fs-caption)" }} onClick={() => setTypeGroups([])}>全部</a>
         </Space>
         <Space size={6} wrap>
           <Select
@@ -574,9 +574,9 @@ function TimelineStrip({ events }: { events: RunEventDTO[] }) {
   return (
     <div style={{ margin: '4px 10px 8px', padding: '6px 8px 4px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, marginLeft: 22 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 10 }}>时序 · 总 {fmtDur(T)}（思考/正文/工具/事件/智能体）</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: "var(--fs-caption)" }}>时序 · 总 {fmtDur(T)}（思考/正文/工具/事件/智能体）</Typography.Text>
         <span style={{ flex: 1 }} />
-        <Typography.Text type="secondary" style={{ fontSize: 10 }}>{fmtTime(events[0].created_at)} → {fmtTime(events[events.length - 1].created_at)}</Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: "var(--fs-caption)" }}>{fmtTime(events[0].created_at)} → {fmtTime(events[events.length - 1].created_at)}</Typography.Text>
       </div>
       <div style={{ position: 'relative', height: 69, marginLeft: 22 }}>
         {[0, 1, 2, 3, 4].map((lane) => (
@@ -659,7 +659,7 @@ function RunBlock({
     const label = ap.mode === 'danger' ? '危险工具审批' : ap.mode === 'all' ? '全部审批' : String(ap.mode)
     return (
       <Tooltip title={`生效来源：${ap.source === 'conversation' ? '会话级覆盖' : '智能体级策略'}`}>
-        <Tag color={ap.mode === 'all' ? 'purple' : 'gold'} style={{ margin: 0, fontSize: 10 }}>
+        <Tag color={ap.mode === 'all' ? 'purple' : 'gold'} style={{ margin: 0, fontSize: "var(--fs-caption)" }}>
           审批·{label}{ap.source === 'conversation' ? '（会话覆盖）' : ''}
         </Tag>
       </Tooltip>
@@ -677,7 +677,7 @@ function RunBlock({
     if (!d.model && temp == null && toks == null && maxIt == null) return null
     return (
       <Tooltip title={`当轮模型 ${d.model ?? '—'}；temperature ${temp ?? '后端默认'} / max_tokens ${toks ?? '后端默认'}（未设置=跟随后端协议默认）；迭代上限 ${maxIt ?? '—'}（生效值）`}>
-        <Tag style={{ margin: 0, fontSize: 10 }}>
+        <Tag style={{ margin: 0, fontSize: "var(--fs-caption)" }}>
           {d.model ? `${d.model}` : '模型 —'}{temp != null ? ` · t=${temp}` : ''}{toks != null ? ` · ${toks}tok` : ''}{maxIt != null ? ` · 迭代≤${maxIt}` : ''}
         </Tag>
       </Tooltip>
@@ -704,9 +704,9 @@ function RunBlock({
       {wfStrip && (
         <div style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-testid="wf-progress">
           {/* REQ-488：运行头彩 Tag 墙灰字化——仅失败/校验告警留色（REQ-483 视觉语言） */}
-          <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>工作流 · {wfStrip.mode}</Typography.Text>
+          <Typography.Text type="secondary" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>工作流 · {wfStrip.mode}</Typography.Text>
           {wfStrip.items.map(([name, st]) => (
-            <Typography.Text key={name} type="secondary" style={{ margin: 0, fontSize: 11 }} data-testid={`wf-node-${name}`}>
+            <Typography.Text key={name} type="secondary" style={{ margin: 0, fontSize: "var(--fs-caption)" }} data-testid={`wf-node-${name}`}>
               {st.phase === 'completed' ? '✓ ' : '▶ '}{name}{st.index > 0 ? ` ${st.index}/${st.total}` : ''}
             </Typography.Text>
           ))}
@@ -719,17 +719,17 @@ function RunBlock({
         {approvalChip}
         {fin && (
           fin.type === 'run.error' ? (
-            <Tag color="red" style={{ margin: 0, fontSize: 10 }}>出错</Tag>
+            <Tag color="red" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>出错</Tag>
           ) : finState?.reason === 'verify_failed' ? (
-            <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>{String(finState.reason)}</Tag>
+            <Tag color="orange" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>{String(finState.reason)}</Tag>
           ) : (
-            <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>{finState?.reason ? String(finState.reason) : '完成'}</Typography.Text>
+            <Typography.Text type="secondary" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>{finState?.reason ? String(finState.reason) : '完成'}</Typography.Text>
           )
         )}
         {finState?.duration_ms != null && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{finState.duration_ms}ms</Typography.Text>}
         {finState?.usage?.total_tokens != null && (
           <Tooltip title={`输入 ${finState.usage.input_tokens ?? '—'} / 输出 ${finState.usage.output_tokens ?? '—'}`}>
-            <Typography.Text type="secondary" style={{ margin: 0, fontSize: 11 }}>{finState.usage.total_tokens} tok</Typography.Text>
+            <Typography.Text type="secondary" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>{finState.usage.total_tokens} tok</Typography.Text>
           </Tooltip>
         )}
         <span style={{ flex: 1 }} />
@@ -749,7 +749,7 @@ function RunBlock({
       {/* REQ-388：C4 评估结果行（灰字——沿 REQ-494 视觉语言） */}
       {evalRes && (
         <div style={{ padding: '2px 10px 4px', display: 'flex', gap: 6, alignItems: 'baseline' }} data-testid={`run-eval-${run.runId}`}>
-          <Tag color={evalRes.verdict === 'pass' ? 'green' : evalRes.verdict === 'partial' ? 'gold' : 'red'} style={{ margin: 0, fontSize: 10 }}>
+          <Tag color={evalRes.verdict === 'pass' ? 'green' : evalRes.verdict === 'partial' ? 'gold' : 'red'} style={{ margin: 0, fontSize: "var(--fs-caption)" }}>
             {evalRes.verdict === 'pass' ? '通过' : evalRes.verdict === 'partial' ? '部分' : '未过'} · {evalRes.score}/2
           </Tag>
           <Typography.Text type="secondary" style={{ fontSize: 11, flex: 1 }}>{evalRes.reason}</Typography.Text>
@@ -757,7 +757,7 @@ function RunBlock({
       )}
       {evalErr && (
         <div style={{ padding: '2px 10px 4px' }}>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>{evalErr}</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: "var(--fs-caption)" }}>{evalErr}</Typography.Text>
         </div>
       )}
       {showTimeline && <TimelineStrip events={run.allEvents} />}
@@ -770,7 +770,7 @@ function RunBlock({
               <div key={key} style={{ padding: '3px 10px 3px' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, cursor: 'pointer' }}
                   onClick={() => setOpenSeg((m) => ({ ...m, [key]: !m[key] }))}>
-                  <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>思考</Tag>
+                  <Tag color="purple" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>思考</Tag>
                   <span style={{ fontSize: 12, flex: 1 }}>
                     深度思考 {seg.chars} 字 · {span} · {seg.items.length} 段流式
                     {seg.text ? ` · ${seg.text.replace(/\s+/g, ' ').slice(0, 60)}…` : ''}
@@ -787,7 +787,7 @@ function RunBlock({
             return (
               <div key={`seg-m-${si}`} style={{ padding: '3px 10px 3px' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>正文</Tag>
+                  <Tag color="blue" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>正文</Tag>
                   <span style={{ fontSize: 12, flex: 1, color: 'var(--c-ink-2)' }}>
                     流式输出 {seg.chars} 字 · {span}（正文全文以消息表为准，此处为输出时段）
                   </span>
@@ -806,7 +806,7 @@ function RunBlock({
                 onClick={() => setOpenId((m) => ({ ...m, [e.id]: !m[e.id] }))}>
                 {/* REQ-488：类型标注灰字（告警/错误/拒绝留色 Tag）；source 标注灰字 */}
                 {isAlertType(e.type) ? (
-                  <Tag color={ALERT_COLOR[e.type]} style={{ margin: 0, fontSize: 10 }}>{e.type}</Tag>
+                  <Tag color={ALERT_COLOR[e.type]} style={{ margin: 0, fontSize: "var(--fs-caption)" }}>{e.type}</Tag>
                 ) : (
                   <span style={{ margin: 0, fontSize: 11, color: 'var(--c-ink-3)', fontFamily: 'monospace' }}>{e.type}</span>
                 )}

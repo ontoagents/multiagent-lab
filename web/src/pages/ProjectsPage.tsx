@@ -81,7 +81,20 @@ function ProjectsBody() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  // REQ-536/M390 现场恢复：选中项目进 sessionStorage（eino.project.active）
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('eino.project.active')
+    } catch {
+      return null
+    }
+  })
+  useEffect(() => {
+    try {
+      if (activeProjectId) sessionStorage.setItem('eino.project.active', activeProjectId)
+      else sessionStorage.removeItem('eino.project.active')
+    } catch {}
+  }, [activeProjectId])
   const [createOpen, setCreateOpen] = useState(false)
   // REQ-102/103：右侧侧边栏（文件 / Git / 配置）开合与当前视图
   const [sidePanelOpen, setSidePanelOpen] = useState(false)

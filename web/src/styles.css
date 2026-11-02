@@ -4,6 +4,12 @@
  * 这里只保留整体布局网格、局部滚动与少数自定义卡片的补充样式。
  */
 :root {
+  /* REQ-536/M390 字号令牌封闭四档：新代码禁裸写 fontSize 字面量，触碰即归拢（≤11px 正文性
+     小字抬 caption 下限，纯装饰徽标豁免——详设口径）。 */
+  --fs-caption: 12px;
+  --fs-secondary: 12.5px;
+  --fs-body: 13.5px;
+  --fs-title: 15px;
   --c-bg: var(--c-bg);
   --c-line: #e6e8f0;
   --c-ink: #1c2130;
@@ -762,3 +768,30 @@ html[data-theme='dark'] .onto-engine-item:hover { border-color: #3b4266; box-sha
   max-width: 48px !important;
   overflow: hidden;
 }
+
+/* ---- REQ-536/M390 暗色收编：pages.css 硬编码 hex 的暗色覆盖（亮色不动零回归；验收=暗色首启无浅灰压浅灰） ---- */
+html[data-theme='dark'] .hit { border-left-color: #3a3f55; }
+html[data-theme='dark'] .hit.hi { border-left-color: #2fbf5f; }
+html[data-theme='dark'] .hit.lo { border-left-color: #d9a23b; }
+html[data-theme='dark'] .onto-dot { background: #4a5068; }
+html[data-theme='dark'] .onto-flow-node-inst { background: #2c2846; border-color: #5a4b9e; }
+html[data-theme='dark'] .onto-flow-node-inst:hover,
+html[data-theme='dark'] .onto-flow-node-inst.selected { background: #383258; border-color: #9d84f2; box-shadow: 0 0 0 2px rgba(157, 132, 242, .18); }
+html[data-theme='dark'] .onto-flow-node-badge.inst { background: #7c5cf0; }
+html[data-theme='dark'] .onto-flow-edge-belongs .react-flow__edge-path { stroke: #6b5aa8; }
+html[data-theme='dark'] .onto-flow-edge-instrel .react-flow__edge-path { stroke: #8471c9; }
+html[data-theme='dark'] .onto-flow-inst.selected { background: #383258; border-color: #9d84f2; box-shadow: 0 0 0 2px rgba(157, 132, 242, .18); }
+html[data-theme='dark'] .onto-learn-row { border-color: #3a3f55; }
+html[data-theme='dark'] .onto-diff-col.add { border-left-color: #2fbf5f; }
+html[data-theme='dark'] .onto-diff-to { color: #6fd88f; background: #1e3327; }
+html[data-theme='dark'] .git-chip { border-color: #3a3f55; }
+html[data-theme='dark'] .git-commit-row::before { background: #3a3f55; }
+html[data-theme='dark'] .git-add { color: #7cc66a; }
+html[data-theme='dark'] .git-del { color: #e5727a; }
+html[data-theme='dark'] .onto-task-card.done { border-color: #2c4a35; background: #1e2c22; }
+html[data-theme='dark'] .onto-task-card.done .onto-task-title { color: #6fd88f; }
+html[data-theme='dark'] .onto-learn-step:hover { border-color: #4a4f70; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+html[data-theme='dark'] .onto-learn-step.done { border-color: #2c4a35; background: #1e2c22; }
+html[data-theme='dark'] .onto-learn-step-badge.done { color: #6fd88f; background: #1e3327; }
+html[data-theme='dark'] .onto-learn-step-arrow { color: #6b7089; }
+html[data-theme='dark'] .asset-row-dot .dot { background: #3f8a4e; }
