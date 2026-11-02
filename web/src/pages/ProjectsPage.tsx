@@ -95,6 +95,23 @@ function ProjectsBody() {
       else sessionStorage.removeItem('eino.project.active')
     } catch {}
   }, [activeProjectId])
+  // REQ-580/M395：项目侧深链（eino.focus.project）——选中该项目+开侧板+config 视图（SaveToNotebook 未归属分支直达）
+  useEffect(() => {
+    const gotoProjectConfig = () => {
+      try {
+        const pid = sessionStorage.getItem('eino.focus.project')
+        if (!pid) return
+        sessionStorage.removeItem('eino.focus.project')
+        if (projects.some((p) => p.id === pid)) {
+          setActiveProjectId(pid)
+          setSidePanelOpen(true)
+          setPanelView('config')
+        }
+      } catch { /* sessionStorage 不可用静默 */ }
+    }
+    window.addEventListener('eino:goto.projtab.project', gotoProjectConfig)
+    return () => window.removeEventListener('eino:goto.projtab.project', gotoProjectConfig)
+  }, [projects])
   const [createOpen, setCreateOpen] = useState(false)
   // REQ-102/103：右侧侧边栏（文件 / Git / 配置）开合与当前视图
   const [sidePanelOpen, setSidePanelOpen] = useState(false)

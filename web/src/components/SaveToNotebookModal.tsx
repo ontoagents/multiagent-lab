@@ -37,6 +37,16 @@ export const gotoWorkspaceBinding = (workspaceId?: string) => {
   window.dispatchEvent(new CustomEvent('eino:goto.projtab'))
 }
 
+/** REQ-580/M395：项目侧深链协议（eino.focus.project）——切到「项目」页签并聚焦指定项目的侧板配置视图
+ *  （ProjectsPage 监听：选中该项目+开侧板+config 视图；未归属分支两步引导第一步直达） */
+export const gotoProjectSettings = (projectId?: string) => {
+  try {
+    if (projectId) sessionStorage.setItem('eino.focus.project', projectId)
+    else sessionStorage.removeItem('eino.focus.project')
+  } catch { /* 配额满静默（沿 REQ-509 口径） */ }
+  window.dispatchEvent(new CustomEvent('eino:goto.projtab.project'))
+}
+
 export interface SaveTargetFile {
   name: string
   path: string
@@ -54,7 +64,7 @@ export default function SaveToNotebookModal({
 }) {
   const { showToast, bumpData } = useUI()
   const [phase, setPhase] = useState<'resolving' | 'guide' | 'form'>('resolving')
-  const [guide, setGuide] = useState<{ title: string; body: string; focusWorkspace?: string } | null>(null)
+  const [guide, setGuide] = useState<{ title: string; body: string; focusWorkspace?: string; focusProject?: string; steps?: string[] } | null>(null)
   const [bound, setBound] = useState<Notebook[]>([])
   const [nbId, setNbId] = useState('')
   const [title, setTitle] = useState(file.name)
@@ -73,7 +83,11 @@ export default function SaveToNotebookModal({
         if (!alive) return
         setGuide({
           title: '先归属工作区，再保存到笔记本',
-          body: `项目「${project.name}」尚未归属工作区。笔记本按工作区绑定解析保存目标：请到本页右侧项目侧板「配置」视图把本项目归属到一个工作区；再到「项目」模块「工作区」页签选中该工作区，在右侧侧板「配置」视图绑定笔记本。`,
+          body: `项目「${project.name}」尚未归属工作区。笔记本按工作区绑定解析保存目标：
+第一步：把本项目归属到一个工作区（下方按钮直达本项目侧板「配置」视图的归属设置）；
+第二步：到「项目」模块「工作区」页签选中该工作区，在右侧侧板「配置」视图绑定笔记本（完成后重试保存）。`,
+          focusProject: project.id,
+          steps: ['去项目设置归属', '绑定后重试'],
         })
         setPhase('guide')
         return
@@ -153,18 +167,33 @@ export default function SaveToNotebookModal({
           <Button key="close" size="small" onClick={onClose}>知道了</Button>,
           ...(guide && (phase === 'guide'))
             ? [
-                <Button
-                  key="goto"
-                  size="small"
-                  type="primary"
-                  data-testid="goto-bind-btn"
-                  onClick={() => {
-                    gotoWorkspaceBinding(guide.focusWorkspace)
-                    onClose()
-                  }}
-                >
-                  前往绑定
-                </Button>,
+                guide.focusProject ? (
+                  <Button
+                    key="goto-proj"
+                    size="small"
+                    type="primary"
+                    data-testid="goto-proj-btn"
+                    onClick={() => {
+                      gotoProjectSettings(guide.focusProject)
+                      onClose()
+                    }}
+                  >
+                    去项目设置归属
+                  </Button>
+                ) : (
+                  <Button
+                    key="goto"
+                    size="small"
+                    type="primary"
+                    data-testid="goto-bind-btn"
+                    onClick={() => {
+                      gotoWorkspaceBinding(guide.focusWorkspace)
+                      onClose()
+                    }}
+                  >
+                    前往绑定
+                  </Button>
+                ),
               ]
             : [],
         ]

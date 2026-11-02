@@ -301,7 +301,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
     if (!nb) return
     try {
       await api.updateNotebook(nbId, { name: nb.name, description: nb.description, workspace_id: workspace.id })
-      showToast(`笔记本「${nb.name}」已绑定本工作区——对话产物「存笔记本」将写入这里`)
+      showToast(`笔记本「${nb.name}」已绑定本工作区——项目会话产物面板的「存笔记本」动作将写入这里（REQ-586 承接直挂对话产物）`)
       setBindSel('')
       loadNotebooks()
       onChanged?.()
@@ -378,7 +378,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 
         <Section>笔记本绑定</Section>
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-          对话产物面板的「存笔记本」动作写入这里绑定的笔记本（一对多；自产成果资产层 REQ-495）。
+          项目会话产物面板的「存笔记本」动作写入这里绑定的笔记本（一对多；自产成果资产层 REQ-495；直挂对话产物承接=REQ-586）。
         </Typography.Text>
         {boundNotebooks.length === 0 ? (
           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }} data-testid="ws-bind-empty">
