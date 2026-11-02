@@ -183,6 +183,15 @@ func (e ValidationError) Error() string { return e.Path + ": " + e.Message }
 func (s *Spec) Validate() []ValidationError {
 	var errs []ValidationError
 	add := func(path, msg string) { errs = append(errs, ValidationError{Path: path, Message: msg}) }
+	identities := map[string]string{}
+	checkIdentity := func(kind, name, path string) {
+		key := kind + ":" + Sanitize(name)
+		if previous, ok := identities[key]; ok && previous != name {
+			add(path, fmt.Sprintf("RDF IRI 冲突：%s 与 %s 导出为同一身份 %s，请改名其一", previous, name, key))
+		} else {
+			identities[key] = name
+		}
+	}
 
 	// ---- concepts：name 必填唯一；parents 引用已定义概念 ----
 	cn := map[string]int{}
@@ -197,6 +206,7 @@ func (s *Spec) Validate() []ValidationError {
 			continue
 		}
 		cn[c.Name] = i
+		checkIdentity("concept", c.Name, p+".name")
 	}
 	// REQ-376①：限制公理校验（Type 枚举/Property 引用关系/基数型 Value≥0/some·all Target 引用概念）
 	relNames := map[string]bool{}
@@ -249,6 +259,7 @@ func (s *Spec) Validate() []ValidationError {
 			continue
 		}
 		rn[r.Name] = i
+		checkIdentity("relation", r.Name, p+".name")
 		if _, ok := cn[r.From]; !ok {
 			add(p+".from", "定义域引用了未定义概念: "+r.From)
 		}
@@ -294,6 +305,7 @@ func (s *Spec) Validate() []ValidationError {
 			continue
 		}
 		dn[dp.Name] = i
+		checkIdentity("attr", dp.Name, p+".name")
 		if dp.Domain != "" {
 			if _, ok := cn[dp.Domain]; !ok {
 				add(p+".domain", "定义域引用了未定义概念: "+dp.Domain)
@@ -350,6 +362,7 @@ func (s *Spec) Validate() []ValidationError {
 			continue
 		}
 		in[it.Name] = i
+		checkIdentity("instance", it.Name, p+".name")
 		if _, ok := cn[it.Concept]; !ok {
 			add(p+".concept", "引用了未定义概念: "+it.Concept)
 		}

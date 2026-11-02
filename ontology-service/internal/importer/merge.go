@@ -38,18 +38,18 @@ type MergeConflict struct {
 
 // MergePreview 合并预览（审查向导数据；Apply 复用同一构建）。
 type MergePreview struct {
-	Strategy   string          `json:"strategy"`
-	Prefix     string          `json:"prefix"`
-	Added      []string        `json:"added"` // 将新增的实体（kind:name）
-	Conflicts  []MergeConflict `json:"conflicts"`
+	Strategy  string          `json:"strategy"`
+	Prefix    string          `json:"prefix"`
+	Added     []string        `json:"added"` // 将新增的实体（kind:name）
+	Conflicts []MergeConflict `json:"conflicts"`
 	// SemanticConflicts 语义级冲突预检（REQ-259/M258）：同名概念跨版本语义分歧（父类不一致/
 	// 定义漂移）与 label 同义提示（潜在同实体待对齐）——只报告不做自动合并（详设口径），
 	// 审查向导呈现供人工判断。
 	SemanticConflicts []SemanticConflict `json:"semantic_conflicts,omitempty"`
-	Renamed    []string        `json:"renamed"` // merge 策略重命名清单（old -> new）
-	Stats      MergeStats      `json:"stats"`
-	TargetName string          `json:"target_name"`
-	MergedSpec *pkgspec.Spec   `json:"merged_spec"` // 应用后的完整结果（diff 预览用）
+	Renamed           []string           `json:"renamed"` // merge 策略重命名清单（old -> new）
+	Stats             MergeStats         `json:"stats"`
+	TargetName        string             `json:"target_name"`
+	MergedSpec        *pkgspec.Spec      `json:"merged_spec"` // 应用后的完整结果（diff 预览用）
 	// BaseVersion 预览时点目标版本（REQ-293② 防陈旧：apply 回传，服务端不符 409 要求重新预览）
 	BaseVersion int `json:"base_version,omitempty"`
 	// ImportReport 原文件解析报告（REQ-235/H5：lossy 清单+warnings 透出前端，支撑「补录→重跑对账」动线）；
@@ -90,6 +90,14 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 	if strings.TrimSpace(prefix) == "" {
 		prefix = DefaultConflictPrefix
 	}
+	merged, err := cloneMergeSpec(target)
+	if err != nil {
+		return nil, err
+	}
+	incoming, err = cloneMergeSpec(incoming)
+	if err != nil {
+		return nil, err
+	}
 	pv := &MergePreview{
 		Strategy:   strategy,
 		Prefix:     prefix,
@@ -97,15 +105,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 		Conflicts:  []MergeConflict{},
 		Renamed:    []string{},
 		TargetName: target.Name,
-		MergedSpec: &pkgspec.Spec{
-			ID:          target.ID,
-			Name:        target.Name,
-			Description: target.Description,
-			Concepts:    append([]pkgspec.Concept{}, target.Concepts...),
-			Relations:   append([]pkgspec.Relation{}, target.Relations...),
-			Instances:   append([]pkgspec.Instance{}, target.Instances...),
-			Axioms:      append([]pkgspec.Axiom{}, target.Axioms...), // REQ-472/M272：公理保留层（原三策略全丢）
-		},
+		MergedSpec: merged,
 	}
 
 	// ---- 概念 ----
@@ -236,6 +236,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 
 	// ---- 关系 ----
 	rIdx := map[string]int{}
+	renamedRelations := map[string]string{}
 	for i, r := range pv.MergedSpec.Relations {
 		rIdx[r.Name] = i
 	}
@@ -255,6 +256,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 				pv.Stats.RelationsUpdated++
 			default:
 				newName := uniquify(prefix+"_"+in.Name, rIdx)
+				renamedRelations[in.Name] = newName
 				renamed := in
 				renamed.Name = newName
 				// 实例断言引用该关系名的改写
@@ -315,6 +317,7 @@ func BuildMerged(target, incoming *pkgspec.Spec, strategy, prefix string) (*Merg
 			pv.Stats.InstancesAdded++
 		}
 	}
+	pv.MergedSpec.Decisions = mergeDecisions(target.Decisions, incoming.Decisions, strategy, prefix, renamedConcepts, renamedRelations)
 	// REQ-295②：人话 notes（证据故事带数字，非扣分表）
 	if pv.Stats.TotalConflicts > 0 {
 		pv.Notes = append(pv.Notes, MergeNote{Kind: "merged", Text: fmt.Sprintf("同名冲突 %d 处已按策略 %s 处置", pv.Stats.TotalConflicts, strategy)})
@@ -528,6 +531,7 @@ func equalInstanceRels(a, b []pkgspec.InstanceRel) bool {
 // ---- 引用改写（merge 重命名并入时保持语义） ----
 
 func rewireConceptRefs(sp *pkgspec.Spec, oldName, newName string) {
+	rewireDecisionSources(sp.Decisions, "concept", oldName, newName)
 	for i := range sp.Concepts {
 		for j, pr := range sp.Concepts[i].Parents {
 			if pr == oldName {
@@ -567,6 +571,7 @@ func rewireConceptRefs(sp *pkgspec.Spec, oldName, newName string) {
 }
 
 func rewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) {
+	rewireDecisionSources(sp.Decisions, "relation", oldName, newName)
 	for i := range sp.Instances {
 		for j := range sp.Instances[i].Relations {
 			if sp.Instances[i].Relations[j].Rel == oldName {
@@ -593,7 +598,6 @@ func rewireInstanceRefs(sp *pkgspec.Spec, oldName, newName string) {
 		}
 	}
 }
-
 
 // SemanticConflict 语义级冲突一条（REQ-259/M258 详设口径）。
 type SemanticConflict struct {
@@ -677,6 +681,12 @@ func normalizeLabel(l string) string {
 }
 
 // REQ-475/M275：元素重命名 rewire 导出面（rest 层 rename 端点复用 merge 的引用改写单源）。
-func RewireConceptRefs(sp *pkgspec.Spec, oldName, newName string)  { rewireConceptRefs(sp, oldName, newName) }
-func RewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) { rewireRelationRefs(sp, oldName, newName) }
-func RewireInstanceRefs(sp *pkgspec.Spec, oldName, newName string) { rewireInstanceRefs(sp, oldName, newName) }
+func RewireConceptRefs(sp *pkgspec.Spec, oldName, newName string) {
+	rewireConceptRefs(sp, oldName, newName)
+}
+func RewireRelationRefs(sp *pkgspec.Spec, oldName, newName string) {
+	rewireRelationRefs(sp, oldName, newName)
+}
+func RewireInstanceRefs(sp *pkgspec.Spec, oldName, newName string) {
+	rewireInstanceRefs(sp, oldName, newName)
+}
