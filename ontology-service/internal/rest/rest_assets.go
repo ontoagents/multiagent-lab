@@ -709,17 +709,21 @@ func (s *Server) publishOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = decodeJSON(r, &req) // 空请求体（Content-Length 0）允许：默认命名
 	id := r.PathValue("id")
-	raw, _, err := s.Store.GetArtifact(id, "spec_json")
+	head, err := s.Store.ReadSpecSnapshot(id)
 	if err != nil {
 		writeErr(w, fmt.Errorf("本体 %s 无 spec_json 形态、无法冻结发布快照: %w", id, err))
 		return
 	}
-	ttl, triples, terr := s.exportSpecTTL(id, raw, true)
+	if head.SpecJSON == "" {
+		writeErr(w, repo.ErrNotFound)
+		return
+	}
+	ttl, triples, terr := s.exportSpecTTL(id, head.SpecJSON, true)
 	if terr != nil {
 		writeErr(w, terr)
 		return
 	}
-	o, err := s.Store.PublishRelease(id, req.VersionName, raw, ttl, triples)
+	o, err := s.Store.PublishReleaseAt(id, req.VersionName, head.Version, head.SpecJSON, ttl, triples)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -750,13 +754,18 @@ func (s *Server) restoreVersion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "版本号必须是正整数"})
 		return
 	}
+	rows, err := s.Store.ListOverlays(id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	newV, err := s.Store.RestoreVersion(id, v)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	// REQ-292 v1 语义：版本恢复=人工钉定历史态——overlay 全清（此后重算按恢复态为 base，预期行为）
-	cleared, _ := s.Store.ClearOverlays(id)
+	cleared := len(rows)
 	o, _ := s.Store.GetOntology(id)
 	writeJSON(w, http.StatusOK, map[string]any{"restored_from": v, "new_version": newV, "overlays_cleared": cleared, "ontology": o})
 }

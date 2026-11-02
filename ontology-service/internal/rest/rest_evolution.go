@@ -12,6 +12,7 @@ package rest
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
 	"net/http"
 	"strings"
 
@@ -31,19 +32,15 @@ func (s *Server) evoStore() *evolution.Store {
 
 // getSpecMap 读当前 spec 为 map 形态（进化补丁操作面）。
 func (s *Server) getSpecMap(ontologyID string) (map[string]any, int, error) {
-	raw, _, err := s.Store.GetArtifact(ontologyID, "spec_json")
+	head, err := s.Store.ReadSpecSnapshot(ontologyID)
 	if err != nil {
 		return nil, 0, err
 	}
 	var m map[string]any
-	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+	if err := json.Unmarshal([]byte(head.SpecJSON), &m); err != nil {
 		return nil, 0, err
 	}
-	o, err := s.Store.GetOntology(ontologyID)
-	if err != nil {
-		return nil, 0, err
-	}
-	return m, o.Version, nil
+	return m, head.Version, nil
 }
 
 // listEvolutionCandidates GET 候选列表。
@@ -232,8 +229,8 @@ func (s *Server) gateEvolutionCandidate(w http.ResponseWriter, r *http.Request) 
 			}
 			bench = map[string]any{
 				"dataset": ds.Name, "total": ds_revided(ds),
-				"base":   map[string]any{"translated": baseRep.Translated, "whitelist": baseRep.Whitelist, "gold_aligned": baseRep.GoldAlign, "rate": baseRate.gold},
-				"patched": map[string]any{"translated": patchRep.Translated, "whitelist": patchRep.Whitelist, "gold_aligned": patchRep.GoldAlign, "rate": patchRate.gold},
+				"base":      map[string]any{"translated": baseRep.Translated, "whitelist": baseRep.Whitelist, "gold_aligned": baseRep.GoldAlign, "rate": baseRate.gold},
+				"patched":   map[string]any{"translated": patchRep.Translated, "whitelist": patchRep.Whitelist, "gold_aligned": patchRep.GoldAlign, "rate": patchRate.gold},
 				"regressed": benchRegressed,
 				"note":      benchNote,
 			}
@@ -293,31 +290,17 @@ func (s *Server) acceptEvolutionCandidate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	newJSON, _ := json.Marshal(spec)
-	newVersion := curVersion + 1
-	if err := s.Store.PutArtifact(c.OntologyID, "spec_json", string(newJSON), true); err != nil {
+	var newSpec pkgspec.Spec
+	if err := json.Unmarshal(newJSON, &newSpec); err != nil {
 		writeErr(w, err)
 		return
 	}
-	// REQ-292：进化采纳=机器写入（补丁式，人工编辑天然保留）——仅刷新 overlay base（revert 目标跟随最近机器产出）
-	var newSpec pkgspec.Spec
-	if json.Unmarshal(newJSON, &newSpec) == nil {
-		machine := map[string]string{}
-		for _, c := range newSpec.Concepts {
-			machine["concept:"+c.Name] = jsonOf(c)
-		}
-		for _, r := range newSpec.Relations {
-			machine["relation:"+r.Name] = jsonOf(r)
-		}
-		for _, it := range newSpec.Instances {
-			machine["instance:"+it.Name] = jsonOf(it)
-		}
-		for _, dp := range newSpec.DataProperties {
-			machine["data_property:"+dp.Name] = jsonOf(dp)
-		}
-		_, _ = s.Store.RefreshOverlayBase(c.OntologyID, machine)
+	if errs := newSpec.Validate(); len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "补丁结果结构校验未通过", "validation_errors": errs})
+		return
 	}
-	_ = s.Store.SaveVersion(c.OntologyID, newVersion, string(newJSON), "", "")
-	if _, err := s.Store.BumpVersion(c.OntologyID); err != nil {
+	newVersion, err := s.Store.SaveSpecSnapshot(c.OntologyID, repo.SpecWrite{ExpectedVersion: curVersion, SpecJSON: string(newJSON), RefreshOverlayBase: specMachineJSON(&newSpec)})
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -326,7 +309,16 @@ func (s *Server) acceptEvolutionCandidate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// REQ-239/M65 候选态衔接：门控采纳→vN+1 命名 Published（发布即快照终态；命名带候选标签可追溯）。
-	o, _ := s.Store.Publish(c.OntologyID, fmt.Sprintf("evolution %s", c.Label))
+	ttl, triples, err := s.exportSpecTTL(c.OntologyID, string(newJSON), true)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	o, err := s.Store.PublishReleaseAt(c.OntologyID, fmt.Sprintf("evolution %s", c.Label), newVersion, string(newJSON), ttl, triples)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"candidate": c, "ontology": o, "new_version": newVersion})
 }
 

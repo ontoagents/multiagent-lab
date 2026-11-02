@@ -173,14 +173,16 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	if !s.guardBaseVersion(w, id, baseVersion) {
 		return
 	}
-	raw, _, gerr := s.Store.GetArtifact(id, "spec_json")
+	target, readVersion, gerr := s.loadSpecForEdit(id)
 	if gerr != nil {
 		writeErr(w, gerr)
 		return
 	}
-	target := &pkgspec.Spec{}
-	if err := json.Unmarshal([]byte(raw), target); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "现行 spec_json 解析失败: " + err.Error()})
+	if baseVersion <= 0 {
+		baseVersion = readVersion
+	}
+	if baseVersion != readVersion {
+		writeErr(w, repo.ErrConflict)
 		return
 	}
 	pv, err := importer.BuildMerged(target, spec, strategy, prefix)
@@ -191,6 +193,10 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 	pv.BaseVersion = baseVersion
 	// REQ-292① 编辑三层：机器合并后重放 overlay（人工编辑不随重算蒸发；Foundry manualObjects 跨代保留口径）
 	overlays, gerr := s.Store.ListOverlays(id)
+	if gerr != nil {
+		writeErr(w, gerr)
+		return
+	}
 	applied, skipped := 0, 0
 	var notes []string
 	machineJSON := map[string]string{}
@@ -210,16 +216,11 @@ func (s *Server) mergeApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	bts, _ := json.Marshal(pv.MergedSpec)
-	if err := s.Store.PutArtifact(id, "spec_json", string(bts), true); err != nil {
+	v, err := s.Store.SaveSpecSnapshot(id, repo.SpecWrite{ExpectedVersion: baseVersion, SpecJSON: string(bts), RefreshOverlayBase: machineJSON})
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	// overlay base 刷新：revert 目标=重放前的机器产出值
-	if len(machineJSON) > 0 {
-		_, _ = s.Store.RefreshOverlayBase(id, machineJSON)
-	}
-	v, _ := s.Store.BumpVersion(id)
-	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
 	s.recordIngestScore(id, v, pv.MergedSpec) // REQ-331/M131：入库评分随版本追加（失败不阻断）
 	// REQ-262/M256 D-O27：owl:imports 装载侧解析登记——探到的外部 IRI 落 external_refs
 	//（ref_kind=import，to_onto_id 空=外部 IRI 登记态；重复 IRI 不重复登记；失败不阻断合并）
@@ -837,7 +838,7 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 目标概念必须已存在（preview/apply 同样校验）。
-	rawSpec, _, err := s.Store.GetArtifact(id, "spec_json")
+	head, err := s.Store.ReadSpecSnapshot(id)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("概念 %s 不存在", cfg.Concept)})
@@ -846,8 +847,16 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	baseVersion := head.Version
+	if n, e := strconv.Atoi(strings.TrimSpace(r.FormValue("base_version"))); e == nil && n > 0 {
+		if n != head.Version {
+			writeErr(w, repo.ErrConflict)
+			return
+		}
+		baseVersion = n
+	}
 	var sp pkgspec.Spec
-	if err := json.Unmarshal([]byte(rawSpec), &sp); err != nil {
+	if err := json.Unmarshal([]byte(head.SpecJSON), &sp); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "spec 解析失败: " + err.Error()})
 		return
 	}
@@ -1098,6 +1107,10 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 
 	// REQ-292① 编辑三层：机器灌装后重放 overlay（人工编辑的实例属性/概念描述不随灌装蒸发）
 	overlays, gerr := s.Store.ListOverlays(id)
+	if gerr != nil {
+		writeErr(w, gerr)
+		return
+	}
 	applied, skippedOv := 0, 0
 	var overlayNotes []string
 	machineJSON := map[string]string{}
@@ -1117,15 +1130,11 @@ func (s *Server) ingestCSV(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	if err := s.Store.PutArtifact(id, "spec_json", string(bts2), true); err != nil {
+	v, err := s.Store.SaveSpecSnapshot(id, repo.SpecWrite{ExpectedVersion: baseVersion, SpecJSON: string(bts2), RefreshOverlayBase: machineJSON})
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	if len(machineJSON) > 0 {
-		_, _ = s.Store.RefreshOverlayBase(id, machineJSON)
-	}
-	v, _ := s.Store.BumpVersion(id)
-	_ = s.Store.SaveVersion(id, v, string(bts2), "", "")
 	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "stats": stats, "warnings": warnings,
 		"notes": notes, "overlays_applied": applied, "overlays_skipped": skippedOv})
 }
