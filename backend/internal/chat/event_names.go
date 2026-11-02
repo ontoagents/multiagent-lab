@@ -29,6 +29,7 @@ const (
 	EventOntologyHit     = "ontology.hit"
 	EventOntologyUnavail = "ontology.unavailable"
 	EventCompanionPrefix = "companion." // 族前缀（extract/candidates/ingest/hit…）
+	EventMemoryPrefix    = "memory."    // REQ-585/M400：族前缀（extract/candidates——补注册消字面量散落）
 	EventArtifactSaved   = "artifact.saved"
 	EventApprovalReq     = "approval.request"
 	EventApprovalGranted = "approval.granted"

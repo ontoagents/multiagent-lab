@@ -41,6 +41,9 @@ func NewService(st *store.Store, box *secrets.Box) *Service {
 	return &Service{Store: st, Box: box, running: map[string]bool{}, pending: map[string]string{}}
 }
 
+// generateStructured 注入点（默认 chat.GenerateStructuredTemp；单测桩——沿 quizLLM 先例）。
+var generateStructured = chat.GenerateStructuredTemp
+
 // resolveWorkspaceID 会话作用域解析：直挂 workspace_id 优先，项目会话转发 project.workspace_id；
 // 无归属返回空（调用方短路——无工作区会话不参与读写，106 号 §五 M3 口径）。
 func (s *Service) resolveWorkspaceID(conv *store.Conversation) string {
@@ -60,7 +63,10 @@ func (s *Service) resolveWorkspaceID(conv *store.Conversation) string {
 
 // OnRunComplete Run/Resume 收尾触发点（API 层调用；非阻塞、零错误上抛——沿伴生同名范式）。
 // 无工作区归属 / 无 agent → 静默返回。
-func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, runID string) {
+// EmitFn 平台 SSE 事件输出函数（API 层注入——REQ-585/M400 双写通道；nil=仅入库）。
+type EmitFn func(eventType string, data map[string]any)
+
+func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, runID string, emit ...EmitFn) {
 	if s == nil || conv == nil || agent == nil {
 		return
 	}
@@ -75,10 +81,10 @@ func (s *Service) OnRunComplete(conv *store.Conversation, agent *store.Agent, ru
 	}
 	s.running[conv.ID] = true
 	s.mu.Unlock()
-	go s.extractRounds(conv, agent, runID)
+	go s.extractRounds(conv, agent, runID, emit...)
 }
 
-func (s *Service) extractRounds(conv *store.Conversation, agent *store.Agent, runID string) {
+func (s *Service) extractRounds(conv *store.Conversation, agent *store.Agent, runID string, emit ...EmitFn) {
 	defer func() {
 		s.mu.Lock()
 		next := s.pending[conv.ID]
@@ -90,7 +96,7 @@ func (s *Service) extractRounds(conv *store.Conversation, agent *store.Agent, ru
 			s.OnRunComplete(conv, agent, next)
 		}
 	}()
-	n, err := s.ExtractNew(context.Background(), conv.ID, agent.ID, runID)
+	n, err := s.ExtractNew(context.Background(), conv.ID, agent.ID, runID, emit...)
 	if err != nil {
 		log.Printf("[memory] 会话 %s 候选生成失败（不影响对话）: %v", conv.ID, err)
 		return
@@ -121,7 +127,7 @@ func memoryPrompt(corpus string) string {
 
 // ExtractNew 游标续抽（沿伴生增量范式）：读 last_message_id 之后增量（仅用户/助手文本消息）→
 // 单窗 LLM 结构化抽取 → 去重落候选 → 游标推进。返回新增候选数。
-func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string) (int, error) {
+func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string, emit ...EmitFn) (int, error) {
 	agent, err := s.Store.GetAgent(agentID)
 	if err != nil {
 		return 0, err
@@ -154,21 +160,21 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 	if len(corpus) > winChars {
 		corpus = corpus[len(corpus)-winChars:]
 	}
-	s.emitEvent(convID, runID, "memory.extract", map[string]any{"phase": "started", "fresh": len(fresh)})
+	s.emitEvent(convID, runID, chat.EventMemoryPrefix+"extract", map[string]any{"phase": "started", "fresh": len(fresh)}, emit...)
 	connID := ""
 	if agent.ModelConnID != nil {
 		connID = *agent.ModelConnID
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	res, err := chat.GenerateStructuredTemp(ctx, s.Store, s.Box, connID, memoryPrompt(corpus), string(memorySchema), ptr(0.2))
+	res, err := generateStructured(ctx, s.Store, s.Box, connID, memoryPrompt(corpus), string(memorySchema), ptr(0.2))
 	if err != nil {
-		s.emitEvent(convID, runID, "memory.extract", map[string]any{"phase": "error", "message": err.Error()})
+		s.emitEvent(convID, runID, chat.EventMemoryPrefix+"extract", map[string]any{"phase": "error", "message": err.Error()}, emit...)
 		return 0, fmt.Errorf("LLM 记忆抽取失败（游标未推进可重试）: %w", err)
 	}
 	var out memOut
 	if perr := json.Unmarshal([]byte(res.DraftJSON), &out); perr != nil {
-		s.emitEvent(convID, runID, "memory.extract", map[string]any{"phase": "error", "message": "输出解析失败: " + perr.Error()})
+		s.emitEvent(convID, runID, chat.EventMemoryPrefix+"extract", map[string]any{"phase": "error", "message": "输出解析失败: " + perr.Error()}, emit...)
 		return 0, fmt.Errorf("记忆抽取输出解析失败: %w", perr)
 	}
 	// 溯源锚点：本窗最后一条用户/助手消息（行级溯源=可审计口径；空窗不落行）
@@ -204,7 +210,7 @@ func (s *Service) ExtractNew(ctx context.Context, convID, agentID, runID string)
 			return added, aerr
 		}
 	}
-	s.emitEvent(convID, runID, "memory.candidates", map[string]any{"count": added, "total_extracted": len(out.Memories)})
+	s.emitEvent(convID, runID, chat.EventMemoryPrefix+"candidates", map[string]any{"count": added, "total_extracted": len(out.Memories)}, emit...)
 	return added, nil
 }
 
@@ -248,13 +254,24 @@ func renderCorpus(msgs []*store.Message) string {
 	return b.String()
 }
 
-func (s *Service) emitEvent(convID, runID, eventType string, data map[string]any) {
+// emitEvent REQ-585/M400 双写通道：入库（回放/轨迹恒可见）+emit 回调（流存活则实时呈现——
+// run 终态后 SSE 已关则仅入库，两态诚实）。emit 逃逸由调用方 recover 兜底（收尾旁路零上抛）。
+func (s *Service) emitEvent(convID, runID, eventType string, data map[string]any, emit ...EmitFn) {
 	b, err := json.Marshal(data)
 	if err != nil {
 		return
 	}
 	if _, err := s.Store.InsertEvent(&store.RunEvent{ConversationID: convID, RunID: runID, Type: eventType, Data: string(b), SchemaVersion: 2}); err != nil {
 		log.Printf("[memory] 过程事件写入失败（%s）: %v", eventType, err)
+	}
+	for _, fn := range emit {
+		if fn == nil {
+			continue
+		}
+		func() {
+			defer func() { _ = recover() }() // SSE 写失败/客户端断开零上抛（收尾旁路）
+			fn(eventType, data)
+		}()
 	}
 }
 
