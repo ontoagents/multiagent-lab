@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Splitter, Typography } from 'antd'
 import { api } from '../api/client'
-import type { Agent, Conversation } from '../api/types'
+import type { Agent, Conversation, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import Sidebar from '../components/Sidebar'
@@ -21,6 +21,8 @@ export default function AgentsPage() {
   const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
   // REQ-536/M390 现场恢复：选中智能体进 sessionStorage（eino.agent.active）
+  // REQ-577/M392：工作区清单（直挂对话头部徽标名解析）
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [activeAgentId, setActiveAgentId] = useState<string | null>(() => {
     try {
       return sessionStorage.getItem('eino.agent.active')
@@ -34,6 +36,10 @@ export default function AgentsPage() {
       else sessionStorage.removeItem('eino.agent.active')
     } catch {}
   }, [activeAgentId])
+  // REQ-577/M392：工作区清单拉取（直挂对话头部徽标名解析；失败静默=徽标回落显示 id）
+  useEffect(() => {
+    api.listWorkspaces().then((r) => setWorkspaces(r ?? [])).catch(() => {})
+  }, [])
   // REQ-461/M261：被引用面板深链（eino.agents.focus）——agents 载入后自动选中
   useEffect(() => {
     if (agents.length === 0) return
@@ -170,6 +176,7 @@ export default function AgentsPage() {
                 conversation={currentConv}
                 agents={agents}
                 projects={[]}
+                workspaces={workspaces}
                 onConversationUpdated={reload}
                 onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
                 initialDraft={draftRef.current?.convId === currentConv.id ? draftRef.current.msg : undefined}

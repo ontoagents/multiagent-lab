@@ -25,6 +25,7 @@ import type {
   ModelConnection,
   Project,
   RuntimeProfile,
+  Workspace,
 } from '../api/types'
 import { useUI } from '../store/ui'
 import KBContentModal from './KBContentModal'
@@ -121,6 +122,7 @@ export default function ChatWindow({
   conversation,
   agents,
   projects,
+  workspaces,
   onConversationUpdated,
   onToggleSidePanel,
   initialDraft,
@@ -128,6 +130,8 @@ export default function ChatWindow({
   conversation: Conversation
   agents: Agent[]
   projects: Project[]
+  /** REQ-577/M392：工作区清单（直挂对话头部徽标解析工作区名；页面层已拉取传入） */
+  workspaces?: Workspace[]
   onConversationUpdated: () => void
   /** REQ-336：侧板开合（⋮会话设置「智能体配置」入口复用；由页面持有状态与面板） */
   onToggleSidePanel?: () => void
@@ -1737,7 +1741,15 @@ export default function ChatWindow({
             <Tag>会话使用的智能体：{agent ? agent.name : '未配置成员'}</Tag>
           </>
         ) : (
-          <Typography.Text strong className="subject">{agent ? agent.name : '对话'}</Typography.Text>
+          <>
+            <Typography.Text strong className="subject">{agent ? agent.name : '对话'}</Typography.Text>
+            {/* REQ-577/M392：直挂对话归属徽标（灰字轻量——只表归属不断言当前值即继承值） */}
+            {conversation.workspace_id && (
+              <Tag style={{ color: 'var(--c-ink-3)', fontSize: 11 }} data-testid="ws-badge">
+                ⌂ 工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》
+              </Tag>
+            )}
+          </>
         )}
         {isProjectScope && project && <Tag>{COLLAB_MODE_LABEL[project.collab_mode] ?? project.collab_mode}</Tag>}
         {!isProjectScope && agent && (
@@ -1769,6 +1781,7 @@ export default function ChatWindow({
               companionOntos={companionOntos}
               isProjectScope={isProjectScope}
               project={project}
+              workspaces={workspaces}
               subjectName={subjectName}
               onToggleSidePanel={onToggleSidePanel}
               onClose={() => setConvSetOpen(false)}

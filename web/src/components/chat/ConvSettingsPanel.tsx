@@ -2,7 +2,7 @@
 // 重命名/审批覆盖/模型覆盖/生效配置总览/上下文预算/检索参数/伴生覆盖/侧板入口；
 // 状态（renameVal）与 patchConv/toast 语义留 ChatWindow 主件，本件纯渲染+回调上抛。
 import { Button, Input, InputNumber, Segmented, Select, Typography } from 'antd'
-import type { Agent, Conversation } from '../../api/types'
+import type { Agent, Conversation, Workspace } from '../../api/types'
 
 export default function ConvSettingsPanel({
   conversation,
@@ -15,6 +15,7 @@ export default function ConvSettingsPanel({
   companionOntos,
   isProjectScope,
   project,
+  workspaces,
   subjectName,
   onToggleSidePanel,
   onClose,
@@ -30,6 +31,8 @@ export default function ConvSettingsPanel({
   companionOntos: { id: string; name: string }[]
   isProjectScope: boolean
   project: { name: string; workspace_id?: string | null } | null
+  /** REQ-577/M392：工作区清单（直挂路径来源行解析工作区名） */
+  workspaces?: Workspace[]
   subjectName?: string
   onToggleSidePanel?: () => void
   onClose: () => void
@@ -96,6 +99,21 @@ export default function ConvSettingsPanel({
           <div>
             知识库/本体默认值：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>创建时继承自工作区（写时复制）</span>
           </div>
+        )}
+        {/* REQ-577/M392：直挂路径来源行扩展（inheritWorkspaceDefaults 仅继承 KB/方案两字段——文案如实） */}
+        {!isProjectScope && conversation.workspace_id && (
+          <>
+            <div data-testid="ws-source-row">
+              知识库/本体默认值：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>
+                创建时继承自工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》（写时复制）
+              </span>
+            </div>
+            {agent && (
+              <div>
+                智能体：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>创建时选用的工作区默认智能体</span>
+              </div>
+            )}
+          </>
         )}
       </div>
       <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
