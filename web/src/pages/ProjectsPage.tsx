@@ -17,13 +17,14 @@ import WorkspacePage from './WorkspacePage'
 type ProjTab = 'project' | 'workspace'
 
 /**
- * 项目模块（REQ-549/M356 M1b）：内容区顶部「项目 | 工作区」模块内页签（module-tabs 先例，
- * 导航六项不动、ui.ts/App.tsx 零改动——106 号 mustFix-3 终值），页签下为两套页面体。
+ * 工作区模块（REQ-549/M356 M1b 立页签；REQ-597/M408 宿主反转）：内容区顶部「工作区（默认）|
+ * 项目」模块内页签（module-tabs 先例，key/route 零改动——106 号 mustFix-3 终值 + Q-23 衍生①
+ * 转正：导航模块已更名「工作区」，IA 宿主与 Q-24 概念模型同向），页签下为两套页面体。
  */
 export default function ProjectsPage() {
-  // REQ-584/M399：PROJ_TAB_KEY 跨会话持久化退役——导航「项目」点击恒落项目页签（毛刺修复；
-  // 会话内页签切换仍随点随切，仅不再跨会话记忆）。REQ-580 深链（eino.focus.project）不受影响。
-  const [tab, setTab] = useState<ProjTab>('project')
+  // REQ-584/M399：PROJ_TAB_KEY 跨会话持久化退役；REQ-597/M408：导航点击恒落「工作区」默认页签
+  // （宿主反转——工作区是模块门面；会话内页签切换仍随点随切）。REQ-580 深链（eino.focus.project）不受影响。
+  const [tab, setTab] = useState<ProjTab>('workspace')
   const selectTab = (t: ProjTab) => {
     setTab(t)
   }
@@ -35,21 +36,7 @@ export default function ProjectsPage() {
   }, [])
   return (
     <div className="module-shell">
-      <div className="module-tabs" role="tablist" aria-label="项目模块导航" data-testid="proj-module-tabs">
-        <Tooltip title="执行容器：目录/Git/文件/成员协作" placement="bottom" mouseEnterDelay={0.4}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'project'}
-            aria-current={tab === 'project' ? 'page' : undefined}
-            className={`module-tab${tab === 'project' ? ' active' : ''}`}
-            onClick={() => selectTab('project')}
-            data-testid="proj-tab-projects"
-          >
-            <span className="module-tab-icon"><ProjectOutlined /></span>
-            <span className="module-tab-label">项目</span>
-          </button>
-        </Tooltip>
+      <div className="module-tabs" role="tablist" aria-label="工作区模块导航" data-testid="proj-module-tabs">
         <Tooltip title="领域容器：会话默认值与直挂对话" placement="bottom" mouseEnterDelay={0.4}>
           <button
             type="button"
@@ -62,6 +49,20 @@ export default function ProjectsPage() {
           >
             <span className="module-tab-icon"><BlockOutlined /></span>
             <span className="module-tab-label">工作区</span>
+          </button>
+        </Tooltip>
+        <Tooltip title="执行容器：目录/Git/文件/成员协作" placement="bottom" mouseEnterDelay={0.4}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'project'}
+            aria-current={tab === 'project' ? 'page' : undefined}
+            className={`module-tab${tab === 'project' ? ' active' : ''}`}
+            onClick={() => selectTab('project')}
+            data-testid="proj-tab-projects"
+          >
+            <span className="module-tab-icon"><ProjectOutlined /></span>
+            <span className="module-tab-label">项目</span>
           </button>
         </Tooltip>
       </div>

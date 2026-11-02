@@ -2,12 +2,12 @@ import type { ReactNode } from 'react'
 import { Tooltip } from 'antd'
 import {
   ApartmentOutlined,
+  BlockOutlined,
   BookOutlined,
   DatabaseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
-  ProjectOutlined,
   RobotOutlined,
   SettingOutlined,
   SunOutlined,
@@ -31,7 +31,9 @@ import { useUI, type PageKey } from '../store/ui'
 
 const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
   { key: 'agents', label: '智能体', icon: <RobotOutlined /> },
-  { key: 'projects', label: '项目', icon: <ProjectOutlined /> },
+  // REQ-597/M408 工作区宿主反转：导航模块「项目」更名「工作区」（Q-23 衍生① 转正——IA 宿主与
+  //   Q-24 概念模型同向；key/route 不动，仅显示名与图标随模块门面对齐）。
+  { key: 'projects', label: '工作区', icon: <BlockOutlined /> },
   { key: 'ontology', label: '本体', icon: <ApartmentOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ThunderboltOutlined /> },
