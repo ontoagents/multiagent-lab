@@ -33,7 +33,21 @@ export default function WorkspacePage() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(focusWs || null)
   const [createOpen, setCreateOpen] = useState(false)
   // 工作区侧板（REQ-549：activity bar 范式沿 ProjectSidePanel；M1b 仅 config 视图）
-  const [sidePanelOpen, setSidePanelOpen] = useState(!!focusWs)
+  // REQ-578/M393：展开态 localStorage 持久化（eino.workspace.panel.open——REQ-571 rail 先例）
+  const [sidePanelOpen, setSidePanelOpenState] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('eino.workspace.panel.open') === '1' || !!focusWs
+    } catch {
+      return !!focusWs
+    }
+  })
+  const setSidePanelOpen = (o: boolean) => {
+    try {
+      if (o) sessionStorage.setItem('eino.workspace.panel.open', '1')
+      else sessionStorage.removeItem('eino.workspace.panel.open')
+    } catch {}
+    setSidePanelOpenState(o)
+  }
   const [panelView, setPanelView] = useState<WorkspacePanelView>('config')
 
   const reload = () => {
@@ -128,19 +142,25 @@ export default function WorkspacePage() {
       <Splitter.Panel className="content-panel">
         <div className="proj-content-row">
           <div className="proj-content-main">
+            {/* REQ-578/M393：常驻当前工作区名头部（VS Code Profiles 语义——首屏即知身在哪个工作区） */}
+            {activeWorkspace && (
+              <div style={{ padding: '8px 16px 0' }} data-testid="ws-head">
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>⌂ 工作区：{activeWorkspace.name}</Typography.Text>
+              </div>
+            )}
             {currentConv && currentConv.scope === 'agent' ? (
               <ChatWindow
                 conversation={currentConv}
                 agents={agents}
                 projects={[]}
                 onConversationUpdated={reload}
-                onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
+                onToggleSidePanel={() => setSidePanelOpen(!sidePanelOpen)}
               />
             ) : (
               // REQ-488 空态灰字语言：单列一行 + 显式新建钮（选中工作区时）
               <div className="page" style={{ padding: '48px 40px' }}>
                 <Typography.Text type="secondary" style={{ fontSize: 13 }} data-testid="workspaces-empty-quiet">
-                  在左侧选择工作区，与其开始对话；新对话自动继承工作区默认知识库与本体方案。
+                  在左侧选择工作区，与其开始对话；新对话自动继承工作区默认知识库与本体方案。工作区宜少而精——一个业务场景一个工作区即可，不必为每个项目单建。工作区宜少而精——一个业务场景一个工作区即可，不必为每个项目单建。
                 </Typography.Text>
                 {activeWorkspace && (
                   <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>

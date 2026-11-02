@@ -296,6 +296,13 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 
   return (
     <div className="proj-view-body">
+      {/* REQ-578/M393：实物锚+白话区别句（配置视图顶部——「工作区 vs 项目」一句话） */}
+      <div style={{ marginBottom: 10 }} data-testid="ws-anchor">
+        <div style={{ fontSize: 13, fontWeight: 600 }}>⌂ 工作区《{workspace.name}》</div>
+        <Typography.Text type="secondary" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+          工作区管「新对话自带什么知识背景」；项目管「产物写到哪」——两者互不替代。
+        </Typography.Text>
+      </div>
       <Form form={form} layout="vertical" requiredMark={false} size="small">
         <Section first>基本信息</Section>
         <Form.Item name="name" label="名称" className="item-inline" rules={[{ required: true, message: '名称必填' }]}>
