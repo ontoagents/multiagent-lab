@@ -2,7 +2,7 @@
 module: 知识库
 topic: 知识库 RAG 与 GraphRAG 现状（架构与设计）
 desc: 知识库三类型实现现状——索引/检索双管道、可插拔 VectorStore（Qdrant+SQLite fallback）、SQLite 数据模型与自研 KG 三表、API/SSE 契约、KG 增强治理面、LLM Wiki 类型、KB→本体构建数据源、现行风险与开放问题
-synced: 2026-11-01
+synced: 2026-11-02
 ---
 
 # 知识库 RAG 与 GraphRAG 现状
@@ -40,7 +40,7 @@ synced: 2026-11-01
 
 - 事件字段：`kb_id / doc_name / chunk_preview / score / mode / degraded`；GraphRAG 命中含 `entities / relations / claims`（附 chunk_id 出处摘录+句级偏移 span，前端高亮）；wiki 命中 `source=wiki` 且 hits 附 `sources`（chunk_id 解析为 doc 标题+seq 的可读定位）。
 - 上下文注入格式：`[片段 doc:seq score]`（RAG）/ `[KG 实体/关系 doc:seq score]`（GraphRAG，含 entity_type/relation_type 标注）。
-- 降级语义：GraphRAG 无 KG 命中回退纯向量标 `degraded`；wiki 无命中 `degraded=true` 引导重建；Qdrant 不可达自动落 SQLite fallback 并在索引状态提示（降级不阻断建库）。
+- 降级语义：GraphRAG 无 KG 命中回退纯向量标 `degraded`；wiki 无命中 `degraded=true` 引导重建；Qdrant 不可达（构造时启动探测）自动落 SQLite fallback，人话告警 + healthz `knowledge_backend=sqlite-ok` 如实可查（REQ-593；降级不阻断建库）。
 
 ## 4. 可插拔 VectorStore 抽象
 
@@ -55,7 +55,7 @@ type VectorStore interface { // 两种实现
 // SQLiteStore（fallback，kb/vector.go）：余弦 TopK，无外部依赖对照（不删）
 ```
 
-- 选择逻辑：配置 `KB_STORE=qdrant|sqlite`；Qdrant 启动探测不可达 → 自动落 SQLite fallback（降级语义，部署层逻辑不属接口成员）。
+- 选择逻辑：配置 `KB_VECTOR_BACKEND=qdrant|sqlite`（默认 qdrant，`QDRANT_URL` 缺省 http://127.0.0.1:6333）；qdrant 分支构造时启动探测一次——`QDRANT_URL` 未配置或 ping 不通 → 人话告警 + 自动落 SQLite fallback（KB-O1「缺失/不可达可退」口径，REQ-593 补实现——此前仅文档记载、探测未接线，无 Qdrant 机器上索引/删除/检索全链 dial 硬错）；显式 `KB_VECTOR_BACKEND=sqlite` 零探测直取；未知后端值报错不静默。运行期 Qdrant 中途掉线不做热切换（healthz `knowledge_backend=qdrant-unreachable` 如实，重启即回退）；fallback 期间新索引 chunk 向量 BLOB 直存 SQLite，切回 qdrant 后该期间文档需重建索引恢复向量臂命中（诚实边界，启动日志已提示）。
 - 设计基调（D-KB1）：**平台内组件级**，开源优先、eino 生态同栈；不引入平台级成品知识库（WeKnora/RAGFlow/Dify 对照评估结论=维持组件级方案，成品列 P2 独立集成候选，调研档在 docs/research/05_知识库/）。
 
 ## 5. 数据模型（SQLite）
@@ -134,7 +134,7 @@ KG 抽取配置（模型/提示词覆写/本体挂载/语料预算）为**库级
 | 风险 | 触发 | 缓解/降级 |
 | --- | --- | --- |
 | embedding 连接误配（如 DeepSeek 无 embedding） | 建库向量化失败 | 引导提示+索引状态失败可重试；不提供仅文本不向量路径 |
-| Qdrant 容器不可达 | 运行期检索失败 | 启动探测+健康检查；自动落 SQLiteStore 并状态提示 |
+| Qdrant 容器不可达 | 无 Qdrant 机器上索引/删除/检索全链 dial 硬错（REQ-593 缺陷场景） | 构造时启动探测不可达 → 自动落 SQLiteStore（人话告警+healthz 如实）；运行期中途掉线不热切换，重启即回退 |
 | 库级换 embedding 模型维度不一致 | 用户换模型 | doc.dim 记录+变更提示重建；维度漂移检测告警立项在途（KB-20） |
 | KG 抽取与 embedding 模型一致性 | 换模型致 KG 与 chunk 错位 | doc 维度记录+切换时提示重建 KG |
 | 索引后台队列进程内 | 后端重启 | 队列任务丢失=文档停留 indexing，重试入口如实呈现（REQ-440 诚实边界） |
