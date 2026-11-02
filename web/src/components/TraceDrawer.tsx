@@ -726,6 +726,19 @@ function RunBlock({
             <Typography.Text type="secondary" style={{ margin: 0, fontSize: "var(--fs-caption)" }}>{finState?.reason ? String(finState.reason) : '完成'}</Typography.Text>
           )
         )}
+        {/* REQ-582/M397：创建时继承来源审计信号（直挂/项目转发两路 startData.workspace_defaults） */}
+        {(() => {
+          const started = run.allEvents.find((e) => e.type === 'run.started')
+          const d = typeof started?.data === 'string' ? JSON.parse(started.data || '{}') : (started?.data ?? {})
+          const wsd = d.workspace_defaults
+          return wsd?.workspace_id ? (
+            <Tooltip title="创建时继承来源的运行审计信号（库/方案默认值写时复制自该工作区）">
+              <Tag style={{ margin: 0, fontSize: 10 }} data-testid={`ws-inherit-${run.runId}`}>
+                ⌂ 继承自工作区《{wsd.workspace_name ?? wsd.workspace_id}》
+              </Tag>
+            </Tooltip>
+          ) : null
+        })()}
         {finState?.duration_ms != null && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{finState.duration_ms}ms</Typography.Text>}
         {finState?.usage?.total_tokens != null && (
           <Tooltip title={`输入 ${finState.usage.input_tokens ?? '—'} / 输出 ${finState.usage.output_tokens ?? '—'}`}>

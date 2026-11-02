@@ -372,6 +372,15 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 			startData["workspace_defaults"] = wsData
 		}
 	}
+	// REQ-582/M397：直挂路径同发 workspace_defaults（workspace_id/name 同构——项目转发路径逐字节
+	// 不变；审计面消「直挂会话创建时继承不可见」缺口，与 REQ-584 Trace chip 前端消费配对）
+	if wsID := conv.WorkspaceID; wsID != nil && *wsID != "" {
+		wsData := map[string]any{"workspace_id": *wsID}
+		if ws, werr := s.Store.GetWorkspace(*wsID); werr == nil {
+			wsData["workspace_name"] = ws.Name
+		}
+		startData["workspace_defaults"] = wsData
+	}
 	// REQ-291：运行配置审计——当轮生效的推理参数恒落（未设置不臆造数值，缺省=跟随后端协议默认，
 	// anthropic 通道温度钳 [0,1] 与 max_tokens 兜底见 modelbuild；协议级整形不在本键还原范围）
 	if agent.Temperature != nil {
