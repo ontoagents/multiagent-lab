@@ -1,7 +1,7 @@
 // REQ-337/M137：构建路径共享常量（自 BuildPage 迁出——六路径页面化的单源定义）。
 // 路径记忆沿用 eino.onto.buildPath；首页收敛为路径选择页（'home'），
 // 存量路径记忆一次性迁移 'home'（沿 D-O11 learn→build 迁移先例：此后显式选择仍记忆）。
-export type BuildPath = 'home' | 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'kb' | 'catalog'
+export type BuildPath = 'home' | 'custom' | 'ontochat' | 'kg' | 'ontoextend' | 'kb' | 'catalog' | 'datasource'
 
 // REQ-405/M201：六卡按生产频率重排+决策判据文案（有文件→导入 / 有语料→KB / 改已有→演化 /
 // 要标准→权威库；示例/空白→自定义 / KG 消费降侧栏）——「选哪条路」一屏可判。
@@ -14,6 +14,7 @@ export const PATHS: { key: Exclude<BuildPath, 'home'>; label: string; state: 'ok
   { key: 'kb', label: '由知识库构建', state: 'partial', when: '知识库已有语料', desc: '从知识库语料生成本体：chunk→LLM 抽取 / KG 直转 / 混合三策略' },
   { key: 'ontoextend', label: 'OntoExtend 演化', state: 'ok', when: '改已有本体', desc: '对已交付本体做增量扩展：ODP 模式或按能力问题生成扩展片段' },
   { key: 'catalog', label: '权威本体库', state: 'ok', when: '要业界标准（W3C/ETSI/DCMI）', desc: '查询并引入业界权威本体，入库即可运行与拓展' },
+  { key: 'datasource', label: '由数据源构建', state: 'ok', when: '已有结构化数据（SQLite 库）', desc: '连接 SQLite 只读内省：表→概念、列→属性、外键→关系，AI 补显示名与描述，人审后落库（REQ-595 第八构建路径）' },
   { key: 'kg', label: 'KG 消费（引导）', state: 'guide', when: '要看 KG 抽取与消费', desc: '跳转「消费与审计」栏——KG 图谱与 GraphRAG 消费动线' },
 ]
 
@@ -24,12 +25,13 @@ export const STATE_TAG: Record<Exclude<BuildPath, 'home'>, { color: string; text
   kg: { color: 'cyan', text: '引导' },
   ontoextend: { color: 'green', text: '演化路径' },
   catalog: { color: 'green', text: '可用' },
+  datasource: { color: 'orange', text: '一期 SQLite' },
 }
 
 export const ONTO_BUILD_PATH_KEY = 'eino.onto.buildPath'
 const MIGRATED_KEY = 'eino.onto.buildPath.homeMigrated'
 
-const VALID: BuildPath[] = ['home', 'custom', 'ontochat', 'kb', 'kg', 'ontoextend', 'catalog']
+const VALID: BuildPath[] = ['home', 'custom', 'ontochat', 'kb', 'kg', 'ontoextend', 'catalog', 'datasource']
 
 export function readBuildPath(): BuildPath {
   const v = localStorage.getItem(ONTO_BUILD_PATH_KEY)

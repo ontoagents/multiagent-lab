@@ -134,6 +134,8 @@ func (s *Server) Mount(m *http.ServeMux) {
 	m.HandleFunc("GET /api/ontology/ontoextend/odps", s.ontoextendListODPs)
 	m.HandleFunc("POST /api/ontology/ontoextend/draft", s.ontoextendDraft)
 	m.HandleFunc("POST /api/ontology/cqrag/draft", s.cqragDraft)
+	// REQ-595/M406：由数据源构建本体（第八构建路径）——SQLite 只读内省→画像→骨架→LLM 窄调用→提案人审
+	m.HandleFunc("POST /api/ontology/datasource/analyze", s.datasourceAnalyze)
 	m.HandleFunc("POST /api/ontology/nl2sparql", s.nl2sparql)                         // REQ-333/M133：NL2SPARQL 受控生成
 	m.HandleFunc("GET /api/ontology/cq-benchmark/datasets", s.cqBenchmarkDatasets)    // REQ-346/M146：基准集管理面
 	m.HandleFunc("POST /api/ontology/cq-benchmark/run", s.cqBenchmarkRun)             // REQ-346/M146：用基准集测我（202 job）

@@ -6,6 +6,7 @@ import {
   CommentOutlined,
   DatabaseOutlined,
   PartitionOutlined,
+  TableOutlined,
 } from '@ant-design/icons'
 import { PATHS, STATE_TAG, type BuildPath } from './paths'
 
@@ -22,6 +23,7 @@ const PATH_ICON: Record<string, React.ReactNode> = {
   kg: <PartitionOutlined />,
   ontoextend: <PartitionOutlined />,
   catalog: <CloudDownloadOutlined />,
+  datasource: <TableOutlined />,
 }
 
 export default function BuildPathGrid({ onSelect, onMaterialStart }: { onSelect: (key: BuildPath) => void; onMaterialStart?: () => void }) {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ontoagents/ontoagents/ontology-service/internal/buildflow"
 
+	"github.com/ontoagents/ontoagents/ontology-service/internal/datasource"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/ontochat"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/qualitygate"
 	"github.com/ontoagents/ontoagents/ontology-service/internal/repo"
@@ -34,7 +35,9 @@ type draftJob struct {
 	Topic     string                      `json:"topic,omitempty"`     // REQ-508：建议本体名
 	Truncated int                         `json:"truncated,omitempty"` // REQ-508：超上限/重复被滤条数
 	Diagnose  *diagnoseResult             `json:"diagnose,omitempty"`  // REQ-207 余项：进化诊断→归因→补丁候选 job 结果
-	Error     string                      `json:"error,omitempty"`
+	// Datasource REQ-595/M406：由数据源构建提案 job 结果（datasource/analyze；轮询同通道透出）
+	Datasource *datasource.Proposal `json:"datasource,omitempty"`
+	Error      string               `json:"error,omitempty"`
 	CreatedAt time.Time                   `json:"created_at"`
 }
 

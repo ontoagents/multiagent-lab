@@ -8,6 +8,7 @@ import BuildLayout from './build/BuildLayout'
 import BuildPathGrid from './build/BuildPathGrid'
 import ConceptParkingFlow from './build/ConceptParkingFlow'
 import CustomBuildFlow from './build/CustomBuildFlow'
+import DataSourceBuildFlow from './build/DataSourceBuildFlow'
 import KgGuidePage from './build/KgGuidePage'
 import ProductionGuide from './build/ProductionGuide'
 import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/paths'
@@ -111,6 +112,16 @@ export default function BuildPage() {
         </>
       )}
       {buildPath === 'kg' && <KgGuidePage />}
+      {buildPath === 'datasource' && (
+        <DataSourceBuildFlow
+          onGoCustom={(id) => {
+            // REQ-595：提案落库后深链 custom S2（工作本体键与步骤键同源，S2 直达可编辑）
+            localStorage.setItem('eino.onto.build.customOnto', id)
+            localStorage.setItem('eino.onto.build.customStep', '1')
+            select('custom')
+          }}
+        />
+      )}
       {buildPath === 'ontoextend' && <OntoExtendFlow />}
       {buildPath === 'catalog' && (
         <CatalogPane

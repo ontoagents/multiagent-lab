@@ -656,6 +656,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ material }),
     }),
+  /** 由数据源构建分析（REQ-595/M406 第八构建路径）：SQLite 只读内省→画像→骨架→LLM 窄调用→提案 */
+  datasourceAnalyze: (path: string, name?: string) =>
+    req<{ job_id: string }>('/api/ontology/datasource/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ path, name }),
+    }),
   // ---- REQ-495/M304 笔记本 Notes（自产成果文档资产层；KB 回流=引用语义+触碰同步） ----
   listWorkspaces: () => req<Workspace[]>('/api/workspaces'),
   // ---- REQ-549/M356 工作区页 M1b（Q-24 分层批②；M1a 五端点的前端消费补全） ----

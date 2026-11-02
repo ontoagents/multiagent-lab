@@ -20,7 +20,7 @@ export type OntoRoute = {
 }
 
 const COLS: OntoCol[] = ['learn', 'build', 'assets', 'runtime', 'audit']
-const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog']
+const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource']
 const ENGINES = ['oxigraph', 'fuseki', 'cayley']
 const LEARN_SECTIONS = ['path', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
 

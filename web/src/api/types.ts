@@ -846,7 +846,44 @@ export interface AiDraftJobState {
   concepts?: ConceptCandidate[]
   topic?: string
   truncated?: number
+  /** REQ-595/M406：由数据源构建提案（datasource/analyze；轮询同通道透出） */
+  datasource?: DataSourceProposal
   error?: string
+}
+/** REQ-595/M406 由数据源构建——列画像（采样面透出；is_unique=采样内口径如实标注） */
+export interface DataSourceColumnProfile {
+  column: string
+  decl_type: string
+  sampled_rows: number
+  null_count: number
+  is_unique: boolean
+  top_values?: { value: string; count: number }[]
+  enum_candidates?: string[]
+  date_formats?: string[]
+}
+export interface DataSourceTableProfile {
+  table: string
+  sampled_rows: number
+  columns?: DataSourceColumnProfile[]
+  error?: string
+}
+/** LLM 隐含外键建议（必人审——勾选采纳后前端才并入 spec，不静默落库） */
+export interface DataSourceFKSuggestion {
+  table: string
+  column: string
+  target_table: string
+  reason?: string
+}
+/** REQ-595 分析提案（spec=确定性骨架；FK 建议不含在 spec 内） */
+export interface DataSourceProposal {
+  name: string
+  spec: Spec
+  tables: DataSourceTableProfile[]
+  fk_suggestions?: DataSourceFKSuggestion[]
+  warnings?: string[]
+  llm_used: boolean
+  llm_skipped?: string
+  llm_fallback?: boolean
 }
 /** 质量门禁报告（REQ-312/M116：完整 Report 透出——三维分+Findings+Stats，qualitygate 同形） */
 export interface QualityFinding {
