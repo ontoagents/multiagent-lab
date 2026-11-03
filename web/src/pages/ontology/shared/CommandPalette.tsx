@@ -27,7 +27,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
 
   const cmds = useMemo<Cmd[]>(() => {
     const cols: Cmd[] = [
-      { key: 'c-build', label: '前往：本体构建', group: '栏位', run: () => deepLinkOnto({ col: 'build', path: 'home' }) },
+      { key: 'c-build', label: '前往：本体构建', group: '栏位', run: () => deepLinkOnto({ col: 'build' }) }, // REQ-598：hub 形态（无 path 段）
       { key: 'c-assets', label: '前往：本体资产', group: '栏位', run: () => deepLinkOnto({ col: 'assets' }) },
       { key: 'c-runtime', label: '前往：本体运行', group: '栏位', run: () => deepLinkOnto({ col: 'runtime' }) },
       { key: 'c-audit', label: '前往：消费与审计', group: '栏位', run: () => deepLinkOnto({ col: 'audit' }) },

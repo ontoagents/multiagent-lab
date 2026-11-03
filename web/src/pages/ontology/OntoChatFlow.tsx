@@ -16,6 +16,7 @@ import { api, ApiError } from '../../api/client'
 import type { OntoChatCluster, OntoChatExtractedCQ, OntoChatJob, OntoChatPrompt, OntoChatSession, QualityReport, Spec } from '../../api/types'
 import LoadErrorAlert from '../../components/LoadErrorAlert'
 import PathIntro from './build/PathIntro'
+import { takeBuildParams } from './shared/ontoRoute'
 import EmptyGuide from '../../components/EmptyGuide'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import { useUI } from '../../store/ui'
@@ -371,13 +372,14 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
     })()
   }, [refreshList, openSession])
 
-  // REQ-306 A2：AI 创建「改用 OntoChat」分流携带描述——localStorage 一次性预填（cq 阶段第一行=领域描述）
+  // REQ-306 A2：AI 创建「改用 OntoChat」分流携带描述——REQ-598 改路由参数 ?desc=
+  // 一次性预填（cq 阶段第一行=领域描述）；旧键 eino.ontochat.preset.desc 回退读
+  // （双轨一个版本窗口，P2-a 收口退役）
   useEffect(() => {
-    const preset = localStorage.getItem('eino.ontochat.preset.desc')
-    if (preset) {
-      localStorage.removeItem('eino.ontochat.preset.desc')
-      setInput((v) => v || preset)
-    }
+    const params = takeBuildParams()
+    const preset = params?.desc ?? localStorage.getItem('eino.ontochat.preset.desc')
+    if (params?.desc === undefined && preset) localStorage.removeItem('eino.ontochat.preset.desc')
+    if (preset) setInput((v) => v || preset)
   }, [])
 
   useEffect(() => {

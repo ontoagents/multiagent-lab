@@ -22,6 +22,7 @@ import QualityReportCard, { qualityFindingsText } from '../components/QualityRep
 import DraftTrimPanel from '../components/DraftTrimPanel'
 import FindingProposalCards from '../components/FindingProposalCards'
 import { loadDraft, saveDraft, clearDraft } from '../../../lib/draftStore'
+import { takeBuildParams } from '../shared/ontoRoute'
 import JsonEditor from '../components/JsonEditor'
 import { RollbackOutlined } from '@ant-design/icons'
 import { invalidateOntos, useOntologies } from '../shared/useOntoList'
@@ -55,9 +56,24 @@ function readCustomOnto(): string | null {
 }
 
 export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPath?: () => void; onGoOntoChat?: (desc: string) => void }) {
-  const [step, setStep] = useState(readCustomStep)
+  // REQ-598：路由参数一次性交接优先于记忆键（?onto=&step=&source=，挂载即消费清 query）。
+  // 记忆与交接分治（111 号 §3.4-②）：消费值落记忆键成为新工作态（切路径再回不丢），
+  // customOnto/customStep/s1tab 记忆职责保留。
+  const [handoff] = useState(() => takeBuildParams() ?? {})
+  const [step, setStep] = useState(() => {
+    const s = handoff.step !== undefined ? Number(handoff.step) : NaN
+    const n = Number.isInteger(s) && s >= 0 && s <= 3 ? s : readCustomStep()
+    if (handoff.step !== undefined) localStorage.setItem(CUSTOM_STEP_KEY, String(n))
+    return n
+  })
   // 工作本体随步骤一并暂存（路径切换再回不断线；本体删除后 404 由 getSpec catch 置空兜底）
-  const [activeId, setActiveId] = useState<string | null>(readCustomOnto)
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    if (handoff.onto) {
+      localStorage.setItem(CUSTOM_ONTO_KEY, handoff.onto)
+      return handoff.onto
+    }
+    return readCustomOnto()
+  })
   const [spec, setSpec] = useState<Spec | null>(null)
   const [specTick, setSpecTick] = useState(0)
   // REQ-459：S1Source 重挂载序号——创建成功 +1 触发来源面板全新会话
@@ -121,7 +137,7 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
       {/* 草稿暂存：四步面板常驻挂载（显隐切换），跨步不丢中间态；
           REQ-459 例外：S1 来源面板在创建成功时整体重挂载（完成即新会话，key=s1Seq） */}
       <div style={{ display: step === 0 ? 'block' : 'none' }}>
-        <S1Source key={s1Seq} onCreated={handleCreated} onGoKbPath={onGoKbPath} onGoOntoChat={onGoOntoChat} />
+        <S1Source key={s1Seq} initialTab={handoff.source} onCreated={handleCreated} onGoKbPath={onGoKbPath} onGoOntoChat={onGoOntoChat} />
       </div>
       <div style={{ display: step === 1 ? 'block' : 'none' }}>
         {activeId ? (
@@ -177,9 +193,11 @@ export default function CustomBuildFlow({ onGoKbPath, onGoOntoChat }: { onGoKbPa
 
 const S1_TAB_KEY = 'eino.onto.s1tab'
 
-function S1Source({ onCreated, onGoKbPath, onGoOntoChat }: { onCreated: (selectId?: string) => void; onGoKbPath?: () => void; onGoOntoChat?: (desc: string) => void }) {
-  // REQ-248/M71：S1 来源 tab 记忆（方法论卡「援引到构建」直达 AI 创建 CQ 输入点的落点）
-  const [s1Tab, setS1Tab] = useState(() => localStorage.getItem(S1_TAB_KEY) ?? 'import')
+function S1Source({ initialTab, onCreated, onGoKbPath, onGoOntoChat }: { initialTab?: string; onCreated: (selectId?: string) => void; onGoKbPath?: () => void; onGoOntoChat?: (desc: string) => void }) {
+  // REQ-248/M71：S1 来源 tab 记忆（方法论卡「援引到构建」直达 AI 创建 CQ 输入点的落点）。
+  // REQ-598：入口交接 ?source= 一次性参数优先（消费即清——takeBuildParams 已清 query），
+  // s1tab 记忆键保留（用户偏好与一次性交接分治）。
+  const [s1Tab, setS1Tab] = useState(() => initialTab ?? localStorage.getItem(S1_TAB_KEY) ?? 'import')
   const { showToast } = useUI()
   const [importMode, setImportMode] = useState<'file' | 'paste'>('file')
   const [pasteFilename, setPasteFilename] = useState('')

@@ -4,103 +4,123 @@ import OntoChatFlow from './OntoChatFlow'
 import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
 import OntoExtendFlow from './components/OntoExtendFlow'
 import CatalogPane from './components/CatalogPane'
-import BuildLayout from './build/BuildLayout'
-import BuildPathGrid from './build/BuildPathGrid'
 import ConceptParkingFlow from './build/ConceptParkingFlow'
 import CustomBuildFlow from './build/CustomBuildFlow'
 import DataSourceBuildFlow from './build/DataSourceBuildFlow'
-import KgGuidePage from './build/KgGuidePage'
-import ProductionGuide from './build/ProductionGuide'
+import BuildHub from './build/BuildHub'
+import PathShell from './build/PathShell'
 import { ONTO_BUILD_PATH_KEY, readBuildPath, type BuildPath } from './build/paths'
-import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
+import { deepLinkOnto, parseOntoHash, writeOntoHash } from './shared/ontoRoute'
 
 // ---------------------------------------------------------------------------
-// 本体构建（BuildPage，REQ-104 ② → REQ-337/M137 页面化重构）：
-//   构建首页收敛为「路径选择页」（BuildPathGrid，六路径卡片降入口+成熟度角标）；
-//   custom/ontochat/kb/kg/ontoextend/catalog 各自独立页面，顶栏路径切换器
-//   （BuildLayout）常驻切换；路径记忆 eino.onto.buildPath 保留（存量值一次性
-//   迁移 'home'，此后显式选择仍记忆——沿 D-O11 迁移先例）。
-//   CustomBuildFlow（S1~S4 子页化+草稿暂存）/ KgGuidePage 见 build/ 拆分；
-//   未工程化路径显示引导卡、不做空壳交互（D-O11）；oo 双轨已退役（66 号，方案 B）。
-//   共享组件 QualityReportCard/SpecGraph/DoneCTA/CatalogPane 复用不动（80 号 U4）。
-//   REQ-334/M134：首页顶部生产动线引导条（导入/构建→质量门禁→发布→运行消费四步，
-//   串质量档案/发布态/消费观测台三段；双模式叙事=动线区分非功能分叉，学习叙事不动）。
+// 本体构建（BuildPage）：REQ-598/M409 Hub+独占路径页（111 号 §3.1~§3.5 结构性收敛）。
+//   路径选择、路径宿主、跨栏跳板三种角色分离：# /onto/build（无 path 段）=Hub 轻量
+//   入口页；#/onto/build/{path}=路径独占页（组件原样包 PathShell 壳，页内不陈列其他
+//   路径入口）；#/onto/build/home 保留为 hub 别名（进页 replace 成无 path 形态）；
+//   #/onto/build/kg 退役为重定向（等效旧 KgGuidePage 行为，旧深链不断链）。
+//   路由写入约定：页级跳转 push、页内细化 replace；hash 内 query 参数为跨路径一次性
+//   交接通道（?onto=&step=&source=&desc=，消费即清——记忆与交接分治，customOnto/
+//   customStep/s1tab 记忆职责保留）。
+//   路径记忆 eino.onto.buildPath=「最后访问的路径页」（hub 不写此键）；REQ-337 一次性
+//   迁移退役（hub 成为缺省）。顶栏 8 页签切换行（旧 BuildLayout）与首页路径卡
+//   （旧 BuildPathGrid）随本方案退役；生产动线迁 Hub 区块 C；命令面板 Mod+K 保留为
+//   全局路径切换辅助。共享壳 PathShell/FlowSteps/ConvergeCard 复用平台布局语言。
 // ---------------------------------------------------------------------------
+
+/** kg 重定向页（#/onto/build/kg）：等效旧 KgGuidePage——深链消费与审计栏（Q3：直跳，
+ *  断链风险最低）。KG 图谱抽取与消费动线由第五栏承载（D-O19/111 号 §3.3-⑧）。 */
+function KgRedirect() {
+  useEffect(() => {
+    deepLinkOnto({ col: 'audit' })
+  }, [])
+  return (
+    <div className="work-main">
+      <Typography.Text type="secondary" style={{ fontSize: 12.5 }} data-testid="kg-redirect-note">
+        正在前往「消费与审计」栏——KG 图谱浏览 / GraphRAG 试查 / 决策审计由该栏承载…
+      </Typography.Text>
+    </div>
+  )
+}
 
 export default function BuildPage() {
-  // REQ-470：hash 优先恢复路径（#/onto/build/{path}），无 hash 回落 localStorage 记忆
-  const [buildPath, setBuildPath] = useState<BuildPath>(() => {
+  // hash 优先：有 path 段→路径页；无 path/home→Hub；hash 非本栏（legacy 直写键入口）→记忆键。
+  // 'kg' 仅来自 hash 解析（退役重定向），navigate 永不写入。
+  const [buildPath, setBuildPath] = useState<BuildPath | 'kg'>(() => {
     const r = parseOntoHash()
-    if (r?.col === 'build' && r.path) return r.path as BuildPath
+    if (r?.col === 'build') return r.path && r.path !== 'home' ? (r.path as BuildPath | 'kg') : 'home'
     return readBuildPath()
   })
-  // REQ-508/M316：概念停车场弹窗（新手条第三起步入口；常驻挂载——骨架创建后经 customOnto/customStep 键跳 S2）
+  // REQ-508/M316：概念停车场弹窗（P1 仍为弹窗动线；REQ-600 页面化退役）——Hub「有学习材料」入口
   const [materialOpen, setMaterialOpen] = useState(false)
 
-  // REQ-469：跨入口换路径（命令面板/深链）在构建栏内即时生效——沿 RuntimePage engineKey 同步先例
+  // REQ-598：#/onto/build/home 别名进页 replace 成无 path 形态（旧深链/书签不断）
   useEffect(() => {
-    const sync = () => setBuildPath(readBuildPath())
-    window.addEventListener('onto-sidebar-change', sync)
-    return () => window.removeEventListener('onto-sidebar-change', sync)
+    const r = parseOntoHash()
+    if (r?.col === 'build' && r.path === 'home') writeOntoHash({ col: 'build' }, true)
   }, [])
 
-  // REQ-470：后退/前进按 hash 恢复路径
-  useEffect(() => {
-    const onPop = () => {
-      const r = parseOntoHash()
-      if (r?.col === 'build' && r.path) {
-        localStorage.setItem(ONTO_BUILD_PATH_KEY, r.path)
-        setBuildPath(r.path as BuildPath)
+  // 统一 hash 应用：popstate/hashchange（后退前进）+ onto-sidebar-change（跨入口换路径）
+  // 共用——hub 无 path 分支在此补齐（旧行为仅认有 path 的 hash，后退回 hub 被静默忽略）。
+  // hash 非本栏时回落记忆键（legacy 直写键调用方：资产「演化」/学习页「援引到构建」不写 hash）。
+  const applyRoute = () => {
+    const r = parseOntoHash()
+    if (r?.col === 'build') {
+      if (!r.path || r.path === 'home') {
+        if (r.path === 'home') writeOntoHash({ col: 'build' }, true)
+        setBuildPath('home') // hub 不写记忆键
+        return
       }
+      if (r.path !== 'kg') localStorage.setItem(ONTO_BUILD_PATH_KEY, r.path) // kg 退役不占记忆
+      setBuildPath(r.path as BuildPath | 'kg')
+      return
     }
-    window.addEventListener('popstate', onPop)
-    window.addEventListener('hashchange', onPop) // REQ-470：同文档 hash 导航同应用
+    setBuildPath(readBuildPath())
+  }
+  useEffect(() => {
+    window.addEventListener('onto-sidebar-change', applyRoute)
+    window.addEventListener('popstate', applyRoute)
+    window.addEventListener('hashchange', applyRoute) // REQ-470：同文档 hash 导航同应用
     return () => {
-      window.removeEventListener('popstate', onPop)
-      window.removeEventListener('hashchange', onPop)
+      window.removeEventListener('onto-sidebar-change', applyRoute)
+      window.removeEventListener('popstate', applyRoute)
+      window.removeEventListener('hashchange', applyRoute)
     }
   }, [])
 
-  const select = (key: BuildPath) => {
+  const navigate = (key: BuildPath, params?: Record<string, string>) => {
+    if (key === 'home') {
+      setBuildPath('home')
+      writeOntoHash({ col: 'build' }) // 页级跳转进历史栈（后退回先前路径页）
+      return
+    }
     localStorage.setItem(ONTO_BUILD_PATH_KEY, key)
     setBuildPath(key)
-    // REQ-470：路径切换进历史栈（后退回到先前路径）
-    writeOntoHash({ col: 'build', path: key })
-  }
-
-  // REQ-508/M316：概念停车场「一键成骨架」落点——CustomBuildFlow 按 localStorage 键恢复步骤与工作本体，
-  // 写 customOnto+customStep=1 后切 custom 路径即直达 S2（沿 doBlank/handleCreated 同键先例）
-  const handleMaterialCreated = (id: string) => {
-    localStorage.setItem('eino.onto.build.customOnto', id)
-    localStorage.setItem('eino.onto.build.customStep', '1')
-    select('custom')
+    writeOntoHash({ col: 'build', path: key, params })
   }
 
   return (
     <>
-      <BuildLayout buildPath={buildPath} onSelect={select}>
-      {buildPath === 'home' && (
-        <>
-          {/* REQ-484/M283：一主一辅——首屏=新手条+六卡；生产动线（进阶语境）降级到卡片下方折叠条 */}
-          <BuildPathGrid onSelect={select} onMaterialStart={() => setMaterialOpen(true)} />
-          <ProductionGuide onGoBuild={() => select('custom')} />
-        </>
-      )}
+      {buildPath === 'home' && <BuildHub onGo={navigate} onMaterialStart={() => setMaterialOpen(true)} />}
       {buildPath === 'custom' && (
-        <CustomBuildFlow
-          onGoKbPath={() => select('kb')}
-          // REQ-306 A2：AI 创建分流——描述携带进 OntoChat（localStorage 一次性预填）
-          onGoOntoChat={(desc) => {
-            if (desc) localStorage.setItem('eino.ontochat.preset.desc', desc)
-            select('ontochat')
-          }}
-        />
+        <PathShell path="custom" onBack={() => navigate('home')}>
+          <CustomBuildFlow
+            onGoKbPath={() => navigate('kb')}
+            // REQ-306 A2：AI 创建分流——描述携带进 OntoChat（REQ-598 改路由参数 ?desc=
+            // 一次性预填；P2-a 收口退役 ontochat.preset.desc 旧键回退读）
+            onGoOntoChat={(desc) => navigate('ontochat', desc ? { desc } : undefined)}
+          />
+        </PathShell>
       )}
-      {buildPath === 'ontochat' && <OntoChatFlow onSaved={() => { /* 入库后产物进资产栏；此处留在会话页展示 done 态 */ }} />}
+      {buildPath === 'ontochat' && (
+        <PathShell path="ontochat" onBack={() => navigate('home')}>
+          <OntoChatFlow onSaved={() => { /* 入库后产物进资产栏；此处留在会话页展示 done 态 */ }} />
+        </PathShell>
+      )}
       {buildPath === 'kb' && (
-        <>
+        <PathShell path="kb" onBack={() => navigate('home')}>
           <KbBuildFlow />
-          {/* REQ-485/M284：双向导视觉分界——结构化映射是「另一种方式」（次级段落，非同流程第二步） */}
+          {/* REQ-485/M284：双向导视觉分界——结构化映射是「另一种方式」（次级段落）；
+              REQ-600 拆独立路由 #/onto/build/structured，本页过渡态保持双段 */}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '20px 0 10px', flexWrap: 'wrap' }} data-testid="kb-structured-divider">
             <span style={{ fontSize: 13.5, fontWeight: 600 }}>另一种方式：从结构化数据推导</span>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -109,32 +129,44 @@ export default function BuildPage() {
             <span style={{ flex: 1, borderBottom: '1px dashed var(--c-border, #e6e8f0)', alignSelf: 'center' }} />
           </div>
           <StructuredFlow />
-        </>
+        </PathShell>
       )}
-      {buildPath === 'kg' && <KgGuidePage />}
+      {buildPath === 'kg' && <KgRedirect />}
       {buildPath === 'datasource' && (
-        <DataSourceBuildFlow
-          onGoCustom={(id) => {
-            // REQ-595：提案落库后深链 custom S2（工作本体键与步骤键同源，S2 直达可编辑）
-            localStorage.setItem('eino.onto.build.customOnto', id)
-            localStorage.setItem('eino.onto.build.customStep', '1')
-            select('custom')
-          }}
-        />
+        <PathShell path="datasource" onBack={() => navigate('home')}>
+          <DataSourceBuildFlow
+            onGoCustom={(id) => {
+              // REQ-595：提案落库后深链 custom ② 编辑——REQ-598 交接走路由参数
+              //（?onto=&step= 一次性，消费即清；customOnto/customStep 记忆键职责保留）
+              navigate('custom', { onto: id, step: '1' })
+            }}
+          />
+        </PathShell>
       )}
-      {buildPath === 'ontoextend' && <OntoExtendFlow />}
+      {buildPath === 'ontoextend' && (
+        <PathShell path="ontoextend" onBack={() => navigate('home')}>
+          <OntoExtendFlow />
+        </PathShell>
+      )}
       {buildPath === 'catalog' && (
-        <CatalogPane
-          onCreated={(id) => {
-            // REQ-405/M201：Catalog onCreated 断头修复——引入成功深链资产详情（沿 DoneCTA 动线）
-            localStorage.setItem('eino.onto.sidebar', 'assets')
-            localStorage.setItem('eino.onto.asset.focus', id)
-            window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-          }}
-        />
+        <PathShell path="catalog" onBack={() => navigate('home')}>
+          <CatalogPane
+            onCreated={(id) => {
+              // REQ-405/M201：引入成功深链资产详情（gotoPane 收敛 deepLinkOnto 单点）
+              deepLinkOnto({ col: 'assets', assetId: id }, [['eino.onto.asset.focus', id]])
+            }}
+          />
+        </PathShell>
       )}
-      </BuildLayout>
-      <ConceptParkingFlow open={materialOpen} onClose={() => setMaterialOpen(false)} onCreated={handleMaterialCreated} />
+      <ConceptParkingFlow
+        open={materialOpen}
+        onClose={() => setMaterialOpen(false)}
+        onCreated={(id) => {
+          // REQ-508/M316：材料「一键成骨架」落点 custom ② 编辑——交接走路由参数
+          //（?onto=&step= 一次性；沿 datasource onGoCustom 同参先例）
+          navigate('custom', { onto: id, step: '1' })
+        }}
+      />
     </>
   )
 }

@@ -15,6 +15,7 @@ import AuditPage from './AuditPage'
 import { useUI } from '../../store/ui'
 import { guardLeave } from './shared/leaveGuard'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
+import { readBuildPath } from './build/paths'
 import CommandPalette from './shared/CommandPalette'
 
 // ---------------------------------------------------------------------------
@@ -121,8 +122,11 @@ export default function OntologyModule() {
     guardLeave(() => {
       localStorage.setItem(ONTO_SIDEBAR_KEY, key)
       setSidebarKey(key)
-      // REQ-470：栏位切换进历史栈（后退回到先前栏位）
-      writeOntoHash({ col: key })
+      // REQ-470：栏位切换进历史栈（后退回到先前栏位）。
+      // REQ-598：切回构建栏 hash 携带记忆路径页（§3.5「重进构建栏恢复最后访问的路径页」）；
+      // hub 形态（无 path 段）仅由显式入口写入——命令面板 c-build/后退前进/hub「构建入口」钮。
+      const mem = key === 'build' ? readBuildPath() : 'home'
+      writeOntoHash(mem !== 'home' ? { col: key, path: mem } : { col: key })
     })
   }
 

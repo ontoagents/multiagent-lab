@@ -6,6 +6,8 @@ import { useUI } from '../../../store/ui'
 import DraftTrimPanel from '../components/DraftTrimPanel'
 import { clearDraft, loadDraft, saveDraft } from '../../../lib/draftStore'
 import { invalidateOntos } from '../shared/useOntoList'
+import { deepLinkOnto } from '../shared/ontoRoute'
+import { FlowSteps } from './PathShell'
 
 // ---------------------------------------------------------------------------
 // REQ-595/M406 由数据源构建（第八构建路径）——连接 SQLite 只读内省 → 列画像采样 →
@@ -177,9 +179,8 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
   }
 
   const goToAsset = (id: string) => {
-    localStorage.setItem('eino.onto.sidebar', 'assets')
-    localStorage.setItem('eino.onto.asset.focus', id)
-    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+    // REQ-598：gotoPane 收敛 deepLinkOnto 单点（写记忆+hash+事件动线单源）
+    deepLinkOnto({ col: 'assets', assetId: id }, [['eino.onto.asset.focus', id]])
   }
 
   if (createdId) {
@@ -221,9 +222,15 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
 
   return (
     <Card size="small" data-testid="datasource-build-flow">
-      <Typography.Title level={5} style={{ marginTop: 0 }}>
-        由数据源构建（第八构建路径）
-      </Typography.Title>
+      {/* REQ-598：外壳重排——三段 Steps（连接→生成→人审，仅展示层；卡片组件与状态机零改动） */}
+      <FlowSteps
+        items={[
+          { key: 'connect', title: '① 连接并分析' },
+          { key: 'generate', title: '② 生成提案' },
+          { key: 'review', title: '③ 人审入库' },
+        ]}
+        current={createdId ? 2 : proposal ? 1 : 0}
+      />
       <Typography.Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
         连接本机 SQLite 数据库（只读），自动推导本体骨架：数据表→概念、非主键非外键列→数据属性、声明外键→对象关系、纯外键关联表→关系；AI 补充中文显示名/业务描述/隐含外键建议。全程只读不写库，提案需人工确认后才落资产。
       </Typography.Paragraph>
