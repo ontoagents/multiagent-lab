@@ -5,14 +5,20 @@ package facade
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"encoding/json"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine"
 	"github.com/ontoagents/ontoagents/runtime-manager/internal/manager"
 	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
 )
@@ -29,6 +35,91 @@ func newRuntimeFixture(t *testing.T) *Facade {
 	f := New(st, func(string) (string, error) { return "http://127.0.0.1:9999/sparql", nil })
 	f.Manager = mg
 	return f
+}
+
+type profileStopEngine struct {
+	stopErr error
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (e *profileStopEngine) Start(ctx context.Context, _ string, _ int, _ map[string]string) (*engine.Process, error) {
+	if e.entered != nil {
+		e.entered <- struct{}{}
+		select {
+		case <-e.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return engine.NewProcess("http://127.0.0.1:1/sparql", 42, func() error { return e.stopErr }), nil
+}
+
+func (*profileStopEngine) HealthCheck(context.Context, string) error { return nil }
+
+func TestRuntimeMutationPreservesLifecycle(t *testing.T) {
+	for _, mode := range []string{"starting", "stop-failed"} {
+		for _, op := range []string{"delete", "update"} {
+			t.Run(mode+"/"+op, func(t *testing.T) {
+				f := newRuntimeFixture(t)
+				build := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasSuffix(r.URL.Path, "/external-refs") {
+						_, _ = w.Write([]byte(`{"refs":[],"dangling":[]}`))
+					} else if strings.HasSuffix(r.URL.Path, "/export") {
+						_, _ = w.Write([]byte("<urn:s> <urn:p> <urn:o> ."))
+					} else {
+						http.NotFound(w, r)
+					}
+				}))
+				t.Cleanup(build.Close)
+				f.Manager.BuildURL = build.URL
+				f.Manager.HealthTries = 1
+				if err := f.Store.SetConfig(store.RuntimeConfig{ExecutionMethod: "native"}); err != nil {
+					t.Fatal(err)
+				}
+				p := &store.Profile{ID: "p1", Name: "original", Engine: "fuseki", OntologyIDs: []string{"o1"}, Config: "{}"}
+				if err := f.Store.Create(p); err != nil {
+					t.Fatal(err)
+				}
+				e := &profileStopEngine{stopErr: errors.New("engine stop refused")}
+				f.Manager.RegisterEngine("fuseki", e)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				t.Cleanup(cancel)
+				if mode == "starting" {
+					e.entered, e.release = make(chan struct{}, 1), make(chan struct{})
+					var workers sync.WaitGroup
+					workers.Add(1)
+					t.Cleanup(func() { close(e.release); workers.Wait() })
+					go func() { defer workers.Done(); _ = f.Manager.Start(ctx, p.ID) }()
+					select {
+					case <-e.entered:
+					case <-ctx.Done():
+						t.Fatal(ctx.Err())
+					}
+				} else {
+					if err := f.Manager.Start(ctx, p.ID); err != nil {
+						t.Fatal(err)
+					}
+					if err := f.Manager.Stop(p.ID); err == nil {
+						t.Fatal("fixture stop must fail")
+					}
+				}
+				var result string
+				if op == "delete" {
+					result = call(t, f.handleProfileDelete(), ctx, "runtime_profile_delete", map[string]any{"profile_id": p.ID})
+				} else {
+					result = call(t, f.handleProfileUpdate(), ctx, "runtime_profile_update", map[string]any{"profile_id": p.ID, "name": "changed", "ontologies_json": `["o2"]`})
+				}
+				if !strings.Contains(result, map[string]string{"delete": "删除失败", "update": "更新失败"}[op]) {
+					t.Fatalf("mutation must fail: %s", result)
+				}
+				got, err := f.Store.Get(p.ID)
+				if err != nil || got.Name != p.Name || len(got.OntologyIDs) != 1 || got.OntologyIDs[0] != "o1" {
+					t.Fatalf("unsafe mutation changed or removed profile: %+v %v", got, err)
+				}
+			})
+		}
+	}
 }
 
 // call 断言 handler 无 Go 层错误并回文本结果（工具级错误在文本里）。
