@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strings"
 
-	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 	importer "github.com/ontoagents/ontoagents/ontology-service/internal/importer"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // elementKinds 合法元素类型（与工具面四类对齐）。
@@ -37,7 +37,9 @@ func (s *Server) elementRename(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "kind 须为 concept|relation|attribute|instance"})
 		return
 	}
-	var body struct{ To string `json:"to"` }
+	var body struct {
+		To string `json:"to"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.To) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "to（新名）必填"})
 		return
@@ -76,7 +78,7 @@ func applyElementRename(kind, oldName, newName string, sp *pkgspec.Spec) (string
 			return "", fmt.Errorf("概念「%s」不存在", oldName)
 		}
 		importer.RewireConceptRefs(sp, oldName, newName) // parents/relations from·to/instances concept/restrictions target/axioms 主宾（REQ-472 已扩面）
-		for i := range sp.DataProperties {      // 数据属性定义域（merge 走 renamedConcepts，此处直接改）
+		for i := range sp.DataProperties {               // 数据属性定义域（merge 走 renamedConcepts，此处直接改）
 			if sp.DataProperties[i].Domain == oldName {
 				sp.DataProperties[i].Domain = newName
 				rewired++
@@ -96,7 +98,7 @@ func applyElementRename(kind, oldName, newName string, sp *pkgspec.Spec) (string
 			return "", fmt.Errorf("关系「%s」不存在", oldName)
 		}
 		importer.RewireRelationRefs(sp, oldName, newName) // 实例断言 rel/restrictions property（REQ-472 已扩）
-		for i := range sp.Relations {            // 逆属性引用（REQ-473 新面）
+		for i := range sp.Relations {                     // 逆属性引用（REQ-473 新面）
 			if sp.Relations[i].InverseOf == oldName {
 				sp.Relations[i].InverseOf = newName
 				rewired++
@@ -140,8 +142,6 @@ func applyElementRename(kind, oldName, newName string, sp *pkgspec.Spec) (string
 	}
 	return "", fmt.Errorf("未知元素类型 %q", kind)
 }
-
-
 
 // elementBody 原始字段承载（presence 语义：字段缺席=保持原值，显式 null/空串=覆盖——与工具面
 // argString/argUpsertNames 同口径，故按 RawMessage 判存在）。
@@ -284,20 +284,22 @@ func (s *Server) elementDelete(w http.ResponseWriter, r *http.Request) {
 
 // loadSpecForEdit 编辑基载：当前 spec + 版本（元素编排的 GET spec→版本 两步服务端化）。
 func (s *Server) loadSpecForEdit(id string) (*pkgspec.Spec, int, error) {
-	o, err := s.Store.GetOntology(id)
+	head, err := s.Store.ReadSpecSnapshot(id)
 	if err != nil {
 		return nil, 0, err
 	}
-	sp, err := s.loadSpecOrDefault(id)
-	if err != nil {
-		return nil, 0, err
+	sp := &pkgspec.Spec{Name: head.Name, Description: head.Description}
+	if head.SpecJSON != "" {
+		if err := json.Unmarshal([]byte(head.SpecJSON), sp); err != nil {
+			return nil, 0, fmt.Errorf("spec_json 解析失败: %w", err)
+		}
 	}
-	return sp, o.Version, nil
+	return sp, head.Version, nil
 }
 
 // finishElementSave 校验+落盘（persistSpec 单源）+工具面同形包络响应。
 func (s *Server) finishElementSave(w http.ResponseWriter, id string, sp *pkgspec.Spec, baseVersion int, operation, detail string) {
-	v, _, perr := s.persistSpec(id, sp)
+	v, _, perr := s.persistSpec(id, sp, baseVersion)
 	if perr != nil {
 		switch perr.Kind {
 		case "validation":

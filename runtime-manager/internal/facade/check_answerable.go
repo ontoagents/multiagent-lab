@@ -3,7 +3,7 @@ package facade
 // REQ-415/M211：check_answerable 可回答性预检（99 号 NVIDIA AutoOntology D1 借鉴——
 // 握手阶段确定性预检，治「agent 盲跑后才发现本体不含该域」）。
 // 实现=question 分词（rune bigram + 显式分隔词）与概念标签集 containment 匹配，
-// 覆盖度=命中标签数/标签总数 与 命中问题词数/问题词数 双向综合；零 LLM 调用。
+// coverage保留命中标签占比供展示；可答预检只表示schema标签相关，不证明事实答案。零LLM调用。
 // suggestion=建议调用序（99 号 O1 搭车：guide 紧凑指引同口径）。
 
 import (
@@ -66,7 +66,7 @@ func missingByDomain(words []string, domainLabels map[string][]string) map[strin
 			for _, lab := range labels {
 				// 缺失判定仅用「标签含词」方向（label⊃word）——「问题含完整标签」是标签级命中信号，
 				// 不应使其它词免检（否则单标签入题即全词豁免，缺口清单失真）
-				if strings.Contains(lab, w) {
+				if strings.Contains(strings.ToLower(lab), strings.ToLower(w)) {
 					hit = true
 					break
 				}
@@ -103,29 +103,30 @@ func (f *Facade) CheckAnswerableCore(ctx context.Context, oid, question string) 
 	hits := 0
 	for _, lab := range labels {
 		for _, w := range words {
-			if len([]rune(w)) >= 2 && strings.Contains(lab, w) {
+			if len([]rune(w)) >= 2 && strings.Contains(strings.ToLower(lab), strings.ToLower(w)) {
 				if !matched[lab] {
 					matched[lab] = true
 					hits++
 				}
 				break
 			}
-			if !matched[lab] && len([]rune(lab)) >= 2 && strings.Contains(question, lab) {
+			if !matched[lab] && len([]rune(lab)) >= 2 && strings.Contains(strings.ToLower(question), strings.ToLower(lab)) {
 				matched[lab] = true
 				hits++
 			}
 		}
 	}
 	coverage := float64(hits) / float64(len(labels))
-	// answerable 阈值：≥10% 标签命中问题词（确定性保守口径——宁可 false 让 agent 换问法）
-	answerable := hits > 0 && coverage >= 0.10
-	sort.Strings(matchedKeys(matched))
+	// 相关性不因添加无关概念而改变；coverage仅为历史展示字段。
+	answerable := hits > 0
 	suggestion := "建议调用序：list_concepts 定位 → get_concept 看定义 → neighbors/sparql_query 取数据" +
 		fmt.Sprintf("（本次匹配 %d/%d 标签，覆盖度 %.0f%%）", hits, len(labels), coverage*100)
 	if !answerable {
-		suggestion = "覆盖度低——问题可能超出本体域；建议换问法或确认本体是否覆盖该领域。" + suggestion
+		suggestion = "未命中相关标签——问题可能超出本体域；建议换问法或确认本体是否覆盖该领域。" + suggestion
 	}
+	suggestion += "；标签相关仅为schema预检，事实可答性需查询证据。"
 	mc := matchedKeys(matched)
+	sort.Strings(mc)
 	return map[string]any{
 		"answerable": answerable, "matched_concepts": mc,
 		"coverage": coverage, "label_count": len(labels), "question_words": words,

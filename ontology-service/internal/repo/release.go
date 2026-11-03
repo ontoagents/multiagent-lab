@@ -96,58 +96,78 @@ func urnOntoIDOf(iri string) string {
 // digest 不一致=内容漂移，拒绝（ErrConflict）且不改任何状态——版本内容须演进（保存触发
 // bump）后发布新版本，或还原漂移变更。
 func (s *Store) PublishRelease(id, versionName, specJSON, ttl string, triples int) (*Ontology, error) {
-	o, err := s.GetOntology(id)
+	head, err := s.ReadSpecSnapshot(id)
 	if err != nil {
 		return nil, err
 	}
+	return s.PublishReleaseAt(id, versionName, head.Version, specJSON, ttl, triples)
+}
+
+// PublishReleaseAt freezes only the exact head used to produce the exported TTL.
+func (s *Store) PublishReleaseAt(id, versionName string, expectedVersion int, specJSON, ttl string, triples int) (*Ontology, error) {
 	name := strings.TrimSpace(versionName)
 	if name == "" {
-		name = fmt.Sprintf("v%d", o.Version)
+		name = fmt.Sprintf("v%d", expectedVersion)
+	}
+	manifest, err := s.buildReleaseManifest(id, expectedVersion)
+	if err != nil {
+		return nil, err
+	}
+	mj, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	// Lock before reading; both version and exported input must still match.
+	res, err := tx.Exec(`UPDATE ontology SET version=version WHERE id=? AND version=? AND
+		EXISTS(SELECT 1 FROM ontology_artifact WHERE ontology_id=? AND format='spec_json' AND content=?)`,
+		id, expectedVersion, id, specJSON)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkHeadUpdate(tx, id, res); err != nil {
+		return nil, err
 	}
 	specSum, ttlSum := sha256Hex(specJSON), sha256Hex(ttl)
-	prev, perr := s.GetRelease(id, o.Version)
-	if perr != nil && !errors.Is(perr, ErrNotFound) {
-		return nil, perr
+	prev, err := scanReleaseRow(tx.QueryRow(`SELECT `+releaseFullCols+` FROM ontology_release WHERE ontology_id=? AND version=?`, id, expectedVersion))
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
 	}
 	if prev != nil {
-		// 同版本重发布：digest 全等才放行（同内容幂等），漂移即拒绝（FP-004 冻结语义）
 		if prev.SpecSHA256 != specSum || prev.TTLSHA256 != ttlSum {
-			return nil, fmt.Errorf("%w: 本体 %s v%d 已有不可变发布快照而当前内容 digest 不一致（快照 spec %s / ttl %s，当前 spec %s / ttl %s）——发布内容 MUST NOT 修改（OBO FP-004）：请演进内容生成新版本后发布，或还原漂移变更后重发布",
-				ErrConflict, id, o.Version, shortSum(prev.SpecSHA256), shortSum(prev.TTLSHA256), shortSum(specSum), shortSum(ttlSum))
+			return nil, fmt.Errorf("%w: 本体 %s v%d 已有不可变发布快照且 digest 不一致（OBO FP-004：发布内容 MUST NOT 修改），请保存为新版本后发布", ErrConflict, id, expectedVersion)
 		}
 	} else {
-		manifest, merr := s.buildReleaseManifest(id, o.Version)
-		if merr != nil {
-			return nil, merr
-		}
-		mj, err := json.Marshal(manifest)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := s.db.Exec(`INSERT INTO ontology_release
+		if _, err := tx.Exec(`INSERT INTO ontology_release
 			(ontology_id,version,version_name,spec_json,ttl,manifest_json,spec_sha256,ttl_sha256,triples,published_at)
-			VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`,
-			id, o.Version, name, specJSON, ttl, string(mj), specSum, ttlSum, triples); err != nil {
+			VALUES(?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`, id, expectedVersion, name, specJSON, ttl, string(mj), specSum, ttlSum, triples); err != nil {
 			return nil, err
 		}
 	}
-	// tag 标签刷新（可变）+ 发布态（REQ-239 既有语义）——内容列不触碰
-	if _, err := s.db.Exec(`UPDATE ontology_release SET version_name=? WHERE ontology_id=? AND version=?`, name, id, o.Version); err != nil {
+	if _, err := tx.Exec(`UPDATE ontology_release SET version_name=? WHERE ontology_id=? AND version=?`, name, id, expectedVersion); err != nil {
 		return nil, err
 	}
-	if _, err := s.db.Exec(`UPDATE ontology SET status='published', version_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, name, id); err != nil {
+	if _, err := tx.Exec(`UPDATE ontology SET status='published',version_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, name, id); err != nil {
 		return nil, err
 	}
-	o2, err := s.GetOntology(id)
+	o := &Ontology{}
+	if err := tx.QueryRow(`SELECT id,name,description,version,IFNULL(forked_from,''),created_at,updated_at,quality_strict,IFNULL(status,'draft'),IFNULL(version_name,''),IFNULL(reasoning_check,0) FROM ontology WHERE id=?`, id).
+		Scan(&o.ID, &o.Name, &o.Description, &o.Version, &o.ForkedFrom, &o.CreatedAt, &o.UpdatedAt, &o.QualityStrict, &o.Status, &o.VersionName, &o.ReasoningCheck); err != nil {
+		return nil, err
+	}
+	rel, err := scanReleaseRow(tx.QueryRow(`SELECT `+releaseFullCols+` FROM ontology_release WHERE ontology_id=? AND version=?`, id, expectedVersion))
 	if err != nil {
 		return nil, err
 	}
-	rel, err := s.GetReleaseMeta(id, o.Version)
-	if err != nil {
+	o.Release = &rel.ReleaseInfo
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	o2.Release = &rel.ReleaseInfo
-	return o2, nil
+	return o, nil
 }
 
 // buildReleaseManifest 发布时点依赖闭包账本：BFS 沿 import/reuse 仓内引用 + owl:imports 哨兵

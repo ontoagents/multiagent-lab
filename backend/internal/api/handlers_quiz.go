@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -281,15 +282,21 @@ func (s *Server) quizCoveragePreset(ontologyID string, items []*store.QuizItem) 
 		body, _ := json.Marshal(map[string]string{"ontology_id": ontologyID, "question": it.Question})
 		resp, err := client.Post(strings.TrimRight(rtURL, "/")+"/api/check-answerable", "application/json", bytes.NewReader(body))
 		if err != nil {
-			return // 运行平面不可达：整批留空（未预检如实态）
+			continue // 本题未预检，继续后续题目
 		}
 		var out struct {
-			Answerable bool `json:"answerable"`
+			Answerable *bool `json:"answerable"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&out)
+		decoder := json.NewDecoder(resp.Body)
+		decodeErr := decoder.Decode(&out)
+		var trailing any
+		endErr := decoder.Decode(&trailing)
 		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 || decodeErr != nil || endErr != io.EOF || out.Answerable == nil {
+			continue
+		}
 		verdict := "not_answerable"
-		if out.Answerable {
+		if *out.Answerable {
 			verdict = "answerable"
 		}
 		if err := s.Store.UpdateQuizCoverage(it.ID, verdict); err != nil {

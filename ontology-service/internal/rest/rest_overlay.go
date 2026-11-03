@@ -175,7 +175,7 @@ func jsonEqual(a, b string) bool {
 
 // extractOverlaysFromSave 比较人工新 spec 与现行 spec，产出 overlay 变更集。
 // base 取既有行的 base（机器值穿透多轮人工编辑不丢失），无既有行取旧对象值。
-func (s *Server) extractOverlaysFromSave(id string, oldSp, newSp *pkgspec.Spec) (apply []*repo.ObjectOverlay, removeKeys []string) {
+func (s *Server) extractOverlaysFromSave(id string, oldSp, newSp *pkgspec.Spec) (apply []*repo.ObjectOverlay, removeKeys []string, err error) {
 	type entry struct {
 		kind, concept, name, raw string
 	}
@@ -203,6 +203,9 @@ func (s *Server) extractOverlaysFromSave(id string, oldSp, newSp *pkgspec.Spec) 
 		}
 		lid := pkgspec.ObjectLogicalID(ne.kind, ne.concept, ne.name)
 		existing, gerr := s.Store.GetOverlay(id, lid)
+		if gerr != nil && !errors.Is(gerr, repo.ErrNotFound) {
+			return nil, nil, gerr
+		}
 		base := ""
 		action := "edit"
 		switch {
@@ -241,7 +244,7 @@ func (s *Server) extractOverlaysFromSave(id string, oldSp, newSp *pkgspec.Spec) 
 			Action: "delete", BaseJSON: oe.raw, OverlayJSON: "{}",
 		})
 	}
-	return apply, removeKeys
+	return apply, removeKeys, nil
 }
 
 // persistOverlayDeltas 落 overlay 变更集（保留既有 revision 递增语义：expectedRevision=0 表示跟随现状）。
@@ -493,7 +496,7 @@ func (s *Server) putObjectOverlay(w http.ResponseWriter, r *http.Request) {
 	}
 	lid := pkgspec.ObjectLogicalID(kind, concept, name)
 
-	sp, err := s.loadSpecOrDefault(id)
+	sp, baseVersion, err := s.loadSpecForEdit(id)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -524,44 +527,30 @@ func (s *Server) putObjectOverlay(w http.ResponseWriter, r *http.Request) {
 		Action: action, BaseJSON: base, OverlayJSON: jsonOf(obj),
 		IdemKey: body.IdempotencyKey, IdemHash: hash, Actor: body.Actor,
 	}
-	saved, err := s.Store.UpsertOverlay(row, body.ExpectedRevision)
-	if errors.Is(err, repo.ErrConflict) {
-		msg := "编辑冲突：该对象已被其他编辑更新（revision 不符）——请刷新后重试"
-		if body.IdempotencyKey != "" {
-			msg = "幂等键已复用于不同内容（idempotency key reused）"
-		}
-		curRev := 0
-		if cur, gerr := s.Store.GetOverlay(id, lid); gerr == nil {
-			curRev = cur.Revision
-		}
-		writeJSON(w, http.StatusConflict, map[string]any{"error": msg, "current_revision": curRev})
-		return
-	}
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	// 应用进现行 spec → 校验 → 新版本
+	// Validate first: an invalid edit must preserve an existing overlay.
 	specSetObject(sp, kind, obj)
 	if errs := sp.Validate(); len(errs) > 0 {
-		_ = s.Store.DeleteOverlay(id, lid) // 不留半截 overlay
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "应用后校验未通过（引用缺失？）", "validation_errors": errs})
 		return
 	}
 	bts, _ := json.Marshal(sp)
-	if err := s.Store.PutArtifact(id, "spec_json", string(bts), true); err != nil {
+	v, err := s.Store.SaveSpecSnapshot(id, repo.SpecWrite{ExpectedVersion: baseVersion, SpecJSON: string(bts), Overlays: []*repo.ObjectOverlay{row}, ExpectedOverlayRevisions: map[string]int{lid: body.ExpectedRevision}})
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	v, _ := s.Store.BumpVersion(id)
-	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
-	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "logical_id": lid, "revision": saved.Revision, "action": action})
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "version": v, "logical_id": lid, "revision": row.Revision, "action": action})
 }
 
 // revertOverlay DELETE /api/ontologies/{id}/objects/{kind}/{name}/overlay：撤回人工编辑回到机器 base。
 func (s *Server) revertOverlay(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	kind, name := r.PathValue("kind"), r.PathValue("name")
+	sp, baseVersion, err := s.loadSpecForEdit(id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	row, err := s.Store.GetOverlay(id, pkgspec.ObjectLogicalID(kind, "", name))
 	if err != nil && kind == pkgspec.ObjKindInstance {
 		// instance 的 logical_id 含概念名——按名兜底扫描
@@ -569,11 +558,6 @@ func (s *Server) revertOverlay(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, repo.ErrNotFound)
-		return
-	}
-	sp, err := s.loadSpecOrDefault(id)
-	if err != nil {
-		writeErr(w, err)
 		return
 	}
 	note := ""
@@ -602,13 +586,11 @@ func (s *Server) revertOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bts, _ := json.Marshal(sp)
-	if err := s.Store.PutArtifact(id, "spec_json", string(bts), true); err != nil {
+	v, err := s.Store.SaveSpecSnapshot(id, repo.SpecWrite{ExpectedVersion: baseVersion, SpecJSON: string(bts), RemoveOverlayIDs: []string{row.LogicalID}})
+	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	v, _ := s.Store.BumpVersion(id)
-	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
-	_ = s.Store.DeleteOverlay(id, row.LogicalID)
 	writeJSON(w, http.StatusOK, map[string]any{"reverted": true, "version": v, "note": note, "action": row.Action})
 }
 

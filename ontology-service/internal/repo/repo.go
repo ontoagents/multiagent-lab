@@ -454,24 +454,15 @@ func (s *Store) DemoteToDraft(id string) error {
 // RestoreVersion 历史快照回滚=重发布动作（REQ-239⑤）：把指定版本快照内容恢复为**新版本**
 // （BumpVersion 后写当前形态+版本历史），当前态回 draft——审计友好（版本号单调，旧快照永不覆盖）。
 func (s *Store) RestoreVersion(ontologyID string, version int) (int, error) {
+	head, err := s.ReadSpecSnapshot(ontologyID)
+	if err != nil {
+		return 0, err
+	}
 	specJSON, err := s.GetVersionSpec(ontologyID, version)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.PutArtifact(ontologyID, "spec_json", specJSON, true); err != nil {
-		return 0, err
-	}
-	newV, err := s.BumpVersion(ontologyID)
-	if err != nil {
-		return 0, err
-	}
-	if err := s.SaveVersion(ontologyID, newV, specJSON, "", ""); err != nil {
-		return newV, err
-	}
-	if err := s.DemoteToDraft(ontologyID); err != nil {
-		return newV, err
-	}
-	return newV, nil
+	return s.SaveSpecSnapshot(ontologyID, SpecWrite{ExpectedVersion: head.Version, SpecJSON: specJSON, ClearOverlays: true})
 }
 
 // SaveVersion 写入一条版本快照（spec_json 必有；original_format/original_content 可空）。幂等：同 (ontology_id, version) 覆盖。
@@ -612,6 +603,19 @@ func (s *Store) UpsertOverlay(o *ObjectOverlay, expectedRevision int) (*ObjectOv
 		return nil, err
 	}
 	defer tx.Rollback()
+	row, err := upsertOverlayTx(tx, o, expectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+func upsertOverlayTx(tx *sql.Tx, input *ObjectOverlay, expectedRevision int) (*ObjectOverlay, error) {
+	copy := *input
+	o := &copy
 	cur, err := scanOverlay(tx.QueryRow(`SELECT `+overlayCols+` FROM ontology_object_overlay
 		WHERE ontology_id=? AND logical_id=?`, o.OntologyID, o.LogicalID))
 	switch {
@@ -650,6 +654,7 @@ func (s *Store) UpsertOverlay(o *ObjectOverlay, expectedRevision int) (*ObjectOv
 		cur.Action, cur.BaseJSON, cur.OverlayJSON = o.Action, o.BaseJSON, o.OverlayJSON
 		cur.IdemKey, cur.IdemHash, cur.Actor = o.IdemKey, o.IdemHash, o.Actor
 		cur.Revision++
+		o = cur
 		if _, uerr := tx.Exec(`UPDATE ontology_object_overlay SET action=?,base_json=?,overlay_json=?,
 			revision=?,idem_key=?,idem_hash=?,actor=?,updated_at=datetime('now')
 			WHERE ontology_id=? AND logical_id=?`,
@@ -657,9 +662,6 @@ func (s *Store) UpsertOverlay(o *ObjectOverlay, expectedRevision int) (*ObjectOv
 			cur.Actor, o.OntologyID, o.LogicalID); uerr != nil {
 			return nil, uerr
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
 	}
 	return o, nil
 }

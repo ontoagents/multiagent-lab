@@ -313,7 +313,8 @@ func (s *Server) saveSpec(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "JSON 解析失败: " + err.Error()})
 		return
 	}
-	v, overlaysRecorded, perr := s.persistSpec(id, &sp)
+	expected, _ := parseIfMatch(r.Header.Get("If-Match"))
+	v, overlaysRecorded, perr := s.persistSpec(id, &sp, expected)
 	if perr != nil {
 		switch perr.Kind {
 		case "validation":
@@ -340,7 +341,7 @@ type persistError struct {
 // persistSpec REQ-436①：Validate+strict 门禁+落盘+overlay 提取+版本推进+入库评分的**单一保存核**
 // （saveSpec 整包保存与元素级端点共用——版本门禁/Validate/伴生审计服务端单源，语义不再两处维护）。
 // 返回（新版本号, overlay 记录数, 结构化错误）。
-func (s *Server) persistSpec(id string, sp *pkgspec.Spec) (int, int, *persistError) {
+func (s *Server) persistSpec(id string, sp *pkgspec.Spec, expectedVersion int) (int, int, *persistError) {
 	if errs := sp.Validate(); len(errs) > 0 {
 		return 0, 0, &persistError{Kind: "validation", Message: "校验未通过，不允许保存坏本体", ValidationErrors: errs}
 	}
@@ -350,26 +351,29 @@ func (s *Server) persistSpec(id string, sp *pkgspec.Spec) (int, int, *persistErr
 			return 0, 0, &persistError{Kind: "strict", Message: fmt.Sprintf("strict 门禁拦截：%d 处错误级质量命中（可在资产详情质量卡查看明细，或关闭 strict 开关）", rep.ErrorCount), Report: rep}
 		}
 	}
-	// REQ-292① 编辑三层：按对象 diff 提取 overlay（机器重算后重放，根治覆盖人工编辑）
-	var oldSp *pkgspec.Spec
-	if prev, gerr := s.loadSpecOrDefault(id); gerr == nil {
-		oldSp = prev
+	oldSp, baseVersion, err := s.loadSpecForEdit(id)
+	if err != nil {
+		return 0, 0, &persistError{Kind: "internal", Err: err}
+	}
+	if expectedVersion <= 0 {
+		expectedVersion = baseVersion
+	}
+	if expectedVersion != baseVersion {
+		return 0, 0, &persistError{Kind: "internal", Err: repo.ErrConflict}
 	}
 	bts, err := json.Marshal(sp)
 	if err != nil {
 		return 0, 0, &persistError{Kind: "internal", Err: err}
 	}
-	if err := s.Store.PutArtifact(id, "spec_json", string(bts), true); err != nil {
+	apply, removeKeys, err := s.extractOverlaysFromSave(id, oldSp, sp)
+	if err != nil {
 		return 0, 0, &persistError{Kind: "internal", Err: err}
 	}
-	overlaysRecorded := 0
-	if oldSp != nil {
-		apply, removeKeys := s.extractOverlaysFromSave(id, oldSp, sp)
-		s.persistOverlayDeltas(id, apply, removeKeys)
-		overlaysRecorded = len(apply)
+	v, err := s.Store.SaveSpecSnapshot(id, repo.SpecWrite{ExpectedVersion: expectedVersion, SpecJSON: string(bts), Overlays: apply, RemoveOverlayIDs: removeKeys})
+	if err != nil {
+		return 0, 0, &persistError{Kind: "internal", Err: err}
 	}
-	v, _ := s.Store.BumpVersion(id)
-	_ = s.Store.SaveVersion(id, v, string(bts), "", "")
+	overlaysRecorded := len(apply)
 	// REQ-331/M131：入库评分随版本追加一行（source=ingest；本地计算零成本，失败不阻断保存）
 	s.recordIngestScore(id, v, sp)
 	return v, overlaysRecorded, nil

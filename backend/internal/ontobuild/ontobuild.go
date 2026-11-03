@@ -19,6 +19,7 @@ import (
 	"github.com/ontoagents/ontoagents/backend/internal/kb"
 	"github.com/ontoagents/ontoagents/backend/internal/secrets"
 	"github.com/ontoagents/ontoagents/backend/internal/store"
+	pkgspec "github.com/ontoagents/ontoagents/pkg/ontology/spec"
 )
 
 // ---- O13（D-O14/REQ-108）：由知识库构建本体——构建栏第六路径编排层 ----
@@ -190,70 +191,29 @@ type SpecReport struct {
 	Warnings []string    `json:"warnings,omitempty"`
 }
 
-// ---- spec_json 草稿类型（与构建平面 Spec 契约同形；cqs 单独携带不入 Spec） ----
-
-type buildConcept struct {
-	Name       string   `json:"name"`
-	Label      string   `json:"label,omitempty"`
-	Definition string   `json:"definition,omitempty"`
-	Parents    []string `json:"parents,omitempty"`
-}
-
-type buildRelation struct {
-	Name       string `json:"name"`
-	Definition string `json:"definition,omitempty"`
-	From       string `json:"from"`
-	To         string `json:"to"`
-	Evidence   string `json:"evidence,omitempty"` // REQ-295①：证据分级 declared>name>values（67 号 A2；KG/结构化推断=values）
-}
-
-type buildInstance struct {
-	Name       string              `json:"name"`
-	Concept    string              `json:"concept"`
-	Attributes map[string]any      `json:"attributes,omitempty"`
-	Relations  []buildInstRelation `json:"relations,omitempty"`
-}
-
-type buildInstRelation struct {
-	Rel    string `json:"rel"`
-	Target string `json:"target"`
-}
-
-// buildDataProperty 数据属性声明（REQ-268/M77；与构建平面 pkg spec.DataProperty 契约同形）。
-type buildDataProperty struct {
-	Name       string `json:"name"`
-	Label      string `json:"label,omitempty"`
-	Definition string `json:"definition,omitempty"`
-	Domain     string `json:"domain,omitempty"`
-	Range      string `json:"range,omitempty"` // string|number|integer|boolean|date（空=string）
-}
-
-type buildSpec struct {
-	Name           string              `json:"name"`
-	Description    string              `json:"description,omitempty"`
-	Concepts       []buildConcept      `json:"concepts"`
-	Relations      []buildRelation     `json:"relations"`
-	DataProperties []buildDataProperty `json:"data_properties,omitempty"` // REQ-268/M77：声明层（LLM 输出/结构化推导可携带，入库过构建平面校验）
-	Instances      []buildInstance     `json:"instances"`
-
-	cqs []string `json:"-"` // 模型随草稿输出的能力问题（REQ-90），不入 Spec 本体，单列在 BuildResult.CQs
-}
+// 草稿复用正式Spec契约，避免建模字段在生成/序列化途中丢失。
+type buildConcept = pkgspec.Concept
+type buildRelation = pkgspec.Relation
+type buildInstance = pkgspec.Instance
+type buildInstRelation = pkgspec.InstanceRel
+type buildDataProperty = pkgspec.DataProperty
+type buildSpec = pkgspec.Spec
 
 // BuildResult build-from-kb 返回（spec_json 草稿 + 校验报告 + 过程元数据）。
 type BuildResult struct {
-	KBID       string      `json:"kb_id"`
-	KBName     string      `json:"kb_name"`
-	Strategy   string      `json:"strategy"`         // chunk-llm | kg-direct | hybrid
-	Method     string      `json:"method,omitempty"` // KG 来源抽取方式（策略 B/C）：llm | lightweight
-	CQMode     string      `json:"cq_mode"`
-	CQs        []string    `json:"cqs,omitempty"` // 生成的/采用的能力问题（REQ-90）
-	Rounds     int         `json:"rounds"`        // LLM 调用轮数（1 = 首轮即成；2 = 含一次校验修复）
-	ChunksUsed int         `json:"chunks_used"`
-	Truncated  bool        `json:"truncated,omitempty"` // 语料超预算被截断
-	Spec       *buildSpec       `json:"spec_json"`
-	Report     *SpecReport      `json:"validation_report"`
-	Quality    *QualitySummary  `json:"quality,omitempty"` // REQ-267/M76：构建平面统一 qualitygate 快评（degraded=不可达仅本地校验）
-	Warnings   []string         `json:"warnings,omitempty"`
+	KBID       string          `json:"kb_id"`
+	KBName     string          `json:"kb_name"`
+	Strategy   string          `json:"strategy"`         // chunk-llm | kg-direct | hybrid
+	Method     string          `json:"method,omitempty"` // KG 来源抽取方式（策略 B/C）：llm | lightweight
+	CQMode     string          `json:"cq_mode"`
+	CQs        []string        `json:"cqs,omitempty"` // 生成的/采用的能力问题（REQ-90）
+	Rounds     int             `json:"rounds"`        // LLM 调用轮数（1 = 首轮即成；2 = 含一次校验修复）
+	ChunksUsed int             `json:"chunks_used"`
+	Truncated  bool            `json:"truncated,omitempty"` // 语料超预算被截断
+	Spec       *buildSpec      `json:"spec_json"`
+	Report     *SpecReport     `json:"validation_report"`
+	Quality    *QualitySummary `json:"quality,omitempty"` // REQ-267/M76：构建平面统一 qualitygate 快评（degraded=不可达仅本地校验）
+	Warnings   []string        `json:"warnings,omitempty"`
 }
 
 // BuildFromKB 主入口：按策略从 KB 生成 spec_json 草稿（校验报告随附，不入库——预览后由前端走构建平面）。
@@ -321,18 +281,7 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 	}
 	// REQ-340 A2：段留痕 extract+draft（抽取与草稿在本策略块内一体完成）
 	s.emit("extract", fmt.Sprintf("strategy=%s rounds=%d", strategy, res.Rounds), extractStart, "")
-	if res.Spec != nil {
-		s.emit("draft", fmt.Sprintf("概念 %d · 关系 %d · 实例 %d", len(res.Spec.Concepts), len(res.Spec.Relations), len(res.Spec.Instances)), draftStart, "")
-	}
-
 	res.Report = ValidateBuildSpec(res.Spec)
-	// REQ-267/M76：草稿统一经构建平面 quality/check 快评（save=false 零副作用）——与全平台同一把 qualitygate 尺；
-	// 降级仅注记不阻断（LLM 修复环仍用本地口径，防生成链路跨服务耦合）
-	res.Quality = s.QualitySnapshot(res.Spec)
-	if res.Quality.Degraded {
-		res.Warnings = append(res.Warnings, "统一质量快评不可达（构建平面离线），草稿仅本地结构校验兜底")
-	}
-	s.emit("gate", fmt.Sprintf("overall=%.1f err=%d warn=%d degraded=%v", res.Quality.Overall, res.Quality.ErrorCount, res.Quality.WarningCount, res.Quality.Degraded), gateStart, "")
 	// 生成物非法且走过 LLM：回喂错误做一轮修复（与 REQ-82 校验循环语义一致，上限 1 轮防失控）
 	if !res.Report.OK && (strategy == "chunk-llm" || (strategy == "hybrid" && res.Rounds > 0)) {
 		errJSON, _ := json.Marshal(res.Report.Errors)
@@ -342,10 +291,29 @@ func (s *Service) BuildFromKB(ctx context.Context, kbID, strategy, cqMode string
 		if spec, err := s.generateSpec(ctx, prompt, connID); err == nil {
 			rep := ValidateBuildSpec(spec)
 			if len(rep.Errors) < len(res.Report.Errors) { // 只在更好时采纳
+				if spec.CQ == nil {
+					spec.CQ = append([]string(nil), res.Spec.CQ...)
+				}
 				res.Spec, res.Report, res.Rounds = spec, rep, res.Rounds+1
 			}
 		}
 	}
+	if res.Spec != nil {
+		switch cqMode {
+		case "custom":
+			res.Spec.CQ = append([]string(nil), customCQs...)
+		case "skip":
+			res.Spec.CQ = nil
+		}
+		res.CQs = append([]string{}, res.Spec.CQ...)
+		s.emit("draft", fmt.Sprintf("概念 %d · 关系 %d · 实例 %d", len(res.Spec.Concepts), len(res.Spec.Relations), len(res.Spec.Instances)), draftStart, "")
+	}
+	// Score the final accepted draft; the report/CQ and gate event share this input.
+	res.Quality = s.QualitySnapshot(res.Spec)
+	if res.Quality.Degraded {
+		res.Warnings = append(res.Warnings, "统一质量快评不可达（构建平面离线），草稿仅本地结构校验兜底")
+	}
+	s.emit("gate", fmt.Sprintf("overall=%.1f err=%d warn=%d degraded=%v", res.Quality.Overall, res.Quality.ErrorCount, res.Quality.WarningCount, res.Quality.Degraded), gateStart, "")
 	return res, nil
 }
 
@@ -371,13 +339,13 @@ func ontoExtractPromptHeader(kbName, cqMode string, cqs []string, corpus string,
 	case "skip":
 		// 跳过 CQ 引导
 	default: // auto
-		b.WriteString("先在 cqs 字段归纳 3~5 个该本体应能回答的能力问题（REQ-90），再据此抽取。\n")
+		b.WriteString("先在 cq 字段归纳 3~5 个该本体应能回答的能力问题（REQ-90），再据此抽取。\n")
 	}
 	b.WriteString("\n只输出 JSON。语料：\n" + corpus)
 	return b.String()
 }
 
-const ontoExtractSchema = `{"name":"本体名","description":"本体描述","cqs":["能力问题1","能力问题2"],"concepts":[{"name":"概念名","label":"EnglishLabel","definition":"定义","parents":["父概念"]}],"relations":[{"name":"关系名","from":"概念A","to":"概念B","definition":"关系说明"}],"data_properties":[{"name":"属性名","domain":"概念名","range":"string|number|integer|boolean|date"}],"instances":[{"name":"实例名","concept":"概念名","attributes":{"属性":"值"},"relations":[{"rel":"关系名","target":"实例名"}]}]}`
+const ontoExtractSchema = `{"name":"本体名","description":"本体描述","cq":["能力问题1","能力问题2"],"concepts":[{"name":"概念名","label":"EnglishLabel","definition":"定义","parents":["父概念"]}],"relations":[{"name":"关系名","from":"概念A","to":"概念B","definition":"关系说明"}],"data_properties":[{"name":"属性名","domain":"概念名","range":"string|number|integer|boolean|date"}],"instances":[{"name":"实例名","concept":"概念名","attributes":{"属性":"值"},"relations":[{"rel":"关系名","target":"实例名"}]}]}`
 
 // llmExtract 调 LLM 抽取（hybrid 时 draftJSON 非空 = 校验补全模式）；返回 (spec, cqs, rounds, errMsg)。
 func (s *Service) llmExtract(ctx context.Context, k *store.KnowledgeBase, corpus, cqMode string, cqs []string, connID string, draftJSON []byte) (*buildSpec, []string, int, string) {
@@ -391,10 +359,10 @@ func (s *Service) llmExtract(ctx context.Context, k *store.KnowledgeBase, corpus
 	if err != nil {
 		return nil, nil, 0, err.Error()
 	}
-	return spec, spec.cqs, 1, ""
+	return spec, spec.CQ, 1, ""
 }
 
-// generateSpec 调模型并解析（复用 REQ-98 chat.GenerateStructured；cqs 从草稿旁路收集）。
+// generateSpec 调模型并解析（复用 REQ-98 chat.GenerateStructured；旧cqs投影到正式cq）。
 func (s *Service) generateSpec(ctx context.Context, prompt, connID string) (*buildSpec, error) {
 	res, err := chat.GenerateStructured(ctx, s.Store, s.Box, connID, prompt, ontoExtractSchema)
 	if err != nil {
@@ -417,7 +385,9 @@ func (s *Service) generateSpec(ctx context.Context, prompt, connID string) (*bui
 		raw.Instances = []buildInstance{}
 	}
 	spec := &raw.buildSpec
-	spec.cqs = raw.CQs
+	if spec.CQ == nil {
+		spec.CQ = raw.CQs
+	}
 	return spec, nil
 }
 
@@ -537,60 +507,10 @@ func ValidateBuildSpec(spec *buildSpec) *SpecReport {
 	if len(spec.Concepts) == 0 {
 		fail("concepts", "至少需要一个概念")
 	}
-	cset := map[string]bool{}
-	for i, c := range spec.Concepts {
-		if strings.TrimSpace(c.Name) == "" {
-			fail(fmt.Sprintf("concepts[%d].name", i), "概念名必填")
-			continue
-		}
-		if cset[c.Name] {
-			fail(fmt.Sprintf("concepts[%d].name", i), "概念名重复: "+c.Name)
-		}
-		cset[c.Name] = true
-	}
-	rset := map[string]bool{}
-	for i, r := range spec.Relations {
-		if strings.TrimSpace(r.Name) == "" {
-			fail(fmt.Sprintf("relations[%d].name", i), "关系名必填")
-		}
-		if !cset[r.From] {
-			fail(fmt.Sprintf("relations[%d].from", i), "from 引用不存在的概念: "+r.From)
-		}
-		if !cset[r.To] {
-			fail(fmt.Sprintf("relations[%d].to", i), "to 引用不存在的概念: "+r.To)
-		}
-		rset[r.Name] = true
-	}
-	for i, c := range spec.Concepts {
-		for _, p := range c.Parents {
-			if !cset[p] {
-				fail(fmt.Sprintf("concepts[%d].parents", i), "parents 引用不存在的概念: "+p)
-			}
-		}
-	}
-	dn := map[string]bool{}
-	for i, dp := range spec.DataProperties {
-		if strings.TrimSpace(dp.Name) == "" {
-			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名必填")
-			continue
-		}
-		if dn[dp.Name] {
-			fail(fmt.Sprintf("data_properties[%d].name", i), "数据属性名重复: "+dp.Name)
-		}
-		dn[dp.Name] = true
-		if dp.Domain != "" && !cset[dp.Domain] {
-			fail(fmt.Sprintf("data_properties[%d].domain", i), "domain 引用不存在的概念: "+dp.Domain)
-		}
-	}
-	for i, inst := range spec.Instances {
-		if !cset[inst.Concept] {
-			fail(fmt.Sprintf("instances[%d].concept", i), "concept 引用不存在的概念: "+inst.Concept)
-		}
-		for _, ir := range inst.Relations {
-			if !rset[ir.Rel] {
-				rep.Warnings = append(rep.Warnings, fmt.Sprintf("instances[%d] 关系 %q 未在 relations 声明（构建平面可能拒绝）", i, ir.Rel))
-			}
-		}
+	// Draft reports and repair feedback use the same structure/identity rules as
+	// formal saves. Name and nonempty concepts above are KB-specific requirements.
+	for _, err := range spec.Validate() {
+		fail(err.Path, err.Message)
 	}
 	return rep
 }
