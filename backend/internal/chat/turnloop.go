@@ -26,8 +26,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -171,7 +171,7 @@ func (s *Service) runTurnLoop(runCtx context.Context, rc *runConsumer, conv *sto
 				// 产物已由 flushTurnAssistant 落库；终态 run.finished reason=paused（对称 interrupted）。
 				if h := s.loops[conv.ID]; h != nil && h.pauseFlag != nil && h.pauseFlag.Load() {
 					rc.paused = true
-					cpID := checkPointIDOf(runID)
+					cpID := checkpointID // resumed attempts retain the active loop's key
 					_ = s.Store.SetConversationPauseState(conv.ID, fmt.Sprintf(`{"checkpoint_id":%q,"run_id":%q,"paused_at":%q}`, cpID, runID, time.Now().UTC().Format(time.RFC3339)), "pause:"+runID)
 					s.emitRunEvent(conv.ID, runID, "run.paused", map[string]any{
 						"checkpoint_id": cpID, "note": "安全点挂起（本轮已收束落库）——unpause 沿 checkpoint 续跑",
@@ -284,7 +284,6 @@ func (s *Service) flushTurnAssistant(rc *runConsumer, conv *store.Conversation, 
 	rc.segmentMark = 0
 }
 
-
 // Pause 主会话运行中安全点挂起（REQ-558/M365；107 号 §9.3——与 Steer 同通道不同语义）：
 // Push pause 条目 WithPreempt(AnySafePoint) → OnAgentEvents 检测标记 → Stop 优雅收束
 // （框架 cleanup 落 turnloop checkpoint，pause 条目入 unhandled items）→ 终态
@@ -390,9 +389,9 @@ func (s *Service) ResumePaused(ctx context.Context, conv *store.Conversation, ag
 	_ = s.Store.SetConversationPauseState(conv.ID, "", "unpause:"+newRunID)
 	obs := &obsHandler{level: DebugLevel(debug)}
 	rc := newRunConsumer(s, runCtx, conv, newRunID, rt, emit, start, debugPersist, nil)
-	s.runTurnLoop(runCtx, rc, conv, agent, rt, newRunID, st.CheckpointID, cr.Messages, nil, obs, true)
 	// 登记恢复链锚点（同 Resume：ADK 再次挂起时沿用本 id 覆盖保存快照）
 	s.cpAnchors.Store(conv.ID, st.CheckpointID)
+	s.runTurnLoop(runCtx, rc, conv, agent, rt, newRunID, st.CheckpointID, cr.Messages, nil, obs, true)
 	rc.subagentLeave(rc.lastAgent)
 	res := &RunResult{}
 	s.runFinalize(runCtx, rc, conv, agent, newRunID, start, emit, res, finalizeOpts{
