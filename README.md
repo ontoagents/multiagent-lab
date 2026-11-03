@@ -260,7 +260,7 @@ OntoAgents stands on the shoulders of the open-source community and academic wor
 
 | Project / source | Links | What was borrowed |
 | --- | --- | --- |
-| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [paper](https://arxiv.org/abs/2604.26962) | Agent-native personal learning workspace (40k★/9 months) — product-narrative reference and the direct input to the Q-23 positioning: scene sharpness beats engine generality; its learning loop (quiz · grading · mastery) is borrowed while differentiation comes from **ontology-grounded** coverage guarantees and concept-graph mastery (vs pure LLM quiz generation); cold-start modeling cost is the make-or-break. Full analysis: [调研档 91 号](docs/research/01_整体设计/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
+| **DeepTutor**（HKUDS） | [GitHub](https://github.com/HKUDS/DeepTutor) · [paper](https://arxiv.org/abs/2604.26962) | Agent-native personal learning workspace (40k★/9 months) — product-narrative reference and the direct input to the Q-23 positioning: scene sharpness beats engine generality; its learning loop (quiz · grading · mastery) is borrowed while differentiation comes from **ontology-grounded** coverage guarantees and concept-graph mastery (vs pure LLM quiz generation); cold-start modeling cost is the make-or-break. Full analysis: [调研档 91 号](docs/research/01_整体设计/114_学习产品专题/91_DeepTutor对标分析_个人学习助手赛道_20261029.md) |
 | Microsoft Ontology-Playground | [GitHub](https://github.com/microsoft/Ontology-Playground) | A same-position ontology learning site: progressive domain paths, sample catalogs and gamification as learning-center design references |
 
 ### Papers & standards
