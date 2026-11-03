@@ -70,7 +70,7 @@ export default function OntologyModule() {
   const { showToast } = useUI()
 
   useEffect(() => {
-    const sync = () => setSidebarKey(readSidebarKey())
+    const sync = () => setSidebarKey(localStorage.getItem(ONTO_SIDEBAR_KEY) === 'learn' ? 'learn' : readSidebarKey())
     window.addEventListener('onto-sidebar-change', sync)
     return () => window.removeEventListener('onto-sidebar-change', sync)
   }, [])

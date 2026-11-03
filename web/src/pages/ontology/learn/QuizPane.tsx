@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Progress, Radio, Select, Space, Tag, Typography } from 'antd'
 import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../../../api/client'
 import type { Ontology } from '../../../api/types'
 import MasteryGraph from './MasteryGraph'
+import { parseOntoHash, writeOntoHash } from '../shared/ontoRoute'
 
 /**
  * 出题自测（REQ-524/M331——Q-23 衍生③ 转正交付；REQ-572/M380 闭环化）：
@@ -61,7 +62,14 @@ const VERDICT_TEXT: Record<string, string> = { correct: '答对', partial: '部�
 const TYPE_TEXT: Record<string, string> = { short_answer: '简答', choice: '单选', judge: '判断' }
 
 export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
-  const [ontoId, setOntoId] = useState<string | null>(null)
+  const [ontoId, setOntoId] = useState<string | null>(() => {
+    const r = parseOntoHash()
+    return r?.col === 'learn' && r.learn === 'quiz' ? r.ontologyId ?? null : null
+  })
+  const selectedRef = useRef(ontoId)
+  const epoch = useRef(0)
+  const masteryEpoch = useRef(0)
+  const attemptsEpoch = useRef(0)
   const [difficulty, setDifficulty] = useState<'basic' | 'applied'>('basic')
   const [items, setItems] = useState<QuizItem[] | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -75,8 +83,47 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   const [attempts, setAttempts] = useState<QuizAttempt[] | null>(null)
   const [showAttempts, setShowAttempts] = useState(false)
 
+  const selectOntology = useCallback((id: string | null, write = true) => {
+    if (selectedRef.current === id) return
+    selectedRef.current = id
+    epoch.current++
+    masteryEpoch.current++
+    attemptsEpoch.current++
+    setAttempts(null)
+    setShowAttempts(false)
+    setOntoId(id)
+    setItems(null)
+    setMastery(null)
+    setAnswers({})
+    setGrades({})
+    setRevealed({})
+    setGenErr(null)
+    setGenerating(false)
+    setGradingId(null)
+    if (write) writeOntoHash({ col: 'learn', learn: 'quiz', ontologyId: id ?? undefined }, true)
+  }, [])
+
+  useEffect(() => {
+    const sync = () => {
+      const r = parseOntoHash()
+      if (r?.col === 'learn' && r.learn === 'quiz') selectOntology(r.ontologyId ?? null, false)
+    }
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      epoch.current++
+      masteryEpoch.current++
+      attemptsEpoch.current++
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [selectOntology])
+
   const refreshMastery = (oid: string) => {
-    api.quizMastery(oid).then((r) => setMastery(r.mastery)).catch(() => setMastery([]))
+    const expected = ++masteryEpoch.current
+    api.quizMastery(oid).then((r) => {
+      if (masteryEpoch.current === expected) setMastery(r.mastery)
+    }).catch(() => { if (masteryEpoch.current === expected) setMastery([]) })
   }
 
   useEffect(() => {
@@ -84,11 +131,15 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   }, [ontoId])
 
   const loadAttempts = (oid: string) => {
-    api.quizAttempts(oid).then((r) => setAttempts(r.attempts)).catch(() => setAttempts([]))
+    const expected = ++attemptsEpoch.current
+    api.quizAttempts(oid).then((r) => {
+      if (attemptsEpoch.current === expected) setAttempts(r.attempts)
+    }).catch(() => { if (attemptsEpoch.current === expected) setAttempts([]) })
   }
 
   const generate = async () => {
     if (!ontoId) return
+    const expected = ++epoch.current
     setGenerating(true)
     setGenErr(null)
     setItems(null)
@@ -97,28 +148,30 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
     setAnswers({})
     try {
       const r = await api.quizGenerate(ontoId, { difficulty, count: 3 })
-      setItems(r.items)
+      if (epoch.current === expected) setItems(r.items)
     } catch (e: any) {
-      setGenErr(e?.message ?? '出题失败')
+      if (epoch.current === expected) setGenErr(e?.message ?? '出题失败')
     } finally {
-      setGenerating(false)
+      if (epoch.current === expected) setGenerating(false)
     }
   }
 
   const submit = async (q: QuizItem) => {
     if (!ontoId || !answers[q.id]?.trim()) return
+    const expected = epoch.current
     setGradingId(q.id)
     try {
       const g = await api.quizSubmit(ontoId, q.id, { answer: answers[q.id] })
+      if (epoch.current !== expected) return
       setGrades((prev) => ({ ...prev, [q.id]: g }))
       setRevealed((prev) => ({ ...prev, [q.id]: true }))
       refreshMastery(ontoId)
       setGraphKey((k) => k + 1)
       if (showAttempts) loadAttempts(ontoId)
     } catch (e: any) {
-      setGenErr(e?.message ?? '批改失败')
+      if (epoch.current === expected) setGenErr(e?.message ?? '批改失败')
     } finally {
-      setGradingId(null)
+      if (epoch.current === expected) setGradingId(null)
     }
   }
 
@@ -141,13 +194,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
             placeholder="选择本体"
             style={{ minWidth: 200 }}
             value={ontoId}
-            onChange={(v) => {
-              setOntoId(v)
-              setItems(null)
-              setMastery(null)
-              setAttempts(null)
-              setShowAttempts(false)
-            }}
+            onChange={(v) => selectOntology(v)}
             options={ontologies.map((o) => ({ value: o.id, label: o.name }))}
           />
           <Select
@@ -159,13 +206,14 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
               { value: 'applied', label: '应用（组合）' },
             ]}
           />
-          <Button type="primary" disabled={!ontoId} loading={generating} icon={<ReloadOutlined />} onClick={generate}>
+          <Button type="primary" disabled={!ontologies.some((o) => o.id === ontoId)} loading={generating} icon={<ReloadOutlined />} onClick={generate}>
             出题
           </Button>
         </Space>
       }
     >
       {!ontoId && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一个本体开始出题自测（题型混合：单选/判断客观判定+简答 LLM 批改，批改落档累计概念掌握度并驱动下一轮定向出题）" />}
+      {ontoId && !ontologies.some((o) => o.id === ontoId) && <Alert type="warning" showIcon title="当前清单中未找到所选本体" description="请确认本体服务可用，或重新选择本体。" />}
 
       {ontoId && masterySummary && (
         <div style={{ marginBottom: 12 }}>
@@ -192,7 +240,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
         <div style={{ marginBottom: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>掌握度子图（绿 ≥0.8 / 金 ≥0.5 / 红 &lt;0.5 / 灰=从未考察；薄弱与未考察概念下一轮出题优先）</Typography.Text>
           <div style={{ marginTop: 6 }}>
-            <MasteryGraph ontoId={ontoId} refreshKey={graphKey} />
+            <MasteryGraph key={ontoId} ontoId={ontoId} refreshKey={graphKey} />
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { Button, Space, Typography } from 'antd'
 import { DatabaseOutlined, RightOutlined, SafetyCertificateOutlined, CloudServerOutlined } from '@ant-design/icons'
+import { deepLinkOnto } from '../shared/ontoRoute'
 
 /**
  * REQ-250/G6：构建路径完成态统一 CTA——三按钮（前往资产编辑 / 查看质量卡 / 前往本体运行）。
@@ -10,10 +11,14 @@ import { DatabaseOutlined, RightOutlined, SafetyCertificateOutlined, CloudServer
  * 详情页级工作区；旧 eino.onto.focus 键自立项起无消费者，随本键接活退役）。
  */
 export default function DoneCTA({ ontologyId, detail = '构建产物已入库' }: { ontologyId: string; detail?: string }) {
-  const go = (key: 'assets' | 'runtime') => {
-    localStorage.setItem('eino.onto.sidebar', key)
-    if (key === 'assets' && ontologyId) localStorage.setItem('eino.onto.asset.focus', ontologyId)
-    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+  const go = (key: 'assets' | 'runtime' | 'quiz', section?: string) => {
+    if (key === 'assets') deepLinkOnto({ col: 'assets', assetId: ontologyId, section: section ?? 'spec' }, [['eino.onto.asset.focus', ontologyId]])
+    else if (key === 'quiz') deepLinkOnto({ col: 'learn', learn: 'quiz', ontologyId })
+    else {
+      const saved = localStorage.getItem('eino.onto.engineKey')
+      const engine = saved === 'fuseki' || saved === 'cayley' ? saved : 'oxigraph'
+      deepLinkOnto({ col: 'runtime', engine, ontologyId })
+    }
   }
   return (
     <Space direction="vertical" size={6} style={{ display: 'flex' }}>
@@ -22,12 +27,13 @@ export default function DoneCTA({ ontologyId, detail = '构建产物已入库' }
         <Button size="small" type="primary" icon={<DatabaseOutlined />} onClick={() => go('assets')}>
           前往资产编辑
         </Button>
-        <Button size="small" icon={<SafetyCertificateOutlined />} onClick={() => go('assets')}>
+        <Button size="small" icon={<SafetyCertificateOutlined />} onClick={() => go('assets', 'quality')}>
           查看质量卡
         </Button>
         <Button size="small" icon={<CloudServerOutlined />} onClick={() => go('runtime')}>
           前往本体运行 <RightOutlined />
         </Button>
+        <Button size="small" onClick={() => go('quiz')}>出题自测</Button>
       </Space>
     </Space>
   )

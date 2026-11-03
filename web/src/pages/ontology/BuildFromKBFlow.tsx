@@ -2,7 +2,7 @@ import DoneCTA from './components/DoneCTA'
 import CqQuickScreen from './components/CqQuickScreen'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Radio, Segmented, Select, Space, Steps, Table, Tag, Tooltip, Typography, Upload } from 'antd'
-import { CheckCircleOutlined, DatabaseOutlined, ReloadOutlined, RightOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, DatabaseOutlined, ReloadOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons'
 import { api, ApiError } from '../../api/client'
 import type { OntoBuildSelectableKB, OntoBuildResult, ValidationError } from '../../api/types'
 import { useUI } from '../../store/ui'
@@ -422,20 +422,7 @@ function KbBuildFlow() {
           type="success"
           showIcon
           title={`已入库：${savedName || savedId}`}
-          description="到「本体资产」栏查看产物与版本；到「本体运行」栏可部署为运行方案（如 SPARQL 型方案后可在工作台验证本体命中）。"
-          action={
-            <Button
-              size="small"
-              icon={<RightOutlined />}
-              onClick={() => {
-                localStorage.setItem('eino.onto.sidebar', 'assets')
-                localStorage.setItem('eino.onto.asset.focus', savedId) // REQ-326③：直达新本体详情
-                window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
-              }}
-            >
-              前往本体资产
-            </Button>
-          }
+          description={<DoneCTA ontologyId={savedId} />}
         />
       )}
     </Card>
