@@ -176,7 +176,11 @@ function KbBuildFlow() {
     setSaving(true)
     try {
       const created = await api.createOntology({ name: nm, description: spec?.description ?? `由知识库「${result?.kb_name}」构建（O13 策略 ${result?.strategy}）` })
-      await api.saveSpec(created.id, { ...spec, name: nm })
+      // 兼容旧草稿旁路cqs；显式cq（包括空数组）属于用户编辑，必须保留。
+      const savedSpec = Object.prototype.hasOwnProperty.call(spec, 'cq')
+        ? { ...spec, name: nm }
+        : { ...spec, name: nm, cq: result?.cqs ?? [] }
+      await api.saveSpec(created.id, savedSpec)
       invalidateOntos() // REQ-467：单源清单失效广播（资产栏/各构建流即时可见）
       showToast('已入库到本体资产')
       setSavedId(created.id)
