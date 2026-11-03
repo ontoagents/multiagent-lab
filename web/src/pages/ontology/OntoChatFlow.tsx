@@ -4,7 +4,7 @@
 // REQ-337/M137：五阶段视图分离——story/cq/draft 阶段视图拆至 components/ontochat/
 // （StoryPanel/CQConfirmCards/DraftConfirmPanel），本文件保留编排（会话列表/对话区/输入区/job 轮询）。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import DoneCTA from './components/DoneCTA'
+import { ConvergeCard } from './build/PathShell'
 import { StoryPanel, StoryTemplateChips } from './components/ontochat/StoryPanel'
 import { ClusterConfirmCard, CqCandidateCard, type ClusterDraftGroup, type CqDraftRow, type CqMergeGroup, type CqPurifyStats } from './components/ontochat/CQConfirmCards'
 import SessionTestCard from './components/ontochat/SessionTestCard'
@@ -373,12 +373,10 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
   }, [refreshList, openSession])
 
   // REQ-306 A2：AI 创建「改用 OntoChat」分流携带描述——REQ-598 改路由参数 ?desc=
-  // 一次性预填（cq 阶段第一行=领域描述）；旧键 eino.ontochat.preset.desc 回退读
-  // （双轨一个版本窗口，P2-a 收口退役）
+  // 一次性预填（消费即清）；REQ-600 分治收口：旧键 eino.ontochat.preset.desc 回退读
+  // 退役（写点 REQ-598 已归零，本键退出双轨窗口）
   useEffect(() => {
-    const params = takeBuildParams()
-    const preset = params?.desc ?? localStorage.getItem('eino.ontochat.preset.desc')
-    if (params?.desc === undefined && preset) localStorage.removeItem('eino.ontochat.preset.desc')
+    const preset = takeBuildParams()?.desc
     if (preset) setInput((v) => v || preset)
   }, [])
 
@@ -822,7 +820,7 @@ export default function OntoChatFlow({ onSaved }: { onSaved: (ontologyId: string
                   showIcon
                   style={{ marginTop: 10 }}
                   title={`草稿已入库为「${active.title}」关联的本体 ${active.ontology_id}`}
-                  description={<DoneCTA ontologyId={active.ontology_id} detail="对话式建模完成" />}
+                  description={<ConvergeCard ontologyId={active.ontology_id} detail="对话式建模完成" />}
                 />
               )}
 

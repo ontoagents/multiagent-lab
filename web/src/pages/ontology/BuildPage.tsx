@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Typography } from 'antd'
 import OntoChatFlow from './OntoChatFlow'
-import KbBuildFlow, { StructuredFlow } from './BuildFromKBFlow'
+import KbBuildFlow from './BuildFromKBFlow'
+import StructuredFlow from './build/StructuredFlow'
 import OntoExtendFlow from './components/OntoExtendFlow'
 import CatalogPane from './components/CatalogPane'
 import ConceptParkingFlow from './build/ConceptParkingFlow'
@@ -50,9 +51,6 @@ export default function BuildPage() {
     if (r?.col === 'build') return r.path && r.path !== 'home' ? (r.path as BuildPath | 'kg') : 'home'
     return readBuildPath()
   })
-  // REQ-508/M316：概念停车场弹窗（P1 仍为弹窗动线；REQ-600 页面化退役）——Hub「有学习材料」入口
-  const [materialOpen, setMaterialOpen] = useState(false)
-
   // REQ-598：#/onto/build/home 别名进页 replace 成无 path 形态（旧深链/书签不断）
   useEffect(() => {
     const r = parseOntoHash()
@@ -100,7 +98,7 @@ export default function BuildPage() {
 
   return (
     <>
-      {buildPath === 'home' && <BuildHub onGo={navigate} onMaterialStart={() => setMaterialOpen(true)} />}
+      {buildPath === 'home' && <BuildHub onGo={navigate} />}
       {buildPath === 'custom' && (
         <PathShell path="custom" onBack={() => navigate('home')}>
           <CustomBuildFlow
@@ -119,28 +117,33 @@ export default function BuildPage() {
       {buildPath === 'kb' && (
         <PathShell path="kb" onBack={() => navigate('home')}>
           <KbBuildFlow />
-          {/* REQ-485/M284：双向导视觉分界——结构化映射是「另一种方式」（次级段落）；
-              REQ-600 拆独立路由 #/onto/build/structured，本页过渡态保持双段 */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '20px 0 10px', flexWrap: 'wrap' }} data-testid="kb-structured-divider">
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>另一种方式：从结构化数据推导</span>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              有 CSV / JSON 表格数据（非知识库语料）时，直接映射本体骨架
-            </Typography.Text>
-            <span style={{ flex: 1, borderBottom: '1px dashed var(--c-border, #e6e8f0)', alignSelf: 'center' }} />
-          </div>
+          {/* REQ-600：结构化映射已拆独立路径页 #/onto/build/structured——页底一行灰字指路 */}
+          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 16 }} data-testid="kb-structured-pointer">
+            有 CSV / JSON 表格数据（非知识库语料）？<a onClick={() => navigate('structured')}>前往「CSV / JSON 表格映射」路径页</a>——表格直接映射本体骨架。
+          </Typography.Text>
+        </PathShell>
+      )}
+      {buildPath === 'structured' && (
+        <PathShell path="structured" onBack={() => navigate('home')}>
           <StructuredFlow />
+        </PathShell>
+      )}
+      {buildPath === 'parking' && (
+        <PathShell path="parking" onBack={() => navigate('home')}>
+          <ConceptParkingFlow
+            onCreated={(id) => {
+              // REQ-508/M316：材料「一键成骨架」落点 custom ② 编辑——交接走路由参数
+              //（?onto=&step= 一次性；沿 datasource onGoCustom 同参先例）
+              navigate('custom', { onto: id, step: '1' })
+            }}
+          />
         </PathShell>
       )}
       {buildPath === 'kg' && <KgRedirect />}
       {buildPath === 'datasource' && (
         <PathShell path="datasource" onBack={() => navigate('home')}>
-          <DataSourceBuildFlow
-            onGoCustom={(id) => {
-              // REQ-595：提案落库后深链 custom ② 编辑——REQ-598 交接走路由参数
-              //（?onto=&step= 一次性，消费即清；customOnto/customStep 记忆键职责保留）
-              navigate('custom', { onto: id, step: '1' })
-            }}
-          />
+          {/* REQ-600：成功收敛卡内置「进入编辑校验」（deepLinkOnto custom ?onto=&step= 参数，沿 REQ-598 交接通道） */}
+          <DataSourceBuildFlow />
         </PathShell>
       )}
       {buildPath === 'ontoextend' && (
@@ -158,15 +161,6 @@ export default function BuildPage() {
           />
         </PathShell>
       )}
-      <ConceptParkingFlow
-        open={materialOpen}
-        onClose={() => setMaterialOpen(false)}
-        onCreated={(id) => {
-          // REQ-508/M316：材料「一键成骨架」落点 custom ② 编辑——交接走路由参数
-          //（?onto=&step= 一次性；沿 datasource onGoCustom 同参先例）
-          navigate('custom', { onto: id, step: '1' })
-        }}
-      />
     </>
   )
 }

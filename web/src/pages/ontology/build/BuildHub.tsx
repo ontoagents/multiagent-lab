@@ -83,13 +83,11 @@ function EntryRow({ e, testid }: { e: HubEntry; testid: string }) {
 
 export default function BuildHub({
   onGo,
-  onMaterialStart,
 }: {
   onGo: (key: Exclude<BuildPath, 'home'>, params?: Record<string, string>) => void
-  onMaterialStart: () => void
 }) {
-  // 区块 A：异步 job 注册表（REQ-600 各流程登记后可见；无内容整块不渲染——非空壳）
-  const jobs = readJobs(['custom', 'ontochat', 'kb', 'ontoextend', 'catalog', 'datasource'])
+  // 区块 A：异步 job 注册表（datasource/parking 流程登记；无内容整块不渲染——非空壳）
+  const jobs = readJobs(['custom', 'ontochat', 'kb', 'structured', 'parking', 'ontoextend', 'catalog', 'datasource'])
 
   const entries: Record<string, HubEntry> = {
     ontochat: {
@@ -101,9 +99,9 @@ export default function BuildHub({
     },
     parking: {
       key: 'parking',
-      go: onMaterialStart,
+      go: () => onGo('parking'),
       label: '概念停车场',
-      desc: '粘贴 / 上传学习材料 → AI 铺候选概念 → 勾选成骨架（P1 现为弹窗动线，页面化随后续批次）',
+      desc: '粘贴 / 上传学习材料 → AI 铺候选概念 → 勾选成骨架（可同步建知识库）',
       state: { color: 'green', text: '可用' },
     },
     datasource: {
@@ -115,9 +113,9 @@ export default function BuildHub({
     },
     structured: {
       key: 'structured',
-      go: () => onGo('kb'),
+      go: () => onGo('structured'),
       label: 'CSV / JSON 表格映射',
-      desc: '表格数据直接映射本体骨架（现挂「由知识库构建」页内「另一种方式」段）',
+      desc: '表格数据直接映射本体骨架：首列→实例、其余列→属性（与 SQLite 数据源相邻同组）',
       state: { color: 'green', text: '可用' },
     },
     kb: {

@@ -7,7 +7,7 @@ export type OntoCol = 'learn' | 'build' | 'assets' | 'runtime' | 'audit'
 
 export type OntoRoute = {
   col: OntoCol
-  /** build：路径键（hub 无 path 段；custom/ontochat/kb/ontoextend/catalog/datasource/kg） */
+  /** build：路径键（hub 无 path 段；custom/ontochat/kb/structured/datasource/parking/ontoextend/catalog/kg） */
   path?: string
   /** assets：详情态本体 id（缺省=列表态） */
   assetId?: string
@@ -24,7 +24,7 @@ export type OntoRoute = {
 }
 
 const COLS: OntoCol[] = ['learn', 'build', 'assets', 'runtime', 'audit']
-const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource']
+const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource', 'structured', 'parking']
 const ENGINES = ['oxigraph', 'fuseki', 'cayley']
 const LEARN_SECTIONS = ['path', 'quiz', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
 
