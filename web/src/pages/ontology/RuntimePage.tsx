@@ -43,6 +43,7 @@ import type { Conversation, Ontology, RuntimeProfile } from '../../api/types'
 import { useUI } from '../../store/ui'
 import { StatusBadge } from './shared'
 import { parseOntoHash, writeOntoHash } from './shared/ontoRoute'
+import ConsumptionActions from './components/ConsumptionActions'
 import { DRAWER_SIZES, drawerSizeProps } from '../../lib/layout'
 import SparqlWorkbench from './components/SparqlWorkbench'
 import InferenceComparePane from './components/InferenceComparePane'
@@ -253,7 +254,7 @@ export default function RuntimePage() {
     localStorage.setItem(ONTO_ENGINE_KEY, key)
     setEngineKey(key)
     // REQ-470：引擎切换进历史栈
-    writeOntoHash({ col: 'runtime', engine: key })
+    writeOntoHash({ col: 'runtime', engine: key, ontologyId: parseOntoHash()?.ontologyId })
   }
 
   return (
@@ -431,7 +432,21 @@ function EngineProfilesPage({
 }) {
   const { showToast } = useUI()
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
-  const { ontos, reload: reloadOntoList } = useOntologies() // REQ-467：本体清单单源
+  const { ontos, loading: ontosLoading, err: ontosErr, reload: reloadOntoList } = useOntologies() // REQ-467：本体清单单源
+  const [targetId, setTargetId] = useState(() => parseOntoHash()?.ontologyId ?? null)
+  useEffect(() => {
+    const sync = () => {
+      const r = parseOntoHash()
+      if (r?.col === 'runtime') setTargetId(r.ontologyId ?? null)
+    }
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [])
+  const target = ontos.find((o) => o.id === targetId)
   const [profilesErr, setProfilesErr] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -498,7 +513,7 @@ function EngineProfilesPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload/loadAmbigs 稳定引用
   }, [])
 
-  const mine = useMemo(() => profiles.filter((p) => (p.engine ?? 'oxigraph') === engine), [profiles, engine])
+  const mine = useMemo(() => profiles.filter((p) => (p.engine ?? 'oxigraph') === engine && (!targetId || p.ontology_ids?.includes(targetId))), [profiles, engine, targetId])
   const detail = mine.find((p) => p.id === detailId) ?? null
   const editing = mine.find((p) => p.id === editId) ?? null
   const anyError = mine.some((p) => p.status === 'error' && p.last_error)
@@ -532,6 +547,20 @@ function EngineProfilesPage({
 
   return (
     <>
+      {targetId && (
+        <Alert
+          style={{ marginBottom: 12 }}
+          type={ontosErr || !ontosLoading && !target ? 'warning' : 'info'}
+          showIcon
+          title={target ? `当前本体：${target.name}（v${target.version ?? '—'}）` : ontosErr ? '本体清单加载失败' : ontosLoading ? '正在读取本体…' : '当前清单中未找到目标本体'}
+          description="下方显示此本体在当前引擎的相关方案；创建后需显式启动才能用于对话查询。"
+          action={<Space wrap>
+            <Button size="small" disabled={!target || !!ontosErr || profilesErr} onClick={() => setWizardOpen(true)}>为此本体创建方案</Button>
+            {ontosErr && <Button size="small" onClick={reloadOntoList}>重试本体清单</Button>}
+            <Button size="small" onClick={() => { setTargetId(null); writeOntoHash({ col: 'runtime', engine }) }}>查看全部方案</Button>
+          </Space>}
+        />
+      )}
       {profilesErr && (
         <Alert
           type="warning"
@@ -735,9 +764,16 @@ function EngineProfilesPage({
         open={wizardOpen}
         engine={engine}
         ontos={ontos}
+        initialOntologyId={target?.id}
         onClose={() => setWizardOpen(false)}
-        onCreated={() => {
+        onCreated={(profile) => {
           setWizardOpen(false)
+          setProfiles((ps) => [...ps.filter((p) => p.id !== profile.id), profile])
+          if (targetId && !profile.ontology_ids?.includes(targetId)) {
+            setTargetId(null)
+            writeOntoHash({ col: 'runtime', engine })
+          }
+          setDetailId(profile.id)
           reload()
         }}
       />
@@ -873,14 +909,16 @@ function ProfileWizard({
   open,
   engine,
   ontos,
+  initialOntologyId,
   onClose,
   onCreated,
 }: {
   open: boolean
   engine: EngineKey
   ontos: Ontology[]
+  initialOntologyId?: string
   onClose: () => void
-  onCreated: () => void
+  onCreated: (profile: RuntimeProfile) => void
 }) {
   const { showToast } = useUI()
   const [step, setStep] = useState(0)
@@ -893,9 +931,9 @@ function ProfileWizard({
   useEffect(() => {
     if (open) {
       setStep(0)
-      setName('')
+      setName(initialOntologyId ? `${ontos.find((o) => o.id === initialOntologyId)?.name ?? '本体'} · ${engine}` : '')
       setPort(null)
-      setSelectedIds([])
+      setSelectedIds(initialOntologyId ? [initialOntologyId] : [])
       setReasoning(false)
     }
   }, [open])
@@ -915,7 +953,7 @@ function ProfileWizard({
     try {
       // O6：fuseki 推理开关落 config.reasoning（启动时 Manager 读取并传引擎）
       const cfg = engine === 'fuseki' ? JSON.stringify({ reasoning }) : undefined
-      await api.createRuntimeProfile({
+      const profile = await api.createRuntimeProfile({
         name: name.trim(),
         engine,
         ontology_ids: selectedIds,
@@ -923,7 +961,7 @@ function ProfileWizard({
         ...(cfg ? { config: cfg } : {}),
       })
       showToast('运行方案已创建（启动后生效）')
-      onCreated()
+      onCreated(profile)
     } catch (e: any) {
       showToast(e.message, 'err')
     } finally {
@@ -981,6 +1019,7 @@ function ProfileWizard({
           </Typography.Text>
           <Select
             mode="multiple"
+            optionFilterProp="label"
             style={{ width: '100%' }}
             placeholder="选择本体（可多选）"
             value={selectedIds}
@@ -1256,6 +1295,7 @@ function QueryMountPane({ profile, profilesErr }: { profile: RuntimeProfile; pro
       <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
         {`对话经「运行方案」挂载本体：在对话输入框的「本体增强」chip 中选择运行中方案「${profile.name}」；装配期注入 guide，单次失败即降级（事件卡提示），配置保留，下一条消息自动恢复。`}
       </Typography.Text>
+      <ConsumptionActions profile={profile} />
       {profile.status === 'running' ? (
         <>
           <div className="onto-sec" style={{ marginTop: 4 }}>

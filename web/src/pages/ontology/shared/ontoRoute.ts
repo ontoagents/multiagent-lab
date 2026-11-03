@@ -15,6 +15,8 @@ export type OntoRoute = {
   section?: string
   /** runtime：引擎键（oxigraph/fuseki/cayley） */
   engine?: string
+  /** runtime/learn quiz：本次消费的本体上下文 */
+  ontologyId?: string
   /** learn：子模块键（path/build-paths/runtime-paths/examples/pipeline） */
   learn?: string
 }
@@ -22,7 +24,7 @@ export type OntoRoute = {
 const COLS: OntoCol[] = ['learn', 'build', 'assets', 'runtime', 'audit']
 const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource']
 const ENGINES = ['oxigraph', 'fuseki', 'cayley']
-const LEARN_SECTIONS = ['path', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
+const LEARN_SECTIONS = ['path', 'quiz', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
 
 /** 解析当前（或给定）hash 为路由；非本模块 hash 返回 null。id 类段容忍字母数字-_。 */
 export function parseOntoHash(hash?: string): OntoRoute | null {
@@ -39,6 +41,7 @@ export function parseOntoHash(hash?: string): OntoRoute | null {
   }
   if (col === 'runtime' && m[2] && ENGINES.includes(m[2])) r.engine = m[2]
   if (col === 'learn' && m[2] && LEARN_SECTIONS.includes(m[2])) r.learn = m[2]
+  if ((r.engine || r.learn === 'quiz') && m[3]) r.ontologyId = m[3]
   return r
 }
 
@@ -52,6 +55,7 @@ export function ontoHash(r: OntoRoute): string {
   }
   if (r.col === 'runtime' && r.engine) seg.push(r.engine)
   if (r.col === 'learn' && r.learn) seg.push(r.learn)
+  if ((r.col === 'runtime' && r.engine || r.col === 'learn' && r.learn === 'quiz') && r.ontologyId) seg.push(r.ontologyId)
   return '#/' + seg.join('/')
 }
 
@@ -84,7 +88,8 @@ export function deepLinkOnto(r: OntoRoute, legacyPairs: Array<[string, string]> 
       localStorage.setItem('eino.onto.buildPath.homeMigrated', '1') // 防 REQ-337 一次性迁移吃掉显式值（沿 REQ-360 顺修）
     }
   } catch { /* 忽略 */ }
-  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
   useUI.getState().setPage('ontology')
   history.replaceState(null, '', '/ontology' + ontoHash(r))
+  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+  window.dispatchEvent(new Event('hashchange'))
 }

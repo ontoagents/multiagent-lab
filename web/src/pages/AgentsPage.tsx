@@ -118,7 +118,11 @@ export default function AgentsPage() {
       setAgents([])
       setLoadErr(e?.message ?? '智能体列表加载失败')
     })
-    api.listConversations().then(setConvs).catch(() => setConvs([]))
+    api.listConversations().then((cs) => {
+      setConvs(cs)
+      const selected = cs.find((c) => c.id === useUI.getState().currentConvId)
+      if (selected?.scope === 'agent' && selected.agent_id) setActiveAgentId(selected.agent_id)
+    }).catch(() => setConvs([]))
   }
 
   useEffect(reload, [dataVersion])
