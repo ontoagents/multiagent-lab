@@ -5,6 +5,8 @@
 //	②头部版本与迭代表一致性——01/02/03/18/20 五档头部状态行版本号必须在各自迭代表在行
 //	 （防「头部 bump 迭代表未落」的滚动漂移——03 头部 rebase 回退史/02 M117 滞后同类实证）；
 //	③18 注册表引用核对——18 迭代表各版本行号单调（同版本号重复出现=撞号，允许「撞号注」明示豁免）。
+//	⑨冲突标记残留——docs/**.md + AGENTS.md + CONTRIBUTING.md 行首 <<<<<<< / ======= / >>>>>>> 残留
+//	 （REQ-607-6825：PR #4 整合轮 Edit 遗漏使标记存活三 commit 而七项检查全绿——118 号 §5⑥ 实证补位）。
 //
 // 覆盖档=01/02/03/18/20 + handbook/04_本体/92 号（原 docs/04，2026-11-01 四区收敛 REQ-570
 // 批次 1.5 迁入，无迭代表仅参与①）；docs/12 保留为①的 known 集合源（账本壳仍在 docs/ 根）。
@@ -317,6 +319,60 @@ func TestDualFormatREQMatching(t *testing.T) {
 	// 正则不应把「REQ-605-06e2」额外再匹配出一个裸「REQ-605」重复项（FindAll 一次命中全串）
 	if n := len(reqRefRe.FindAllStringSubmatch("见 REQ-605-06e2 说明", -1)); n != 1 {
 		t.Errorf("后缀引用应单次命中，实际 %d 次", n)
+	}
+}
+
+// TestConflictMarkerResidue ⑨（REQ-607-6825，118 号 §5⑥）：docs/**.md + AGENTS.md +
+// CONTRIBUTING.md 冲突标记残留检查——git merge 解合遗漏的 `<<<<<<<`/`=======`/`>>>>>>>`
+// 行首标记（doccheck 原七项均不覆盖，PR #4 整合轮 docs/03 标记存活三 commit 的盲区补位；
+// 由 PR #5 外部贡献者人眼抓到——机检补位动机）。行首锚定避免误伤行文中的标记字符引用
+// （如 118 号 §5⑥ 本身的「`<<<<<<<`」行文）；`=======` 全仓零 setext 标题用法（领号轮实测）。
+func TestConflictMarkerResidue(t *testing.T) {
+	markers := []*regexp.Regexp{
+		regexp.MustCompile(`^<{7}( |$)`),
+		regexp.MustCompile(`^>{7}( |$)`),
+		regexp.MustCompile(`^={7}$`),
+	}
+	names := map[*regexp.Regexp]string{
+		markers[0]: "<<<<<<<", markers[1]: ">>>>>>>", markers[2]: "=======",
+	}
+	// 负例自证：行文引用（非行首/带前缀）不误报
+	for _, line := range []string{"  <<<<<<< 缩进不算", "见 `<<<<<<<` 行文引用", "x======="} {
+		for _, re := range markers {
+			if re.MatchString(line) {
+				t.Fatalf("负例误报：%q 命中 %s", line, names[re])
+			}
+		}
+	}
+	check := func(rel, content string) {
+		for i, line := range strings.Split(content, "\n") {
+			for _, re := range markers {
+				if re.MatchString(line) {
+					t.Errorf("%s:%d 冲突标记残留（%s）——git 解合遗漏，参照 118 号 §5⑥ 处理", rel, i+1, names[re])
+				}
+			}
+		}
+	}
+	for _, rel := range []string{"AGENTS.md", "CONTRIBUTING.md"} {
+		check(rel, readRepo(t, rel))
+	}
+	err := filepath.WalkDir(filepath.Join(repoRoot, "docs"), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(repoRoot, path)
+		check(rel, string(b))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("遍历 docs 失败: %v", err)
 	}
 }
 
