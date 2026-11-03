@@ -32,8 +32,10 @@ var bigDocs = []string{
 
 var headVerRe = regexp.MustCompile(`^> 状态：[^0-9]*v(\d+\.\d+)`)
 var iterVerRe = regexp.MustCompile(`^\| (v\d+\.\d+) \|`)
-var reqRefRe = regexp.MustCompile(`REQ-(\d{3})`)
-var registryRowRe = regexp.MustCompile(`^\| REQ-(\d{3}) \|`)
+// REQ 双格式（REQ-605-06e2 并发领号后缀制，118 号 §3.3）：后缀引用全串精确匹配，
+// 裸序号引用（存量 1~604+行文缩写）按序号粒度宽松匹配（118 号 §5 已知宽松面）。
+var reqRefRe = regexp.MustCompile(`REQ-(\d{3})(?:-([a-z0-9]{4}))?`)
+var registryRowRe = regexp.MustCompile(`^\| REQ-(\d{3})(?:-([a-z0-9]{4}))? \|`)
 
 func readRepo(t *testing.T, rel string) string {
 	t.Helper()
@@ -44,14 +46,17 @@ func readRepo(t *testing.T, rel string) string {
 	return string(b)
 }
 
-// TestRegistryREQReferences ①：docs 大档中的 REQ-nnn 引用必须在 18 注册表主表在册。
+// TestRegistryREQReferences ①：docs 大档中的 REQ-nnn（含 REQ-nnn-xxxx 后缀双格式，118 号）
+// 引用必须在 18 注册表主表在册。
 func TestRegistryREQReferences(t *testing.T) {
 	// REQ 在册来源=18 注册表主表 + 01/03 需求表（存量 REQ-60~119 行内登记于 01/03，
-	// 18 为新号唯一权威不迁移——引用核对以三源并集为口径）
-	known := map[string]bool{}
+	// 18 为新号唯一权威不迁移——引用核对以三源并集为口径）。
+	// 双格式（118 号 §3.3）：knownSeq 存序号（裸引用/缩写宽松匹配），knownFull 存全串（后缀引用精确匹配）。
+	knownSeq := map[string]bool{}
+	knownFull := map[string]bool{}
 	// 01/03 需求行形态含注（REQ-311（v1.45...）/REQ-355（...）——行首 `| REQ-nnn` 宽放为
 	// 「表格行内以 REQ-nnn 开头语义位」：`| REQ-` 前缀或 `｜ REQ-（` 变体均计入在册）
-	reqRowRe := regexp.MustCompile(`^\|\s*REQ-(\d{3})`)
+	reqRowRe := regexp.MustCompile(`^\|\s*REQ-(\d{3})(?:-([a-z0-9]{4}))?`)
 	for _, src := range []string{
 		"docs/18_REQ编号注册表.md",
 		"docs/18A_REQ归档册.md", // REQ-499 拆册：完结注册行归档册与 18 号同为位号事实源
@@ -63,12 +68,15 @@ func TestRegistryREQReferences(t *testing.T) {
 		reg := readRepo(t, src)
 		for _, line := range strings.Split(reg, "\n") {
 			if m := reqRowRe.FindStringSubmatch(line); m != nil {
-				known[m[1]] = true
+				knownSeq[m[1]] = true
+				if m[2] != "" {
+					knownFull[m[1]+"-"+m[2]] = true
+				}
 			}
 		}
 	}
-	if len(known) < 100 {
-		t.Fatalf("注册表主表行解析异常（应 ≥100 行）: %d", len(known))
+	if len(knownSeq) < 100 {
+		t.Fatalf("注册表主表行解析异常（应 ≥100 行）: %d", len(knownSeq))
 	}
 	// 豁免清单（存量历史遗留引用——注册表行缺位，防复发目标=不新增；补登记随台账轮）
 	legacyExempt := map[string]string{
@@ -83,13 +91,16 @@ func TestRegistryREQReferences(t *testing.T) {
 		var missing []string
 		for _, m := range reqRefRe.FindAllStringSubmatch(text, -1) {
 			id := m[1]
-			if seen[id] || known[id] {
+			if m[2] != "" {
+				id = m[1] + "-" + m[2]
+			}
+			if seen[id] || knownSeq[m[1]] && (m[2] == "" || knownFull[id]) {
 				seen[id] = true
 				continue
 			}
 			seen[id] = true
-			if reason, ok := legacyExempt[id]; ok {
-				t.Logf("豁免（%s）：%s 引用 REQ-%s", reason, doc, id)
+			if reason, ok := legacyExempt[m[1]]; ok {
+				t.Logf("豁免（%s）：%s 引用 REQ-%s", reason, doc, m[1])
 				continue
 			}
 			missing = append(missing, "REQ-"+id)
@@ -257,6 +268,55 @@ func TestReqIndexOpenSet(t *testing.T) {
 	// 2026-11-02 调 35→18：排期拍板批 M380~M390+工作区批 M391~M402 共 24 件交付合规删行（📋 清零）
 	if rows < 18 {
 		t.Errorf("19 号开放需求行数 %d 异常偏少（建档初版 56 行）——疑似误删", rows)
+	}
+}
+
+// TestDualFormatREQMatching ⑧（REQ-605-06e2 并发领号后缀制，118 号 §3.3/§6）：双格式
+// 引用匹配语义——后缀引用全串精确、裸序号按序号粒度宽松、未知后缀报缺失、同序号段多件互不干扰。
+func TestDualFormatREQMatching(t *testing.T) {
+	knownSeq := map[string]bool{"601": true, "605": true}
+	knownFull := map[string]bool{"605-06e2": true, "605-9k1x": true} // 同序号段两件（并发领取合法形态）
+	match := func(ref string) (seq, full string) {
+		m := reqRefRe.FindStringSubmatch(ref)
+		if m == nil {
+			return "", ""
+		}
+		if m[2] != "" {
+			return m[1], m[1] + "-" + m[2]
+		}
+		return m[1], ""
+	}
+	inRegistry := func(ref string) bool {
+		seq, full := match(ref)
+		if seq == "" {
+			return false
+		}
+		if !knownSeq[seq] {
+			return false
+		}
+		return full == "" || knownFull[full]
+	}
+	cases := []struct {
+		ref  string
+		want bool
+		why  string
+	}{
+		{"REQ-605-06e2", true, "在册后缀引用（全串精确）"},
+		{"REQ-605-9k1x", true, "同序号段第二件后缀引用"},
+		{"REQ-605", true, "裸序号引用宽松匹配（序号在册即过——118 号 §5 已知宽松面）"},
+		{"REQ-601", true, "存量纯序号引用兼容"},
+		{"REQ-605-abcd", false, "未在册后缀（全串缺失，序号在册也拦）"},
+		{"REQ-606", false, "未在册序号"},
+		{"REQ-606-zz99", false, "未在册序号+后缀"},
+	}
+	for _, c := range cases {
+		if got := inRegistry(c.ref); got != c.want {
+			t.Errorf("引用 %s 在册判定=%v，期望 %v（%s）", c.ref, got, c.want, c.why)
+		}
+	}
+	// 正则不应把「REQ-605-06e2」额外再匹配出一个裸「REQ-605」重复项（FindAll 一次命中全串）
+	if n := len(reqRefRe.FindAllStringSubmatch("见 REQ-605-06e2 说明", -1)); n != 1 {
+		t.Errorf("后缀引用应单次命中，实际 %d 次", n)
 	}
 }
 
