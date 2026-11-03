@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, InputNumber, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ExportOutlined, ReloadOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { ExportOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import LoadErrorAlert from '../../../../components/LoadErrorAlert'
+import EmptyGuide from '../../../../components/EmptyGuide'
 import { api } from '../../../../api/client'
 import type { OntoContribution, OntoContributionSummaryRow, OntoRunGroup, RuntimeProfile } from '../../../../api/types'
 import { useUI } from '../../../../store/ui'
+import { deepLinkOnto } from '../../shared/ontoRoute'
 
 // ---------------------------------------------------------------------------
 // 消费与审计 · 消费观测页签（REQ-290/M94 内容置换新增：本栏自 KB 抽取 KG 观测
@@ -53,10 +55,18 @@ export function hasQualityWarn(p: RuntimeProfile): boolean {
   return parseLoadedQuality(p).some((q) => q.overall < 80 || q.errors > 0)
 }
 
-/** 栏级跳转（eino.onto.sidebar + onto-sidebar-change 全模块通用动线） */
+/** 栏级跳转（REQ-599：gotoPane 收敛 deepLinkOnto 单点——写记忆+hash+事件动线单源） */
 function gotoPane(key: 'assets' | 'runtime') {
-  localStorage.setItem('eino.onto.sidebar', key)
-  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+  deepLinkOnto({ col: key })
+}
+
+/** REQ-599：全部状态方案呈现（修 running 硬过滤）——状态 Tag 异常态留色（C7） */
+const STATUS_TAG: Record<RuntimeProfile['status'], { color: string; text: string }> = {
+  running: { color: 'green', text: '运行中' },
+  starting: { color: 'processing', text: '启动中' },
+  created: { color: 'default', text: '未启动' },
+  stopped: { color: 'default', text: '已停止' },
+  error: { color: 'red', text: '异常' },
 }
 
 const NAV_ITEMS: { key: string; title: string; tag: string; color: string; body: string; pane?: 'assets' | 'runtime' }[] = [
@@ -97,14 +107,16 @@ const NAV_ITEMS: { key: string; title: string; tag: string; color: string; body:
 export default function AuditObserveTab({
   profiles,
   loading,
-  onReload,
+  reloadKey = 0,
 }: {
   profiles: RuntimeProfile[]
   loading: boolean
-  onReload: () => void
+  /** REQ-599：页头统一刷新键——变化时重拉贡献/命中组（profiles 由页级拉取下发） */
+  reloadKey?: number
 }) {
   const { setPage } = useUI()
-  const running = profiles.filter((p) => p.status === 'running')
+  // TTL 关键词快查需要 running 引擎（SPARQL 语义）；方案一览卡已全状态呈现
+  const runningList = profiles.filter((p) => p.status === 'running')
   const [profileId, setProfileId] = useState<string>('')
   const [kw, setKw] = useState('')
   const [maxResults, setMaxResults] = useState<number>(20)
@@ -123,6 +135,13 @@ export default function AuditObserveTab({
     api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
     loadHitGroups()
   }, [])
+  // REQ-599：页头「刷新」刷全部——reloadKey 变化重拉本页签数据
+  useEffect(() => {
+    if (reloadKey === 0) return
+    api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
+    loadHitGroups()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey])
   const loadHitDetail = (oid: string) => {
     if (hitDetail?.ontology_id === oid) {
       setHitDetail(null)
@@ -132,7 +151,7 @@ export default function AuditObserveTab({
   }
 
   const doQuery = async () => {
-    const pid = profileId || running[0]?.id
+    const pid = profileId || runningList[0]?.id
     if (!pid) return
     if (!kw.trim()) return
     setQuerying(true)
@@ -157,7 +176,7 @@ export default function AuditObserveTab({
     { title: '方案', dataIndex: 'name', ellipsis: true, render: (v, r) => (
       <Space size={6}>
         <Typography.Text strong>{v || '未命名方案'}</Typography.Text>
-        <Tag color="green" style={{ margin: 0 }}>running</Tag>
+        <Tag color={STATUS_TAG[r.status]?.color ?? 'default'} style={{ margin: 0 }}>{STATUS_TAG[r.status]?.text ?? r.status}</Tag>
         {r.port ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>:{r.port}</Typography.Text> : null}
       </Space>
     ) },
@@ -225,26 +244,55 @@ export default function AuditObserveTab({
             <span>运行方案消费一览</span>
           </Space>
         }
-        extra={
-          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onReload}>
-            刷新
-          </Button>
-        }
       >
-        {running.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="无运行中的本体方案——到「本体运行」栏启动后，此处观测装载版本与消费质量"
+        {profiles.length === 0 ? (
+          // REQ-599：空态 EmptyGuide 三步引导（与错误态互斥——错误态由页级 Alert 承载）
+          <EmptyGuide
+            title="暂无本体运行方案"
+            steps={[
+              '到「本体运行」栏启动（或创建）运行方案——装载版本与质量快照自动出现在此处',
+              '在智能体对话中挂载本体方案提问——消费命中与贡献统计开始积累',
+              '回到这里看消费留痕、贡献一览与决策溯源',
+            ]}
+            actionLabel="去本体运行栏"
+            onAction={() => gotoPane('runtime')}
+            footer="或在智能体对话中挂载本体方案提问；知识库文本抽取 KG 的观测与治理在知识库模块（本栏不承载）。"
           />
         ) : (
           <Table<RuntimeProfile>
             rowKey="id"
             columns={columns}
-            dataSource={running}
+            dataSource={profiles}
             loading={loading}
             pagination={false}
             size="small"
             scroll={{ x: 'max-content' }}
+            expandable={{
+              rowExpandable: (r) => parseLoadedStatus(r).length > 0 || !!r.last_error,
+              expandedRowRender: (r) => {
+                const ls = parseLoadedStatus(r)
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }} data-testid={`profile-detail-${r.id}`}>
+                    {ls.map((x) => (
+                      <Typography.Text key={x.oid} type="secondary" style={{ fontSize: 12 }}>
+                        本体 {x.oid.slice(0, 8)}
+                        {x.version_name ? ` · ${x.version_name}` : ''}（{x.status ?? '?'}）
+                        {x.triple_count != null ? ` · ${x.triple_count} 三元组` : ''}
+                        {x.generation ? ` · 装载代次 ${x.generation}` : ''}
+                        {x.loaded_at ? ` · ${x.loaded_at.replace('T', ' ').slice(0, 16)}` : ''}
+                        {x.gate ? ` · 对账 ${x.gate}` : ''}
+                      </Typography.Text>
+                    ))}
+                    {r.last_error && (
+                      <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                        上次错误：{r.last_error}
+                        {r.last_error_at ? `（${r.last_error_at.replace('T', ' ').slice(0, 16)}）` : ''}
+                      </Typography.Text>
+                    )}
+                  </div>
+                )
+              },
+            }}
           />
         )}
       </Card>
@@ -274,7 +322,7 @@ export default function AuditObserveTab({
             placeholder="选择运行中的本体方案"
             value={profileId || undefined}
             onChange={setProfileId}
-            options={running.map((p) => ({ value: p.id, label: p.name || p.id }))}
+            options={runningList.map((p) => ({ value: p.id, label: p.name || p.id }))}
             notFoundContent="无运行中的方案（到「本体运行」栏启动）"
           />
           <Input
@@ -292,7 +340,7 @@ export default function AuditObserveTab({
             addonBefore="limit"
             style={{ width: 140 }}
           />
-          <Button type="primary" icon={<SearchOutlined />} loading={querying} disabled={running.length === 0} onClick={doQuery}>
+          <Button type="primary" icon={<SearchOutlined />} loading={querying} disabled={runningList.length === 0} onClick={doQuery}>
             检索
           </Button>
         </Space>
@@ -362,19 +410,6 @@ export default function AuditObserveTab({
             <span>消费贡献一览 · onto_* 工具命中</span>
             <ThunderboltOutlined style={{ color: 'var(--c-brand)' }} />
           </Space>
-        }
-        extra={
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              api.ontologyContributionSummary().then(setHitSummary).catch(() => setHitSummary([]))
-              loadHitGroups()
-              setHitDetail(null)
-            }}
-          >
-            刷新
-          </Button>
         }
       >
         <Alert

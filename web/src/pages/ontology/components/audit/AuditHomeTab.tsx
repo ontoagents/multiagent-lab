@@ -1,10 +1,11 @@
-import { Card, Collapse, Space, Steps, Tag, Typography } from 'antd'
+import { Card, Space, Steps, Tag, Typography } from 'antd'
 
 // ---------------------------------------------------------------------------
-// 消费与审计 · 学习引导页签（三段式：功能 / 原理 / 使用说明）。
+// 消费与审计 · 使用说明内容（三段式：功能 / 原理 / 四步演练）。
 // REQ-290/M94 内容置换：叙事自「KB 语料→抽取 KG→GraphRAG 检索」改写为本体消费
-// 与审计口径（消费链路四步 + 决策留痕/PROV-O）；顺修原③「重建 KG」步骤
-// （M36/KB-13 已退役该按钮，治理在知识库模块）。
+// 与审计口径（消费链路四步 + 决策留痕/PROV-O）。
+// REQ-599/M410：学习引导页签退役——本组件由独立页签改为页头「使用说明」抽屉的
+// 内容件（内容保留、载体演进；四步演练的引导职责另由两页签空态 EmptyGuide 承载）。
 // ---------------------------------------------------------------------------
 
 /** ① 功能：它是什么 / 解决什么 / 不做什么（REQ-290 口径） */
@@ -55,17 +56,9 @@ const DRILL_STEPS = [
   { title: '审计与导出', description: '「决策审计」页看留痕与溯源链（默认本体类别，清空筛选可看 kg/kb 全部），导出 PROV-O Turtle 供外部工具检查。' },
 ]
 
-export default function AuditHomeTab() {
-  // REQ-490：说明页退役为默认收起的折叠节（三张带框说明卡不再常驻开场）
+export default function AuditGuideContent() {
   return (
-    <Collapse
-      size="small"
-      ghost
-      items={[
-        {
-          key: 'guide',
-          label: '功能与使用说明（点开查看——它是什么 / 原理 / 怎么用）',
-          children: (
+    <>
     <div className="sema-home">
       <Card
         size="small"
@@ -139,9 +132,6 @@ export default function AuditHomeTab() {
         <Steps size="small" orientation="vertical" items={DRILL_STEPS} />
       </Card>
     </div>
-        ),
-      },
-      ]}
-    />
+    </>
   )
 }

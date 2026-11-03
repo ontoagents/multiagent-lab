@@ -477,9 +477,15 @@ export const api = {
     req<OntoDecision>('/api/audit/decisions', { method: 'POST', body: JSON.stringify(d) }),
   /** 溯源链：沿 derived_from 回溯（GET /api/audit/decisions/{id}/chain；32 跳封顶） */
   decisionChain: (id: string) => req<OntoDecision[]>(`/api/audit/decisions/${encodeURIComponent(id)}/chain`),
-  /** PROV-O 导出（GET /api/audit/prov-export?kb_id=）→ text/turtle 原文（Go 原生模板，零 rdflib） */
-  provExport: (kbId?: string) =>
-    reqText(`/api/audit/prov-export${kbId ? `?kb_id=${encodeURIComponent(kbId)}` : ''}`),
+  /** PROV-O 导出（GET /api/audit/prov-export?kb_id=&subject_kind=）→ text/turtle 原文（Go 原生模板，零 rdflib）。
+   *  REQ-599：subject_kind 透传（后端 handlers_kg.go 已支持 kind 参数）——筛选联动导出。 */
+  provExport: (kbId?: string, subjectKind?: string) => {
+    const sp = new URLSearchParams()
+    if (kbId) sp.set('kb_id', kbId)
+    if (subjectKind) sp.set('subject_kind', subjectKind)
+    const qs = sp.toString()
+    return reqText(`/api/audit/prov-export${qs ? `?${qs}` : ''}`)
+  },
 
   // ---- M7 技能（§8：/api/skills 系列 + 注入预览） ----
   listSkills: () => req<Skill[]>('/api/skills'),
