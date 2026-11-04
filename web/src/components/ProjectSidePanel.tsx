@@ -23,6 +23,7 @@ import SaveToNotebookModal from './SaveToNotebookModal'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry, Workspace } from '../api/types'
 import DirCheckResult from './DirCheckResult'
 import RelationConsequenceBlock from './RelationConsequenceBlock'
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——转发源区落点）
 import { useUI } from '../store/ui'
 
 export type PanelView = 'files' | 'git' | 'config' | 'collab'
@@ -882,6 +883,10 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
             REQ-616-aa64/M424-aa64 C3（121 号 R3）：区块标题「默认值转发源（归属工作区）」+
             已归属工作区名 chip 点击跳工作区模块（跨模块互链）+说明句补解除归属后果（REQ-581 口径） */}
         <Section>默认值转发源（归属工作区）</Section>
+        {/* REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句四点之一——转发源区先见全站唯一关系句） */}
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+          {RELATION_SENTENCE}
+        </Typography.Text>
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
           归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；解除归属后已建会话的库/方案默认值保持不变，跨会话记忆自下轮起不再注入。
         </Typography.Text>

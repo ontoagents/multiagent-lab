@@ -1,4 +1,5 @@
 import { Typography } from 'antd'
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——两处删除 Modal 落点）
 
 /**
  * 「关系与后果」对照块（REQ-615-721e/M423-721e，121 号 §4.2-C6 / §4.4 文案单源）：
@@ -23,6 +24,10 @@ export default function RelationConsequenceBlock({ kind }: { kind: 'workspace' |
     >
       <Typography.Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
         关系与后果对照
+      </Typography.Text>
+      {/* REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句四点之一——两处删除确认先见关系再见后果） */}
+      <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginBottom: 6, lineHeight: 1.6 }}>
+        {RELATION_SENTENCE}
       </Typography.Text>
       <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', lineHeight: 1.7 }}>
         <span style={kind === 'workspace' ? strongStyle : undefined}>删工作区＝容器脱钩</span>

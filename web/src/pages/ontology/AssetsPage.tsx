@@ -56,8 +56,8 @@ import CqQuickScreen from './components/CqQuickScreen'
 
 // ---------------------------------------------------------------------------
 // 本体资产（AssetsPage，REQ-104 ③）：全部已构建本体统一管理
-//   REQ-326③：列表/详情双态页级工作区——资产列表自左侧窄栏升格独占整页（搜索/来源
-//   分组/校验徽标/质量雷达全宽承载），点击行进详情页级工作区（原 12 页签平铺改
+//   REQ-326③：列表/详情双态页级化——资产列表自左侧窄栏升格独占整页（搜索/来源
+//   分组/校验徽标/质量雷达全宽承载），点击行进详情页（原 12 页签平铺改
 //   「左锚点分区导航 + 右内容」，REQ-237，57 号 F1 整改）；返回列表链路不丢列表态
 //   （搜索词提升）；跨模块深链 eino.onto.asset.focus（沿 eino.kb.focus 模式）带详情
 //   语义；详情内上一条/下一条轻切换（分组序）；Maximizeable「最大化编辑」页内最大化
@@ -76,7 +76,8 @@ import CqQuickScreen from './components/CqQuickScreen'
 /** 跨模块深链 handoff（伴生卡 / 构建完成跳转等）：非空时进详情态并选中该本体（消费后置空）。 */
 export const ASSET_FOCUS_KEY = 'eino.onto.asset.focus'
 
-/** 详情工作区分区（三簇；57 号 F1 分组口径）。REQ-240 优化④：伴生分区仅伴生型本体注入。 */
+/** 详情页分区（三簇；57 号 F1 分组口径）。REQ-240 优化④：伴生分区仅伴生型本体注入。
+ *  REQ-617-87d8/M425-87d8 R4（121 号 §5.4-③/E6）：本页详情态旧称谓（详情+工作区四字连用）第三义退役——「工作区」全站唯一指向 Q-24 领域容器，一律称「详情页」。 */
 function sectionGroups(isCompanion: boolean): { title: string; items: { key: string; label: string }[] }[] {
   // REQ-285①：详情模板分型——伴生型（对话生长容器）切换伴生语义分组，spec 系分区全部不出现
   // （空 spec 的 Spec 编辑/校验/质量卡/版本等分区对伴生型是空壳噪声）；普通型维持 spec 中心三分组。
@@ -146,7 +147,7 @@ export default function AssetsPage() {
   // REQ-467/M267：本体清单单源 hook（7+ 处散拉收敛——创建/删除/重命名经 invalidateOntos 广播即时同步）
   const { ontos, err: listErr, reload: reloadOntoList } = useOntologies()
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([])
-  // REQ-326③：列表/详情双态（列表独占整页 ↔ 详情页级工作区）；深链 eino.onto.asset.focus 直接进详情
+  // REQ-326③：列表/详情双态（列表独占整页 ↔ 详情页）；深链 eino.onto.asset.focus 直接进详情
   // REQ-470：hash 直达（#/onto/assets/{id}/{section}）——一次性深链键优先级更高（跨模块 handoff 消费即清）
   const [view, setView] = useState<'list' | 'detail'>(() => {
     if (localStorage.getItem(ASSET_FOCUS_KEY)) return 'detail'
@@ -537,7 +538,7 @@ export default function AssetsPage() {
 
   const groups = sectionGroups(!!active && boundIds.has(active.id))
 
-  /** REQ-326③：点行进详情页级工作区 */
+  /** REQ-326③：点行进详情页 */
   const openAsset = (id: string) => {
     guardLeave(() => {
       // REQ-470：列表→详情进历史栈（后退回列表）
@@ -567,7 +568,7 @@ export default function AssetsPage() {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>统一管理 · {ontos.length}</Typography.Text>
           </div>
           <p className="work-head-desc">
-            已构建本体的统一仓库（REQ-60）：新建请到「本体构建」选择路径；点击本体进详情工作区，负责编辑、校验、版本、产物、可视化与 TTL 导出。
+            已构建本体的统一仓库（REQ-60）：新建请到「本体构建」选择路径；点击本体进详情页，负责编辑、校验、版本、产物、可视化与 TTL 导出。
           </p>
         </div>
       </div>
@@ -597,7 +598,7 @@ export default function AssetsPage() {
     </div>
   )
 
-  // REQ-326③：详情态——页级工作区（返回列表 + 面包屑 + 上一条/下一条轻切换）
+  // REQ-326③：详情态——独占整页详情（返回列表 + 面包屑 + 上一条/下一条轻切换）
   const renderDetail = () => {
     if (!active) return null // 调用侧已保证 view==='detail' && active；此处兼作 TS 窄化
     return (
@@ -1096,7 +1097,7 @@ export default function AssetsPage() {
                   </>
                 )}
                 {secKey === 'graph-edit' && (
-                  // REQ-326③：Maximizeable「最大化编辑」页内最大化补丁退役——详情已升页级工作区
+                  // REQ-326③：Maximizeable「最大化编辑」页内最大化补丁退役——详情已升独立整页
                   <GraphEditor ontologyId={active.id} spec={spec} onSpecSaved={refreshAfterSave} baseVersion={active.version} />
                 )}
                 {/* REQ-458：关系类型 + 数据属性 合并为「关系与属性」——分段切换两个声明编辑器 */}
@@ -1162,7 +1163,7 @@ export default function AssetsPage() {
     )
   }
 
-  // REQ-326③：列表/详情双态页级渲染（列表独占整页 ↔ 详情页级工作区；过渡渲染空等待数据/
+  // REQ-326③：列表/详情双态页级渲染（列表独占整页 ↔ 详情页；过渡渲染空等待数据/
   // 深链失效由回落 effect 切回列表态）
   return (
     <div className="main">

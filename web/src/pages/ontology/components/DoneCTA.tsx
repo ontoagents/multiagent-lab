@@ -8,7 +8,7 @@ import { deepLinkOnto } from '../shared/ontoRoute'
  * 仅 KbBuildFlow 有跳转；本组件统一收口（58 号 E1）。
  * 跳转经 eino.onto.sidebar localStorage + onto-sidebar-change 事件（全模块通用动线先例）；
  * REQ-326③：跳资产带详情语义——eino.onto.asset.focus（AssetsPage 挂载即消费，直达该本体
- * 详情页级工作区；旧 eino.onto.focus 键自立项起无消费者，随本键接活退役）。
+ * 详情页；旧 eino.onto.focus 键自立项起无消费者，随本键接活退役）。
  */
 export default function DoneCTA({ ontologyId, detail = '构建产物已入库' }: { ontologyId: string; detail?: string }) {
   const go = (key: 'assets' | 'runtime' | 'quiz', section?: string) => {

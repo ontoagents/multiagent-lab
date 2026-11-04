@@ -20,6 +20,7 @@ import { confirmAction } from '../lib/antd'
 import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
 import { getRecent, pushRecent, RECENT_EVENT, type RecentKind } from '../lib/recent' // REQ-616-aa64/M424-aa64 A7（121 号 R3）
 import { gotoConversation } from '../lib/deepLink' // REQ-616-aa64/M424-aa64 D1（121 号 R3）：跨模块命中分流打开
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——两模块空态落点）
 import NameModal from './NameModal'
 
 interface TreeNode {
@@ -404,6 +405,7 @@ export default function Sidebar({
           ) : isWorkspace ? (
             // REQ-549/M356：工作区空态引导（领域容器——默认值免每会话重选）
             // REQ-616-aa64/M424-aa64 D2（121 号 R3）：空态互链提示——提及对方模块
+            // REQ-617-87d8/M425-87d8 R4（121 号 §4.4）：footer 升正式关系句（单源 lib/relations——互链语义由句内两概念并提承接）
             <EmptyGuide
               title="创建第一个工作区"
               steps={[
@@ -413,10 +415,11 @@ export default function Sidebar({
               ]}
               actionLabel="＋ 新建工作区"
               onAction={onNewWorkspace ?? (() => {})}
-              footer="工作区可集中管理场景默认值；项目在「项目」模块管理——归属到本工作区后，其新会话自动继承上述默认值。"
+              footer={RELATION_SENTENCE}
             />
           ) : (
             // REQ-616-aa64/M424-aa64 D2（121 号 R3）：空态互链提示——提及对方模块
+            // REQ-617-87d8/M425-87d8 R4（121 号 §4.4）：footer 升正式关系句（单源 lib/relations）
             <EmptyGuide
               title="创建第一个项目"
               steps={[
@@ -426,7 +429,7 @@ export default function Sidebar({
               ]}
               actionLabel="＋ 新建项目"
               onAction={onNewProject}
-              footer="项目会话由成员智能体协作完成；项目可归属工作区获得默认知识背景（配置侧板「默认值转发源」）。"
+              footer={RELATION_SENTENCE}
             />
           )
           )

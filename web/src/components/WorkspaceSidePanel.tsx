@@ -12,6 +12,7 @@ import { api } from '../api/client'
 import type { Agent, KnowledgeBase, MemoryRec, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import RelationConsequenceBlock from './RelationConsequenceBlock'
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——ws-anchor 落点）
 
 export type WorkspacePanelView = 'config' | 'projects' | 'memory'
 
@@ -387,11 +388,13 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 
   return (
     <div className="proj-view-body">
-      {/* REQ-578/M393：实物锚+白话区别句（配置视图顶部——「工作区 vs 项目」一句话） */}
+      {/* REQ-578/M393：实物锚+白话区别句（配置视图顶部——「工作区 vs 项目」一句话）。
+          REQ-617-87d8/M425-87d8 R4（121 号 §4.4/§5.3-REQ-578）：区别句升正式关系句（单源 lib/relations——
+          分层句+归属可选句一步到位，原「互不替代」表述被关系句末句承接） */}
       <div style={{ marginBottom: 10 }} data-testid="ws-anchor">
         <div style={{ fontSize: 13, fontWeight: 600 }}>⌂ 工作区《{workspace.name}》</div>
         <Typography.Text type="secondary" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-          工作区管「新对话自带什么知识背景」；项目管「产物写到哪」——两者互不替代。
+          {RELATION_SENTENCE}
         </Typography.Text>
       </div>
       <Form form={form} layout="vertical" requiredMark={false} size="small">
