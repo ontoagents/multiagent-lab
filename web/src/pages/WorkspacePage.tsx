@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Breadcrumb, Button, Empty, Form, Input, Modal, Splitter, Tooltip, Typography } from 'antd'
+import { Breadcrumb, Button, Empty, Form, Input, Modal, Segmented, Select, Splitter, Tooltip, Typography } from 'antd'
 import { BookOutlined, HistoryOutlined, ProjectOutlined, SettingOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
-import type { Agent, Conversation, Project, Workspace } from '../api/types'
+import type { Agent, Conversation, KnowledgeBase, Project, RuntimeProfile, Workspace } from '../api/types'
+// REQ-590/M431：场景模板单源（seeds/workspace-templates——?raw 编译期内联，沿 REQ-505 单源先例；改 seeds 文件即改向导模板）
+import WS_TEMPLATES_RAW from '../../../seeds/workspace-templates/templates.json?raw'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import { pushRecent } from '../lib/recent' // REQ-616-aa64/M424-aa64 A7（121 号 R3）
@@ -296,7 +298,7 @@ export default function WorkspacePage() {
           )}
         </div>
 
-        {createOpen && <WorkspaceModal onClose={() => setCreateOpen(false)} onCreated={onWorkspaceCreated} />}
+        {createOpen && <WorkspaceModal onClose={() => setCreateOpen(false)} onCreated={onWorkspaceCreated} workspaces={workspaces} />}
       </Splitter.Panel>
     </Splitter>
   )
@@ -393,13 +395,58 @@ function WorkspaceOverview({
   )
 }
 
-/** 新建工作区弹窗（M1b 最小件：名称+描述；默认值创建后经侧板配置视图完善）。
- * REQ-615-721e/M423-721e B3（121 号 §4.2-B3）：字段不动；描述 placeholder 补场景示例句
- *（锚 §4.4 关系句「这类工作用什么知识库、什么本体方案」语境） */
-function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+/** 新建工作区向导（REQ-590/M431，116 号 §REQ-590；前身=M1b 最小件名称+描述弹窗）：
+ *  三选起点——①全新空 ②从现有工作区复制默认值（快照继承：新工作区落自身三默认列，
+ *  源后续改动不回传，与写时复制同构）③场景模板起（内容单源 seeds/workspace-templates/，
+ *  仅预填命名引导与描述，不含本体示例——含本体示例按归属走本体侧领号，v1 不含）。
+ *  创建前预览=将携带的默认值清单如实呈现（copy 起点解析源三默认名称，未设置/不可解析如实标注）；
+ *  名称 placeholder 用途句式（116 号口径「这个工作区放哪类知识？」）。
+ *  REQ-615-721e B3 描述场景示例句保留（模板预填优先）。零后端——POST /api/workspaces 全结构体
+ *  透传（handlers_workspaces.go decodeJSON store.Workspace），复制起点由前端快照三默认字段。 */
+type WsOrigin = 'blank' | 'copy' | 'template'
+
+const WS_TEMPLATES = (() => {
+  try {
+    const parsed = JSON.parse(WS_TEMPLATES_RAW as string) as { templates: { key: string; label: string; description: string; guidance: string }[] }
+    return parsed.templates ?? []
+  } catch {
+    return [] // 模板单源解析失败=向导降级为两起点（不阻塞建区主流程）
+  }
+})()
+
+function WorkspaceModal({ onClose, onCreated, workspaces }: { onClose: () => void; onCreated: (id: string) => void; workspaces: Workspace[] }) {
   const { showToast } = useUI()
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  const [origin, setOrigin] = useState<WsOrigin>('blank')
+  const [sourceId, setSourceId] = useState<string | undefined>(undefined)
+  const [templateKey, setTemplateKey] = useState<string | undefined>(undefined)
+  // 预览名称解析（copy 起点）：沿 WorkspaceSidePanel 同源清单（KB 全量/方案 running/智能体全量）
+  const [refs, setRefs] = useState<{ kbs: [string, string][]; profiles: [string, string][]; agents: [string, string][] } | null>(null)
+  useEffect(() => {
+    if (origin !== 'copy' || refs) return
+    Promise.all([
+      api.listKBs().catch(() => [] as KnowledgeBase[]),
+      api.listRuntimeProfiles().catch(() => [] as RuntimeProfile[]),
+      api.listAgents().catch(() => [] as Agent[]),
+    ]).then(([kbs, profiles, agents]) => {
+      setRefs({
+        kbs: (kbs as KnowledgeBase[]).map((k) => [k.id, k.name]),
+        profiles: (profiles as RuntimeProfile[]).filter((p) => p.status === 'running').map((p) => [p.id, p.name || p.id]),
+        agents: (agents as Agent[]).map((a) => [a.id, a.is_builtin ? `${a.name}（内置）` : a.name]),
+      })
+    })
+  }, [origin, refs])
+
+  const source = origin === 'copy' ? workspaces.find((w) => w.id === sourceId) : undefined
+  const template = origin === 'template' ? WS_TEMPLATES.find((t) => t.key === templateKey) : undefined
+
+  const pickTemplate = (key?: string) => {
+    setTemplateKey(key)
+    const tpl = WS_TEMPLATES.find((t) => t.key === key)
+    if (tpl) form.setFieldsValue({ description: tpl.description })
+  }
+
   const submit = async () => {
     let v: any
     try {
@@ -409,13 +456,27 @@ function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated
     }
     setSaving(true)
     try {
-      const ws = await api.createWorkspace({ name: v.name, description: v.description ?? '' })
+      // 快照继承：复制起点把源工作区三默认落新工作区自身列（改动不回传；空值=未设置同既有零值语义）
+      const payload: Partial<Workspace> = { name: v.name, description: v.description ?? '' }
+      if (origin === 'copy' && source) {
+        payload.default_kb_id = source.default_kb_id || ''
+        payload.default_profile_id = source.default_profile_id || ''
+        payload.default_agent_id = source.default_agent_id || ''
+      }
+      const ws = await api.createWorkspace(payload)
       onCreated(ws.id)
     } catch (e: any) {
       showToast(e.message, 'err')
       setSaving(false)
     }
   }
+
+  const resolveName = (list: [string, string][] | null, id: string): string => {
+    if (!id) return '未设置'
+    const hit = list?.find(([k]) => k === id)
+    return hit ? hit[1] : `${id.slice(0, 8)}…（源值当前不可解析——创建后可调整）`
+  }
+
   return (
     <Modal
       title="新建工作区"
@@ -425,10 +486,50 @@ function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated
       okText="创建"
       confirmLoading={saving}
       destroyOnHidden
+      width={560}
     >
       <Form form={form} layout="vertical" requiredMark={false}>
+        {/* REQ-590 三选起点 */}
+        <Form.Item label="起点" style={{ marginBottom: 12 }}>
+          <Segmented
+            value={origin}
+            onChange={(v) => setOrigin(v as WsOrigin)}
+            options={[
+              { value: 'blank', label: '全新空工作区' },
+              { value: 'copy', label: '复制现有工作区默认值' },
+              { value: 'template', label: '场景模板起' },
+            ]}
+            data-testid="ws-wizard-origin"
+          />
+        </Form.Item>
+        {origin === 'copy' && (
+          <Form.Item label="源工作区（快照继承其会话默认值）" style={{ marginBottom: 12 }}>
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择要复制默认值的工作区"
+              value={sourceId}
+              onChange={setSourceId}
+              options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+              data-testid="ws-wizard-copy-source"
+            />
+          </Form.Item>
+        )}
+        {origin === 'template' && (
+          <Form.Item label="场景模板（单源 seeds/workspace-templates）" style={{ marginBottom: 12 }}>
+            <Select
+              allowClear
+              placeholder="选择场景模板（预填描述与配置指引）"
+              value={templateKey}
+              onChange={pickTemplate}
+              options={WS_TEMPLATES.map((t) => ({ value: t.key, label: t.label }))}
+              data-testid="ws-wizard-template"
+            />
+          </Form.Item>
+        )}
         <Form.Item name="name" label="名称" rules={[{ required: true, message: '名称必填' }]}>
-          <Input placeholder="如：论文写作、合规审查" />
+          <Input placeholder="这个工作区放哪类知识？" data-testid="ws-wizard-name" />
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea
@@ -436,6 +537,37 @@ function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated
             placeholder="一句话描述这个领域场景（可选）。例：机器学习论文研读——区内对话默认使用论文知识库与对应本体方案"
           />
         </Form.Item>
+        {/* REQ-590 创建前预览：将携带的默认值清单（如实呈现） */}
+        <div
+          data-testid="ws-wizard-preview"
+          style={{ border: '1px dashed var(--c-border, #e6e8f0)', borderRadius: 8, padding: '8px 12px', marginBottom: 4, fontSize: 12, color: 'var(--c-ink-2, #5a6478)' }}
+        >
+          {origin === 'blank' && <div>将携带的默认值：无——创建后可在右侧板「会话默认值」配置（新对话暂回落平台助手/不启用召回）。</div>}
+          {origin === 'copy' && !source && <div>选择源工作区后，此处预览将复制过去的默认值清单。</div>}
+          {origin === 'copy' && source && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }} data-testid="ws-wizard-preview-copy">
+              <div>将携带的默认值（快照继承自「{source.name}」，创建后源改动不回传）：</div>
+              <div data-testid="ws-wizard-preview-kb">· 默认知识库：{refs ? resolveName(refs.kbs, source.default_kb_id) : '解析中…'}</div>
+              <div data-testid="ws-wizard-preview-profile">· 默认本体方案：{refs ? resolveName(refs.profiles, source.default_profile_id) : '解析中…'}{source.default_profile_id && refs && !refs.profiles.some(([k]) => k === source.default_profile_id) ? '（源值当前不在 running 列表——创建后可调整）' : ''}</div>
+              <div data-testid="ws-wizard-preview-agent">· 默认智能体：{refs ? resolveName(refs.agents, source.default_agent_id) : '解析中…'}</div>
+              {source.default_kb_id === '' && source.default_profile_id === '' && source.default_agent_id === '' && (
+                <div>源工作区未配置默认值——创建后可在右侧板配置。</div>
+              )}
+            </div>
+          )}
+          {origin === 'template' && (
+            <div data-testid="ws-wizard-preview-template">
+              {template ? (
+                <>
+                  <div>模板「{template.label}」将预填描述（可改）；{template.guidance}</div>
+                  <div>默认值不在模板内预置——创建后按上述指引配置。</div>
+                </>
+              ) : (
+                <div>选择场景模板后，此处显示将预填的内容与配置指引。</div>
+              )}
+            </div>
+          )}
+        </div>
       </Form>
     </Modal>
   )
