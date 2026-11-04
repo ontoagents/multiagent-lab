@@ -5,7 +5,7 @@ desc: harness 技术沉淀单一事实点——层职责与代码地图、已交
 req: [REQ-14, REQ-190, REQ-191, REQ-201, REQ-202, REQ-203, REQ-204, REQ-206, REQ-214, REQ-219, REQ-224, REQ-231, REQ-232, REQ-225, REQ-317, REQ-322, REQ-323, REQ-330, REQ-354, REQ-355, REQ-356, REQ-360, REQ-362, REQ-561]
 docs: ["02 §6 五层总纲", "38 号 B 阶段", "51 号体检", "17 §4.3"]
 decisions: [D-O13]
-synced: 2026-11-01
+synced: 2026-11-04
 ---
 
 # Harness：设计、实现与演进（2026-10-01 沉淀）
@@ -33,8 +33,8 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | --- | --- | --- |
 | 检索源接口族 | `internal/chat/{runner.go,kbsource.go}` | 对话召回三源接口反转（nil=未接入降级）：CompanionSource〔REQ-170〕/CommunitySource〔KB-5③〕/KBSource+KBAdminSource〔REQ-355 R1——chat 零 kb import，api.NewKBChatSource 适配 kb.Service；recallKB 经 RetrieveContext 单方法检索+渲染〕 |
 | 装配链 assembleTools | `internal/chat/assembler.go` | 8 步管线：内置勾选→技能白名单→连接器（mcp 直通/k8s·ssh 经插件服务 :8093）→本体 facade→项目文件→执行面原语→hook 包装→审批包装；`{连接器实例名}__{tool}` 前缀改名；先到先得+重名告警 |
-| HookChain | `internal/tool/hooks.go` | PreHook（带 guard 名，拒绝=结构化回执回喂+hook.denied 审计事件）/PostHook；fetchGuard（http_fetch 内网预检，启用）/cmdGuard（危险命令模式表，预置未启用） |
-| 审批 gating | `internal/tool/approval.go` | 三档 off/danger/all（危险清单=写类内置+http_fetch+连接器/MCP 非 read-only 前缀，ontology/oo 免审）；豁免清单 approval_exempt；挂起经 checkpoint（SuspenseAt 持久化），恢复重入超时自动 deny |
+| HookChain | `internal/tool/hooks.go` | PreHook（带 guard 名，拒绝=结构化回执回喂+hook.denied 审计事件）/PostHook；fetchGuard（http_fetch 内网预检，启用）/cmdGuard（run_command 危险命令守卫，启用）；双接口工具保留 Invokable/Streamable 路径；PostHook 当前仅观察 Invokable 成功结果 |
+| 审批 gating | `internal/tool/approval.go` | 三档 off/danger/all（danger 含 run_command、内置写类与出网工具、连接器/MCP 非只读工具；ontology 写类例外入审）；审批经 Invokable 路径执行，不支持审批或元信息不可用时装配报错；挂起经 checkpoint（SuspendedAt 持久化），恢复先检查超时再消费决议；approval_exempt 仅作用于首次调用 |
 | 验证背压 | `internal/chat/verify.go` | verify_on_stop：运行收尾执行验证命令，失败→run.finished reason=verify_failed+独立 verify.failed 事件 |
 | 重试 | `internal/chat/retry.go` | 幂等错误白名单 N=2 指数退避（当前仅装配期 MCP 拉取） |
 | 沙箱后端 | `internal/runtime/` | inprocess/docker/k8s/auto（lastGood 粘滞）+agent/run 两作用域；runtime_settings DB 覆盖 env（REQ-191）；启动对账/确定性路由/端口探测/回环绑定（REQ-236） |
@@ -55,8 +55,8 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 | 分层侧板 Harness/Context/Loop/Graph 页签 | REQ-219 | M50 | ✅ | headless 16/16 |
 | dsh 通道面 S1+S2（外部 harness） | REQ-206 | M41 | ✅（S3 可选待领取） | stub ACP 单测 |
 | 事件契约（审计事件/截断/独立 verify） | REQ-224 | M52 | ✅ | 单测+真机 |
-| 审批三档+豁免+挂起超时+生效透出+装配预览 | REQ-231 | M58 | ✅ | 真机 danger 全链（挂起→approve→granted 审计→文件写出；豁免免审）+headless 7/7 |
-| 沙箱纵深（work_dir volume/run_command/出网） | REQ-225 | M53 | 📋 触发驱动 | — |
+| 审批三档+豁免+挂起超时+生效透出+装配预览 | REQ-231 | M58 | ✅ | danger 命令无审批前副作用；过期批准自动拒绝；新增豁免保留旧挂起决议与审计 |
+| 沙箱纵深（work_dir volume/run_command；出网策略评估不做） | REQ-225 | M53 | ✅ | 执行世界/目录/审批三前置；danger 与 all 档逐调用审批 |
 | hooks 可配置化（agent 级开关/自定义 deny 规则） | REQ-232 | M59 | ✅（2026-10-13 M59 领取交付：迁移 046 hooks_json+BuildHookChain agent 级装配+GET /api/hooks 生效链+hooks 卡可配化；run_command 消费绑定 REQ-225② 同轮兑现） | 单测+headless 7/7 smoke/req225/ |
 | 审计族 live 透出（审批决议/守卫拦截/验证背压/连接器降级/产物/CLI 运行中进聊天流） | REQ-311 A1 | M115 | ✅ | 真机 connector.degraded live 卡实锤（坏 MCP 即时拒）+UI 16/16 smoke/req311/ |
 | 对话执行过程树形化（tool_call_id 栈式调用树〔委派嵌套为子节点〕/live 展开·完成自动收起摘要行/入参单行滚动/分级按钮上浮对话框上方） | REQ-317 | M119 | ✅ | 真机 GLM 三调用链+UI 14/14 smoke/req317/ |
@@ -80,9 +80,9 @@ harness = 模型之外「怎么把事做安全、做扎实」的一层。五层�
 
 ## 三、开放问题与诚实边界
 
-1. **mcp 直通连接器保守全审**——danger 档无法静态判定外部 MCP 工具读写性，全部视为危险（read-only 免审仅覆盖内置与 oo/ontology 前缀）；**已立项 REQ-392/M188**（MCP tool annotations readOnlyHint 收窄，无标注维持全审诚实默认，2026-10-24 速赢批）。
-2. **挂起超时仅在恢复重入时判定**——挂起中无后台时钟（免常驻进程），后端重启后超时视角丢失。
-3. **work_dir 零 volume 绑定**——inprocess 与 docker/k8s 两执行世界文件语义割裂，待 REQ-225/M53 触发（触发条件=出现真实「跑命令改代码并验证」本地任务诉求）。
+1. **MCP 读写分级依赖工具标注**——danger 档依据 readOnlyHint=true 免审；未知或 false 保守审批（REQ-392）。
+2. **挂起超时仅在恢复重入时判定**——挂起中无后台时钟；SuspendedAt 随 checkpoint 持久化，过期的定向批准也拒绝，旧状态缺失/不可解析时间戳不追溯超时。
+3. **纯流式工具的人工审批尚不支持**——all/danger 模式装配明确报错（包括列入豁免清单的纯流式工具）；双接口工具审批采用 Invokable 路径，完整流式审批协议后续独立演进。
 4. ~~hooks 不可配置~~——**已交付**（REQ-232/M59 ✅ 2026-10-13：hooks 可配置化+agent 级开关+自定义 deny 规则；本条原为滞后残留，2026-10-24 顺修）。
 5. **外部 CLI 后端旁路**——inference_backend 为外部 CLI 时 harness 配置全部不生效，侧板降维标注随 M41 真机联调轮（51 号 W5 定案：UI 标注+保存校验都做）。
 6. **装配预览不含本体 facade 与会话形态工具**——onto_* 随对话挂载、todo_write 仅会话内，预览为能力面口径（诚实注记在端点响应）。

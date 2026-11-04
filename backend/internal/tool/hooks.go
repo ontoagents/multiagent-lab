@@ -5,7 +5,7 @@ package tool
 // 调用不执行、错误回喂模型），post-hook 观测结果。进程内 Go 注册表（守 D-O15，不引外部脚本运行时）。
 // 纪律：hook 不改写参数与结果（dsh pre-execute 禁改 exec.arguments 同源——日志/UI/执行一致性）。
 // 首批内置：fetchGuard（http_fetch 内网黑名单，双保险与工具内校验叠加）、cmdGuard（危险命令
-// 模式表——当前无 run_command 工具，规则表先行，该类工具未来启用即受保护）。
+// 模式表——run_command 启用后装配即受保护）。
 
 import (
 	"context"
@@ -45,12 +45,25 @@ func (c *HookChain) Wrap(bt einotool.BaseTool) einotool.BaseTool {
 		return bt
 	}
 	if st, ok := bt.(einotool.StreamableTool); ok {
+		if it, dual := bt.(einotool.InvokableTool); dual {
+			return hookedDualTool{hookedInvokableTool: hookedInvokableTool{InvokableTool: it, chain: c}, stream: hookedStreamTool{StreamableTool: st, chain: c}}
+		}
 		return hookedStreamTool{StreamableTool: st, chain: c}
 	}
 	if it, ok := bt.(einotool.InvokableTool); ok {
 		return hookedInvokableTool{InvokableTool: it, chain: c}
 	}
 	return bt
+}
+
+// 双接口工具保留两条调用路径；审批包装可以选择可中断的 Invokable 路径。
+type hookedDualTool struct {
+	hookedInvokableTool
+	stream hookedStreamTool
+}
+
+func (h hookedDualTool) StreamableRun(ctx context.Context, args string, opts ...einotool.Option) (*schema.StreamReader[string], error) {
+	return h.stream.StreamableRun(ctx, args, opts...)
 }
 
 type hookedInvokableTool struct {
