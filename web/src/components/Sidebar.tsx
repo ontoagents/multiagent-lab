@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, Input } from 'antd'
 import {
   PlusOutlined,
-  EllipsisOutlined,
+  AppstoreOutlined,
   DeleteOutlined,
   EditOutlined,
   DownOutlined,
-  HomeOutlined,
+  EllipsisOutlined,
+  FolderOutlined,
+  MessageOutlined,
   RightOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
@@ -31,12 +33,12 @@ interface TreeNode {
   builtin?: boolean // REQ-186：内置助手（置顶分区、内置徽标、无配置入口）
   convs: Conversation[]
   /** REQ-613-b6cc/M421-b6cc 容器视觉语言（121 号 R1① A3，仅 workspace 模式置位）：
-   *  ⌂ 容器图标 + 「N 项目 · M 对话」计数徽标；空壳节点（convs 空 ∪ convCount=0）不渲染 chevron */
+   *  ▦ 容器图标（REQ-618-36a1 起 Appstore，⌂ house 退役）+ 图标数字紧凑徽标；空壳节点（convs 空 ∪ convCount=0）不渲染 chevron */
   container?: boolean
   projectCount?: number
   convCount?: number
   /** REQ-614-9fb4/M422-9fb4 归属 chip（121 号 §4.1 互链，仅 project 模式置位）：
-   *  已归属项目行「⌂ 工作区《X》」chip，点击跳工作区模块并选中该工作区 */
+   *  已归属项目行「▦ 工作区《X》」chip，点击跳工作区模块并选中该工作区 */
   workspaceId?: string
 }
 
@@ -44,7 +46,7 @@ interface TreeNode {
  * 左栏树（原型 06 §3.1 / §3.2）：
  * - mode=agent：智能体节点（头像点 + 会话数轻量数字 + 常驻「＋新对话」「⚙配置」），其下挂该智能体的对话；
  *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点——REQ-616-aa64/M424-aa64 C2（121 号 R3）
- *   「·工作区」4 字灰字升级为可点击 chip「⌂ 工作区《名》」（onOpenWorkspace 跳工作区模块）；
+ *   「·工作区」4 字灰字升级为可点击 chip「▦ 工作区《名》」（onOpenWorkspace 跳工作区模块）；
  * - mode=project：项目节点同样结构，其下挂项目对话；树顶 ⭐ 最近打开虚拟分组（A7，lib/recent.ts）；
  * - mode=workspace：工作区节点（REQ-549/M356 M1b），其下挂 scope=agent 且归属本工作区的直挂对话；
  *   REQ-613-b6cc/M421-b6cc 容器视觉语言：⌂ 图标+「N 项目 · M 对话」计数徽标（后端计数尾列），
@@ -453,7 +455,7 @@ export default function Sidebar({
                   onClick={() => selectNode(r.id)}
                 >
                   <span className="side-recent-name">{r.name || (recentKind === 'project' ? '未命名项目' : '未命名工作区')}</span>
-                  {wsName && <span className="proj-ws-chip" title={`已归属工作区「${wsName}」`}>⌂ {wsName}</span>}
+                  {wsName && <span className="proj-ws-chip" title={`已归属工作区「${wsName}」`}>▦ {wsName}</span>}
                 </button>
               )
             })}
@@ -480,12 +482,14 @@ export default function Sidebar({
                     <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
                   ) : null}
                   {n.container && (
-                    <span className="side-node-ico" aria-hidden="true"><HomeOutlined /></span>
+                    <span className="side-node-ico" aria-hidden="true"><AppstoreOutlined /></span>
                   )}
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'workspace' ? '未命名工作区' : mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {n.container && (
                     <span className="side-node-badge" data-testid={`ws-badge-${n.key}`} title={`名下项目 ${n.projectCount ?? 0} · 对话 ${n.convCount ?? 0}（直挂∪归属项目会话）`}>
-                      {n.projectCount ?? 0} 项目 · {n.convCount ?? 0} 对话
+                      {/* REQ-618-36a1/M426-36a1 徽标紧凑化：「N 项目 · M 对话」文字→图标数字芯片（栏宽收窄配套；完整口径在 title） */}
+                      <span className="side-badge-item"><FolderOutlined /> {n.projectCount ?? 0}</span>
+                      <span className="side-badge-item"><MessageOutlined /> {n.convCount ?? 0}</span>
                     </span>
                   )}
                   {/* REQ-488：彩色 Tag 灰字化——内置标注为中性灰字（非状态色） */}
@@ -506,7 +510,7 @@ export default function Sidebar({
                       title={`已归属工作区「${wsName}」——点击到工作区模块查看`}
                       onClick={(e) => { e.stopPropagation(); onOpenWorkspace?.(wsId) }}
                     >
-                      ⌂ 工作区《{wsName}》
+                      ▦ 工作区《{wsName}》
                     </button>
                   )
                 })()}
@@ -531,7 +535,7 @@ export default function Sidebar({
                       items={n.convs.map((c) => ({
                         key: c.id,
                         // REQ-549 双入口共存标注 → REQ-616-aa64/M424-aa64 C2（121 号 R3）：智能体页
-                        // 直挂对话「· 工作区」4 字灰字升级为可点击 chip「⌂ 工作区《名》」——点击经
+                        // 直挂对话「· 工作区」4 字灰字升级为可点击 chip「▦ 工作区《名》」——点击经
                         // onOpenWorkspace 跳工作区模块选中该工作区（stopPropagation 不触发行选中）
                         label:
                           mode === 'agent' && c.workspace_id ? (
@@ -544,7 +548,7 @@ export default function Sidebar({
                                 title={`归属工作区「${workspaces.find((w) => w.id === c.workspace_id)?.name ?? c.workspace_id}」——点击到工作区模块查看`}
                                 onClick={(e) => { e.stopPropagation(); onOpenWorkspace?.(c.workspace_id!) }}
                               >
-                                ⌂ 工作区《{workspaces.find((w) => w.id === c.workspace_id)?.name ?? c.workspace_id}》
+                                ▦ 工作区《{workspaces.find((w) => w.id === c.workspace_id)?.name ?? c.workspace_id}》
                               </button>
                             </span>
                           ) : (

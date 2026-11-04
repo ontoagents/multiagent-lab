@@ -734,7 +734,7 @@ function RunBlock({
           return wsd?.workspace_id ? (
             <Tooltip title="创建时继承来源的运行审计信号（库/方案默认值写时复制自该工作区）">
               <Tag style={{ margin: 0, fontSize: 10 }} data-testid={`ws-inherit-${run.runId}`}>
-                ⌂ 继承自工作区《{wsd.workspace_name ?? wsd.workspace_id}》
+                ▦ 继承自工作区《{wsd.workspace_name ?? wsd.workspace_id}》
               </Tag>
             </Tooltip>
           ) : null

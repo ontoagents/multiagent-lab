@@ -1795,7 +1795,7 @@ export default function ChatWindow({
             {/* REQ-577/M392：直挂对话归属徽标（灰字轻量——只表归属不断言当前值即继承值） */}
             {conversation.workspace_id && (
               <Tag style={{ color: 'var(--c-ink-3)', fontSize: 11 }} data-testid="ws-badge">
-                ⌂ 工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》
+                ▦ 工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》
               </Tag>
             )}
           </>

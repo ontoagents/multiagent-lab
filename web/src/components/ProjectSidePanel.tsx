@@ -906,7 +906,7 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
                 window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
               }}
             >
-              ⌂ 工作区《{workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}》
+              ▦ 工作区《{workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}》
             </button>
           </div>
         )}

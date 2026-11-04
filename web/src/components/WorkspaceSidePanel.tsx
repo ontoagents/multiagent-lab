@@ -5,8 +5,8 @@ import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
   HistoryOutlined,
+  ProjectOutlined,
   SettingOutlined,
-  TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, KnowledgeBase, MemoryRec, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
@@ -150,7 +150,7 @@ export default function WorkspaceSidePanel({
             role="tab"
             onClick={() => switchView('projects')}
           >
-            <TeamOutlined />
+            <ProjectOutlined /> {/* REQ-618-36a1/M426-36a1：Team→Project（与「项目」模块图标实体一致；Team 语义归还项目侧板「智能体协作」成员面） */}
           </button>
         </Tooltip>
         {/* REQ-551/M358：记忆候选确认（三桶列表沿伴生范式；可审计口径） */}
@@ -392,7 +392,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
           REQ-617-87d8/M425-87d8 R4（121 号 §4.4/§5.3-REQ-578）：区别句升正式关系句（单源 lib/relations——
           分层句+归属可选句一步到位，原「互不替代」表述被关系句末句承接） */}
       <div style={{ marginBottom: 10 }} data-testid="ws-anchor">
-        <div style={{ fontSize: 13, fontWeight: 600 }}>⌂ 工作区《{workspace.name}》</div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>▦ 工作区《{workspace.name}》</div>
         <Typography.Text type="secondary" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
           {RELATION_SENTENCE}
         </Typography.Text>
