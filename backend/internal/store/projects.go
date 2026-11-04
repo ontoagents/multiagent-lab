@@ -11,7 +11,7 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	var p Project
 	var constraints string
 	var agentIDs string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CollabMode, &p.WorkflowMode, &constraints, &agentIDs, &p.Coordinator, &p.CreatedAt, &p.UpdatedAt, &p.LocalDir, &p.WorkspaceID)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CollabMode, &p.WorkflowMode, &constraints, &agentIDs, &p.Coordinator, &p.CreatedAt, &p.UpdatedAt, &p.LocalDir, &p.WorkspaceID, &p.ConvCount)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,8 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 const projectCols = `p.id, p.name, p.description, p.collab_mode, p.workflow_mode, p.constraints,
  COALESCE((SELECT json_group_array(agent_id) FROM project_agent pa WHERE pa.project_id = p.id), '[]') AS agent_ids,
  COALESCE((SELECT agent_id FROM project_agent pa WHERE pa.project_id = p.id AND pa.role = 'coordinator' LIMIT 1), '') AS coordinator,
- p.created_at, p.updated_at, p.local_dir, COALESCE(p.workspace_id, '') AS workspace_id`
+ p.created_at, p.updated_at, p.local_dir, COALESCE(p.workspace_id, '') AS workspace_id,
+ (SELECT COUNT(*) FROM conversation c WHERE c.project_id = p.id) AS conv_count`
 
 // ListProjects 返回全部项目。
 func (s *Store) ListProjects() ([]*Project, error) {

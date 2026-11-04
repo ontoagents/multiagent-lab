@@ -1,12 +1,15 @@
 import { create } from 'zustand'
 import { toast } from '../lib/antd'
 
-export type PageKey = 'agents' | 'projects' | 'ontology' | 'knowledge' | 'skills' | 'reference' | 'settings'
+export type PageKey = 'agents' | 'projects' | 'workspaces' | 'ontology' | 'knowledge' | 'skills' | 'reference' | 'settings'
 
 /** PageKey ↔ URL path 双向映射（刷新/前进后退保持当前页面） */
 const PAGE_PATHS: Record<PageKey, string> = {
   agents: '/',
   projects: '/projects',
+  // REQ-613-b6cc/M421-b6cc 工作区独立模块路由（121 号 R1①：/workspaces 新增；/projects 语义
+  //  归位纯项目页随 R1②，过渡期页签结构维持）
+  workspaces: '/workspaces',
   ontology: '/ontology',
   knowledge: '/knowledge',
   skills: '/skills',

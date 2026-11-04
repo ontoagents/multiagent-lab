@@ -6,6 +6,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   DownOutlined,
+  HomeOutlined,
   RightOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
@@ -26,6 +27,11 @@ interface TreeNode {
   backend?: string
   builtin?: boolean // REQ-186：内置助手（置顶分区、内置徽标、无配置入口）
   convs: Conversation[]
+  /** REQ-613-b6cc/M421-b6cc 容器视觉语言（121 号 R1① A3，仅 workspace 模式置位）：
+   *  ⌂ 容器图标 + 「N 项目 · M 对话」计数徽标；空壳节点（convs 空 ∪ convCount=0）不渲染 chevron */
+  container?: boolean
+  projectCount?: number
+  convCount?: number
 }
 
 /**
@@ -34,6 +40,8 @@ interface TreeNode {
  *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点，行加「·工作区」灰字标注区分；
  * - mode=project：项目节点同样结构，其下挂项目对话；
  * - mode=workspace：工作区节点（REQ-549/M356 M1b），其下挂 scope=agent 且归属本工作区的直挂对话；
+ *   REQ-613-b6cc/M421-b6cc 容器视觉语言：⌂ 图标+「N 项目 · M 对话」计数徽标（后端计数尾列），
+ *   空壳节点不渲染 chevron（可展开性诚实化）；左栏标题「工作区」；
  * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）；
  * - 整栏可收起为 48px 图标 rail（界面瘦身：沿 Settings/Reference 同款收起基建，记忆 key eino.sidebar.collapsed——
  *   三变体共用、纯视觉收起，不改各模式树语义）。
@@ -131,11 +139,15 @@ export default function Sidebar({
         .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
     }
     if (mode === 'workspace') {
-      // REQ-549/M356：工作区树——scope=agent 且归属本工作区的直挂对话（无归属会话不出现在本树）
+      // REQ-549/M356：工作区树——scope=agent 且归属本工作区的直挂对话（无归属会话不出现在本树）；
+      // REQ-613-b6cc：容器节点带 project_count/conv_count 计数（后端 JOIN 出数，非前端聚合）
       return workspaces
         .map((ws) => ({
           key: ws.id,
           name: ws.name,
+          container: true,
+          projectCount: ws.project_count ?? 0,
+          convCount: ws.conv_count ?? 0,
           convs: conversations.filter((c) => c.scope === 'agent' && (c.workspace_id ?? '') === ws.id && match(c)).sort(byCreated),
         }))
         .filter((n) => !kwTrim || n.convs.length > 0 || n.name.toLowerCase().includes(kwTrim))
@@ -319,7 +331,11 @@ export default function Sidebar({
         )}
 
         {nodes.map((n) => {
-          const expanded = !!open[n.key]
+          // REQ-613-b6cc/M421-b6cc chevron 诚实化（121 号 R1① A4 工作区侧先行）：空壳节点
+          // （无直挂对话且 conv_count=0）不渲染箭头、只显名称+徽标——可展开性如实。
+          // agent/project 模式维持现状（两模块同规随 R1②/R3）。
+          const hasSub = mode !== 'workspace' || n.convs.length > 0 || (n.convCount ?? 0) > 0
+          const expanded = hasSub && !!open[n.key]
           const active = activeId === n.key
           return (
             <div key={n.key} className={`side-node${active ? ' active' : ''}`}>
@@ -327,11 +343,21 @@ export default function Sidebar({
                 <button
                   type="button"
                   className="side-node-head"
-                  aria-expanded={expanded}
-                  onClick={() => toggleNode(n.key)}
+                  aria-expanded={hasSub ? expanded : undefined}
+                  onClick={() => (hasSub ? toggleNode(n.key) : selectNode(n.key))}
                 >
-                  <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
+                  {hasSub ? (
+                    <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
+                  ) : null}
+                  {n.container && (
+                    <span className="side-node-ico" aria-hidden="true"><HomeOutlined /></span>
+                  )}
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'workspace' ? '未命名工作区' : mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
+                  {n.container && (
+                    <span className="side-node-badge" data-testid={`ws-badge-${n.key}`} title={`名下项目 ${n.projectCount ?? 0} · 对话 ${n.convCount ?? 0}（直挂∪归属项目会话）`}>
+                      {n.projectCount ?? 0} 项目 · {n.convCount ?? 0} 对话
+                    </span>
+                  )}
                   {/* REQ-488：彩色 Tag 灰字化——内置标注为中性灰字（非状态色） */}
                   {n.builtin && <span style={{ margin: 0, fontSize: 11, lineHeight: '16px', color: 'var(--c-ink-3)' }}>内置</span>}
                   {/* REQ-336：会话数裸数字退役（迭代四后行内常驻元素只剩它，孤数怪异；展开子树即见会话清单） */}
@@ -346,7 +372,12 @@ export default function Sidebar({
               {expanded && (
                 <div className="side-node-children">
                   {n.convs.length === 0 ? (
-                    <div className="side-node-empty">暂无对话 · 点 ＋ 新建</div>
+                    (n.convCount ?? 0) > 0 ? (
+                      // REQ-613-b6cc：非选中工作区载荷按 REQ-587 过滤不含其对话——计数徽标诚实提示载入路径
+                      <div className="side-node-empty">本工作区共 {n.convCount} 个对话——点名称选中载入</div>
+                    ) : (
+                      <div className="side-node-empty">暂无对话 · 点 ＋ 新建</div>
+                    )
                   ) : (
                     <Conversations
                       items={n.convs.map((c) => ({

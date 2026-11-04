@@ -2,6 +2,7 @@ import { useUI } from './store/ui'
 import GlobalNav from './components/GlobalNav'
 import AgentsPage from './pages/AgentsPage'
 import ProjectsPage from './pages/ProjectsPage'
+import WorkspacePage from './pages/WorkspacePage'
 import SettingsPage from './pages/SettingsPage'
 import KnowledgePage from './pages/KnowledgePage'
 import SkillsPage from './pages/SkillsPage'
@@ -19,6 +20,9 @@ export default function App() {
       <div className="app-body">
         {page === 'agents' && <AgentsPage />}
         {page === 'projects' && <ProjectsPage />}
+        {/* REQ-613-b6cc/M421-b6cc 工作区独立模块页（121 号 R1①：WorkspacePage 为主体演进为工作区
+            专页；/projects 内旧页签宿主维持至 R1② 退役） */}
+        {page === 'workspaces' && <WorkspacePage />}
         {page === 'ontology' && <OntologyPage />}
         {page === 'knowledge' && <KnowledgePage />}
         {page === 'skills' && <SkillsPage />}

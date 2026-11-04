@@ -5,6 +5,7 @@ import {
   BlockOutlined,
   BookOutlined,
   DatabaseOutlined,
+  HomeOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
@@ -34,6 +35,10 @@ const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
   // REQ-597/M408 工作区宿主反转：导航模块「项目」更名「工作区」（Q-23 衍生① 转正——IA 宿主与
   //   Q-24 概念模型同向；key/route 不动，仅显示名与图标随模块门面对齐）。
   { key: 'projects', label: '工作区', icon: <BlockOutlined /> },
+  // REQ-613-b6cc/M421-b6cc 工作区独立模块导航项（121 号 R1①：key=workspaces 新增，路由 /workspaces，
+  //   ⌂ 容器图标语言与树/头部一致）。过渡态说明：上方 projects 项 label 仍为「工作区」（REQ-597
+  //   宿主反转遗留）——R1② 回改「项目」并退役页签结构，双「工作区」并存为已知过渡态。
+  { key: 'workspaces', label: '工作区', icon: <HomeOutlined /> },
   { key: 'ontology', label: '本体', icon: <ApartmentOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ThunderboltOutlined /> },

@@ -157,6 +157,8 @@ export interface Project {
   local_dir: string
   /** REQ-550/M357 可选归属工作区（空 = 未归属；新会话经项目层转发工作区默认值） */
   workspace_id?: string | null
+  /** REQ-613-b6cc/M421-b6cc 计数尾列（121 号 §4.5-①，项目会话数）——工作区总览名下项目卡数据源 */
+  conv_count?: number
   created_at: string
   updated_at: string
 }
@@ -791,6 +793,10 @@ export interface Workspace {
   default_agent_id: string
   created_at: string
   updated_at: string
+  /** REQ-613-b6cc/M421-b6cc 计数尾列（121 号 §4.5-①，仅 GET /api/workspaces 列表行携带）：
+   *  树徽标「N 项目 · M 对话」与工作区总览数据源；conv_count=直挂 ∪ 归属项目会话 */
+  project_count?: number
+  conv_count?: number
 }
 
 /** REQ-551/M358 工作区记忆（Q-23 衍生②转正载体——候选/已入/已否三态，行级溯源可审计） */

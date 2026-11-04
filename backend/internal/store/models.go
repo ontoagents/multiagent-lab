@@ -154,6 +154,9 @@ type Project struct {
 	Coordinator string   `json:"coordinator"` // 主 Agent（role=coordinator）
 	CreatedAt   string   `json:"created_at"`
 	UpdatedAt   string   `json:"updated_at"`
+	// ConvCount REQ-613-b6cc/M421-b6cc 计数尾列（121 号 §4.5-①）：项目会话数标量子查询（projectCols
+	// 尾列，列表/单读全路径出数）——工作区总览「名下项目」卡与树徽标的对话计数数据源。
+	ConvCount int `json:"conv_count"`
 }
 
 // Workspace 工作区领域容器（REQ-548/M355，Q-24 实体反转——项目之上的新领域实体，项目保留执行层）。
@@ -168,6 +171,11 @@ type Workspace struct {
 	DefaultAgentID   string `json:"default_agent_id"`
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
+	// ProjectCount/ConvCount REQ-613-b6cc/M421-b6cc 计数尾列（121 号 §4.5-①）：仅 ListWorkspaces
+	// 行内出数——工作区树徽标「N 项目 · M 对话」与工作区总览计数的唯一闭合路径（前端不做全量聚合）；
+	// conv_count 口径=直挂会话 ∪ 归属项目会话（LEFT JOIN 单条出数）。Get/Create/Update 单行读不含计数。
+	ProjectCount int `json:"project_count"`
+	ConvCount    int `json:"conv_count"`
 }
 
 // Notebook 笔记本（REQ-495/M304：自产成果文档资产层容器——Q-23 定位「自产成果（沉淀）」载体）。

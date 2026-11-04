@@ -20,20 +20,31 @@ func scanWorkspace(row interface{ Scan(...any) error }) (*Workspace, error) {
 
 const workspaceCols = `id, name, description, default_kb_id, default_profile_id, default_agent_id, created_at, updated_at`
 
-// ListWorkspaces 返回全部工作区（创建序）。
+// workspaceColsCounted REQ-613-b6cc/M421-b6cc（121 号 §4.5-①）：workspaceCols + 计数尾列（仅
+// ListWorkspaces 使用）。conv_count 口径=直挂会话（c.workspace_id）∪ 归属项目会话（LEFT JOIN
+// project 按 pj.workspace_id 归入——项目会话自身 workspace_id 为 NULL，互斥校验 conversations.go）
+// 单条子查询出数，不做前端全量聚合；project_count=归属项目数。
+const workspaceColsCounted = workspaceCols + `,
+ (SELECT COUNT(*) FROM project pj WHERE pj.workspace_id = workspace.id) AS project_count,
+ (SELECT COUNT(*) FROM conversation c LEFT JOIN project pj ON pj.id = c.project_id
+   WHERE c.workspace_id = workspace.id OR pj.workspace_id = workspace.id) AS conv_count`
+
+// ListWorkspaces 返回全部工作区（创建序；行含 project_count/conv_count 计数尾列——REQ-613-b6cc
+// 工作区树徽标与总览数据源）。
 func (s *Store) ListWorkspaces() ([]*Workspace, error) {
-	rows, err := s.DB.Query(`SELECT ` + workspaceCols + ` FROM workspace ORDER BY created_at, id`)
+	rows, err := s.DB.Query(`SELECT ` + workspaceColsCounted + ` FROM workspace ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []*Workspace
 	for rows.Next() {
-		w, err := scanWorkspace(rows)
-		if err != nil {
+		var w Workspace
+		if err := rows.Scan(&w.ID, &w.Name, &w.Description, &w.DefaultKBID, &w.DefaultProfileID,
+			&w.DefaultAgentID, &w.CreatedAt, &w.UpdatedAt, &w.ProjectCount, &w.ConvCount); err != nil {
 			return nil, err
 		}
-		out = append(out, w)
+		out = append(out, &w)
 	}
 	return out, rows.Err()
 }
