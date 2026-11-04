@@ -11,6 +11,7 @@ import {
 import { api } from '../api/client'
 import type { Agent, KnowledgeBase, MemoryRec, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
+import RelationConsequenceBlock from './RelationConsequenceBlock'
 
 export type WorkspacePanelView = 'config' | 'projects' | 'memory'
 
@@ -498,6 +499,9 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
           cancelText="取消"
           width={460}
         >
+          {/* REQ-615-721e/M423-721e C6（121 号 §4.2-C6/§4.4）：顶部「关系与后果」对照块——
+              删工作区=容器脱钩唯记忆 CASCADE，与删项目（内容级联硬删）并置对照（文案单源=共享组件） */}
+          <RelationConsequenceBlock kind="workspace" />
           {delStatsLoading || !delStats ? (
             <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>正在统计名下资产…</Typography.Text>
           ) : (

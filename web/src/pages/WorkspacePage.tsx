@@ -364,7 +364,9 @@ function WorkspaceOverview({
   )
 }
 
-/** 新建工作区弹窗（M1b 最小件：名称+描述；默认值创建后经侧板配置视图完善） */
+/** 新建工作区弹窗（M1b 最小件：名称+描述；默认值创建后经侧板配置视图完善）。
+ * REQ-615-721e/M423-721e B3（121 号 §4.2-B3）：字段不动；描述 placeholder 补场景示例句
+ *（锚 §4.4 关系句「这类工作用什么知识库、什么本体方案」语境） */
 function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { showToast } = useUI()
   const [form] = Form.useForm()
@@ -400,7 +402,10 @@ function WorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <Input placeholder="如：论文写作、合规审查" />
         </Form.Item>
         <Form.Item name="description" label="描述">
-          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="一句话描述这个领域场景（可选）" />
+          <Input.TextArea
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="一句话描述这个领域场景（可选）。例：机器学习论文研读——区内对话默认使用论文知识库与对应本体方案"
+          />
         </Form.Item>
       </Form>
     </Modal>

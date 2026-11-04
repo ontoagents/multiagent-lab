@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Checkbox, Col, Divider, Form, Input, Modal, Row, Select, Space, Spin } from 'antd'
 import { api } from '../api/client'
-import type { Agent, DirValidation } from '../api/types'
+import type { Agent, DirValidation, Workspace } from '../api/types'
 import type { PickDirResult } from '../api/native'
 import DirCheckResult from './DirCheckResult'
 import { useUI } from '../store/ui'
@@ -20,6 +20,10 @@ function Section({ children, first }: { children: ReactNode; first?: boolean }) 
  * 新建项目弹窗（REQ-103：编辑用途已迁至右侧边栏配置视图，本弹窗仅用于新建）。
  * 布局分组：基本信息 → 本地目录 → 协作模式 → 成员智能体 → 项目级约束；
  * 短字段走两列 Row/Col，长文本整行 autoSize。
+ * REQ-615-721e/M423-721e（121 号 §4.2-B1/B2）：基本信息区新增「归属工作区（可选）」Select
+ *（数据源组件内 listWorkspaces 拉取；创建载荷直带 workspace_id——主案=后端 CreateProject
+ * §4.5-② 校验+直插，原子成功/失败）；创建 toast 按真实归属结果三分支（已归属/未归属/
+ * 归属失败），归属以创建响应回读确认为准——禁止归属未确认前出现「已归属」文案。
  */
 export default function ProjectModal({
   agents,
@@ -34,6 +38,9 @@ export default function ProjectModal({
   const [form] = Form.useForm()
   const [selected, setSelected] = useState<Record<string, 'coordinator' | 'member'>>({})
   const [saving, setSaving] = useState(false)
+  // REQ-615-721e B1：归属工作区（可选）下拉数据源（组件内拉取；拉取失败静默降级为空列表——
+  // 归属可选字段，不阻塞创建主流程）
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
 
   // REQ-101：本地目录绑定 + 检测
   const localDir = Form.useWatch('local_dir', form)
@@ -42,6 +49,7 @@ export default function ProjectModal({
 
   useEffect(() => {
     form.setFieldsValue({ collab_mode: 'agent_as_tool', workflow_mode: 'free' })
+    api.listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
   }, [form])
 
   const checkDir = async () => {
@@ -84,8 +92,12 @@ export default function ProjectModal({
       return
     }
     const members = Object.entries(selected).map(([agent_id, role]) => ({ agent_id, role }))
+    const wsId: string = v.workspace_id ?? ''
     setSaving(true)
     try {
+      // REQ-615-721e B1 主案：创建载荷直带 workspace_id（后端 §4.5-② 存在性校验 400 人话/直插；
+      // 校验失败整体 400 项目不落库——原子成功或失败，无「项目已建但归属失败」中间态，
+      // 备选两段式「归属失败不回滚项目」拍板在主案原子性下自然满足）
       const p = await api.createProject({
         name: v.name,
         description: v.description ?? '',
@@ -93,9 +105,19 @@ export default function ProjectModal({
         workflow_mode: v.workflow_mode ?? 'free',
         constraints: v.constraints ?? '',
         local_dir: v.local_dir ?? '',
+        workspace_id: wsId || undefined,
       })
       if (members.length) await api.setProjectAgents(p.id, members)
-      showToast('项目已创建')
+      // REQ-615-721e B2：toast 三分支按真实归属结果——归属以创建响应回读确认为准
+      //（防御后端静默丢弃 workspace_id 的旧版本：回读不符不谎报「已归属」，如实透出可重试）
+      if (wsId && p.workspace_id === wsId) {
+        const wsName = workspaces.find((w) => w.id === wsId)?.name ?? ''
+        showToast(`项目已创建，已归属工作区「${wsName}」——新会话自动继承其默认知识库与本体方案`)
+      } else if (!wsId) {
+        showToast('项目已创建（未归属——项目独立运行，可后补归属）')
+      } else {
+        showToast('项目已创建，但归属未生效——请在项目侧板「归属工作区」重新选择（可重试）', 'err')
+      }
       bumpData()
       onCreated(p.id)
     } catch (e: any) {
@@ -129,6 +151,20 @@ export default function ProjectModal({
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+        </Form.Item>
+        {/* REQ-615-721e B1（121 号 §4.2-B1）：归属工作区（可选）——extra 沿 §4.4 正式关系句的
+            归属可选句口径（「可归属…也可独立运行；两者不互相替代」） */}
+        <Form.Item
+          name="workspace_id"
+          label="归属工作区（可选）"
+          extra="归属后，项目新建会话自动继承该工作区默认知识库与本体方案（写时复制，已建会话不受影响）；项目也可独立运行——归属可后补（项目侧板「归属工作区」）。"
+        >
+          <Select
+            allowClear
+            placeholder="未归属——项目独立运行，可后补"
+            data-testid="projmodal-workspace-select"
+            options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+          />
         </Form.Item>
 
         <Section>本地目录（可选）</Section>

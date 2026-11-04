@@ -163,7 +163,8 @@ export default function ProjectsPage() {
     setActiveProjectId(id)
     setSidePanelOpen(true)
     setPanelView('config')
-    showToast('项目已创建，请在侧边栏完善配置')
+    // REQ-615-721e/M423-721e B2：创建结果 toast 单源收口到 ProjectModal 三分支（已归属/未归属/
+    // 归属失败如实）——此处原通用「项目已创建」toast 与分支文案并存即重复断言，退役
   }
 
   return (
