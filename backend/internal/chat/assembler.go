@@ -74,7 +74,7 @@ type WorkflowMeta struct {
 // BuildResult 装配产物。
 type BuildResult struct {
 	Runner          *adk.Runner
-	Agent           adk.Agent // REQ-385/M181：裸 Agent（TurnLoop PrepareAgent 每轮取用；Runner 供旧路径直跑）
+	Agent           adk.Agent         // REQ-385/M181：裸 Agent（TurnLoop PrepareAgent 每轮取用；Runner 供旧路径直跑）
 	AgentName       string            // 根 Agent 名
 	ModelLabel      string            // 根 Agent 的连接名@模型名
 	ConnID          string            // 根 Agent 使用的连接
@@ -1604,14 +1604,19 @@ func (a *Assembler) stepApprovalWrap(ctx context.Context, ag *store.Agent, sc as
 		policy := &tool.ApprovalPolicy{ExemptTools: ag.ApprovalExempt, TimeoutHours: ag.ApprovalTimeoutHours}
 		for i, bt := range tb.Tools {
 			ti, ierr := bt.Info(ctx)
-			if ierr != nil || ti == nil || ti.Name == "" {
-				continue
+			if ierr != nil {
+				return fmt.Errorf("审批装配失败：无法读取工具信息: %w", ierr)
+			}
+			if ti == nil || ti.Name == "" {
+				return fmt.Errorf("审批装配失败：工具名称为空")
 			}
 			if approval == "danger" && !tool.IsDangerousTool(ti.Name) {
 				continue // danger 档只审危险清单（REQ-231①；read-only 免审）
 			}
 			if wrapped, ok := tool.NewApprovalTool(bt, ti.Name, policy); ok {
 				tb.Tools[i] = wrapped
+			} else {
+				return fmt.Errorf("工具 %q 不支持人工审批（需要 InvokableTool 调用接口）；请更换支持审批的工具", ti.Name)
 			}
 		}
 	}
