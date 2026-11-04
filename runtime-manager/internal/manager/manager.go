@@ -5,6 +5,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -38,6 +39,9 @@ type Manager struct {
 
 	mu    sync.Mutex
 	procs map[string]*engine.Process // profileID → 运行句柄（进程内态，重启 Manager 后按 stopped 处理）
+	// A lifecycle operation owns one profile from status inspection through engine
+	// cleanup. Unrelated profiles can proceed; overlapping requests fail explicitly.
+	lifecycle sync.Map // profileID → *sync.Mutex (zero-value safe)
 
 	installMu  sync.Mutex
 	installing bool   // 一键安装进行中（REQ-146；REQ-471 起经 installingName 归属到具体引擎）
@@ -553,14 +557,44 @@ func (m *Manager) FetchQuality(ontologyID string) map[string]any {
 
 // Start 启动方案：starting → 拉形态 → 引擎装载 → 健康检查 → running（失败进 error）。
 func (m *Manager) Start(ctx context.Context, id string) error {
+	unlock, err := m.beginLifecycle(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return m.start(ctx, id)
+}
+
+func (m *Manager) beginLifecycle(id string) (func(), error) {
+	v, _ := m.lifecycle.LoadOrStore(id, &sync.Mutex{})
+	lock := v.(*sync.Mutex)
+	if !lock.TryLock() {
+		return nil, fmt.Errorf("方案操作进行中，请稍后重试")
+	}
+	return lock.Unlock, nil
+}
+
+// start/stop are called only while the profile's lifecycle lock is held.
+func (m *Manager) start(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p, err := m.Store.Get(id)
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	hasProc := m.procs[id] != nil
+	m.mu.Unlock()
+	if hasProc {
+		return fmt.Errorf("方案仍有运行句柄，请先成功停止后再启动")
+	}
 	if p.Status == "running" {
 		return fmt.Errorf("方案已在运行")
 	}
-	_ = m.Store.SetStatus(id, "starting", "", "")
+	if err := m.Store.SetStatus(id, "starting", "", ""); err != nil {
+		return err
+	}
 	if len(p.OntologyIDs) == 0 {
 		_ = m.Store.SetStatus(id, "error", "未配置本体集合", "")
 		return fmt.Errorf("方案未配置本体集合")
@@ -605,8 +639,15 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	port := p.Port
 	if port == 0 {
+		// The brief allocation critical section also prevents two distinct
+		// profiles from selecting the same not-yet-persisted port.
+		m.mu.Lock()
 		port = nextPort(m.Store)
-		_ = m.Store.SetPort(id, port)
+		err = m.Store.SetPort(id, port)
+		m.mu.Unlock()
+		if err != nil {
+			return err
+		}
 	}
 	eng, err := m.engineFor(p.Engine)
 	if err != nil {
@@ -637,9 +678,14 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		return err
 	}
 	m.mu.Lock()
+	if m.procs == nil {
+		m.procs = map[string]*engine.Process{}
+	}
 	m.procs[id] = proc
 	m.mu.Unlock()
-	_ = m.Store.SetStatus(id, "starting", "", fmt.Sprint(proc.PID))
+	if err := m.Store.SetStatus(id, "starting", "", fmt.Sprint(proc.PID)); err != nil {
+		return m.failStart(id, proc, err)
+	}
 	// REQ-480：装载报告呈现——闭包补全/互引环/远端跳过 + 装载前并置一致性检查（强告警不阻断）；
 	// 引擎日志同文件追加（startEngine 成功后写入，防引擎截断）。
 	m.appendProcLog(id, cloRep.logLines())
@@ -654,6 +700,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	var lastErr error
 	for i := 0; i < m.HealthTries; i++ {
 		if ctx.Err() != nil {
+			lastErr = ctx.Err()
 			break
 		}
 		lastErr = eng.HealthCheck(ctx, proc.Endpoint)
@@ -696,13 +743,8 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 					mismatch = got < src
 				}
 				if mismatch {
-					proc.Stop()
-					m.mu.Lock()
-					delete(m.procs, id)
-					m.mu.Unlock()
 					msg := fmt.Sprintf("装载对账失败（REQ-293①/REQ-320② 计数硬闸）：本体 %s 图 %s 源 %d 三元组 ≠ 引擎 %d——启动中止，旧装载快照保持", oid, graphLabel, src, got)
-					_ = m.Store.SetStatus(id, "error", msg, "")
-					return fmt.Errorf("%s", msg)
+					return m.failStart(id, proc, errors.New(msg))
 				}
 				if _, ok := loadedStatus[oid]; !ok {
 					loadedStatus[oid] = map[string]any{}
@@ -751,44 +793,130 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 			}(effective, id)
 			// REQ-377/M173：伴生子图回放恢复（快照存在才动作；失败仅日志不阻断启动）
 			m.restoreCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
-			_ = m.Store.SetStatus(id, "running", "", "")
+			if err := m.Store.SetStatus(id, "running", "", ""); err != nil {
+				return m.failStart(id, proc, err)
+			}
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	proc.Stop()
-	m.mu.Lock()
-	delete(m.procs, id)
-	m.mu.Unlock()
-	_ = m.Store.SetStatus(id, "error", "健康检查失败: "+errStr(lastErr), "")
-	return fmt.Errorf("方案启动后健康检查失败: %v", lastErr)
+	return m.failStart(id, proc, fmt.Errorf("方案启动后健康检查失败: %v", lastErr))
+}
+
+// Failed cleanup must keep the only process handle so Stop can retry it.
+func (m *Manager) failStart(id string, proc *engine.Process, cause error) error {
+	if err := proc.Stop(); err != nil {
+		cause = errors.Join(cause, fmt.Errorf("清理引擎失败，请重试停止: %w", err))
+	} else {
+		m.mu.Lock()
+		delete(m.procs, id)
+		m.mu.Unlock()
+	}
+	return errors.Join(cause, m.Store.SetStatus(id, "error", cause.Error(), ""))
 }
 
 // Stop 停止方案。REQ-377/M173：停止前自动快照伴生子图（数据/代码分离——本体图可重建，
 // 伴生沉淀不可重建；快照失败仅日志不阻断停止）。
 func (m *Manager) Stop(id string) error {
-	if _, err := m.Store.Get(id); err != nil {
+	unlock, err := m.beginLifecycle(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return m.stop(id)
+}
+
+func (m *Manager) stop(id string) error {
+	p, err := m.Store.Get(id)
+	if err != nil {
 		return err
 	}
 	m.mu.Lock()
 	proc := m.procs[id]
-	delete(m.procs, id)
 	m.mu.Unlock()
 	if proc != nil {
-		if p, gerr := m.Store.Get(id); gerr == nil {
-			m.snapshotCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
+		m.snapshotCompanionGraphs(id, p.OntologyIDs, proc.Endpoint)
+		if err := proc.Stop(); err != nil {
+			cause := fmt.Errorf("停止引擎失败，请重试: %w", err)
+			return errors.Join(cause, m.Store.SetStatus(id, "error", cause.Error(), ""))
 		}
-		_ = proc.Stop()
+		m.mu.Lock()
+		delete(m.procs, id)
+		m.mu.Unlock()
 	}
 	return m.Store.SetStatus(id, "stopped", "", "")
 }
 
 // Reload 显式重载（REQ-87）：重建数据目录并重新拉取最新版本形态。
 func (m *Manager) Reload(ctx context.Context, id string) error {
-	if err := m.Stop(id); err != nil {
+	unlock, err := m.beginLifecycle(id)
+	if err != nil {
 		return err
 	}
-	return m.Start(ctx, id)
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := m.stop(id); err != nil {
+		return err
+	}
+	return m.start(ctx, id)
+}
+
+// Remove keeps deletion within the same lifecycle gate, including error-state
+// profiles whose engine could not be stopped. Never delete their retry handle.
+func (m *Manager) Remove(id string) error {
+	unlock, err := m.beginLifecycle(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := m.stop(id); err != nil {
+		return err
+	}
+	return m.Store.Delete(id)
+}
+
+// ProfileUpdate preserves omitted fields for MCP patches; REST supplies its
+// existing full replacement fields. All reads and writes share the lifecycle gate.
+type ProfileUpdate struct {
+	Name        *string
+	Config      *string
+	OntologyIDs *[]string
+	Port        *int
+}
+
+func (m *Manager) Update(id string, patch ProfileUpdate) error {
+	unlock, err := m.beginLifecycle(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	p, err := m.Store.Get(id)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	hasProc := m.procs[id] != nil
+	m.mu.Unlock()
+	if hasProc || p.Status == "running" || p.Status == "starting" {
+		if err := m.stop(id); err != nil {
+			return err
+		}
+	}
+	if patch.Name != nil {
+		p.Name = *patch.Name
+	}
+	if patch.Config != nil {
+		p.Config = *patch.Config
+	}
+	if patch.OntologyIDs != nil {
+		p.OntologyIDs = *patch.OntologyIDs
+	}
+	if patch.Port != nil {
+		p.Port = *patch.Port
+	}
+	return m.Store.UpdateMeta(id, p.Name, p.Config, p.OntologyIDs, p.Port)
 }
 
 // Logs 返回最近 tail 行。

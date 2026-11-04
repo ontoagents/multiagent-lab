@@ -6,16 +6,134 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
+	toolutils "github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/schema"
 	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
+
+func TestRepeatedPauseResumeAfterRestart(t *testing.T) {
+	t.Setenv("CHAT_TURNLOOP", "1")
+	oldStreaming := turnLoopStreamingDefault
+	t.Cleanup(func() { turnLoopStreamingDefault = oldStreaming })
+	turnLoopStreamingDefault = false
+	dbPath := filepath.Join(t.TempDir(), "pause.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s := NewService(st, &Assembler{CheckPoints: NewStoreCheckPointStore(st)}, nil)
+	conv, ag := tlConv(t, s)
+	entered := make(chan struct{}, 8)
+	release := make(chan struct{}, 8)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	gate, err := toolutils.InferTool("tl_gate", "bounded pause fixture", func(ctx context.Context, _ struct{}) (string, error) {
+		select {
+		case entered <- struct{}{}:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		select {
+		case <-release:
+			return "gate-open", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &tlPauseModel{}
+	rt := &BuildResult{Agent: tlAgent(t, m, gate), AgentName: "tl-root"}
+	const firstRun = "pause-chain-start"
+	if _, err := st.InsertMessage(&store.Message{ConversationID: conv.ID, Role: "user", Content: "开始长任务"}); err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		runID string
+		err   error
+	}
+	done := make(chan outcome, 1)
+	rc := newRunConsumer(s, ctx, conv, firstRun, rt, func(*Event) {}, time.Now(), false, nil)
+	go func() {
+		s.runTurnLoop(ctx, rc, conv, ag, rt, firstRun, "ckpt_pause-chain-start",
+			[]*schema.Message{schema.UserMessage("开始长任务")}, nil, &obsHandler{}, true)
+		done <- outcome{runID: firstRun}
+	}()
+	for round := 1; round <= 2; round++ {
+		select {
+		case <-entered:
+		case result := <-done:
+			t.Fatalf("round %d completed before pause: %+v", round, result)
+		case <-ctx.Done():
+			t.Fatalf("round %d did not enter tool: %v", round, ctx.Err())
+		}
+		if ok, err := s.Pause(conv.ID); err != nil || !ok {
+			t.Fatalf("round %d pause: ok=%v err=%v", round, ok, err)
+		}
+		release <- struct{}{}
+		var result outcome
+		select {
+		case result = <-done:
+		case <-ctx.Done():
+			t.Fatalf("round %d did not finish pause: %v", round, ctx.Err())
+		}
+		if result.err != nil || (round == 2 && result.runID == firstRun) {
+			t.Fatalf("round %d resume: %+v", round, result)
+		}
+		conv, err = st.GetConversation(conv.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var state struct {
+			CheckpointID string `json:"checkpoint_id"`
+			RunID        string `json:"run_id"`
+		}
+		if json.Unmarshal([]byte(conv.PauseState), &state) != nil || state.CheckpointID != "ckpt_pause-chain-start" || state.RunID != result.runID {
+			t.Fatalf("round %d lost active pause checkpoint: %s", round, conv.PauseState)
+		}
+		if _, found, err := st.GetCheckpoint(state.CheckpointID); err != nil || !found {
+			t.Fatalf("round %d checkpoint missing: found=%v err=%v", round, found, err)
+		}
+		// Replace every process-local runtime object; the durable checkpoint is
+		// the only link between attempts, as after a backend restart.
+		if err := st.Close(); err != nil {
+			t.Fatal(err)
+		}
+		st, err = store.Open(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s = NewService(st, &Assembler{CheckPoints: NewStoreCheckPointStore(st)}, nil)
+		s.assembleOverride = func(context.Context, *store.Agent, *store.Conversation) (*BuildResult, error) { return rt, nil }
+		if round == 1 {
+			go func(service *Service, row *store.Conversation) {
+				id, res, err := service.ResumePaused(ctx, row, ag, "", 0, false, nil)
+				if err == nil && res.Error != "" {
+					err = fmt.Errorf("resume: %s", res.Error)
+				}
+				done <- outcome{runID: id, err: err}
+			}(s, conv)
+		}
+	}
+	if id, res, err := s.ResumePaused(ctx, conv, ag, "按纠偏指令收尾", 0, false, nil); err != nil || res.Error != "" || id == firstRun {
+		t.Fatalf("final resume: id=%q result=%+v err=%v", id, res, err)
+	}
+	conv, err = st.GetConversation(conv.ID)
+	if err != nil || conv.PauseState != "" || !m.sawResume.Load() {
+		t.Fatalf("final resume did not complete: row=%+v err=%v", conv, err)
+	}
+}
 
 // tlPauseModel pause 桩（沿 tlSteerModel 形态）：未见恢复指令前持续调 gate 工具（制造活跃轮）；
 // 输入含纠偏指令即收束作答。

@@ -38,7 +38,7 @@ type draftJob struct {
 	// Datasource REQ-595/M406：由数据源构建提案 job 结果（datasource/analyze；轮询同通道透出）
 	Datasource *datasource.Proposal `json:"datasource,omitempty"`
 	Error      string               `json:"error,omitempty"`
-	CreatedAt time.Time                   `json:"created_at"`
+	CreatedAt  time.Time            `json:"created_at"`
 }
 
 type draftResult struct {
@@ -256,12 +256,30 @@ func (s *Server) aiDraftJob(w http.ResponseWriter, r *http.Request) {
 	}
 	draftJobsMu.Unlock()
 	if s.Store != nil {
-		if row, gerr := s.Store.GetAsyncJob(id); gerr == nil && row != nil {
+		row, err := s.Store.GetAsyncJob(id)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if row != nil {
 			var j draftJob
-			if json.Unmarshal([]byte(row.ResultJSON), &j) == nil && j.ID != "" {
-				writeJSON(w, http.StatusOK, &j)
-				return
+			if row.ResultJSON != "" {
+				if err := json.Unmarshal([]byte(row.ResultJSON), &j); err != nil {
+					writeErr(w, fmt.Errorf("读取任务结果失败: %w", err))
+					return
+				}
 			}
+			// REQ-381: result_json holds the payload; durable columns own the
+			// lifecycle, including startup reconciliation after a worker is lost.
+			j.ID, j.Status, j.Progress, j.Error = row.ID, row.Status, row.Progress, row.Error
+			if j.Status == "error" {
+				j.Status = "failed" // legacy database terminal state → polling contract
+			}
+			if created, err := time.Parse(time.RFC3339Nano, row.CreatedAt); err == nil {
+				j.CreatedAt = created
+			}
+			writeJSON(w, http.StatusOK, &j)
+			return
 		}
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "job 不存在（或服务重启丢失——请重新发起）"})
