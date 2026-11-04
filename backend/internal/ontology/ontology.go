@@ -232,3 +232,19 @@ func MountOf(profileID *string, enabled bool) (string, bool) {
 	}
 	return *profileID, true
 }
+
+// MountsOf 会话本体挂载集合（REQ-619/M427 多选）：enabled=false → 空；
+// ids 非 nil=显式集合（含空切片=显式关闭）；ids=nil 回落 legacy 单值
+// （工作区默认继承链 projects.go/workspaces.go 直补发继续写单值列，零改动）。
+func MountsOf(ids []string, legacy *string, enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	if ids != nil {
+		return ids
+	}
+	if legacy != nil && *legacy != "" {
+		return []string{*legacy}
+	}
+	return nil
+}

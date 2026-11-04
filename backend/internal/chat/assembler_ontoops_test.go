@@ -69,7 +69,7 @@ func (a *Assembler) assembleWithMount(ctx context.Context, t *testing.T, ag *sto
 func TestAssembleOntoOpsGate(t *testing.T) {
 	asm, _, _ := newAssemblerFixture(t)
 	asm.Ontology = &ontology.Service{MCPURL: stubOntoFacade(t).URL, DialTimeout: 2 * time.Second}
-	sc := assembleScope{Mount: "p1"} // 挂载本体（非空即走 facade 合并分支）
+	sc := assembleScope{Mount: "p1", Mounts: []string{"p1"}} // 挂载本体（REQ-619 起挂载判定走 Mounts 集合）
 
 	// 关态（默认）：查询工具并入，扩展工具零装配
 	off := &store.Agent{Name: "a"}

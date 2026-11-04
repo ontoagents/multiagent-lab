@@ -94,7 +94,8 @@ type Runtime = BuildResult
 // Assemble 按会话归属装配 Runner：agent 直聊单 Agent；项目会话按 collab_mode 装配多 Agent（§6.4）。
 // assembleScope 装配期会话范围（M8 mount + M11 项目文件上下文）。
 type assembleScope struct {
-	Mount                string // 本体运行方案 profile id（空=未挂载）
+	Mount                string // 本体运行方案 profile id（空=未挂载；REQ-619 起多选场景为 Mounts[0] 语义等价位——新代码请用 Mounts）
+	Mounts               []string // 本体运行方案集合（REQ-619/M427 多选；单值存量经 MountsOf 回落装 入）
 	ProjectID            string // 项目文件目录归属（M11；空=agent 会话）
 	ConversationID       string // 产物归属会话
 	SkillsDisabled       bool   // 会话级技能开关：enable_skills=false 时本次装配不注入技能
@@ -134,7 +135,7 @@ func (a *Assembler) resolveWorkRoot(sc assembleScope, ag *store.Agent) string {
 // ①项目文件清单（ProjectID+FilesRoot，静态惰性一次）②知识库检索（会话挂载 KB，按任务文本
 // 检索 top-k 渲染文本）③本体概念（挂载运行方案 guide 摘要截 2000）。任一源失败降级空串不阻断
 // （与 recallKB 降级口径一致）。返回 nil=会话无可用源。
-func (a *Assembler) buildExtContext(ctx context.Context, conv *store.Conversation, mount string) func(context.Context, string) string {
+func (a *Assembler) buildExtContext(ctx context.Context, conv *store.Conversation, mounts []string) func(context.Context, string) string {
 	var sources []func(ctx context.Context, task string) string
 	if conv.ProjectID != nil && *conv.ProjectID != "" && a.FilesRoot != "" && a.Store != nil {
 		if root, err := tool.ProjectDirRoot(tool.ProjectDirDeps{Store: a.Store, ProjectID: *conv.ProjectID, FilesRoot: a.FilesRoot}); err == nil && root != "" {
@@ -161,17 +162,25 @@ func (a *Assembler) buildExtContext(ctx context.Context, conv *store.Conversatio
 			return "# 知识库检索命中（按任务自动检索）\n" + text
 		})
 	}
-	if mount != "" && a.Ontology != nil {
+	if len(mounts) > 0 && a.Ontology != nil {
 		sources = append(sources, func(ctx context.Context, _ string) string {
-			guide, err := a.Ontology.FetchGuide(ctx, mount, "")
-			if err != nil || strings.TrimSpace(guide) == "" {
+			// REQ-619/M427：多选逐方案取指引分段拼接（单选=一段，语义不变）
+			var parts []string
+			for _, m := range mounts {
+				guide, err := a.Ontology.FetchGuide(ctx, m, "")
+				if err != nil || strings.TrimSpace(guide) == "" {
+					continue
+				}
+				g := strings.TrimSpace(guide)
+				if len(g) > 2000 {
+					g = g[:2000] + "…（guide 已截断）"
+				}
+				parts = append(parts, "## 方案 "+m+"\n"+g)
+			}
+			if len(parts) == 0 {
 				return ""
 			}
-			g := strings.TrimSpace(guide)
-			if len(g) > 2000 {
-				g = g[:2000] + "…（guide 已截断）"
-			}
-			return "# 本体概念（挂载运行方案指引摘要）\n" + g
+			return "# 本体概念（挂载运行方案指引摘要）\n" + strings.Join(parts, "\n\n")
 		})
 	}
 	if len(sources) == 0 {
@@ -233,15 +242,18 @@ func (a *Assembler) Assemble(ctx context.Context, agent *store.Agent, conv *stor
 	if agent == nil {
 		return nil, fmt.Errorf("agent is nil")
 	}
-	// M8：会话挂载的运行方案（O-6；runtime_profile_id + ontology_enabled）+ M11 项目上下文
+	// M8：会话挂载的运行方案（O-6；REQ-619/M427 起多选 ids 优先、回落单值 legacy）+ M11 项目上下文
 	sc := assembleScope{}
 	if conv != nil {
-		sc.Mount, _ = ontology.MountOf(conv.RuntimeProfileID, conv.OntologyEnabled)
+		sc.Mounts = ontology.MountsOf(conv.RuntimeProfileIDs, conv.RuntimeProfileID, conv.OntologyEnabled)
+		if len(sc.Mounts) > 0 {
+			sc.Mount = sc.Mounts[0]
+		}
 		sc.ConversationID = conv.ID
 		if conv.ProjectID != nil {
 			sc.ProjectID = *conv.ProjectID
 		}
-		sc.ExtContext = a.buildExtContext(ctx, conv, sc.Mount) // REQ-430/M226
+		sc.ExtContext = a.buildExtContext(ctx, conv, sc.Mounts) // REQ-430/M226
 		// 会话级技能开关（§6.12）：false 时本次装配剥离 Skills（单点生效，覆盖指令注入 + 工具白名单 + skill.loaded）
 		if conv.EnableSkills != nil && !*conv.EnableSkills {
 			sc.SkillsDisabled = true
@@ -1078,16 +1090,20 @@ func (a *Assembler) buildOne(ctx context.Context, ag *store.Agent, sc assembleSc
 	if err != nil {
 		return nil, err
 	}
-	// M8 §6.10-3：guide 注入——装配时取运行方案指引拼进 Agent 指引（失败并入降级）
+	// M8 §6.10-3：guide 注入——装配时取运行方案指引拼进 Agent 指引（失败并入降级；REQ-619 多选逐方案分段）
 	instruction := a.composeInstructionWithScope(ag, sc)
-	if sc.Mount != "" && a.Ontology != nil {
-		guide, gerr := a.Ontology.FetchGuide(ctx, sc.Mount, "")
-		if gerr != nil {
-			if tb.OntoIssue == nil {
-				tb.OntoIssue = &ontology.Issue{ProfileID: sc.Mount, Reason: gerr.Error()}
+	if len(sc.Mounts) > 0 && a.Ontology != nil {
+		for _, m := range sc.Mounts {
+			guide, gerr := a.Ontology.FetchGuide(ctx, m, "")
+			if gerr != nil {
+				if tb.OntoIssue == nil {
+					tb.OntoIssue = &ontology.Issue{ProfileID: m, Reason: gerr.Error()}
+				}
+				continue
 			}
-		} else if guide != "" {
-			instruction += "\n\n# 本体运行方案指引（runtime_profile: " + sc.Mount + "）\n" + guide
+			if guide != "" {
+				instruction += "\n\n# 本体运行方案指引（runtime_profile: " + m + "）\n" + guide
+			}
 		}
 	}
 	inst, err := newChatModelAgent(ctx, ag.Name, ag.Description, instruction, ag.MaxIteration, cm, tb.Tools, a.buildModelFailover(ctx, ag))
@@ -1390,12 +1406,12 @@ func (a *Assembler) stepMCPTools(ctx context.Context, ag *store.Agent, tb *toolB
 // REQ-366/M164 门控：facade 13 件扩展工具（spec CRUD/校验/CQ 基准）仅 Agent.OntoOps
 // 开启时并入（默认关，存量零变化）；原 6 查询工具挂载即并入的既有语义不变。
 func (a *Assembler) stepOntologyTools(ctx context.Context, ag *store.Agent, sc assembleScope, tb *toolBundle) {
-	if !(sc.Mount != "" && a.Ontology != nil) {
+	if !(len(sc.Mounts) > 0 && a.Ontology != nil) {
 		return
 	}
 	bts, ferr := a.Ontology.FetchTools(ctx)
 	if ferr != nil {
-		tb.OntoIssue = &ontology.Issue{ProfileID: sc.Mount, Reason: ferr.Error()}
+		tb.OntoIssue = &ontology.Issue{ProfileID: strings.Join(sc.Mounts, ","), Reason: ferr.Error()}
 		return
 	}
 	for _, bt := range bts {

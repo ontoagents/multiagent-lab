@@ -1,8 +1,9 @@
 // REQ-401③/M197 收口：输入区（composer 整块抽件——零行为变更 prop 化）。
 // 附件回显条 +「/」快速配置面板 + Sender（prefix 附加/footer chips）+ 隐藏文件 input；
 // 状态与 send/stop/uploadAttachments/patchConv/chips 元素构造留 ChatWindow 主件，本件纯渲染+回调上抛。
+// REQ-619/M427：本体选择改多选弹窗（ontoPicker 由 ChatWindow 构造传入；单选 pickerList 保留知识库用）
 import { Button, Popover, Tag, Tooltip, Typography } from 'antd'
-import { PaperClipOutlined, StopOutlined } from '@ant-design/icons'
+import { PaperClipOutlined } from '@ant-design/icons'
 import { Sender } from '@ant-design/x'
 import type { Dispatch, ReactNode, SetStateAction } from 'react'
 
@@ -36,8 +37,7 @@ export default function Composer({
   cmpOn,
   cmpPaneCount,
   conversationKbId,
-  conversationProfileId,
-  conversationOntologyEnabled,
+  ontoPicker,
   patchConv,
   onSend,
   onSteer,
@@ -73,8 +73,8 @@ export default function Composer({
   cmpOn: boolean
   cmpPaneCount: number
   conversationKbId?: string | null
-  conversationProfileId?: string | null
-  conversationOntologyEnabled?: boolean
+  /** REQ-619/M427：本体多选弹窗内容（ChatWindow 构造——勾选亮暗态+完成落库） */
+  ontoPicker?: ReactNode
   patchConv: (patch: Record<string, unknown>) => void
   onSend: () => void
   /** REQ-525/M332：运行中插话回调（onSteer 在位且 running 时 Sender 提交走插话而非新运行） */
@@ -229,18 +229,7 @@ export default function Composer({
                   trigger="click"
                   placement="topLeft"
                   arrow={false}
-                  content={pickerList(
-                    '选择本体运行方案（挂载方案即挂载其本体集合；多本体请先在「本体运行」栏组建方案）',
-                    runningProfiles.map((p) => ({ id: p.id, name: p.name, meta: p.engine })),
-                    conversationProfileId ?? null,
-                    (id) => patchConv({ runtime_profile_id: id, ontology_enabled: true }),
-                    // REQ-215：已开启时提供关闭通路（本体 chip 点击=管理入口）
-                    conversationOntologyEnabled ? {
-                      icon: <StopOutlined style={{ color: 'var(--c-ink-2)', marginRight: 6 }} />,
-                      label: '关闭本体增强（保留方案绑定）',
-                      onClick: () => patchConv({ ontology_enabled: false }),
-                    } : undefined,
-                  )}
+                  content={ontoPicker}
                 >
                   <span className="chip-slot">{ontoChip}</span>
                 </Popover>
