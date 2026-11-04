@@ -111,7 +111,16 @@ function aggregateSubagentEvents(events: RunEventDTO[]): Record<string, Subagent
   return stats
 }
 
-export default function CollabTopology({ project, agents }: { project: Project; agents: Agent[] }) {
+export default function CollabTopology({ project, agents, draft }: {
+  project: Project
+  agents: Agent[]
+  /** REQ-620/M428 编辑态覆盖（协作视图草稿实时联动拓扑——修复改模式后拓扑不变）：
+   *  collabMode/workflowMode/memberIds/coordinator 未传时回落 project 已保存值（既有行为不变） */
+  draft?: { collabMode?: string; workflowMode?: string; memberIds?: string[]; coordinator?: string }
+}) {
+  const coordId = draft?.coordinator ?? project.coordinator
+  const collabMode = draft?.collabMode ?? project.collab_mode ?? 'agent_as_tool'
+  const workflowMode = draft?.workflowMode ?? project.workflow_mode ?? 'free'
   const [convs, setConvs] = useState<{ id: string; title: string }[]>([])
   const [convId, setConvId] = useState<string | null>(null)
   const [stats, setStats] = useState<Record<string, SubagentStat>>({})
@@ -140,8 +149,8 @@ export default function CollabTopology({ project, agents }: { project: Project; 
   }, [convId])
 
   const { nodes, edges } = useMemo(() => {
-    const memberIds = (project.agent_ids ?? []).filter((id) => id !== project.coordinator)
-    const coord = agents.find((a) => a.id === project.coordinator)
+    const memberIds = (draft?.memberIds ?? project.agent_ids ?? []).filter((id) => id !== coordId)
+    const coord = agents.find((a) => a.id === coordId)
     const nodes: Node[] = []
     const edges: Edge[] = []
     const coordCount = coord ? Object.entries(stats).filter(([name]) => name === coord.name).reduce((s, [, v]) => s + v.enters, 0) : 0
@@ -172,7 +181,7 @@ export default function CollabTopology({ project, agents }: { project: Project; 
         source: 'coord',
         target: `m:${id}`,
         animated: !!st?.inStack,
-        label: st && st.enters > 0 ? `${project.collab_mode === 'transfer' ? '移交' : '委派'} ${st.enters}` : (project.collab_mode === 'transfer' ? '移交' : '委派'),
+        label: st && st.enters > 0 ? `${collabMode === 'transfer' ? '移交' : '委派'} ${st.enters}` : (collabMode === 'transfer' ? '移交' : '委派'),
         style: st && st.enters > 0 ? { strokeWidth: 1.6 } : { strokeDasharray: '4 3' },
         markerEnd: { type: MarkerType.ArrowClosed },
       })
@@ -201,7 +210,7 @@ export default function CollabTopology({ project, agents }: { project: Project; 
       })
     }
     return { nodes, edges }
-  }, [project, agents, stats])
+  }, [project, agents, stats, draft, collabMode, workflowMode, coordId])
 
   const totalCalls = Object.values(stats).reduce((s, v) => s + v.enters + (v.delegates ?? 0), 0)
   const transferCalls = Object.values(stats).filter((v) => v.via === 'transfer').reduce((s, v) => s + v.enters, 0)
@@ -210,8 +219,8 @@ export default function CollabTopology({ project, agents }: { project: Project; 
   return (
     <div data-testid="collab-topology">
       <Space size={6} wrap style={{ marginBottom: 6 }}>
-        <Tag style={{ margin: 0 }}>{project.collab_mode === 'transfer' ? 'transfer（路由移交）' : 'agent_as_tool（委派为工具）'}</Tag>
-        <Tag style={{ margin: 0 }}>workflow: {project.workflow_mode ?? 'free'}</Tag>
+        <Tag style={{ margin: 0 }}>{collabMode === 'transfer' ? 'transfer（路由移交）' : 'agent_as_tool（委派为工具）'}</Tag>
+        <Tag style={{ margin: 0 }}>workflow: {workflowMode}</Tag>
         {totalCalls > 0 && (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
             已选会话委派 {totalCalls} 次{transferCalls > 0 ? `（transfer ${transferCalls}）` : ''}{a2aCalls > 0 ? `（外部成员 ${a2aCalls}）` : ''}

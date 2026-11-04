@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import { Tooltip } from 'antd'
 import {
   ApartmentOutlined,
+  AppstoreOutlined,
   BookOutlined,
   DatabaseOutlined,
-  HomeOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
@@ -37,9 +37,9 @@ const PAGES: { key: PageKey; label: string; icon: ReactNode }[] = [
   //   执行容器（平铺树/项目会话/协作模板/Git 文件）完整体验回归项目模块。
   { key: 'projects', label: '项目', icon: <ProjectOutlined /> },
   // REQ-613-b6cc/M421-b6cc 工作区独立模块导航项（121 号 R1①：key=workspaces，路由 /workspaces，
-  //   ⌂ 容器图标语言与树/头部一致）——领域容器（场景默认值/直挂对话/笔记本/记忆/名下项目）完整体验。
+  //   ▦ 容器图标语言与树/头部一致）——领域容器（场景默认值/直挂对话/笔记本/记忆/名下项目）完整体验。
   //   REQ-597「导航恒落工作区」宿主反转口径退役：两模块分立、互链表达包含（121 号 §4.1）。
-  { key: 'workspaces', label: '工作区', icon: <HomeOutlined /> },
+  { key: 'workspaces', label: '工作区', icon: <AppstoreOutlined /> }, // REQ-618-36a1/M426-36a1：Home→Appstore（四格场景矩阵=工作台隐喻，与 ProjectOutlined=项目区分；⌂ house 语义退役）
   { key: 'ontology', label: '本体', icon: <ApartmentOutlined /> },
   { key: 'knowledge', label: '知识库', icon: <DatabaseOutlined /> },
   { key: 'skills', label: '技能', icon: <ThunderboltOutlined /> },

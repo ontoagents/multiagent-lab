@@ -308,7 +308,7 @@ export default function AgentCompanionManage({ agent, onUnbound }: { agent: Agen
             >
               <Button size="small" danger loading={unbinding}>解绑伴生本体</Button>
             </Popconfirm>
-            {/* REQ-326③：跨模块深链带详情语义——直达绑定本体的资产详情页级工作区 */}
+            {/* REQ-326③：跨模块深链带详情语义——直达绑定本体的资产详情页 */}
             {agent.companion_ontology_id && (
               <Tooltip title="在本体模块打开该伴生本体的资产详情（沉淀图/候选/内容清单全量管理面）">
                 <Button

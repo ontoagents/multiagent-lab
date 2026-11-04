@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Empty, Form, Input, Modal, Splitter, Tooltip, Typography } from 'antd'
+import { Breadcrumb, Button, Empty, Form, Input, Modal, Splitter, Tooltip, Typography } from 'antd'
 import { BookOutlined, HistoryOutlined, ProjectOutlined, SettingOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
+import { pushRecent } from '../lib/recent' // REQ-616-aa64/M424-aa64 A7（121 号 R3）
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import WorkspaceSidePanel, { type WorkspacePanelView } from '../components/WorkspaceSidePanel'
@@ -28,6 +29,9 @@ export default function WorkspacePage() {
   // REQ-613-b6cc/M421-b6cc 名下项目卡列数据源（121 号 R1① C4 前半）；
   // REQ-587 语义保留——工作区模块载荷按当前工作区过滤（listProjects({workspace_id})）
   const [wsProjects, setWsProjects] = useState<Project[]>([])
+  // REQ-616-aa64/M424-aa64 D1（121 号 R3）：全量项目清单——内容级 FTS 命中条目「来源」标注
+  // 解析项目名（工作区载荷不含其他项目；仅标注消费，不进树）
+  const [allProjects, setAllProjects] = useState<Project[]>([])
   // REQ-495②段尾项：「存笔记本」未绑定引导「前往绑定」聚焦——挂载一次性读取（命中即选中工作区+
   // 直开侧板配置=绑定入口）。REQ-614-9fb4 R1② 补响应式监听（121 号 §5.2 gap-5 教训：页签退役后
   // WorkspacePage 为常驻挂载模块页——用户已在工作区模块时深链派发事件，IIFE 不再跑，由监听承接）。
@@ -42,12 +46,17 @@ export default function WorkspacePage() {
   })()
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(focusWs || null)
   useEffect(() => {
+    if (focusWs) pushRecent('workspace', focusWs) // A7：挂载聚焦亦入最近记录
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
     const gotoWorkspace = () => {
       try {
         const id = sessionStorage.getItem('eino.focus.workspace')
         if (!id) return
         sessionStorage.removeItem('eino.focus.workspace')
         setActiveWorkspaceId(id)
+        pushRecent('workspace', id) // A7：深链到达亦入最近记录
         setSidePanelOpen(true)
         setPanelView('config')
       } catch { /* 静默 */ }
@@ -68,7 +77,10 @@ export default function WorkspacePage() {
       const conv = convs.find((c) => c.id === convId)
       if (conv && conv.scope === 'agent') {
         sessionStorage.removeItem('eino.focus.conv')
-        if (conv.workspace_id) setActiveWorkspaceId(conv.workspace_id)
+        if (conv.workspace_id) {
+          setActiveWorkspaceId(conv.workspace_id)
+          pushRecent('workspace', conv.workspace_id) // A7：深链到达亦入最近记录
+        }
         pendingConvRef.current = conv.id
       }
     } catch { /* 静默 */ }
@@ -120,6 +132,9 @@ export default function WorkspacePage() {
     api.listProjects(activeWorkspaceId ? { workspace_id: activeWorkspaceId } : {})
       .then((ps) => setWsProjects(ps.filter((p) => (p.workspace_id ?? '') === (activeWorkspaceId ?? ''))))
       .catch(() => setWsProjects([]))
+    // REQ-616-aa64/M424-aa64 D1（121 号 R3）：全量项目清单（FTS 命中「来源」标注解析项目名——
+    // 工作区过滤载荷不含其他项目；仅标注消费不进树；失败静默=标注回落 id）
+    api.listProjects().then(setAllProjects).catch(() => setAllProjects([]))
   }
 
   useEffect(reload, [dataVersion, activeWorkspaceId])
@@ -169,6 +184,7 @@ export default function WorkspacePage() {
       sessionStorage.setItem('eino.project.active', pid)
       sessionStorage.setItem('eino.focus.project', pid)
     } catch { /* 配额满静默（沿 REQ-509 口径） */ }
+    pushRecent('project', pid) // A7：互链直达亦入项目最近记录
     setPage('projects')
     window.dispatchEvent(new CustomEvent('eino:goto.project'))
     showToast(`已在项目模块打开「${pname}」（侧板配置视图）`)
@@ -178,6 +194,7 @@ export default function WorkspacePage() {
     setCreateOpen(false)
     reload()
     setActiveWorkspaceId(id)
+    pushRecent('workspace', id) // A7：新建即入最近记录
     setSidePanelOpen(true)
     setPanelView('config')
     showToast('工作区已创建，请在侧边栏设置会话默认值')
@@ -192,7 +209,7 @@ export default function WorkspacePage() {
         <Sidebar
           mode="workspace"
           agents={agents}
-          projects={[]}
+          projects={allProjects}
           workspaces={workspaces}
           conversations={convs}
           activeAgentId={null}
@@ -215,10 +232,20 @@ export default function WorkspacePage() {
       <Splitter.Panel className="content-panel">
         <div className="proj-content-row">
           <div className="proj-content-main">
-            {/* REQ-578/M393：常驻当前工作区名头部（VS Code Profiles 语义——首屏即知身在哪个工作区） */}
+            {/* REQ-578/M393：常驻当前工作区名头部 → REQ-616-aa64/M424-aa64 A5（121 号 R3）升级为
+                模块内独立面包屑「工作区 › 工作区 A › 直挂对话」（VS Code Profiles 语义保留） */}
             {activeWorkspace && (
               <div style={{ padding: '8px 16px 0' }} data-testid="ws-head">
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>⌂ 工作区：{activeWorkspace.name}</Typography.Text>
+                <Breadcrumb
+                  data-testid="ws-breadcrumb"
+                  items={[
+                    { title: <Typography.Text style={{ fontSize: 12 }}>⌂ 工作区</Typography.Text> },
+                    { title: <Typography.Text type="secondary" style={{ fontSize: 12 }}>{activeWorkspace.name}</Typography.Text> },
+                    ...(currentConv && currentConv.scope === 'agent'
+                      ? [{ title: <Typography.Text type="secondary" style={{ fontSize: 12 }}>{currentConv.title || '未命名对话'}</Typography.Text> }]
+                      : []),
+                  ]}
+                />
               </div>
             )}
             {currentConv && currentConv.scope === 'agent' ? (
@@ -226,6 +253,7 @@ export default function WorkspacePage() {
                 conversation={currentConv}
                 agents={agents}
                 projects={[]}
+                workspaces={workspaces}
                 onConversationUpdated={reload}
                 onToggleSidePanel={() => setSidePanelOpen(!sidePanelOpen)}
                 onFocusWorkspaceMemory={() => { setSidePanelOpen(true); setPanelView('memory') }}
@@ -263,6 +291,7 @@ export default function WorkspacePage() {
               onViewChange={setPanelView}
               onOpenChange={setSidePanelOpen}
               onChanged={reload}
+              onOpenProject={openProjectInProjectsModule}
             />
           )}
         </div>

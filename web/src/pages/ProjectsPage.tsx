@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dropdown, Splitter, Typography } from 'antd'
+import { Breadcrumb, Button, Dropdown, Splitter, Typography } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
+import { pushRecent } from '../lib/recent' // REQ-616-aa64/M424-aa64 A7（121 号 R3）
 import Sidebar from '../components/Sidebar'
 import ChatWindow from '../components/ChatWindow'
 import ProjectModal from '../components/ProjectModal'
@@ -56,6 +57,7 @@ export default function ProjectsPage() {
         if (projects.some((p) => p.id === pid)) {
           sessionStorage.removeItem('eino.focus.project')
           setActiveProjectId(pid)
+          pushRecent('project', pid) // A7：深链到达亦入最近记录
           setSidePanelOpen(true)
           setPanelView('config')
         }
@@ -78,7 +80,10 @@ export default function ProjectsPage() {
       const conv = convs.find((c) => c.id === convId)
       if (conv && conv.scope === 'project') {
         sessionStorage.removeItem('eino.focus.conv')
-        if (conv.project_id) setActiveProjectId(conv.project_id)
+        if (conv.project_id) {
+          setActiveProjectId(conv.project_id)
+          pushRecent('project', conv.project_id) // A7：深链到达亦入最近记录
+        }
         pendingConvRef.current = conv.id
       }
     } catch { /* 静默 */ }
@@ -161,6 +166,7 @@ export default function ProjectsPage() {
     setCreateOpen(false)
     reload()
     setActiveProjectId(id)
+    pushRecent('project', id) // A7：新建即入最近记录
     setSidePanelOpen(true)
     setPanelView('config')
     // REQ-615-721e/M423-721e B2：创建结果 toast 单源收口到 ProjectModal 三分支（已归属/未归属/
@@ -194,6 +200,38 @@ export default function ProjectsPage() {
         />
       </Splitter.Panel>
       <Splitter.Panel className="content-panel">
+        {/* REQ-616-aa64/M424-aa64 A5（121 号 R3）：面包屑各模块内独立（分立语义——跨模块层级
+            不出现在同一面包屑；项目模块「项目 › 项目 P1 › 会话」+归属行 chip 跳工作区模块） */}
+        <div style={{ padding: '8px 16px 0' }} data-testid="proj-breadcrumb">
+          <Breadcrumb
+            items={[
+              { title: '项目' },
+              activeProject
+                ? {
+                    title: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {activeProject.name}
+                        {activeProject.workspace_id && (
+                          <button
+                            type="button"
+                            className="proj-ws-chip"
+                            data-testid="proj-breadcrumb-ws-chip"
+                            title={`已归属工作区「${workspaces.find((w) => w.id === activeProject.workspace_id)?.name ?? activeProject.workspace_id}」——点击到工作区模块查看`}
+                            onClick={() => openWorkspaceInWorkspaceModule(activeProject.workspace_id!)}
+                          >
+                            ⌂ 工作区《{workspaces.find((w) => w.id === activeProject.workspace_id)?.name ?? activeProject.workspace_id}》
+                          </button>
+                        )}
+                      </span>
+                    ),
+                  }
+                : { title: <Typography.Text type="secondary" style={{ fontSize: 12 }}>未选择项目</Typography.Text> },
+              ...(currentConv && currentConv.scope === 'project'
+                ? [{ title: <Typography.Text type="secondary" style={{ fontSize: 12 }}>{currentConv.title || '未命名对话'}</Typography.Text> }]
+                : []),
+            ]}
+          />
+        </div>
         {/* REQ-102：对话区 + 右侧项目侧边栏（flex 兄弟节点，互不遮挡） */}
         <div className="proj-content-row">
           <div className="proj-content-main">
@@ -202,6 +240,7 @@ export default function ProjectsPage() {
                 conversation={currentConv}
                 agents={agents}
                 projects={projects}
+                workspaces={workspaces}
                 onConversationUpdated={reload}
                 onToggleSidePanel={() => setSidePanelOpen((o) => !o)}
               />

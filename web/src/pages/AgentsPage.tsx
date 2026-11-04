@@ -171,6 +171,17 @@ export default function AgentsPage() {
     setSidePanelOpen(true)
   }
 
+  /** REQ-616-aa64/M424-aa64 C2（121 号 R3）：智能体页直挂对话「⌂ 工作区《名》」chip → 工作区模块
+   *  选中该工作区（跨模块互链；协议同 ProjectsPage 归属 chip——focus.workspace 写键+setPage+
+   *  goto.workspace 事件，挂载消费/响应式监听双入口承接） */
+  const openWorkspaceInWorkspaceModule = (wsId: string) => {
+    try {
+      sessionStorage.setItem('eino.focus.workspace', wsId)
+    } catch { /* 配额满静默（沿 REQ-509 口径） */ }
+    useUI.getState().setPage('workspaces')
+    window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
+  }
+
   /** ChatWindow「配置」→ 打开当前智能体侧边栏配置视图 */
 
   const onAgentCreated = (id: string) => {
@@ -193,6 +204,7 @@ export default function AgentsPage() {
           mode="agent"
           agents={agents}
           projects={[]}
+          workspaces={workspaces}
           conversations={convs}
           activeAgentId={activeAgentId}
           activeProjectId={null}
@@ -203,6 +215,7 @@ export default function AgentsPage() {
           onNewConversation={newConversation}
           onConfigureAgent={configureAgent}
           onConfigureProject={() => {}}
+          onOpenWorkspace={openWorkspaceInWorkspaceModule}
           loadErr={loadErr}
           onRetry={reload}
         />

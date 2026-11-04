@@ -224,8 +224,12 @@ type Conversation struct {
 	Title            string  `json:"title"`
 	KBID             *string `json:"kb_id"`
 	EnableKB         bool    `json:"enable_kb"`
-	RuntimeProfileID *string `json:"runtime_profile_id"` // 本体运行方案（外部引用，O-6）
-	OntologyEnabled  bool    `json:"ontology_enabled"`
+	RuntimeProfileID *string `json:"runtime_profile_id"` // 本体运行方案（外部引用，O-6；存量单值——继承链与对比窗格继续走此列）
+	// RuntimeProfileIDs 本体运行方案多选（REQ-619/M427，JSON 数组列 runtime_profile_ids）：
+	// nil=未显式设置（运行期回落 RuntimeProfileID 单值）；空切片=显式清空（关闭本体增强）；非空=多选集合。
+	// 序列化不 omit 空——null 与 [] 三态对外可区分（响应面语义）。
+	RuntimeProfileIDs []string `json:"runtime_profile_ids"`
+	OntologyEnabled   bool     `json:"ontology_enabled"`
 	// EnableSkills 会话级技能开关（nil=未指定：创建默认开、更新保留原值）
 	EnableSkills *bool `json:"enable_skills,omitempty"`
 	// InterruptState 中断挂起信息 JSON（ask_human 等 HIL 中断；空=无。M11 收尾）

@@ -37,6 +37,9 @@ export default function NotesPage({ createOpen, onCreate, onCreateClose }: { cre
   const [busy, setBusy] = useState(false)
 
   const active = notebooks?.find((n) => n.id === activeId) ?? null
+  // REQ-617-87d8/M425-87d8 R4（121 号 §5.4-⑦）：「已绑工作区」不带名→带《X》——绑定名经
+  // listWorkspaces 映射（加载失败静默降级空清单，回落显 id——数据链路不确定处如实不臆造名）
+  const wsNameOf = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id
 
   const loadNotebooks = () => {
     api.listNotebooks()
@@ -166,7 +169,7 @@ export default function NotesPage({ createOpen, onCreate, onCreateClose }: { cre
                   <span className="side-item-name" title={n.name}>{n.name}</span>
                 </div>
                 <div className="side-item-meta">
-                  <span>{n.workspace_id ? '已绑工作区' : '个人资产'}</span>
+                  <span>{n.workspace_id ? `已绑工作区《${wsNameOf(n.workspace_id)}》` : '个人资产'}</span>
                   <span className="dot">·</span>
                   <span>{n.description || '未填写描述'}</span>
                 </div>
@@ -199,7 +202,7 @@ export default function NotesPage({ createOpen, onCreate, onCreateClose }: { cre
                   <Typography.Title level={4} style={{ margin: 0 }}>{active.name}</Typography.Title>
                   {active.workspace_id && (
                     <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400, verticalAlign: 'middle' }}>
-                      已绑工作区
+                      已绑工作区《{wsNameOf(active.workspace_id)}》
                     </Typography.Text>
                   )}
                 </div>

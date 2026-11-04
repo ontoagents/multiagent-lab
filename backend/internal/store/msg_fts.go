@@ -32,12 +32,21 @@ func (s *Store) MsgFTSReady() bool {
 }
 
 // MsgFTSHit 会话内容检索命中（会话+消息定位+摘要）。
+// REQ-616-aa64/M424-aa64 D1（121 号 R3）：补 scope/workspace_id/project_id 判据——工作区模块
+// 载荷按 REQ-587 过滤不含全量会话，内容级 FTS 全库命中会话不在当前载荷时，前端按 scope
+// 分流跨模块打开（lib/deepLink gotoConversation；评审 gap-2「点了没反应」修复）。
 type MsgFTSHit struct {
-	ConversationID string
-	MessageID      string
-	Role           string
-	Content        string // 全文（前端截摘要）
-	Score          float64
+	// REQ-616-aa64 补 tag：前五字段无 tag 时 Go 默认序列化 PascalCase，前端类型声明为 snake_case——
+	// REQ-528 存量「点击跳转」因 setCurrentConv(undefined) 从未生效（20 号 4.167 冒烟面无点击断言
+	// 故未暴露），D1 分流依赖本字段，随本批收口。
+	ConversationID string  `json:"conversation_id"`
+	MessageID      string  `json:"message_id"`
+	Role           string  `json:"role"`
+	Content        string  `json:"content"` // 全文（前端截摘要）
+	Score          float64 `json:"score"`
+	Scope          string  `json:"scope"`        // agent|project（会话归属判据）
+	WorkspaceID    *string `json:"workspace_id"` // 直挂会话归属工作区
+	ProjectID      *string `json:"project_id"`   // 项目会话归属项目
 }
 
 // SearchMessagesFTS 跨会话消息内容检索（BM25 排序；query 须 FTSQuote 转义，<3 rune 由调用方跳过）。
@@ -57,8 +66,9 @@ func (s *Store) SearchMessagesFTS(query, role string, limit int) ([]MsgFTSHit, e
 	}
 	args = append(args, limit)
 	rows, err := s.DB.Query(`SELECT m.conversation_id, m.id, m.role, m.content,
-		bm25(message_fts) FROM message_fts fts
-		JOIN message m ON m.id = fts.message_id `+where+` ORDER BY bm25(message_fts) LIMIT ?`, args...)
+		bm25(message_fts), c.scope, c.workspace_id, c.project_id FROM message_fts fts
+		JOIN message m ON m.id = fts.message_id
+		JOIN conversation c ON c.id = m.conversation_id `+where+` ORDER BY bm25(message_fts) LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +76,7 @@ func (s *Store) SearchMessagesFTS(query, role string, limit int) ([]MsgFTSHit, e
 	out := []MsgFTSHit{}
 	for rows.Next() {
 		var h MsgFTSHit
-		if err := rows.Scan(&h.ConversationID, &h.MessageID, &h.Role, &h.Content, &h.Score); err != nil {
+		if err := rows.Scan(&h.ConversationID, &h.MessageID, &h.Role, &h.Content, &h.Score, &h.Scope, &h.WorkspaceID, &h.ProjectID); err != nil {
 			return nil, err
 		}
 		h.Score = -h.Score // bm25 取负转正（越大越相关——chunk_fts 同口径）

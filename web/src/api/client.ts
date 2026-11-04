@@ -580,9 +580,11 @@ export const api = {
   /** REQ-385/M181 + REQ-525/M332：主会话运行中介入（TurnLoop 抢占式 steer——安全点生效非即时打断） */
   steerConversation: (id: string, message: string) =>
     req<{ steered: boolean }>(`/api/conversations/${id}/steer`, { method: 'POST', body: JSON.stringify({ message }) }),
-  /** REQ-528/M335：会话内容检索（FTS5 trigram——跨会话按消息正文定位；<3 rune 空集回落标题过滤） */
+  /** REQ-528/M335：会话内容检索（FTS5 trigram——跨会话按消息正文定位；<3 rune 空集回落标题过滤）。
+   *  REQ-616-aa64/M424-aa64 D1（121 号 R3）：hit 补 scope/workspace_id/project_id 判据——
+   *  命中会话不在当前模块载荷时按 scope 分流跨模块打开（lib/deepLink gotoConversation） */
   searchMessages: (kw: string, role?: string) =>
-    req<{ hits: { conversation_id: string; message_id: string; role: string; content: string; score: number }[] }>(`/api/search/messages?kw=${encodeURIComponent(kw)}${role ? `&role=${role}` : ''}`),
+    req<{ hits: { conversation_id: string; message_id: string; role: string; content: string; score: number; scope: string; workspace_id?: string | null; project_id?: string | null }[] }>(`/api/search/messages?kw=${encodeURIComponent(kw)}${role ? `&role=${role}` : ''}`),
   /** REQ-208：打断 */
   interruptDelegate: (id: string) => req<ConversationDelegate>(`/api/delegates/${id}/interrupt`, { method: 'POST' }),
   /** REQ-208：冷恢复/续跑 */

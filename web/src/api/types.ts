@@ -263,6 +263,8 @@ export interface Conversation {
   kb_id: string | null
   enable_kb: boolean
   runtime_profile_id: string | null
+  /** REQ-619/M427 本体运行方案多选（JSON 数组；undefined=未显式设置回落单值，[]=显式清空，非空=多选集合） */
+  runtime_profile_ids?: string[] | null
   ontology_enabled: boolean
   /** 会话级技能开关（后端列待跟进；前端按 `?? true` 兼容默认开） */
   enable_skills?: boolean

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 )
 
@@ -11,7 +12,8 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	var enableKB, ontoEnabled, enableSkills int
 	var toolApproval, modelConnID sql.NullString
 	var compOntologyID, contextMode string
-	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &workspaceID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &c.PauseState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode)
+	var profileIDs sql.NullString
+	err := row.Scan(&c.ID, &c.Scope, &agentID, &projectID, &workspaceID, &c.Title, &kbID, &enableKB, &profileID, &ontoEnabled, &c.TopK, &c.MinScore, &c.CreatedAt, &c.UpdatedAt, &enableSkills, &c.InterruptState, &c.PauseState, &toolApproval, &c.ContextState, &c.TodoJSON, &modelConnID, &compOntologyID, &contextMode, &profileIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -43,6 +45,10 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	if profileID.Valid {
 		c.RuntimeProfileID = &profileID.String
 	}
+	// REQ-619/M427：本体运行方案多选（JSON 数组；NULL=未显式设置回落单值列）
+	if profileIDs.Valid && profileIDs.String != "" {
+		_ = json.Unmarshal([]byte(profileIDs.String), &c.RuntimeProfileIDs)
+	}
 	c.EnableKB = enableKB == 1
 	c.OntologyEnabled = ontoEnabled == 1
 	es := enableSkills == 1
@@ -50,7 +56,16 @@ func scanConversation(row interface{ Scan(...any) error }) (*Conversation, error
 	return &c, nil
 }
 
-const convCols = `id,scope,agent_id,project_id,workspace_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,pause_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode`
+const convCols = `id,scope,agent_id,project_id,workspace_id,title,kb_id,enable_kb,runtime_profile_id,ontology_enabled,top_k,min_score,created_at,updated_at,enable_skills,interrupt_state,pause_state,tool_approval,context_state,todo_json,model_conn_id,companion_ontology_id,context_mode,runtime_profile_ids`
+
+// idsJSON 多选序列化（nil=nil 不覆盖/清空语义交由调用方；非 nil 编码 JSON 字符串——含空数组 '[]'=显式清空）。
+func idsJSON(ids []string) any {
+	if ids == nil {
+		return nil
+	}
+	b, _ := json.Marshal(ids)
+	return string(b)
+}
 
 // ConversationFilter 会话列表过滤。
 type ConversationFilter struct {
@@ -114,6 +129,16 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 	}
 	if c.Scope != "agent" && c.Scope != "project" {
 		return nil, &HTTPError{Status: 400, Msg: "scope must be agent|project"}
+	}
+	// REQ-616-aa64/M424-aa64 §4.5-③（121 号 R3 后端小件③，原单树批 R5③ 并入）：直挂路径
+	// default_agent_id 兜底——请求不带 agent_id 且带 workspace_id 时取 ws.DefaultAgentID
+	// （写时复制同原则：显式请求参数优先；工作区未设默认智能体或不存在→维持原 400 人话）。
+	// 挂点与 inheritWorkspaceDefaults 同函数；前端现状显式传参行为不变（API 直调者写入
+	// default_agent_id 真正生效——120 号 E8 后端继承链不兜底缺口收口）。
+	if c.Scope == "agent" && (c.AgentID == nil || *c.AgentID == "") && c.WorkspaceID != nil && *c.WorkspaceID != "" {
+		if ws, werr := s.GetWorkspace(*c.WorkspaceID); werr == nil && ws.DefaultAgentID != "" {
+			c.AgentID = &ws.DefaultAgentID
+		}
 	}
 	if c.Scope == "agent" && (c.AgentID == nil || *c.AgentID == "") {
 		return nil, &HTTPError{Status: 400, Msg: "agent_id required for scope=agent"}
@@ -183,8 +208,8 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 			// 归属工作区已删（SET NULL 竞态窗口）：静默回落零值——与未归属无异
 		}
 	}
-	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		c.ID, c.Scope, c.AgentID, c.ProjectID, c.WorkspaceID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, "", c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride)
+	_, err := s.DB.Exec(`INSERT INTO conversation (`+convCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		c.ID, c.Scope, c.AgentID, c.ProjectID, c.WorkspaceID, c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, now(), now(), boolInt(enableSkills), c.InterruptState, "", c.ToolApproval, c.ContextState, c.TodoJSON, c.ModelConnID, c.CompanionOntologyID, c.ContextModeOverride, idsJSON(c.RuntimeProfileIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +241,13 @@ func (s *Store) UpdateConversation(c *Conversation) (*Conversation, error) {
 	if c.ContextModeOverride != nil {
 		ctxModeArg = *c.ContextModeOverride
 	}
-	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),model_conn_id=COALESCE(?,model_conn_id),companion_ontology_id=COALESCE(?,companion_ontology_id),context_mode=COALESCE(?,context_mode),updated_at=? WHERE id=?`,
-		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, modelArg, compArg, ctxModeArg, now(), c.ID)
+	// REQ-619/M427：本体方案多选（nil=不改 | []=显式清空 | 非空=覆盖集合）
+	var idsArg any
+	if c.RuntimeProfileIDs != nil {
+		idsArg = idsJSON(c.RuntimeProfileIDs)
+	}
+	res, err := s.DB.Exec(`UPDATE conversation SET title=?,kb_id=?,enable_kb=?,runtime_profile_id=?,ontology_enabled=?,top_k=?,min_score=?,enable_skills=COALESCE(?,enable_skills),tool_approval=COALESCE(?,tool_approval),model_conn_id=COALESCE(?,model_conn_id),companion_ontology_id=COALESCE(?,companion_ontology_id),context_mode=COALESCE(?,context_mode),runtime_profile_ids=COALESCE(?,runtime_profile_ids),updated_at=? WHERE id=?`,
+		c.Title, c.KBID, boolInt(c.EnableKB), c.RuntimeProfileID, boolInt(c.OntologyEnabled), c.TopK, c.MinScore, enableArg, approvalArg, modelArg, compArg, ctxModeArg, idsArg, now(), c.ID)
 	if err != nil {
 		return nil, err
 	}

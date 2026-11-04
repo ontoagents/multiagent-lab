@@ -588,7 +588,7 @@ func TestBuildExtContextSources(t *testing.T) {
 	// ③本体 guide 源（桩 Ontology——用接口替换困难，直接置 nil 跳过；guide 源由 FetchGuide 降级覆盖）
 	conv := &store.Conversation{ID: "c1", ProjectID: &proj.ID, EnableKB: true, KBID: &kbID}
 	mount := ""
-	ec := asm.buildExtContext(context.Background(), conv, mount)
+	ec := asm.buildExtContext(context.Background(), conv, []string{mount})
 	if ec == nil {
 		t.Fatal("有项目+KB 源应非 nil")
 	}
@@ -604,7 +604,7 @@ func TestBuildExtContextSources(t *testing.T) {
 	}
 	// 无能力会话 → nil（不注入）
 	conv2 := &store.Conversation{ID: "c2"}
-	if asm.buildExtContext(context.Background(), conv2, "") != nil {
+	if asm.buildExtContext(context.Background(), conv2, []string{}) != nil {
 		t.Fatal("无源会话应为 nil")
 	}
 }

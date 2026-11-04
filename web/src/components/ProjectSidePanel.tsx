@@ -23,6 +23,7 @@ import SaveToNotebookModal from './SaveToNotebookModal'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry, Workspace } from '../api/types'
 import DirCheckResult from './DirCheckResult'
 import RelationConsequenceBlock from './RelationConsequenceBlock'
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——转发源区落点）
 import { useUI } from '../store/ui'
 
 export type PanelView = 'files' | 'git' | 'config' | 'collab'
@@ -878,11 +879,37 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         </Form.Item>
 
         {/* REQ-550/M357：可选归属工作区（M2——归属是显式动作走专属端点即时保存，
-            不并入整行 PUT；UpdateProject SQL 不写 workspace_id 列防整行保存误清归属） */}
-        <Section>归属工作区（可选）</Section>
-        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-          归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；已建会话不受影响。
+            不并入整行 PUT；UpdateProject SQL 不写 workspace_id 列防整行保存误清归属）。
+            REQ-616-aa64/M424-aa64 C3（121 号 R3）：区块标题「默认值转发源（归属工作区）」+
+            已归属工作区名 chip 点击跳工作区模块（跨模块互链）+说明句补解除归属后果（REQ-581 口径） */}
+        <Section>默认值转发源（归属工作区）</Section>
+        {/* REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句四点之一——转发源区先见全站唯一关系句） */}
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+          {RELATION_SENTENCE}
         </Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+          归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；解除归属后已建会话的库/方案默认值保持不变，跨会话记忆自下轮起不再注入。
+        </Typography.Text>
+        {project.workspace_id && (
+          <div style={{ marginBottom: 8 }}>
+            <button
+              type="button"
+              className="proj-ws-chip"
+              style={{ fontSize: 12, lineHeight: '22px', padding: '0 10px' }}
+              data-testid="proj-ws-forward-chip"
+              title={`默认值转发源：工作区「${workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}」——点击到工作区模块查看`}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('eino.focus.workspace', project.workspace_id!)
+                } catch { /* 配额满静默 */ }
+                useUI.getState().setPage('workspaces')
+                window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
+              }}
+            >
+              ▦ 工作区《{workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}》
+            </button>
+          </div>
+        )}
         <Select
           size="small"
           allowClear
@@ -957,7 +984,17 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
     <div className="proj-view-body">
       {/* REQ-311 B1/M115：协作拓扑（静态有向图+会话回放委派计数/在栈高亮）——「发生了什么」可见性 */}
       <Section first>协作拓扑</Section>
-      <CollabTopology project={project} agents={agents} />
+      {/* REQ-620/M428 编辑态联动：draft 传协作视图当前编辑值——改模式/成员/主智能体后拓扑即时跟随（修复改后拓扑不变） */}
+      <CollabTopology
+        project={project}
+        agents={agents}
+        draft={{
+          collabMode,
+          workflowMode,
+          coordinator: Object.entries(selected).find(([, r]) => r === 'coordinator')?.[0] ?? project.coordinator,
+          memberIds: Object.entries(selected).filter(([, r]) => r === 'member').map(([id]) => id),
+        }}
+      />
       <Section>协作模式</Section>
       {/* REQ-251：智能体侧板 Graph 占位说明并入此处（编排配置的真正归属地） */}
       <div className="member-hint" style={{ marginBottom: 8 }}>

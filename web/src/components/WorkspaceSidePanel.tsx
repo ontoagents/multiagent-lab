@@ -5,13 +5,14 @@ import {
   DoubleLeftOutlined,
   DoubleRightOutlined,
   HistoryOutlined,
+  ProjectOutlined,
   SettingOutlined,
-  TeamOutlined,
 } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { Agent, KnowledgeBase, MemoryRec, Notebook, Project, RuntimeProfile, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import RelationConsequenceBlock from './RelationConsequenceBlock'
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——ws-anchor 落点）
 
 export type WorkspacePanelView = 'config' | 'projects' | 'memory'
 
@@ -50,6 +51,7 @@ export default function WorkspaceSidePanel({
   onViewChange,
   onOpenChange,
   onChanged,
+  onOpenProject,
 }: {
   workspace: Workspace
   agents: Agent[]
@@ -59,6 +61,9 @@ export default function WorkspaceSidePanel({
   onViewChange: (v: WorkspacePanelView) => void
   onOpenChange?: (open: boolean) => void
   onChanged?: () => void
+  /** REQ-616-aa64/M424-aa64 C4（121 号 R3）：归属项目行「打开」→ 项目模块一步直达（工作区→项目
+   *  反向互链——总览名下项目卡同协议；管理动作仍归本视图） */
+  onOpenProject?: (pid: string, pname: string) => void
 }) {
   const [panelWidth, setPanelWidth] = useState(() => {
     const saved = Number(localStorage.getItem(WS_PANEL_WIDTH_KEY))
@@ -145,7 +150,7 @@ export default function WorkspaceSidePanel({
             role="tab"
             onClick={() => switchView('projects')}
           >
-            <TeamOutlined />
+            <ProjectOutlined /> {/* REQ-618-36a1/M426-36a1：Team→Project（与「项目」模块图标实体一致；Team 语义归还项目侧板「智能体协作」成员面） */}
           </button>
         </Tooltip>
         {/* REQ-551/M358：记忆候选确认（三桶列表沿伴生范式；可审计口径） */}
@@ -195,7 +200,7 @@ export default function WorkspaceSidePanel({
       {!collapsed && (
         <div className="proj-panel-view">
           {view === 'config' && <ConfigView workspace={workspace} agents={agents} onChanged={onChanged} />}
-          {view === 'projects' && <ProjectsView workspace={workspace} onChanged={onChanged} />}
+          {view === 'projects' && <ProjectsView workspace={workspace} onChanged={onChanged} onOpenProject={onOpenProject} />}
           {view === 'memory' && <MemoryView workspace={workspace} />}
         </div>
       )}
@@ -383,11 +388,13 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 
   return (
     <div className="proj-view-body">
-      {/* REQ-578/M393：实物锚+白话区别句（配置视图顶部——「工作区 vs 项目」一句话） */}
+      {/* REQ-578/M393：实物锚+白话区别句（配置视图顶部——「工作区 vs 项目」一句话）。
+          REQ-617-87d8/M425-87d8 R4（121 号 §4.4/§5.3-REQ-578）：区别句升正式关系句（单源 lib/relations——
+          分层句+归属可选句一步到位，原「互不替代」表述被关系句末句承接） */}
       <div style={{ marginBottom: 10 }} data-testid="ws-anchor">
-        <div style={{ fontSize: 13, fontWeight: 600 }}>⌂ 工作区《{workspace.name}》</div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>▦ 工作区《{workspace.name}》</div>
         <Typography.Text type="secondary" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-          工作区管「新对话自带什么知识背景」；项目管「产物写到哪」——两者互不替代。
+          {RELATION_SENTENCE}
         </Typography.Text>
       </div>
       <Form form={form} layout="vertical" requiredMark={false} size="small">
@@ -534,7 +541,7 @@ function ConfigView({ workspace, agents, onChanged }: { workspace: Workspace; ag
 // 归属项目视图（REQ-550/M357 M2）：归属/解除 + 「应用到现有会话」幂等批量
 // ---------------------------------------------------------------------------
 
-function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChanged?: () => void }) {
+function ProjectsView({ workspace, onChanged, onOpenProject }: { workspace: Workspace; onChanged?: () => void; onOpenProject?: (pid: string, pname: string) => void }) {
   const { showToast, bumpData } = useUI()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
@@ -613,6 +620,15 @@ function ProjectsView({ workspace, onChanged }: { workspace: Workspace; onChange
             <li key={p.id} className="proj-entry">
               <span className="proj-entry-name" title={p.name}>{p.name}</span>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                {/* REQ-616-aa64/M424-aa64 C4（121 号 R3）：归属项目行「打开」→ 项目模块一步直达
+                    （工作区→项目反向互链；管理动作「应用到现有会话/解除归属」仍归本视图） */}
+                {onOpenProject && (
+                  <Tooltip title={`到项目模块打开「${p.name}」`}>
+                    <Button size="small" type="text" aria-label={`打开项目 ${p.name}`} data-testid={`ws-side-open-proj-${p.id}`} onClick={() => onOpenProject(p.id, p.name)}>
+                      打开
+                    </Button>
+                  </Tooltip>
+                )}
                 <Tooltip title="把当前工作区默认值补齐到项目既有会话（幂等：只补空缺，不覆盖显式选择；会话更新时间会刷新，打开中的会话窗需刷新后继续编辑）">
                   <Button size="small" type="text" loading={busy === p.id} aria-label={`应用到现有会话 ${p.name}`} onClick={() => apply(p)}>
                     应用到现有会话

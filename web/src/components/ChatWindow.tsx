@@ -453,6 +453,8 @@ export default function ChatWindow({
   const [profilesErr, setProfilesErr] = useState(false)
   const [kbsErr, setKbsErr] = useState(false)
   const [picker, setPicker] = useState<'kb' | 'onto' | null>(null)
+  // REQ-619/M427：本体方案多选草稿（弹窗内勾选态；「完成」时一次落库）
+  const [ontoDraft, setOntoDraft] = useState<string[]>([])
   // REQ-336：会话设置（头部⋮）——重命名/检索参数弹层；输入区「/」快速配置与文件附加
   const [convSetOpen, setConvSetOpen] = useState(false)
   const [renameVal, setRenameVal] = useState('')
@@ -638,7 +640,9 @@ export default function ChatWindow({
   const agentSkills = agent?.skills ?? []
   const runningProfiles = profiles.filter((p) => p.status === 'running')
   const kbBound = conversation.kb_id ? kbs.find((k) => k.id === conversation.kb_id) ?? null : null
-  const ontoBound = conversation.runtime_profile_id ? profiles.find((p) => p.id === conversation.runtime_profile_id) ?? null : null
+  // REQ-619/M427：多选集合（显式 ids 优先；回落单值 legacy——继承链/对比窗格继续写单值列）
+  const ontoBoundIds = conversation.runtime_profile_ids?.length ? conversation.runtime_profile_ids : conversation.runtime_profile_id ? [conversation.runtime_profile_id] : []
+  const ontoBoundNames = ontoBoundIds.map((id) => profiles.find((p) => p.id === id)?.name ?? id)
   const skillsOn = conversation.enable_skills ?? true // 后端列待跟进：默认开，保持既有行为
 
   const kbDisabled = kbs.length === 0
@@ -651,8 +655,8 @@ export default function ChatWindow({
   const ontoHint = ontoDisabled
     ? (profilesErr ? '本体运行方案列表暂不可用' : '暂无 running 状态的本体运行方案，请先在本体页启动')
     : (conversation.ontology_enabled
-      ? `本体增强已开启${ontoBound ? `（${ontoBound.name}）` : ''}；点击可换方案或关闭`
-      : '开启本体增强')
+      ? `本体增强已开启（${ontoBoundIds.length} 方案：${ontoBoundNames.join('、')}）`
+      : '开启本体增强（可多选方案）')
   const skillsHint = skillsDisabled
     ? '该智能体未挂载技能，请在智能体属性中配置'
     : (skillsOn ? `技能已启用（${agentSkills.length} 个）` : '技能已停用')
@@ -667,13 +671,8 @@ export default function ChatWindow({
   const toggleOnto = () => {
     if (picker === 'onto') { setPicker(null); return }
     if (ontoDisabled) return
-    // 未开启：已绑定方案 → 直接开启；未绑定 → 打开方案选择器
-    if (!conversation.ontology_enabled) {
-      if (conversation.runtime_profile_id) { patchConv({ ontology_enabled: true }); return }
-      setPicker('onto')
-      return
-    }
-    // 已开启：打开方案选择器（换方案保持开启；关闭走选择器底部动作——REQ-215）
+    // REQ-619/M427：统一点击弹窗多选（去掉「直接开启/关闭」与「单个对象直接选择」短路——勾选集在弹窗内编辑，「完成」落库）
+    setOntoDraft(ontoBoundIds)
     setPicker('onto')
   }
   const toggleSkills = () => {
@@ -724,6 +723,44 @@ export default function ChatWindow({
   )
 
   const kbChip = <ChatChip on={conversation.enable_kb} disabled={kbDisabled} icon={<BookOutlined />} label="知识库" title={kbHint} onClick={toggleKb} />
+  // REQ-619/M427：本体方案多选弹窗——勾选态亮色/未勾选暗色（.current），点项切换不关窗，「完成」一次落库；
+  // 取消全部勾选=关闭本体增强（替代原「关闭本体增强」菜单项——该项随多选化退役）
+  const ontoPicker = (
+    <div className="chip-picker" onKeyDown={(e) => { if (e.key === 'Escape') setPicker(null) }}>
+      <div className="chip-picker-title">选择本体运行方案</div>
+      <div className="chip-picker-list">
+        {runningProfiles.map((p, i) => {
+          const on = ontoDraft.includes(p.id)
+          return (
+            <button
+              key={p.id}
+              type="button"
+              autoFocus={i === 0}
+              data-testid={`onto-opt-${p.id}`}
+              className={`chip-picker-item${on ? ' current' : ''}`}
+              onClick={() => setOntoDraft((s) => (on ? s.filter((x) => x !== p.id) : [...s, p.id]))}
+            >
+              <span className="chip-picker-name">{p.name}</span>
+              {p.engine ? <span className="chip-picker-meta">{p.engine}</span> : null}
+            </button>
+          )
+        })}
+      </div>
+      <div className="chip-picker-divider" />
+      <button
+        type="button"
+        data-testid="onto-apply"
+        className="chip-picker-item chip-picker-manage"
+        onClick={() => {
+          setPicker(null)
+          if (ontoDraft.length === 0) patchConv({ runtime_profile_ids: [], ontology_enabled: false })
+          else patchConv({ runtime_profile_ids: ontoDraft, ontology_enabled: true })
+        }}
+      >
+        <span className="chip-picker-name">完成</span>
+      </button>
+    </div>
+  )
   const ontoChip = <ChatChip on={conversation.ontology_enabled} disabled={ontoDisabled} icon={<ClusterOutlined />} label="本体" title={ontoHint} onClick={toggleOnto} />
   const skillsChip = <ChatChip on={skillsOn} disabled={skillsDisabled} icon={<ThunderboltOutlined />} label="技能" title={skillsHint} onClick={toggleSkills} />
   // REQ-336：模型 chip 退役——模型配置归智能体（侧板「模型」页签），发送框不再提供会话级切换；
@@ -1795,7 +1832,7 @@ export default function ChatWindow({
             {/* REQ-577/M392：直挂对话归属徽标（灰字轻量——只表归属不断言当前值即继承值） */}
             {conversation.workspace_id && (
               <Tag style={{ color: 'var(--c-ink-3)', fontSize: 11 }} data-testid="ws-badge">
-                ⌂ 工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》
+                ▦ 工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》
               </Tag>
             )}
           </>
@@ -2186,8 +2223,7 @@ export default function ChatWindow({
         cmpOn={cmp.on}
         cmpPaneCount={cmp.panes.length}
         conversationKbId={conversation.kb_id}
-        conversationProfileId={conversation.runtime_profile_id}
-        conversationOntologyEnabled={conversation.ontology_enabled}
+        ontoPicker={ontoPicker}
         patchConv={patchConv as never}
         onSend={send}
         onSteer={steer}

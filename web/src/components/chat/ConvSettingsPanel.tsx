@@ -94,10 +94,14 @@ export default function ConvSettingsPanel({
           {conversation.context_mode || '跟随'}
           {!conversation.context_mode && <span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>（智能体档）</span>}
         </div>
-        {/* REQ-550/M357：项目归属工作区时透出默认值来源（写时复制——行内值已固化，与手动新建无异） */}
+        {/* REQ-550/M357：项目归属工作区时透出默认值来源（写时复制——行内值已固化，与手动新建无异）。
+            REQ-616-aa64/M424-aa64 C1（121 号 R3 呈现对等）：项目行补工作区名——两行统一
+            「创建时继承自工作区《X》（写时复制）」口径 */}
         {isProjectScope && project?.workspace_id && (
-          <div>
-            知识库/本体默认值：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>创建时继承自工作区（写时复制）</span>
+          <div data-testid="proj-ws-source-row">
+            知识库/本体默认值：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>
+              创建时继承自工作区《{workspaces?.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}》（写时复制）
+            </span>
           </div>
         )}
         {/* REQ-577/M392：直挂路径来源行扩展（inheritWorkspaceDefaults 仅继承 KB/方案两字段——文案如实） */}
@@ -108,13 +112,35 @@ export default function ConvSettingsPanel({
                 创建时继承自工作区《{workspaces?.find((w) => w.id === conversation.workspace_id)?.name ?? conversation.workspace_id}》（写时复制）
               </span>
             </div>
-            {agent && (
-              <div>
-                智能体：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>创建时选用的工作区默认智能体</span>
-              </div>
-            )}
+            {/* REQ-617-87d8/M425-87d8 R4（121 号 §5.4-⑤/E8 过度断言退役）：会话行无溯源列，原
+                「默认智能体创建时选用」式无条件断言对显式改选/API 直调等来源一律冒认——改按
+                可判定面如实标注：conversation.agent_id 与工作区现值 default_agent_id 一致才标
+                「与工作区默认一致」；不一致（创建时显式改选/默认事后变更/API 显式传入）不冒认来源 */}
+            {agent && (() => {
+              const ws = workspaces?.find((w) => w.id === conversation.workspace_id)
+              const matchesDefault = !!ws?.default_agent_id && conversation.agent_id === ws.default_agent_id
+              return (
+                <div data-testid="ws-agent-row">
+                  智能体：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>
+                    {matchesDefault ? '与工作区默认智能体一致' : '会话指定智能体'}
+                  </span>
+                </div>
+              )
+            })()}
           </>
         )}
+        {/* REQ-616-aa64/M424-aa64 C5（121 号 R3 记忆作用域呈现，runner.go recallMemory 运行时事实
+            会话内可见——直挂 workspace_id 与项目 project.workspace_id 转发两路同注入） */}
+        {(() => {
+          const memWsId = isProjectScope ? project?.workspace_id : conversation.workspace_id
+          if (!memWsId) return null
+          const wsName = workspaces?.find((w) => w.id === memWsId)?.name ?? memWsId
+          return (
+            <div data-testid="ws-memory-row">
+              跨会话记忆：<span style={{ color: 'var(--c-ink-3)', fontSize: 11 }}>注入工作区《{wsName}》的记忆</span>
+            </div>
+          )
+        })()}
       </div>
       <div className="proc-pop-title">上下文预算档（会话级覆盖，REQ-393）</div>
       <Segmented

@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, Input } from 'antd'
 import {
   PlusOutlined,
-  EllipsisOutlined,
+  AppstoreOutlined,
   DeleteOutlined,
   EditOutlined,
   DownOutlined,
-  HomeOutlined,
+  EllipsisOutlined,
+  FolderOutlined,
+  MessageOutlined,
   RightOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
@@ -18,6 +20,9 @@ import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { confirmAction } from '../lib/antd'
 import { CollapsedRail, SidebarCollapseButton, useSidebarCollapse } from '../lib/sidebar'
+import { getRecent, pushRecent, RECENT_EVENT, type RecentKind } from '../lib/recent' // REQ-616-aa64/M424-aa64 A7（121 号 R3）
+import { gotoConversation } from '../lib/deepLink' // REQ-616-aa64/M424-aa64 D1（121 号 R3）：跨模块命中分流打开
+import { RELATION_SENTENCE } from '../lib/relations' // REQ-617-87d8/M425-87d8 R4（121 号 §4.4 正式关系句单源——两模块空态落点）
 import NameModal from './NameModal'
 
 interface TreeNode {
@@ -28,23 +33,27 @@ interface TreeNode {
   builtin?: boolean // REQ-186：内置助手（置顶分区、内置徽标、无配置入口）
   convs: Conversation[]
   /** REQ-613-b6cc/M421-b6cc 容器视觉语言（121 号 R1① A3，仅 workspace 模式置位）：
-   *  ⌂ 容器图标 + 「N 项目 · M 对话」计数徽标；空壳节点（convs 空 ∪ convCount=0）不渲染 chevron */
+   *  ▦ 容器图标（REQ-618-36a1 起 Appstore，⌂ house 退役）+ 图标数字紧凑徽标；空壳节点（convs 空 ∪ convCount=0）不渲染 chevron */
   container?: boolean
   projectCount?: number
   convCount?: number
   /** REQ-614-9fb4/M422-9fb4 归属 chip（121 号 §4.1 互链，仅 project 模式置位）：
-   *  已归属项目行「⌂ 工作区《X》」chip，点击跳工作区模块并选中该工作区 */
+   *  已归属项目行「▦ 工作区《X》」chip，点击跳工作区模块并选中该工作区 */
   workspaceId?: string
 }
 
 /**
  * 左栏树（原型 06 §3.1 / §3.2）：
  * - mode=agent：智能体节点（头像点 + 会话数轻量数字 + 常驻「＋新对话」「⚙配置」），其下挂该智能体的对话；
- *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点，行加「·工作区」灰字标注区分；
- * - mode=project：项目节点同样结构，其下挂项目对话；
+ *   双入口共存口径（REQ-549）：工作区直挂对话同现于所属智能体节点——REQ-616-aa64/M424-aa64 C2（121 号 R3）
+ *   「·工作区」4 字灰字升级为可点击 chip「▦ 工作区《名》」（onOpenWorkspace 跳工作区模块）；
+ * - mode=project：项目节点同样结构，其下挂项目对话；树顶 ⭐ 最近打开虚拟分组（A7，lib/recent.ts）；
  * - mode=workspace：工作区节点（REQ-549/M356 M1b），其下挂 scope=agent 且归属本工作区的直挂对话；
  *   REQ-613-b6cc/M421-b6cc 容器视觉语言：⌂ 图标+「N 项目 · M 对话」计数徽标（后端计数尾列），
- *   空壳节点不渲染 chevron（可展开性诚实化）；左栏标题「工作区」；
+ *   空壳节点不渲染 chevron（可展开性诚实化）；左栏标题「工作区」；树顶 ⭐ 最近打开虚拟分组（A7）；
+ * - 搜索（REQ-409/528 基础上 REQ-616-aa64 D1 演进）：placeholder 动态化范围提示+命中条目来源
+ *   标注（防同名误解）+命中不在当前载荷按 scope 分流跨模块打开（lib/deepLink gotoConversation）+
+ *   空结果补跳智能体页引导；
  * - 自绘节点头部 + 子树缩进导轨（替代 antd Collapse），统一行高与间距；会话行仍用 X Conversations（含重命名/删除菜单）；
  * - 整栏可收起为 48px 图标 rail（界面瘦身：沿 Settings/Reference 同款收起基建，记忆 key eino.sidebar.collapsed——
  *   三变体共用、纯视觉收起，不改各模式树语义）。
@@ -97,7 +106,7 @@ export default function Sidebar({
   loadErr?: string | null
   onRetry?: () => void
 }) {
-  const { currentConvId, setCurrentConv, bumpData, showToast } = useUI()
+  const { currentConvId, setCurrentConv, bumpData, showToast, setPage } = useUI()
   // 界面瘦身：整栏可收起为 48px 图标 rail（沿 REQ-240① Settings/Reference 同款基建），
   // localStorage 记忆（用户偏好跨 agent/project/workspace 三变体共用——纯视觉收起，不改各模式树语义）
   const rail = useSidebarCollapse('eino.sidebar.collapsed')
@@ -105,10 +114,12 @@ export default function Sidebar({
   const [renaming, setRenaming] = useState<Conversation | null>(null)
   // REQ-409/M205：跨会话搜索——标题子串过滤（前端内存过滤）
   // REQ-528/M335：内容级第二档——kw≥3 rune 时 FTS 检索消息正文（防抖 400ms），
-  // 命中下拉（会话名+消息摘要），点击跳转对应会话
+  // 命中下拉（会话名+消息摘要），点击跳转对应会话；
+  // REQ-616-aa64/M424-aa64 D1（121 号 R3）：hit 补 scope/workspace_id/project_id 判据——
+  // 命中会话不在当前模块载荷（REQ-587 工作区侧过滤）时按 scope 分流跨模块打开（评审 gap-2「点了没反应」修复）
   const [kw, setKw] = useState('')
   const kwTrim = kw.trim().toLowerCase()
-  const [contentHits, setContentHits] = useState<{ conversation_id: string; message_id: string; role: string; content: string }[] | null>(null)
+  const [contentHits, setContentHits] = useState<{ conversation_id: string; message_id: string; role: string; content: string; scope?: string; workspace_id?: string | null; project_id?: string | null }[] | null>(null)
   useEffect(() => {
     const kwRaw = kw.trim()
     if (kwRaw.length < 3) {
@@ -125,6 +136,72 @@ export default function Sidebar({
     for (const c of conversations) m[c.id] = c.title
     return m
   }, [conversations])
+
+  // ---- REQ-616-aa64/M424-aa64 A7（121 号 R3）：⭐ 最近打开虚拟分组（项目/工作区两模块树顶）----
+  // 共用同一 lib/recent.ts（各自独立键 eino.recent.projects / eino.recent.workspaces——两模块
+  // 分组语义分立）；重度项目用户选 target ≤2 跳补偿（120 号评审 misalignment 件）。旧 id 不清洗，
+  // 按现存清单过滤后展示（项目删除后自动消失）；pushRecent 派发 eino:recent 供本组件刷新。
+  const [recentTick, setRecentTick] = useState(0)
+  useEffect(() => {
+    const h = () => setRecentTick((t) => t + 1)
+    window.addEventListener(RECENT_EVENT, h)
+    return () => window.removeEventListener(RECENT_EVENT, h)
+  }, [])
+  const recentKind: RecentKind | null = mode === 'project' ? 'project' : mode === 'workspace' ? 'workspace' : null
+  const recentItems = useMemo<Array<{ id: string; name: string; workspaceId?: string }>>(() => {
+    if (!recentKind) return []
+    const list: Array<{ id: string; name: string; workspaceId?: string }> = recentKind === 'project' ? projects : workspaces
+    const ids = getRecent(recentKind)
+    return ids.map((id) => list.find((x) => x.id === id)).filter((x): x is { id: string; name: string; workspaceId?: string } => !!x)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentKind, projects, workspaces, recentTick])
+
+  // D1：搜索 placeholder 动态化（范围提示——工作区模块载荷按 REQ-587 仅含当前工作区）
+  const searchPlaceholder =
+    mode === 'agent'
+      ? '搜索会话/智能体/消息内容'
+      : mode === 'workspace'
+        ? '搜索本工作区直挂对话/消息内容（仅当前工作区）'
+        : '搜索全部项目与会话/消息内容'
+
+  // D1：命中条目来源标注（防同名误解——同一会话名在不同项目/工作区下重名时定位归属）
+  const hitSourceLabel = (h: { scope?: string; workspace_id?: string | null; project_id?: string | null; conversation_id: string }) => {
+    const conv = conversations.find((c) => c.id === h.conversation_id)
+    const scope = conv?.scope ?? h.scope
+    const wsId = conv?.workspace_id ?? h.workspace_id ?? undefined
+    const pId = conv?.project_id ?? h.project_id ?? undefined
+    if (scope === 'project') {
+      const p = projects.find((x) => x.id === pId)
+      return p ? `项目《${p.name}》` : '项目会话'
+    }
+    if (wsId) {
+      const w = workspaces.find((x) => x.id === wsId)
+      return w ? `工作区《${w.name}》直挂` : '工作区直挂'
+    }
+    return '智能体页'
+  }
+
+  // D1：命中点击——当前载荷内且归属本模块语义 → 直接打开；否则按 scope 分流跨模块
+  //（lib/deepLink gotoConversation 写 focus.conv + 容器键 + setPage + goto 事件——R1② 到达侧消费承接）
+  const openHit = (h: { conversation_id: string; scope?: string; workspace_id?: string | null; project_id?: string | null }) => {
+    setContentHits(null)
+    setKw('')
+    const conv = conversations.find((c) => c.id === h.conversation_id)
+    const inModule =
+      conv &&
+      ((mode === 'agent' && conv.scope === 'agent') ||
+        (mode === 'project' && conv.scope === 'project') ||
+        (mode === 'workspace' && conv.scope === 'agent' && (conv.workspace_id ?? '') === (activeWorkspaceId ?? '')))
+    if (conv && inModule) {
+      openConversation(conv.id)
+      return
+    }
+    if (h.scope === 'agent' || h.scope === 'project') {
+      gotoConversation({ id: h.conversation_id, scope: h.scope, workspace_id: h.workspace_id ?? undefined, project_id: h.project_id ?? undefined })
+    } else {
+      showToast('该会话不在当前视图范围，请到对应模块查找', 'err')
+    }
+  }
 
   const nodes = useMemo<TreeNode[]>(() => {
     const byCreated = (a: Conversation, b: Conversation) => b.updated_at.localeCompare(a.updated_at) // REQ-409：最近优先
@@ -178,8 +255,13 @@ export default function Sidebar({
 
   const selectNode = (id: string) => {
     if (mode === 'agent') onSelectAgent(id)
-    else if (mode === 'workspace') onSelectWorkspace?.(id)
-    else onSelectProject(id)
+    else if (mode === 'workspace') {
+      pushRecent('workspace', id) // A7：工作区树选中入最近记录
+      onSelectWorkspace?.(id)
+    } else {
+      pushRecent('project', id) // A7：项目树选中入最近记录
+      onSelectProject(id)
+    }
   }
 
   // REQ-211：跨智能体直接点选会话——点击会话若归属智能体与当前选中不同，与 setCurrentConv
@@ -256,30 +338,43 @@ export default function Sidebar({
         <SidebarCollapseButton onClick={rail.toggle} />
       </div>
 
-      {/* REQ-409/M205：会话搜索（标题子串过滤+节点收敛；内容级检索随 KB FTS 演进） */}
+      {/* REQ-409/M205：会话搜索（标题子串过滤+节点收敛；内容级检索随 KB FTS 演进）。
+          REQ-616-aa64/M424-aa64 D1（121 号 R3）：placeholder 动态化范围提示（两模块各自语义）+
+          命中条目来源标注（防同名误解）+ 命中不在当前载荷按 scope 分流跨模块打开（评审 gap-2）+
+          空结果补跳智能体页引导 */}
       <div style={{ padding: '0 10px 6px' }}>
         <Input
           size="small"
           allowClear
-          placeholder="搜索会话/智能体/消息内容"
+          placeholder={searchPlaceholder}
           prefix={<SearchOutlined style={{ color: 'var(--c-ink-3, #9aa1bd)' }} />}
           value={kw}
           onChange={(e) => setKw(e.target.value)}
           data-testid="conv-search"
         />
+          {/* D1 空结果引导仅双模块（agent 模式本身全量载荷，无「范围外」语义） */}
+          {kwTrim && mode !== 'agent' && nodes.length === 0 && !(contentHits && contentHits.length > 0) && (
+            <div className="side-node-empty" style={{ margin: '6px 2px 0' }} data-testid="search-empty-guide">
+              本模块无命中——
+              <a
+                onClick={() => setPage('agents')}
+                style={{ cursor: 'pointer' }}
+                data-testid="search-empty-guide-agents"
+              >到智能体页搜索全部会话</a>
+            </div>
+          )}
         {contentHits && contentHits.length > 0 && (
           <div data-testid="content-hits" style={{ margin: '6px 0 0', maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
             {contentHits.slice(0, 8).map((h) => (
               <div
                 key={h.message_id}
                 style={{ padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: 'var(--c-bg-soft, #f6f7fb)', fontSize: 11 }}
-                onClick={() => {
-                  setCurrentConv(h.conversation_id)
-                  setContentHits(null)
-                  setKw('')
-                }}
+                onClick={() => openHit(h)}
               >
-                <span style={{ color: 'var(--c-ink-3, #9aa1bd)', marginRight: 6 }}>{h.role === 'assistant' ? '结论' : '提问'} · {convNameById[h.conversation_id] ?? '会话'}</span>
+                <span style={{ color: 'var(--c-ink-3, #9aa1bd)', marginRight: 6 }}>
+                  {h.role === 'assistant' ? '结论' : '提问'} · {convNameById[h.conversation_id] ?? '会话'}
+                  <span title={`来源：${hitSourceLabel(h)}`} style={{ marginLeft: 4 }}>〔{hitSourceLabel(h)}〕</span>
+                </span>
                 <span style={{ color: 'var(--c-ink-2, #414a63)' }}>{h.content.slice(0, 60)}{h.content.length > 60 ? '…' : ''}</span>
               </div>
             ))}
@@ -311,6 +406,8 @@ export default function Sidebar({
             />
           ) : isWorkspace ? (
             // REQ-549/M356：工作区空态引导（领域容器——默认值免每会话重选）
+            // REQ-616-aa64/M424-aa64 D2（121 号 R3）：空态互链提示——提及对方模块
+            // REQ-617-87d8/M425-87d8 R4（121 号 §4.4）：footer 升正式关系句（单源 lib/relations——互链语义由句内两概念并提承接）
             <EmptyGuide
               title="创建第一个工作区"
               steps={[
@@ -320,9 +417,11 @@ export default function Sidebar({
               ]}
               actionLabel="＋ 新建工作区"
               onAction={onNewWorkspace ?? (() => {})}
-              footer="创建后点节点上的 ＋ 新建对话。"
+              footer={RELATION_SENTENCE}
             />
           ) : (
+            // REQ-616-aa64/M424-aa64 D2（121 号 R3）：空态互链提示——提及对方模块
+            // REQ-617-87d8/M425-87d8 R4（121 号 §4.4）：footer 升正式关系句（单源 lib/relations）
             <EmptyGuide
               title="创建第一个项目"
               steps={[
@@ -332,16 +431,41 @@ export default function Sidebar({
               ]}
               actionLabel="＋ 新建项目"
               onAction={onNewProject}
-              footer="项目会话由成员智能体协作完成。"
+              footer={RELATION_SENTENCE}
             />
           )
           )
         )}
 
+        {/* REQ-616-aa64/M424-aa64 A7（121 号 R3）：⭐ 最近打开虚拟分组（项目/工作区两模块树顶；
+            重度项目用户 ≤2 跳补偿——120 号评审 misalignment 件；智能体页不设） */}
+        {recentItems.length > 0 && (
+          <div className="side-recent" data-testid={`recent-group-${recentKind}`}>
+            <div className="side-recent-title">⭐ 最近打开</div>
+            {recentItems.map((r) => {
+              const wsId = recentKind === 'project' ? (r as { workspaceId?: string }).workspaceId : undefined
+              const wsName = wsId ? workspaces.find((w) => w.id === wsId)?.name : undefined
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="side-recent-row"
+                  data-testid={`recent-row-${r.id}`}
+                  title={`打开${recentKind === 'project' ? '项目' : '工作区'}「${r.name}」`}
+                  onClick={() => selectNode(r.id)}
+                >
+                  <span className="side-recent-name">{r.name || (recentKind === 'project' ? '未命名项目' : '未命名工作区')}</span>
+                  {wsName && <span className="proj-ws-chip" title={`已归属工作区「${wsName}」`}>▦ {wsName}</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {nodes.map((n) => {
           // REQ-613-b6cc/M421-b6cc chevron 诚实化（121 号 R1① A4 工作区侧先行）：空壳节点
           // （无直挂对话且 conv_count=0）不渲染箭头、只显名称+徽标——可展开性如实。
-          // agent/project 模式维持现状（两模块同规随 R3——121 号 §6 R3 呈现对等批）。
+          // agent/project 模式维持现状（A4 两模块同规剩余面不在 R3 批十件清单——121 号 §6，留后续）。
           const hasSub = mode !== 'workspace' || n.convs.length > 0 || (n.convCount ?? 0) > 0
           const expanded = hasSub && !!open[n.key]
           const active = activeId === n.key
@@ -358,12 +482,14 @@ export default function Sidebar({
                     <span className="side-node-chev">{expanded ? <DownOutlined /> : <RightOutlined />}</span>
                   ) : null}
                   {n.container && (
-                    <span className="side-node-ico" aria-hidden="true"><HomeOutlined /></span>
+                    <span className="side-node-ico" aria-hidden="true"><AppstoreOutlined /></span>
                   )}
                   <span className="side-node-name" title={n.name}>{n.name || (mode === 'workspace' ? '未命名工作区' : mode === 'project' ? '未命名项目' : '未命名智能体')}</span>
                   {n.container && (
                     <span className="side-node-badge" data-testid={`ws-badge-${n.key}`} title={`名下项目 ${n.projectCount ?? 0} · 对话 ${n.convCount ?? 0}（直挂∪归属项目会话）`}>
-                      {n.projectCount ?? 0} 项目 · {n.convCount ?? 0} 对话
+                      {/* REQ-618-36a1/M426-36a1 徽标紧凑化：「N 项目 · M 对话」文字→图标数字芯片（栏宽收窄配套；完整口径在 title） */}
+                      <span className="side-badge-item"><FolderOutlined /> {n.projectCount ?? 0}</span>
+                      <span className="side-badge-item"><MessageOutlined /> {n.convCount ?? 0}</span>
                     </span>
                   )}
                   {/* REQ-488：彩色 Tag 灰字化——内置标注为中性灰字（非状态色） */}
@@ -384,7 +510,7 @@ export default function Sidebar({
                       title={`已归属工作区「${wsName}」——点击到工作区模块查看`}
                       onClick={(e) => { e.stopPropagation(); onOpenWorkspace?.(wsId) }}
                     >
-                      ⌂ 工作区《{wsName}》
+                      ▦ 工作区《{wsName}》
                     </button>
                   )
                 })()}
@@ -408,8 +534,26 @@ export default function Sidebar({
                     <Conversations
                       items={n.convs.map((c) => ({
                         key: c.id,
-                        // REQ-549 双入口共存口径：工作区直挂对话同现智能体页，行尾「·工作区」灰字标注区分
-                        label: (c.title || '未命名对话') + (mode === 'agent' && c.workspace_id ? ' · 工作区' : ''),
+                        // REQ-549 双入口共存标注 → REQ-616-aa64/M424-aa64 C2（121 号 R3）：智能体页
+                        // 直挂对话「· 工作区」4 字灰字升级为可点击 chip「▦ 工作区《名》」——点击经
+                        // onOpenWorkspace 跳工作区模块选中该工作区（stopPropagation 不触发行选中）
+                        label:
+                          mode === 'agent' && c.workspace_id ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title || '未命名对话'}</span>
+                              <button
+                                type="button"
+                                className="proj-ws-chip"
+                                data-testid={`agent-ws-chip-${c.id}`}
+                                title={`归属工作区「${workspaces.find((w) => w.id === c.workspace_id)?.name ?? c.workspace_id}」——点击到工作区模块查看`}
+                                onClick={(e) => { e.stopPropagation(); onOpenWorkspace?.(c.workspace_id!) }}
+                              >
+                                ▦ 工作区《{workspaces.find((w) => w.id === c.workspace_id)?.name ?? c.workspace_id}》
+                              </button>
+                            </span>
+                          ) : (
+                            (c.title || '未命名对话')
+                          ),
                       }))}
                       activeKey={currentConvId ?? undefined}
                       onActiveChange={openConversation}
