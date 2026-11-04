@@ -224,19 +224,11 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	// 配置变更需重启生效：running 方案先停
-	p, err := s.Store.Get(id)
-	if err != nil {
-		writeErr(w, err)
-		return
+	patch := manager.ProfileUpdate{Name: &req.Name, OntologyIDs: &req.OntologyIDs, Port: &req.Port}
+	if req.Config != "" {
+		patch.Config = &req.Config
 	}
-	if p.Status == "running" || p.Status == "starting" {
-		if err := s.Manager.Stop(id); err != nil {
-			writeErr(w, err)
-			return
-		}
-	}
-	if err := s.Store.UpdateMeta(id, req.Name, orDefault(req.Config, p.Config), req.OntologyIDs, req.Port); err != nil {
+	if err := s.Manager.Update(id, patch); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -246,15 +238,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	p, err := s.Store.Get(id)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if p.Status == "running" || p.Status == "starting" {
-		_ = s.Manager.Stop(id)
-	}
-	if err := s.Store.Delete(id); err != nil {
+	if err := s.Manager.Remove(id); err != nil {
 		writeErr(w, err)
 		return
 	}

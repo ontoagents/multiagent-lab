@@ -6,14 +6,14 @@
 package tool
 
 import (
-	"sync"
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/compose"
 	einotool "github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -46,10 +46,11 @@ const (
 // DangerousBuiltinTools REQ-231① 危险工具清单（danger 档审批范围——写类内置 + 出网取数；
 // read-only（grep/glob/read_file/current_time/ask_human/list_files）免审。口径见 51 号 W2）。
 var DangerousBuiltinTools = map[string]bool{
-	"write_file": true,
-	"save_file":  true,
-	"todo_write": true,
-	"http_fetch": true,
+	"write_file":  true,
+	"save_file":   true,
+	"todo_write":  true,
+	"http_fetch":  true,
+	"run_command": true, // 沙箱命令同样必须经过 danger 档逐调用审批。
 	// REQ-354/M154：ontochat_save 写类内置（对话产物入库为本体资产，资产库变更面）
 	"ontochat_save": true,
 }
@@ -97,7 +98,9 @@ func MCPReadOnlyHint(fullName string) bool {
 }
 
 // ResetMCPReadOnlyHintsForTest 测试注清空。
-func ResetMCPReadOnlyHintsForTest() { mcpReadOnlyHints.Range(func(k, _ any) bool { mcpReadOnlyHints.Delete(k); return true }) }
+func ResetMCPReadOnlyHintsForTest() {
+	mcpReadOnlyHints.Range(func(k, _ any) bool { mcpReadOnlyHints.Delete(k); return true })
+}
 
 // HasMCPReadOnlyAnnotation 工具是否有官方 annotations 标注（readOnlyHint 显式 true/false 均算）。
 func HasMCPReadOnlyAnnotation(fullName string) bool {
@@ -144,12 +147,23 @@ func (t *approvalTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *approvalTool) InvokableRun(ctx context.Context, arguments string, _ ...einotool.Option) (string, error) {
-	// REQ-231②：豁免清单内工具直接放行（恢复重入的旧挂起不受影响——豁免只作用于新挂起）
-	if t.exempt != nil && t.exempt[t.name] {
-		return t.inner.InvokableRun(ctx, arguments)
-	}
 	// 恢复重入路径：本工具地址处于中断恢复流程
 	if was, hasState, st := compose.GetInterruptState[*ApprovalState](ctx); was {
+		// 旧挂起必须先过超时门禁；定向批准和新增豁免均不能覆盖。
+		if hasState && st != nil {
+			// REQ-231③：挂起超时——恢复重入且挂起时刻超过 timeout → 自动 deny（附超时语义，
+			// 模型可据此调整方案；零值/不可解析=不限，旧挂起不回溯）
+			if t.timeoutHours > 0 && st.SuspendedAt != "" {
+				if at, perr := time.Parse(time.RFC3339, st.SuspendedAt); perr == nil && time.Since(at) > time.Duration(t.timeoutHours*float64(time.Hour)) {
+					EmitEvent(ctx, "approval.denied", map[string]any{
+						"tool_name": t.name, "args_digest": argsDigest(arguments),
+						"decision": "deny", "decision_source": "timeout",
+						"timeout_hours": t.timeoutHours,
+					})
+					return fmt.Sprintf(`{"approved":false,"timeout":true,"tool_name":%q,"message":"审批挂起超过 %.1f 小时未被处理，已自动拒绝本次调用；请勿重复调用，请询问用户希望如何调整方案。"}`, t.name, t.timeoutHours), nil
+				}
+			}
+		}
 		if isTarget, hasData, dec := compose.GetResumeContext[string](ctx); isTarget && hasData {
 			if strings.TrimSpace(dec) == ApprovalApprove {
 				// REQ-224：approval.granted 结构化审计事件（决策上下文=恢复定向批准）
@@ -166,21 +180,13 @@ func (t *approvalTool) InvokableRun(ctx context.Context, arguments string, _ ...
 			return fmt.Sprintf(`{"approved":false,"tool_name":%q,"message":"用户拒绝了本次工具调用；请勿重复调用，请询问用户希望如何调整方案。"}`, t.name), nil
 		}
 		if hasState && st != nil {
-			// REQ-231③：挂起超时——恢复重入且挂起时刻超过 timeout → 自动 deny（附超时语义，
-			// 模型可据此调整方案；零值/不可解析=不限，旧挂起不回溯）
-			if t.timeoutHours > 0 && st.SuspendedAt != "" {
-				if at, perr := time.Parse(time.RFC3339, st.SuspendedAt); perr == nil && time.Since(at) > time.Duration(t.timeoutHours*float64(time.Hour)) {
-					EmitEvent(ctx, "approval.denied", map[string]any{
-						"tool_name": t.name, "args_digest": argsDigest(arguments),
-						"decision": "deny", "decision_source": "timeout",
-						"timeout_hours": t.timeoutHours,
-					})
-					return fmt.Sprintf(`{"approved":false,"timeout":true,"tool_name":%q,"message":"审批挂起超过 %.1f 小时未被处理，已自动拒绝本次调用；请勿重复调用，请询问用户希望如何调整方案。"}`, t.name, t.timeoutHours), nil
-				}
-			}
 			// 未被定向恢复（如恢复的是别的中断点）→ 原样再中断，保持状态等待
 			return "", compose.StatefulInterrupt(ctx, &ApprovalInfo{ToolName: st.ToolName, Arguments: st.Arguments}, st)
 		}
+	}
+	// REQ-231②：豁免清单内工具直接放行（恢复重入的旧挂起不受影响——豁免只作用于新挂起）
+	if t.exempt != nil && t.exempt[t.name] {
+		return t.inner.InvokableRun(ctx, arguments)
 	}
 	// 首次调用：挂起等待人工审批（REQ-231③ 挂起时刻随 checkpoint 记录）
 	return "", compose.StatefulInterrupt(ctx,

@@ -468,17 +468,7 @@ func (r *Runtime) startFuseki(ctx context.Context, profileID string, port int, t
 
 	// Fuseki 6.x dataset 端点为 /ds/（POST SPARQL 即查询；GET /$/ping 做健康探测）
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/ds/", port)
-	p := engine.NewProcess(endpoint, serveCmd.Process.Pid, func() error {
-		_ = procgroup.Kill(serveCmd.Process.Pid, true)
-		done := make(chan struct{})
-		go func() { _, _ = serveCmd.Process.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(8 * time.Second): // JVM 退出较慢，宽限 8s
-			_ = procgroup.Kill(serveCmd.Process.Pid, false)
-		}
-		return nil
-	})
+	p := engine.NewProcess(endpoint, serveCmd.Process.Pid, procgroup.Stopper(serveCmd.Process, 8*time.Second))
 	return p, nil
 }
 

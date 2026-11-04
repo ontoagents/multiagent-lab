@@ -203,18 +203,7 @@ func (r *Runtime) serve(ctx context.Context, bin, profileID string, port int, di
 	go drainLog(filepath.Join(r.LogDir, profileID+".log"), stderr)
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
-	p := engine.NewProcess(endpoint, cmd.Process.Pid, func() error {
-		// 进程组整体终止（Rust 子进程树；Windows 为 taskkill /T 等价，见 procgroup）
-		_ = procgroup.Kill(cmd.Process.Pid, true)
-		done := make(chan struct{})
-		go func() { _, _ = cmd.Process.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			_ = procgroup.Kill(cmd.Process.Pid, false)
-		}
-		return nil
-	})
+	p := engine.NewProcess(endpoint, cmd.Process.Pid, procgroup.Stopper(cmd.Process, 5*time.Second))
 	return p, nil
 }
 

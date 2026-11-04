@@ -98,7 +98,7 @@ func (r *Runtime) DockerStartOpts(ctx context.Context, profileID string, port in
 	_, _ = run("rm", "-f", containerName(profileID))
 	serveArgs := []string{"run", "-d", "--name", containerName(profileID),
 		"-p", fmt.Sprintf("127.0.0.1:%d:8080", port),
-		"-v", abs+":/data"}
+		"-v", abs + ":/data"}
 	if !opts.CompanionMode {
 		serveArgs = append(serveArgs, image, "serve", "--location", "/data", "--bind", "0.0.0.0:8080", "--union-default-graph")
 		if _, serr := run(serveArgs...); serr != nil {
@@ -120,9 +120,7 @@ func (r *Runtime) DockerStartOpts(ctx context.Context, profileID string, port in
 		}
 		endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
 		return engine.NewProcess(endpoint, 0, func() error {
-			c := exec.Command(bin, "rm", "-f", containerName(profileID))
-			_, _ = c.CombinedOutput()
-			return nil
+			return dockerStop(bin, profileID)
 		}), nil
 	}
 	// 伴生模式：容器内 oxigraph load（数据目录挂载 /data，与 REQ-309 前行为一致）
@@ -148,9 +146,7 @@ func (r *Runtime) DockerStartOpts(ctx context.Context, profileID string, port in
 	}
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/query", port)
 	return engine.NewProcess(endpoint, 0, func() error {
-		c := exec.Command(bin, "rm", "-f", containerName(profileID))
-		_, _ = c.CombinedOutput()
-		return nil
+		return dockerStop(bin, profileID)
 	}), nil
 }
 
@@ -176,9 +172,13 @@ func DockerStop(profileID string) error {
 	if bin == "" {
 		return fmt.Errorf("docker CLI 不可用，无法回收容器 %s", containerName(profileID))
 	}
+	return dockerStop(bin, profileID)
+}
+
+func dockerStop(bin, profileID string) error {
 	out, err := exec.Command(bin, "rm", "-f", containerName(profileID)).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker rm -f %s: %v: %s", containerName(profileID), err, tail(out, 200))
+		return fmt.Errorf("docker rm -f %s: %w: %s", containerName(profileID), err, tail(out, 200))
 	}
 	return nil
 }
