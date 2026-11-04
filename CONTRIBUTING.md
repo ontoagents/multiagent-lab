@@ -12,8 +12,10 @@
 
 | 改动类型 | 流程 |
 | --- | --- |
-| bug 修复、文档改进、小功能（非行为级） | 直接用 [issue 模板](.github/ISSUE_TEMPLATE/) 开 issue 或提 PR，无需领 REQ 编号 |
-| 行为级改动（新功能/行为变更/跨模块） | 与维护者同一套流程：①同步 main → ②查 `docs/18_REQ编号注册表.md` 领号（规则见下节，并发安全免协调）→ ③开发+交付回写 → ④PR |
+| 恢复既定行为的 bug 修复、文案、等价重构、测试或开发配置整理 | 沿已有需求或记录变更，无需新增 REQ |
+| 新增产品能力或改变既定行为 | 核对 main 与已有需求 → 未覆盖时按 `docs/18_REQ编号注册表.md` 领号 → 实现、验证与回写 → 准备 PR |
+
+本地修复不以提交或推送为前提。代理操作的权限见 [AGENTS.md](AGENTS.md)；推送、创建/合并 PR 等远程写操作需明确授权，不能从本贡献流程推定授权。
 
 带 `good first issue` / `help wanted` 标签的 issue 可直接领取（评论认领后再动手，避免撞车）。
 
@@ -21,7 +23,7 @@
 
 - Go 1.25+、Node 20+
 - 一条命令启动：`./run-dev.sh`（Windows：`.\run-dev.ps1`；backend :8080 + web :5173 dev server；本体双平面服务按需拉起）
-- **启用 pre-commit 门禁（clone 后必须执行一次，否则钩子不生效）**：
+- **首次配置开发环境时启用 pre-commit 门禁**（环境配置需用户授权，普通任务不自动修改；未安装钩子也须手动执行文档检查）：
 
   ```bash
   git config core.hooksPath hooks   # 之后每次 commit 自动跑 doccheck
@@ -31,11 +33,11 @@
 
 ## 提交前必查
 
-1. **测试**：改动面所属模块的 Go 测试全绿（`cd backend && go test ./internal/...`；ontology-service / runtime-manager / pkg/ 各自 `go test ./...`）；
-2. **前端**：`cd web && npx tsc --noEmit && npm run build` 绿；
-3. **文档门禁**：`cd backend && go test ./internal/doccheck` 绿（pre-commit 钩子自动跑）——校验需求编号引用、文档头部版本与迭代表一致、AGENTS 窗口预算等；
-4. **迁移**：新 SQLite 迁移放 `backend/internal/store/migrations/`（数字前缀.sql），CREATE TABLE 建议 `IF NOT EXISTS`（doccheck 幂等提示）；backend 迁移机制走 `pkg/migrate`；
-5. **并发面改动**（TurnLoop/delegate/runner）：附 `go test -race ./internal/chat/` 结果一行；
+1. **Go 改动**：先验证受影响包，按调用面与风险扩到相关模块；无需为纯文档修改运行全部服务测试；
+2. **前端改动**：`cd web && npm run build`（脚本已包含 TypeScript 检查）；官网改动在 `website/` 运行自己的构建；
+3. **文档门禁**：`cd backend && go test -count=1 ./internal/doccheck` 通过（已安装的 pre-commit 钩子会执行）——校验需求引用、版本、文档结构与冲突残留；
+4. **迁移**：数据库变更须有授权，新迁移放对应服务目录（backend 为 `backend/internal/store/migrations/`，数字前缀.sql）；按现有迁移机制核对编号与幂等要求；
+5. **并发面改动**：对受影响包执行 `go test -race` 并记录结果（如 backend 的 `./internal/chat/`、`./internal/workflow/`）；
 6. **前端动线改动**：按 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) 对应模块节做 headless 冒烟；截图留本地 `smoke/`（已 gitignore，勿 `git add -f` 入库）；
 7. **commit 邮箱归属**：`git config user.email` 应为 GitHub 账号**已验证邮箱**或 `<用户名>@users.noreply.github.com`——GitHub 按 commit 作者邮箱归属贡献者，未绑定邮箱的提交无法计入你的贡献者名单（历史提交在你绑定该邮箱后自动回溯归属，无需改写历史）。
 
@@ -44,18 +46,14 @@
 - **领取规则**（完整版见 [118 号方案](docs/research/08_调研预研/118_开源协作_单一权威仓与并发领号机制_20261103.md) §3.2）：①`git fetch origin` 核对 main 最新 `docs/18`；②序号段 = 当前最大 seq+1；③后缀 = 本机 4 位随机（如 `openssl rand -hex 2` → `REQ-606-a3f9`）——**完整串即唯一 ID，并发撞序号段无需顺延**（后缀保证唯一）；④正式账本行（18/19/迭代表）写完整串，行文可缩写；
 - 里程碑号随批同后缀（`M<seq>-<rand4>`，与批主 REQ 同串）；存量 REQ-1~604 纯序号永久有效；
 - 开放需求机读队列见 `docs/19_REQ状态索引.md`；
-- 需求详录落归属档（01 智能体/03 本体/11 知识库）迭代表 + `docs/20` 冒烟清单两处（G-7 单源口径）——外部贡献的小修可最小回写（归属档迭代表一行+20 号对应行），维护者合入时补漏；
-- 现状手册文档（`docs/handbook/`）发生语义级变更时同步对应模块导读页（AGENTS 纪律 7）；`docs/research/` 为过程调研区，方案档随行为级批次落位。
+- 产品交付详录落归属需求档迭代表 + `docs/20` 验证记录；开发治理变更记治理档，纯笔误无需批量回写；内外贡献者规则相同；
+- 产品行为、能力或决策变化时更新对应 handbook 现状档，模块导读与子模块能力表按归属选择；独立方案落 `docs/research/`。细则见 [交付参考](.agents/skills/onto-dev/references/delivery.md)。
 
 ## AI 代理开发工作流（skill）
 
-本仓随库附带项目级 skill：[`.agents/skills/onto-dev/SKILL.md`](.agents/skills/onto-dev/SKILL.md)——把「需求立项领号 → 方案档落位 → 实现纪律 → 交付回写 → 文档四区归区」整套流程蒸馏为代理可执行的操作手册，供维护者与使用 AI 代理的外部协作者对齐开发流程：
+本仓开发 Skill：[onto-dev](.agents/skills/onto-dev/SKILL.md)。仅在处理 REQ 立项、交付回写或文档归区时加载入口，再按当前任务选择参考文件；普通代码阅读或文案小修无需加载。支持 `.agents/skills/` 的工具可发现它；其他工具直接读取同一文件，避免复制出多份规则。
 
-- **zcode / 其他支持 `.agents/skills/` 约定的工具**：clone 后自动发现；对话涉及立项、交付回写、文档归区时自动触发，也可显式调用（`/onto-dev`）；
-- **Claude Code**：可直接读 `.agents/skills/onto-dev/SKILL.md`，或复制到 `.claude/skills/onto-dev/` 获得同款自动发现；
-- **其他工具 / 不使用代理**：把 SKILL.md 当作流程 runbook 直接阅读即可——它就是本仓「一套逻辑」的最短完整版。
-
-规则权威仍是 [AGENTS.md](AGENTS.md) 硬性纪律（skill 为其操作蒸馏；规则变更先落 AGENTS.md，skill 随轮跟进）。skill 对所有贡献者同等适用——领号、交付回写、文档归区一套流程内外零差别。
+项目权限与完成标准统一见 [AGENTS.md](AGENTS.md)。完成包括实现、运行适用检查、修复失败并重新验证；受环境限制的检查须明确标为未验证，不得以跳过冒充通过。
 
 ## PR 口径
 
