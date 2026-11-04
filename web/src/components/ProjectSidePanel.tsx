@@ -984,7 +984,17 @@ function CollabView({ project, agents, onChanged }: { project: Project; agents: 
     <div className="proj-view-body">
       {/* REQ-311 B1/M115：协作拓扑（静态有向图+会话回放委派计数/在栈高亮）——「发生了什么」可见性 */}
       <Section first>协作拓扑</Section>
-      <CollabTopology project={project} agents={agents} />
+      {/* REQ-620/M428 编辑态联动：draft 传协作视图当前编辑值——改模式/成员/主智能体后拓扑即时跟随（修复改后拓扑不变） */}
+      <CollabTopology
+        project={project}
+        agents={agents}
+        draft={{
+          collabMode,
+          workflowMode,
+          coordinator: Object.entries(selected).find(([, r]) => r === 'coordinator')?.[0] ?? project.coordinator,
+          memberIds: Object.entries(selected).filter(([, r]) => r === 'member').map(([id]) => id),
+        }}
+      />
       <Section>协作模式</Section>
       {/* REQ-251：智能体侧板 Graph 占位说明并入此处（编排配置的真正归属地） */}
       <div className="member-hint" style={{ marginBottom: 8 }}>
