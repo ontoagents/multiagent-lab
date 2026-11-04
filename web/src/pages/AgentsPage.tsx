@@ -40,18 +40,32 @@ export default function AgentsPage() {
   useEffect(() => {
     api.listWorkspaces().then((r) => setWorkspaces(r ?? [])).catch(() => {})
   }, [])
-  // REQ-584/M399：删除工作区「查看回落对话」直达（eino.focus.conv——convs 载入后选中该会话+归属智能体）
+  // REQ-584/M399：删除工作区「查看回落对话」直达（eino.focus.conv——convs 载入后选中该会话+归属智能体）。
+  // REQ-614-9fb4 R1②：补 scope 防线——本页只消费直挂（scope=agent）键；项目会话键留给项目模块
+  // （121 号 §5.2 focus.conv 按 scope 分流后，到达侧协议各模块一致，防本页载荷误吃项目会话键）。
+  // 两段式（同 ProjectsPage/WorkspacePage R1②）：先提交智能体选中，归属匹配后的下一个 effect
+  // 再 setCurrentConv——防 zustand 同步更新与 useState 批处理的提交错位被归位守卫清空。
+  const pendingConvRef = useRef<string | null>(null)
   useEffect(() => {
     if (convs.length === 0) return
     const convId = sessionStorage.getItem('eino.focus.conv')
     if (!convId) return
     const conv = convs.find((c) => c.id === convId)
-    if (conv) {
+    if (conv && conv.scope === 'agent') {
       sessionStorage.removeItem('eino.focus.conv')
       if (conv.agent_id) setActiveAgentId(conv.agent_id)
-      setCurrentConv(conv.id)
+      pendingConvRef.current = conv.id
     }
   }, [convs])
+  useEffect(() => {
+    const pend = pendingConvRef.current
+    if (!pend) return
+    const conv = convs.find((c) => c.id === pend)
+    if (conv && conv.agent_id === activeAgentId) {
+      pendingConvRef.current = null
+      setCurrentConv(conv.id)
+    }
+  }, [activeAgentId, convs, setCurrentConv])
   useEffect(() => {
     const gotoAgents = () => {
       try {

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dropdown, Splitter, Tooltip, Typography } from 'antd'
-import { BlockOutlined, DownOutlined, ProjectOutlined } from '@ant-design/icons'
+import { Button, Dropdown, Splitter, Typography } from 'antd'
+import { DownOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
-import type { Agent, Conversation, Project } from '../api/types'
+import type { Agent, Conversation, Project, Workspace } from '../api/types'
 import { useUI } from '../store/ui'
 import { SIDEBAR_WIDTH, sidebarDefaultSize, sidebarRemember } from '../lib/layout'
 import Sidebar from '../components/Sidebar'
@@ -11,77 +11,24 @@ import ProjectModal from '../components/ProjectModal'
 import ProjectSidePanel, { type PanelView } from '../components/ProjectSidePanel'
 import HybridTeamTemplate from '../components/HybridTeamTemplate'
 import DevTeamTemplate from '../components/DevTeamTemplate'
-import WorkspacePage from './WorkspacePage'
-
-/** REQ-549/M356：模块内页签选中记忆（切走再切回不丢位置；沿 eino.onto.sidebar 先例） */
-type ProjTab = 'project' | 'workspace'
 
 /**
- * 工作区模块（REQ-549/M356 M1b 立页签；REQ-597/M408 宿主反转）：内容区顶部「工作区（默认）|
- * 项目」模块内页签（module-tabs 先例，key/route 零改动——106 号 mustFix-3 终值 + Q-23 衍生①
- * 转正：导航模块已更名「工作区」，IA 宿主与 Q-24 概念模型同向），页签下为两套页面体。
+ * 项目模块（REQ-614-9fb4/M422-9fb4 双模块分立 R1②，121 号 §4.1：REQ-597 页签结构退役，
+ * 模块体=加工作区前的项目体验归位）：
+ * 左栏为项目折叠列表（每节点常驻「＋新对话」「⚙配置」；已归属项目行「⌂ 工作区《X》」chip 互链跳
+ * 工作区模块），右侧为与智能体视图一致的对话窗口；协作模板入口与模板弹窗原位保留（不迁移）。
+ * REQ-103：项目配置改为右侧边栏配置视图（原 ProjectModal 编辑表单迁入）；ProjectModal 仅用于新建。
+ * 深链（121 号 §5.2 重排后）：eino.focus.project→本模块选中项目+开侧板（eino:goto.project 事件+
+ * 挂载消费双入口）；eino.focus.conv（scope=project）→本模块打开该会话（分流基座 lib/deepLink）。
  */
 export default function ProjectsPage() {
-  // REQ-584/M399：PROJ_TAB_KEY 跨会话持久化退役；REQ-597/M408：导航点击恒落「工作区」默认页签
-  // （宿主反转——工作区是模块门面；会话内页签切换仍随点随切）。REQ-580 深链（eino.focus.project）不受影响。
-  const [tab, setTab] = useState<ProjTab>('workspace')
-  const selectTab = (t: ProjTab) => {
-    setTab(t)
-  }
-  // REQ-495②段尾项：「保存到笔记本」未绑定引导的「前往绑定」直达（SaveToNotebookModal 派发）
-  useEffect(() => {
-    const goto = () => selectTab('workspace')
-    window.addEventListener('eino:goto.projtab', goto)
-    return () => window.removeEventListener('eino:goto.projtab', goto)
-  }, [])
-  return (
-    <div className="module-shell">
-      <div className="module-tabs" role="tablist" aria-label="工作区模块导航" data-testid="proj-module-tabs">
-        <Tooltip title="领域容器：会话默认值与直挂对话" placement="bottom" mouseEnterDelay={0.4}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'workspace'}
-            aria-current={tab === 'workspace' ? 'page' : undefined}
-            className={`module-tab${tab === 'workspace' ? ' active' : ''}`}
-            onClick={() => selectTab('workspace')}
-            data-testid="proj-tab-workspaces"
-          >
-            <span className="module-tab-icon"><BlockOutlined /></span>
-            <span className="module-tab-label">工作区</span>
-          </button>
-        </Tooltip>
-        <Tooltip title="执行容器：目录/Git/文件/成员协作" placement="bottom" mouseEnterDelay={0.4}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'project'}
-            aria-current={tab === 'project' ? 'page' : undefined}
-            className={`module-tab${tab === 'project' ? ' active' : ''}`}
-            onClick={() => selectTab('project')}
-            data-testid="proj-tab-projects"
-          >
-            <span className="module-tab-icon"><ProjectOutlined /></span>
-            <span className="module-tab-label">项目</span>
-          </button>
-        </Tooltip>
-      </div>
-      <div className="module-body">{tab === 'workspace' ? <WorkspacePage /> : <ProjectsBody />}</div>
-    </div>
-  )
-}
-
-/**
- * 项目页体（原型 06 §3.2）：
- * 左栏为项目折叠列表（每节点常驻「＋新对话」「⚙配置」），右侧为与智能体视图一致的对话窗口。
- * REQ-103：项目配置改为右侧边栏配置视图（原 ProjectModal 编辑表单迁入）；ProjectModal 仅用于新建。
- */
-function ProjectsBody() {
   const { currentConvId, setCurrentConv, dataVersion, bumpData, showToast } = useUI()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null) // REQ-515/M322 三态收口
   const [convs, setConvs] = useState<Conversation[]>([])
+  // 归属 chip 名称解析（REQ-614-9fb4 R1②：⌂ 工作区《X》chip——清单拉取失败静默=chip 回落显 id）
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   // REQ-536/M390 现场恢复：选中项目进 sessionStorage（eino.project.active）
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
     try {
@@ -96,23 +43,55 @@ function ProjectsBody() {
       else sessionStorage.removeItem('eino.project.active')
     } catch {}
   }, [activeProjectId])
-  // REQ-580/M395：项目侧深链（eino.focus.project）——选中该项目+开侧板+config 视图（SaveToNotebook 未归属分支直达）
+  // REQ-580/M395：项目侧深链（eino.focus.project）——选中该项目+开侧板+config 视图（SaveToNotebook
+  // 未归属分支/工作区总览名下项目卡直达）。REQ-614-9fb4 R1② 重排：事件键 eino:goto.projtab.project
+  // 退役改 eino:goto.project（页签语义退役）；并补挂载消费——跨模块导航（setPage('projects')）后本组件
+  // 重新挂载、事件派发发生在挂载前收不到，键由挂载消费承接（121 号 §5.2）。
+  // 删键时机=命中才删（AgentsPage 协议）：跨模块挂载首轮 projects 尚未载入，未命中即删会丢键。
   useEffect(() => {
-    const gotoProjectConfig = () => {
+    const consume = () => {
       try {
         const pid = sessionStorage.getItem('eino.focus.project')
         if (!pid) return
-        sessionStorage.removeItem('eino.focus.project')
         if (projects.some((p) => p.id === pid)) {
+          sessionStorage.removeItem('eino.focus.project')
           setActiveProjectId(pid)
           setSidePanelOpen(true)
           setPanelView('config')
         }
       } catch { /* sessionStorage 不可用静默 */ }
     }
-    window.addEventListener('eino:goto.projtab.project', gotoProjectConfig)
-    return () => window.removeEventListener('eino:goto.projtab.project', gotoProjectConfig)
+    consume()
+    window.addEventListener('eino:goto.project', consume)
+    return () => window.removeEventListener('eino:goto.project', consume)
   }, [projects])
+  // REQ-614-9fb4 R1②：focus.conv 分流到达侧（scope=project 会话→本模块打开；lib/deepLink 写入，
+  // 消费协议沿 AgentsPage REQ-584 先例——载荷命中才消费删键，未命中保留给其他模块回落）。
+  // 两段式：先提交容器选中（useState 批处理），归属匹配后的下一个 effect 再 setCurrentConv——
+  // 防 zustand 同步更新与 useState 批处理的提交错位被归位守卫清空（冒烟 F1 竞态实录）。
+  const pendingConvRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (convs.length === 0) return
+    try {
+      const convId = sessionStorage.getItem('eino.focus.conv')
+      if (!convId) return
+      const conv = convs.find((c) => c.id === convId)
+      if (conv && conv.scope === 'project') {
+        sessionStorage.removeItem('eino.focus.conv')
+        if (conv.project_id) setActiveProjectId(conv.project_id)
+        pendingConvRef.current = conv.id
+      }
+    } catch { /* 静默 */ }
+  }, [convs])
+  useEffect(() => {
+    const pend = pendingConvRef.current
+    if (!pend) return
+    const conv = convs.find((c) => c.id === pend)
+    if (conv && conv.project_id === activeProjectId) {
+      pendingConvRef.current = null
+      setCurrentConv(conv.id)
+    }
+  }, [activeProjectId, convs, setCurrentConv])
   const [createOpen, setCreateOpen] = useState(false)
   // REQ-102/103：右侧侧边栏（文件 / Git / 配置）开合与当前视图
   const [sidePanelOpen, setSidePanelOpen] = useState(false)
@@ -133,6 +112,8 @@ function ProjectsBody() {
     })
     api.listAgents().then(setAgents).catch(() => setAgents([]))
     api.listConversations().then(setConvs).catch(() => setConvs([]))
+    // REQ-614-9fb4 R1②：归属 chip 名称解析清单（全量；失败静默=chip 回落显 id）
+    api.listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
   }
 
   useEffect(reload, [dataVersion])
@@ -165,13 +146,25 @@ function ProjectsBody() {
     setPanelView('config')
   }
 
+  /** REQ-614-9fb4 R1②：项目行「⌂ 工作区《X》」chip → 工作区模块并选中该工作区（121 号 §4.1 互链）。
+   *  跨模块导航：写 focus.workspace 键后 setPage（WorkspacePage 挂载消费选中+开侧板绑定入口）；
+   *  事件同批派发（同模块常驻场景由响应式监听承接——虽本 chip 恒跨模块，协议对称保留）。 */
+  const openWorkspaceInWorkspaceModule = (wsId: string) => {
+    try {
+      sessionStorage.setItem('eino.focus.workspace', wsId)
+    } catch { /* 配额满静默（沿 REQ-509 口径） */ }
+    useUI.getState().setPage('workspaces')
+    window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
+  }
+
   const onProjectCreated = (id: string) => {
     setCreateOpen(false)
     reload()
     setActiveProjectId(id)
     setSidePanelOpen(true)
     setPanelView('config')
-    showToast('项目已创建，请在侧边栏完善配置')
+    // REQ-615-721e/M423-721e B2：创建结果 toast 单源收口到 ProjectModal 三分支（已归属/未归属/
+    // 归属失败如实）——此处原通用「项目已创建」toast 与分支文案并存即重复断言，退役
   }
 
   return (
@@ -184,6 +177,7 @@ function ProjectsBody() {
           mode="project"
           agents={[]}
           projects={projects}
+          workspaces={workspaces}
           conversations={convs}
           activeAgentId={null}
           activeProjectId={activeProjectId}
@@ -194,6 +188,7 @@ function ProjectsBody() {
           onNewConversation={newConversation}
           onConfigureAgent={() => {}}
           onConfigureProject={configureProject}
+          onOpenWorkspace={openWorkspaceInWorkspaceModule}
           loadErr={loadErr}
           onRetry={reload}
         />

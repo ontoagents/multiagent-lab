@@ -11,7 +11,7 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	var p Project
 	var constraints string
 	var agentIDs string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CollabMode, &p.WorkflowMode, &constraints, &agentIDs, &p.Coordinator, &p.CreatedAt, &p.UpdatedAt, &p.LocalDir, &p.WorkspaceID)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CollabMode, &p.WorkflowMode, &constraints, &agentIDs, &p.Coordinator, &p.CreatedAt, &p.UpdatedAt, &p.LocalDir, &p.WorkspaceID, &p.ConvCount)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,8 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 const projectCols = `p.id, p.name, p.description, p.collab_mode, p.workflow_mode, p.constraints,
  COALESCE((SELECT json_group_array(agent_id) FROM project_agent pa WHERE pa.project_id = p.id), '[]') AS agent_ids,
  COALESCE((SELECT agent_id FROM project_agent pa WHERE pa.project_id = p.id AND pa.role = 'coordinator' LIMIT 1), '') AS coordinator,
- p.created_at, p.updated_at, p.local_dir, COALESCE(p.workspace_id, '') AS workspace_id`
+ p.created_at, p.updated_at, p.local_dir, COALESCE(p.workspace_id, '') AS workspace_id,
+ (SELECT COUNT(*) FROM conversation c WHERE c.project_id = p.id) AS conv_count`
 
 // ListProjects 返回全部项目。
 func (s *Store) ListProjects() ([]*Project, error) {
@@ -76,6 +77,11 @@ func (s *Store) GetProject(id string) (*Project, error) {
 }
 
 // CreateProject 新建项目（成员经 SetProjectAgents 单独设置）。
+// REQ-615-721e/M423-721e（121 号 §4.5-②）：INSERT 支持可选 workspace_id——非空时复用
+// SetProjectWorkspace 同语义校验（GetWorkspace 存在性 400 人话，显式报错优先于 FK 兜底）；
+// 空/缺省=未归属，存量行为逐字节不变（空串必须写 NULL——DSN foreign_keys(1) 下 '' 会违反 FK）；
+// UpdateProject 不写 workspace_id 的防误清防线保留，SetProjectWorkspace 仍是归属变更唯一
+// 运行时写路径。handler 载荷直传链零改动（POST /api/projects decodeJSON 直传 WorkspaceID）。
 func (s *Store) CreateProject(p *Project) (*Project, error) {
 	if p.ID == "" {
 		p.ID = NewID()
@@ -86,8 +92,15 @@ func (s *Store) CreateProject(p *Project) (*Project, error) {
 	if p.WorkflowMode == "" {
 		p.WorkflowMode = "free"
 	}
-	_, err := s.DB.Exec(`INSERT INTO project (id,name,description,collab_mode,workflow_mode,constraints,local_dir,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.Description, p.CollabMode, p.WorkflowMode, p.Constraints, p.LocalDir, now(), now())
+	var wsVal any
+	if p.WorkspaceID != "" {
+		if _, err := s.GetWorkspace(p.WorkspaceID); err != nil {
+			return nil, &HTTPError{Status: 400, Msg: "workspace not found"}
+		}
+		wsVal = p.WorkspaceID
+	}
+	_, err := s.DB.Exec(`INSERT INTO project (id,name,description,collab_mode,workflow_mode,constraints,local_dir,workspace_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.Description, p.CollabMode, p.WorkflowMode, p.Constraints, p.LocalDir, wsVal, now(), now())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, ErrConflict

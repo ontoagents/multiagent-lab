@@ -22,6 +22,7 @@ import AIOptimizeButton from './AIOptimizeButton'
 import SaveToNotebookModal from './SaveToNotebookModal'
 import type { Agent, DirValidation, GitBranch, GitCommit, GitFileChange, GitWorkingFile, Project, ProjectDirEntry, Workspace } from '../api/types'
 import DirCheckResult from './DirCheckResult'
+import RelationConsequenceBlock from './RelationConsequenceBlock'
 import { useUI } from '../store/ui'
 
 export type PanelView = 'files' | 'git' | 'config' | 'collab'
@@ -901,7 +902,9 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         </Button>
         <Popconfirm
           title={`删除项目「${project.name}」？`}
-          description="其对话与消息将一并删除。"
+          // REQ-615-721e/M423-721e C6（121 号 §4.2-C6/§4.4）：description 换「关系与后果」对照块——
+          // 删项目=内容级联硬删，与删工作区（容器脱钩）并置对照（文案单源=共享组件）
+          description={<RelationConsequenceBlock kind="project" />}
           okText="删除"
           okButtonProps={{ danger: true }}
           cancelText="取消"

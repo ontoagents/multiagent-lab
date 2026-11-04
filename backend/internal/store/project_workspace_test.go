@@ -173,6 +173,47 @@ func TestApplyWorkspaceDefaults(t *testing.T) {
 	}
 }
 
+// TestCreateProjectWithWorkspace REQ-615-721e/M423-721e（121 号 §4.5-②）创建即归属：
+// CreateProject 带 workspace_id 直插归属 → 立刻建项目会话拿到工作区默认值（继承链全程生效，
+// §6 R2 验收锚点的存储层对应）；指向不存在工作区 → 400 人话；空/缺省存量行为不变。
+func TestCreateProjectWithWorkspace(t *testing.T) {
+	st := newProjectWorkspaceTestStore(t)
+	kb, err := st.CreateKnowledgeBase(&KnowledgeBase{Name: "默认库"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := st.CreateWorkspace(&Workspace{Name: "w", DefaultKBID: kb.ID, DefaultProfileID: "prof-9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ① 创建即归属 → 立刻建项目会话继承默认值
+	p, err := st.CreateProject(&Project{Name: "创建即归属", WorkspaceID: ws.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.WorkspaceID != ws.ID {
+		t.Fatalf("创建即归属失真: %q", p.WorkspaceID)
+	}
+	c, err := st.CreateConversation(&Conversation{Scope: "project", ProjectID: &p.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.KBID == nil || *c.KBID != kb.ID || !c.EnableKB || c.RuntimeProfileID == nil || *c.RuntimeProfileID != "prof-9" || !c.OntologyEnabled {
+		t.Fatalf("创建即归属后新会话应继承工作区默认: kb=%v prof=%v", c.KBID, c.RuntimeProfileID)
+	}
+	// ② workspace_id 指向不存在工作区 → 400 人话（SetProjectWorkspace 同语义）
+	if _, err := st.CreateProject(&Project{Name: "坏归属", WorkspaceID: "nope"}); err == nil {
+		t.Fatal("指向不存在工作区应 400")
+	} else if he, ok := err.(*HTTPError); !ok || he.Status != 400 {
+		t.Fatalf("应为人话 400: %v", err)
+	}
+	// ③ 空/缺省存量行为逐字节不变（未归属）
+	free, err := st.CreateProject(&Project{Name: "未归属"})
+	if err != nil || free.WorkspaceID != "" {
+		t.Fatalf("缺省应未归属: %+v %v", free.WorkspaceID, err)
+	}
+}
+
 // TestListProjectsByWorkspace 按归属过滤列表（未归属不入结果）。
 func TestListProjectsByWorkspace(t *testing.T) {
 	st := newProjectWorkspaceTestStore(t)

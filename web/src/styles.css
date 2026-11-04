@@ -224,6 +224,19 @@ body { font-size: 14px; background: var(--c-bg); }
 }
 .side-node-chev { width: 10px; display: inline-flex; justify-content: center; flex: none; font-size: 10px; color: var(--c-ink-3); }
 .side-node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+/* REQ-613-b6cc/M421-b6cc 工作区容器视觉语言（121 号 R1① A3/A4）：⌂ 容器图标 +
+   「N 项目 · M 对话」计数徽标（空壳节点靠它显总貌——徽标完整显示不截断，名称列承担
+   ellipsis + title tooltip，VS Code 惯例；chevron 诚实化——空壳不渲染箭头） */
+.side-node-ico { display: inline-flex; flex: none; font-size: 12px; color: var(--c-brand); }
+.side-node-badge { flex: none; white-space: nowrap; font-size: 11px; line-height: 16px; color: var(--c-ink-3); background: var(--c-bg-soft, #f6f7fb); border-radius: 7px; padding: 0 6px; }
+/* REQ-614-9fb4/M422-9fb4 项目行归属 chip（121 号 §4.1 项目→工作区互链）：灰字轻量（REQ-577
+   徽标语言沿用）+hover 显品牌色可点击感；独立按钮 stopPropagation 不触发行选中/展开 */
+.proj-ws-chip {
+  flex: none; white-space: nowrap; font-size: 11px; line-height: 18px; color: var(--c-ink-3);
+  background: var(--c-bg-soft, #f6f7fb); border: 0; border-radius: 7px; padding: 0 6px;
+  cursor: pointer; font-family: inherit; transition: color .12s ease;
+}
+.proj-ws-chip:hover { color: var(--c-brand); }
 /* REQ-336：会话数裸数字退役（行内悬停显隐后孤数怪异）——.side-node-count 规则随之删除 */
 /* REQ-326 迭代四：行内操作（＋新建对话/⋮配置）悬停行才显现（键盘 focus-within 同显）；齿轮改三点 */
 .side-node-ops { display: inline-flex; align-items: center; flex: none; padding-right: 4px; opacity: 0; transition: opacity .12s ease; }
