@@ -36,7 +36,8 @@
 3. **文档门禁**：`cd backend && go test ./internal/doccheck` 绿（pre-commit 钩子自动跑）——校验需求编号引用、文档头部版本与迭代表一致、AGENTS 窗口预算等；
 4. **迁移**：新 SQLite 迁移放 `backend/internal/store/migrations/`（数字前缀.sql），CREATE TABLE 建议 `IF NOT EXISTS`（doccheck 幂等提示）；backend 迁移机制走 `pkg/migrate`；
 5. **并发面改动**（TurnLoop/delegate/runner）：附 `go test -race ./internal/chat/` 结果一行；
-6. **前端动线改动**：按 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) 对应模块节做 headless 冒烟；截图留本地 `smoke/`（已 gitignore，勿 `git add -f` 入库）。
+6. **前端动线改动**：按 [docs/20_回归冒烟清单.md](docs/20_回归冒烟清单.md) 对应模块节做 headless 冒烟；截图留本地 `smoke/`（已 gitignore，勿 `git add -f` 入库）；
+7. **commit 邮箱归属**：`git config user.email` 应为 GitHub 账号**已验证邮箱**或 `<用户名>@users.noreply.github.com`——GitHub 按 commit 作者邮箱归属贡献者，未绑定邮箱的提交无法计入你的贡献者名单（历史提交在你绑定该邮箱后自动回溯归属，无需改写历史）。
 
 ## 需求编号约定（并发安全领号，人人相同）
 
