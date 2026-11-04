@@ -878,11 +878,33 @@ function ConfigView({ project, onChanged }: { project: Project; onChanged?: () =
         </Form.Item>
 
         {/* REQ-550/M357：可选归属工作区（M2——归属是显式动作走专属端点即时保存，
-            不并入整行 PUT；UpdateProject SQL 不写 workspace_id 列防整行保存误清归属） */}
-        <Section>归属工作区（可选）</Section>
+            不并入整行 PUT；UpdateProject SQL 不写 workspace_id 列防整行保存误清归属）。
+            REQ-616-aa64/M424-aa64 C3（121 号 R3）：区块标题「默认值转发源（归属工作区）」+
+            已归属工作区名 chip 点击跳工作区模块（跨模块互链）+说明句补解除归属后果（REQ-581 口径） */}
+        <Section>默认值转发源（归属工作区）</Section>
         <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-          归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；已建会话不受影响。
+          归属后项目新建会话自动继承工作区默认知识库与本体方案（写时复制）；解除归属后已建会话的库/方案默认值保持不变，跨会话记忆自下轮起不再注入。
         </Typography.Text>
+        {project.workspace_id && (
+          <div style={{ marginBottom: 8 }}>
+            <button
+              type="button"
+              className="proj-ws-chip"
+              style={{ fontSize: 12, lineHeight: '22px', padding: '0 10px' }}
+              data-testid="proj-ws-forward-chip"
+              title={`默认值转发源：工作区「${workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}」——点击到工作区模块查看`}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('eino.focus.workspace', project.workspace_id!)
+                } catch { /* 配额满静默 */ }
+                useUI.getState().setPage('workspaces')
+                window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
+              }}
+            >
+              ⌂ 工作区《{workspaces.find((w) => w.id === project.workspace_id)?.name ?? project.workspace_id}》
+            </button>
+          </div>
+        )}
         <Select
           size="small"
           allowClear

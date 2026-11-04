@@ -237,6 +237,17 @@ body { font-size: 14px; background: var(--c-bg); }
   cursor: pointer; font-family: inherit; transition: color .12s ease;
 }
 .proj-ws-chip:hover { color: var(--c-brand); }
+/* REQ-616-aa64/M424-aa64 A7（121 号 R3）：⭐ 最近打开虚拟分组（项目/工作区两模块树顶，
+   lib/recent.ts MRU 5 条——重度项目用户 ≤2 跳补偿；智能体页不设） */
+.side-recent { margin: 4px 0 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--c-line, #e3e6f0); }
+.side-recent-title { font-size: 11px; color: var(--c-ink-3); padding: 4px 10px 2px; }
+.side-recent-row {
+  display: flex; align-items: center; gap: 6px; width: calc(100% - 12px); margin: 0 6px;
+  padding: 4px 8px; border: 0; background: none; border-radius: 7px; cursor: pointer;
+  text-align: left; font-family: inherit; transition: background .12s ease;
+}
+.side-recent-row:hover { background: var(--c-hover-soft); }
+.side-recent-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--c-ink-2, #414a63); }
 /* REQ-336：会话数裸数字退役（行内悬停显隐后孤数怪异）——.side-node-count 规则随之删除 */
 /* REQ-326 迭代四：行内操作（＋新建对话/⋮配置）悬停行才显现（键盘 focus-within 同显）；齿轮改三点 */
 .side-node-ops { display: inline-flex; align-items: center; flex: none; padding-right: 4px; opacity: 0; transition: opacity .12s ease; }

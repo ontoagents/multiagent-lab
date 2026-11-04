@@ -115,6 +115,16 @@ func (s *Store) CreateConversation(c *Conversation) (*Conversation, error) {
 	if c.Scope != "agent" && c.Scope != "project" {
 		return nil, &HTTPError{Status: 400, Msg: "scope must be agent|project"}
 	}
+	// REQ-616-aa64/M424-aa64 §4.5-③（121 号 R3 后端小件③，原单树批 R5③ 并入）：直挂路径
+	// default_agent_id 兜底——请求不带 agent_id 且带 workspace_id 时取 ws.DefaultAgentID
+	// （写时复制同原则：显式请求参数优先；工作区未设默认智能体或不存在→维持原 400 人话）。
+	// 挂点与 inheritWorkspaceDefaults 同函数；前端现状显式传参行为不变（API 直调者写入
+	// default_agent_id 真正生效——120 号 E8 后端继承链不兜底缺口收口）。
+	if c.Scope == "agent" && (c.AgentID == nil || *c.AgentID == "") && c.WorkspaceID != nil && *c.WorkspaceID != "" {
+		if ws, werr := s.GetWorkspace(*c.WorkspaceID); werr == nil && ws.DefaultAgentID != "" {
+			c.AgentID = &ws.DefaultAgentID
+		}
+	}
 	if c.Scope == "agent" && (c.AgentID == nil || *c.AgentID == "") {
 		return nil, &HTTPError{Status: 400, Msg: "agent_id required for scope=agent"}
 	}

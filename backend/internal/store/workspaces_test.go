@@ -175,6 +175,50 @@ func TestListConversationsWorkspaceFilter(t *testing.T) {
 	}
 }
 
+// REQ-616-aa64/M424-aa64 §4.5-③（121 号 R3 后端小件③）：CreateConversation 直挂路径
+// default_agent_id 兜底——请求不带 agent_id 且带 workspace_id 时取 ws.DefaultAgentID；
+// 显式请求参数优先；工作区未设默认智能体→维持原 400 人话；前端显式传参行为不变。
+func TestCreateConversationDefaultAgentFallback(t *testing.T) {
+	st := newWorkspaceTestStore(t)
+	agent, err := st.CreateAgent(&Agent{Name: "默认智能体"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := st.CreateWorkspace(&Workspace{Name: "w", DefaultAgentID: agent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ①不带 agent_id 且带 workspace_id → 兜底取 ws.DefaultAgentID（API 直调者写入生效）
+	c, err := st.CreateConversation(&Conversation{Scope: "agent", WorkspaceID: &ws.ID})
+	if err != nil {
+		t.Fatalf("兜底路径应成功: %v", err)
+	}
+	if c.AgentID == nil || *c.AgentID != agent.ID {
+		t.Fatalf("default_agent_id 未兜底: %+v", c.AgentID)
+	}
+	// ②显式请求参数优先（前端现状行为不变）
+	other, _ := st.CreateAgent(&Agent{Name: "显式智能体"})
+	otherID := other.ID
+	c2, err := st.CreateConversation(&Conversation{Scope: "agent", AgentID: &otherID, WorkspaceID: &ws.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.AgentID == nil || *c2.AgentID != otherID {
+		t.Fatalf("显式 agent_id 应优先: %+v", c2.AgentID)
+	}
+	// ③工作区未设默认智能体且请求不带 agent_id → 维持原 400 人话
+	wsNoDefault, _ := st.CreateWorkspace(&Workspace{Name: "w2"})
+	_, err = st.CreateConversation(&Conversation{Scope: "agent", WorkspaceID: &wsNoDefault.ID})
+	he, ok := err.(*HTTPError)
+	if !ok || he.Status != 400 || he.Msg != "agent_id required for scope=agent" {
+		t.Fatalf("未设默认应 400 原话: %v", err)
+	}
+	// ④无归属直挂路径行为不变（不带 workspace_id 且不带 agent_id → 400）
+	if _, err := st.CreateConversation(&Conversation{Scope: "agent"}); err == nil {
+		t.Fatal("无归属无 agent_id 应 400")
+	}
+}
+
 func TestExplicitCloseNotRevived(t *testing.T) {
 	st := newWorkspaceTestStore(t)
 	kb, _ := st.CreateKnowledgeBase(&KnowledgeBase{Name: "默认库", Mode: "rag"})
