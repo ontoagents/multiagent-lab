@@ -25,6 +25,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/ontoagents/ontoagents/runtime-manager/internal/manager"
 
 	"github.com/ontoagents/ontoagents/runtime-manager/internal/engine/oxigraph"
 	"github.com/ontoagents/ontoagents/runtime-manager/internal/store"
@@ -178,33 +179,25 @@ func (f *Facade) handleProfileUpdate() server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
 		id, _ := args["profile_id"].(string)
-		p, err := f.Store.Get(id)
-		if err != nil {
+		if _, err := f.Store.Get(id); err != nil {
 			return mcp.NewToolResultErrorf("方案不存在: %v", err), nil
 		}
-		name := p.Name
+		patch := manager.ProfileUpdate{}
 		if v, ok := args["name"].(string); ok && strings.TrimSpace(v) != "" {
-			name = v
+			patch.Name = &v
 		}
-		oids := p.OntologyIDs
 		if raw, ok := args["ontologies_json"].(string); ok && strings.TrimSpace(raw) != "" {
-			oids = parseIDArray(raw)
+			oids := parseIDArray(raw)
+			patch.OntologyIDs = &oids
 		}
-		config := p.Config
 		if v, ok := args["config"].(string); ok && strings.TrimSpace(v) != "" {
-			config = v
+			patch.Config = &v
 		}
-		port := p.Port
 		if v, ok := args["port"].(float64); ok {
-			port = int(v)
+			port := int(v)
+			patch.Port = &port
 		}
-		// 配置变更需重启生效：running 方案先停（与 rest.update 同语义）
-		if p.Status == "running" || p.Status == "starting" {
-			if err := f.Manager.Stop(id); err != nil {
-				return mcp.NewToolResultErrorf("停止运行中方案失败: %v", err), nil
-			}
-		}
-		if err := f.Store.UpdateMeta(id, name, config, oids, port); err != nil {
+		if err := f.Manager.Update(id, patch); err != nil {
 			return mcp.NewToolResultErrorf("更新失败: %v", err), nil
 		}
 		caller, _ := args["caller"].(string)
@@ -218,14 +211,7 @@ func (f *Facade) handleProfileDelete() server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, _ := req.Params.Arguments.(map[string]any)
 		id, _ := args["profile_id"].(string)
-		p, err := f.Store.Get(id)
-		if err != nil {
-			return mcp.NewToolResultErrorf("方案不存在: %v", err), nil
-		}
-		if p.Status == "running" || p.Status == "starting" {
-			_ = f.Manager.Stop(id)
-		}
-		if err := f.Store.Delete(id); err != nil {
+		if err := f.Manager.Remove(id); err != nil {
 			return mcp.NewToolResultErrorf("删除失败: %v", err), nil
 		}
 		caller, _ := args["caller"].(string)

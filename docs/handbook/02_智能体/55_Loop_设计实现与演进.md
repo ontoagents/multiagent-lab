@@ -4,7 +4,7 @@ topic: Loop 域事实源（设计总纲·实现现状·演进跟踪）
 desc: 循环层技术沉淀——ReAct 迭代上限/挂起恢复 checkpoint/定时续跑/进度产物/usage；代码地图、REQ/M39·M52 映射、C3 LongRun/C4 Evaluator 后置；姊妹档 53 号 Harness/54 号 Context/56 号 Graph
 req: [REQ-204, REQ-49, REQ-210]
 docs: ["02 §6 五层总纲", "38 号 C 阶段", "51 号体检"]
-synced: 2026-11-01
+synced: 2026-11-03
 ---
 
 # Loop：设计、实现与演进（2026-10-01 沉淀）
@@ -18,7 +18,7 @@ synced: 2026-11-01
 | 组件 | 代码 | 职责 |
 | --- | --- | --- |
 | 迭代上限 | runner.go→adk ChatModelAgentConfig.MaxIterations | agent.max_iteration（normalizeMaxIter 默认 25，create 兜底）；侧板 Loop 页签配置 |
-| checkpoint 持久化（C1） | internal/chat/checkpoint.go（NewStoreCheckPointStore，迁移 028） | 挂起中断快照落 SQLite，后端重启仍可恢复；多级审批沿用 cpAnchors 锚点（REQ-214 顺修：Resume 后再挂起沿用锚点 id 覆盖保存） |
+| checkpoint 持久化（C1） | internal/chat/checkpoint.go（NewStoreCheckPointStore，迁移 028） | 挂起中断快照落 SQLite，后端重启仍可恢复；Resume/ResumePaused 在恢复执行前从持久化状态重建 cpAnchors；重复审批与暂停沿用当前 checkpoint 键，不按新 runID 派生 |
 | 挂起恢复 | runner.go handleInterrupted/Resume + conversation.interrupt_state | run.interrupted（kind=approval/ask_human）→resume 定向投递；新消息放弃挂起（abandon）；挂起超时自动 deny（REQ-231③，判定语义归 53 号审批面） |
 | 定时续跑（C5） | api/scheduler.go + conversation_schedule 表（迁移 038） | interval≥1min/max_runs≤50 硬校验、cap 即摘、活跃会话跳过；**调度状态出进程入 DB（REQ-224/M52 收口——重启失效诚实边界闭合）** |
 | 进度产物（C2） | tool/todo.go + handlers_export.go todo.md 导出 | todo_write 落 conversation.todo_json + GET /api/conversations/{id}/todo.md |
@@ -29,10 +29,10 @@ synced: 2026-11-01
 
 | 能力 | REQ | 里程碑 | 状态 | 验证 |
 | --- | --- | --- | --- | --- |
-| C1 持久化 checkpoint/C2 todo.md/C5 定时续跑/C6 usage | REQ-204 | M39 | ✅（核心四项） | 真机 9/9 |
+| C1 持久化 checkpoint/C2 todo.md/C5 定时续跑/C6 usage | REQ-204 | M39 | ✅（核心四项） | 真机 9/9；多轮审批跨重启 SQLite 回归（TurnLoop 开/关） |
 | C5 调度持久化（重启失效收口） | REQ-224 | M52 | ✅ | 迁移 038+DB 往返 |
 | 挂起超时自动 deny | REQ-231③ | M58 | ✅ | 真机 danger 链（超时判定=恢复重入时） |
-| 运行生命周期 pause/redo（安全点挂起〔pause_state 独立列迁移 086〕/无答复恢复 ResumePaused/消息锚点 redo 重发/CSP 产物预览） | REQ-558 | M365 | ✅ | pause e2e 单测钉桩（逐件详 00 总表 M365 行） |
+| 运行生命周期 pause/redo（安全点挂起〔pause_state 独立列迁移 086〕/无答复恢复 ResumePaused/消息锚点 redo 重发/CSP 产物预览） | REQ-558 | M365 | ✅ | pause e2e +两次暂停跨重启恢复回归（逐件详 00 总表 M365 行） |
 | Loop 页签（五层视角） | REQ-219 | M50 | ✅ | headless 16/16 |
 | 迭代进度与生效值透出（run.started/resume max_iteration_effective+头部迭代 k/N chip+TraceDrawer 迭代≤N） | REQ-311 A4 | M115 | ✅ | API 生效上限=7 断言+UI chip smoke/req311/ |
 | C3 LongRun 有界增量（TurnLoop 引擎接入主链+轮界产物即刷持久化+主会话 steer=Push 抢占+delegate 底盘汇流） | REQ-385 | M181 | ✅（2026-10-29 专项重构轮；详 §三.5） | chat 单测+真机 |

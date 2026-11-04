@@ -30,11 +30,11 @@ import (
 type Service struct {
 	// assembleOverride 单测钩子（REQ-558 暂停恢复测试直注 stub 模型；生产恒 nil 走 Assembler.Assemble）
 	assembleOverride func(ctx context.Context, agent *store.Agent, conv *store.Conversation) (*BuildResult, error)
-	Store     *store.Store
-	Assembler *Assembler
-	KB        KBSource            // M6：对话知识库召回（REQ-355 R1 接口反转；nil 时禁用，api 装配层适配 kb.Service）
-	Runtime   runtime.Backend     // M10：沙箱执行后端（nil=inprocess；agent.RuntimeBackend=docker 时转发）
-	Inference *inference.Registry // M13：推理后端注册表（nil=仅 eino-adk；外部 CLI 后端走 runExternal）
+	Store            *store.Store
+	Assembler        *Assembler
+	KB               KBSource            // M6：对话知识库召回（REQ-355 R1 接口反转；nil 时禁用，api 装配层适配 kb.Service）
+	Runtime          runtime.Backend     // M10：沙箱执行后端（nil=inprocess；agent.RuntimeBackend=docker 时转发）
+	Inference        *inference.Registry // M13：推理后端注册表（nil=仅 eino-adk；外部 CLI 后端走 runExternal）
 	// Companion REQ-170 P2「KG 检索源并入」：伴生图检索源（nil=未接入）。
 	// companion 包已依赖 chat，经接口反转注入避免包环（api 装配层接线）。
 	Companion CompanionSource
@@ -62,7 +62,7 @@ type Service struct {
 	// cpAnchors REQ-214 顺修：恢复链 checkpoint 锚点（conversationID -> 恢复时所用 checkpointID）。
 	// ADK 在 Resume 后再次挂起时沿用恢复锚点 id 覆盖保存快照（adk/runner.go resumeInternal），
 	// 而平台侧此前按新 runID 派生新 id 记录挂起状态——多级审批第二次恢复必报 checkpoint not exist。
-	// 新 Run 清除锚点（回到 runID 派生）；进程重启锚点丢失，挂起失效后新 Run 自愈（既有语义）。
+	// 新 Run 清除锚点；恢复执行前从持久化挂起状态登记，进程重启也可重建恢复链。
 	cpAnchors sync.Map
 }
 
@@ -500,15 +500,15 @@ func (s *Service) runOnce(ctx context.Context, conv *store.Conversation, agent *
 		}
 	}
 	stats := map[string]any{
-		"budget_mode":      contextModeLabel(ctxMode),
+		"budget_mode":        contextModeLabel(ctxMode),
 		"budget_mode_source": ctxModeSrc,
-		"budget_tokens":    budgetTokens,
-		"history_messages": histCount,
-		"history_chars":    histChars,
-		"history_tokens":   estimateMessages(histMsgs[:min(histCount, len(histMsgs))]),
-		"pruned_count":     cr.PrunedCount,
-		"summarized":       cr.Summarized,
-		"injections":       injections,
+		"budget_tokens":      budgetTokens,
+		"history_messages":   histCount,
+		"history_chars":      histChars,
+		"history_tokens":     estimateMessages(histMsgs[:min(histCount, len(histMsgs))]),
+		"pruned_count":       cr.PrunedCount,
+		"summarized":         cr.Summarized,
+		"injections":         injections,
 		// REQ-531/M338：注入占比（per-section 归因最小兑现——54 号开放问题 2）
 		"injection_ratio": func() float64 {
 			if budgetTokens > 0 {
@@ -985,7 +985,7 @@ func (s *Service) handleInterrupted(ctx context.Context, conv *store.Conversatio
 		"kind": st.Kind, "checkpoint_id": st.CheckpointID, "target_id": st.TargetID,
 		"question": st.Question, "choices": st.Choices,
 		"tool_name": st.ToolName, "arguments": st.Arguments,
-		"node":        st.Node,      // REQ-205③：工作流挂起节点（节点级 HITL 定位）
+		"node":        st.Node,       // REQ-205③：工作流挂起节点（节点级 HITL 定位）
 		"conflict_id": st.ConflictID, // REQ-553：分歧裁决单指针（裁决卡 resolve 动作数据源）
 	}
 	s.emitAndRecord(ctx, conv, runID, newEvent("run.interrupted", runID, data), emit)
@@ -1042,28 +1042,28 @@ type runConsumer struct {
 	recordDelta   func(string)
 	persistDeltas bool // REQ-224⑤：message.delta 随 debug_persist 门控落库
 
-	buf     []byte
+	buf []byte
 	// segmentMark REQ-406①/M202：正文分段落点（buf 偏移）——工具调用边界/收尾时此前增量
 	// 作为 message.segment 事件持久化（按段非按 token，有界存储），回放据此重建交错正文
 	segmentMark int
 	segSeq      int
-	stopped bool
+	stopped     bool
 	// REQ-210：工具调用/结果计数（completed 收尾不变量检查用）
-	toolCalls   int
-	toolResults int
-	runErr      string
-	interrupted bool
-	lastUsage   *schema.TokenUsage
-	lastFinish  string
-	toolAgg     map[int]*pendingToolCall
-	toolCallAt  map[string]time.Time // REQ-117：tool.call 发出时刻 → tool.result 计算执行耗时
-	toolCallArg map[string]string    // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
+	toolCalls     int
+	toolResults   int
+	runErr        string
+	interrupted   bool
+	lastUsage     *schema.TokenUsage
+	lastFinish    string
+	toolAgg       map[int]*pendingToolCall
+	toolCallAt    map[string]time.Time      // REQ-117：tool.call 发出时刻 → tool.result 计算执行耗时
+	toolCallArg   map[string]string         // REQ-224 H10：tool_call_id → 入参 JSON 原文（facade 命中抽取用）
 	toolCallUsage map[string]*usageSnapshot // REQ-397/M193：tool_call_id → 发起步 usage 快照（差值归因）
 	toolUsageAgg  map[string]int            // REQ-397：工具名 → 归因 total_tokens 聚合
 	agentUsageAgg map[string]int            // REQ-557/M364：成员名 → 归因 total_tokens 聚合（过程账本——run.finished usage_by_agent 默认开启）
 	curAgent      *agentRef                 // REQ-557：当前成员可变引用（tool 层事件 approval.*/hook.denied 归属注入——WithEventSink ctx 键同款模式）
-	lastAgent   string
-	paused      bool // REQ-558/M365：pause 安全点挂起（终态 run.finished reason=paused）
+	lastAgent     string
+	paused        bool // REQ-558/M365：pause 安全点挂起（终态 run.finished reason=paused）
 }
 
 // newRunConsumer 构造事件消费者（Run 与 Resume 共用；闭包绑定自身状态）。
@@ -1407,6 +1407,9 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 	// 直调 Runner.ResumeWithParams。两路互斥（防双恢复）。
 	obs := &obsHandler{level: DebugLevel(debug)}
 	rc := newRunConsumer(s, runCtx, conv, runID, rt, emit, start, debugPersist, agentRef)
+	// Consume may interrupt again before it returns. Register the persisted
+	// checkpoint first so every new interruption uses the active framework key.
+	s.cpAnchors.Store(conv.ID, st.CheckpointID)
 	if turnLoopEnabled() && rt.Workflow == nil {
 		s.runTurnLoop(runCtx, rc, conv, agent, rt, runID, st.CheckpointID, nil, &adk.ResumeParams{
 			Targets: map[string]any{st.TargetID: answer},
@@ -1423,10 +1426,6 @@ func (s *Service) Resume(ctx context.Context, conv *store.Conversation, agent *s
 		}
 		rc.consume(iter)
 	}
-	// 登记恢复链锚点：ADK 再次挂起时沿用本 id 覆盖保存快照，handleInterrupted 据此记录
-	// 同一 id（REQ-214 顺修——多级审批/多轮 ask_human 第二次恢复不再 checkpoint not exist）
-	s.cpAnchors.Store(conv.ID, st.CheckpointID)
-
 	rc.subagentLeave(rc.lastAgent)
 
 	// REQ-390①/M186：Resume 收尾走同一 runFinalize（漂移消除）——VerifyOnStop=false 如实保留
