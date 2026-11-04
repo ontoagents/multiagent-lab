@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -273,5 +274,95 @@ func TestQuizTargetConcepts(t *testing.T) {
 	targets := quizTargetConcepts(spec, mastery, recent)
 	if len(targets) != 2 || targets[0] != "A" || targets[1] != "D" {
 		t.Fatalf("薄弱 A+从未考察 D 应入选，B 已掌握/C 已出除外: %v", targets)
+	}
+}
+
+// TestQuizBoundedConceptSet REQ-608-f4bb：超限概念集有界化——定向保留/采样补足/截断。
+func TestQuizBoundedConceptSet(t *testing.T) {
+	orig := quizMaxPromptConcepts
+	t.Cleanup(func() { quizMaxPromptConcepts = orig })
+	quizMaxPromptConcepts = 8
+	all := make([]quizConcept, 0, 30)
+	long := strings.Repeat("义", 300)
+	for i := 0; i < 30; i++ {
+		all = append(all, quizConcept{Name: fmt.Sprintf("概念%02d", i), Definition: long,
+			Synonyms: []string{"甲", "乙", "丙", "丁"}})
+	}
+	// 出题链组合与 handler 同序：先统一截断（quizTrimConcept）再有界化。
+	trimmed := make([]quizConcept, len(all))
+	for i, c := range all {
+		trimmed[i] = quizTrimConcept(c)
+	}
+	got := quizBoundedConceptSet(trimmed, []string{"概念00", "概念29"})
+	if len(got) != 8 {
+		t.Fatalf("应截到上限 8: %d", len(got))
+	}
+	names := map[string]bool{}
+	for _, c := range got {
+		names[c.Name] = true
+		if rn := []rune(c.Definition); len(rn) != 201 || !strings.HasSuffix(c.Definition, "…") {
+			t.Fatalf("definition 应截断为 200 rune+省略号: %d", len(rn))
+		}
+		if len(c.Synonyms) != 3 {
+			t.Fatalf("synonyms 应截前 3: %d", len(c.Synonyms))
+		}
+	}
+	if !names["概念00"] || !names["概念29"] {
+		t.Fatalf("定向概念应原样保留: %v", names)
+	}
+	if len(names) != 8 {
+		t.Fatal("概念集应无重复")
+	}
+}
+
+// TestQuizGenerateBoundedPrompt REQ-608-f4bb：超限本体出题——提示词概念数有界、
+// 薄弱定向概念必入集、响应如实透出 concept_total/concept_used。
+func TestQuizGenerateBoundedPrompt(t *testing.T) {
+	orig := quizMaxPromptConcepts
+	t.Cleanup(func() { quizMaxPromptConcepts = orig })
+	quizMaxPromptConcepts = 10
+	concepts := make([]string, 0, 40)
+	for i := 0; i < 40; i++ {
+		concepts = append(concepts, fmt.Sprintf(`{"name":"概念%02d","label":"概念%02d","definition":"%s","synonyms":[],"parents":[]}`,
+			i, i, strings.Repeat("def", 100)))
+	}
+	spec := `{"concepts":[` + strings.Join(concepts, ",") + `],"relations":[]}`
+	s, st := quizTestServer(t)
+	s.Ontology = ontology.NewService()
+	s.Ontology.BuildURL = quizSpecStub(t, spec).URL
+	if err := st.UpsertMastery("oqb", "概念00", false, 0.2); err != nil { // 薄弱定向必入集
+		t.Fatal(err)
+	}
+	var capturedUser string
+	origLLM := quizLLM
+	t.Cleanup(func() { quizLLM = origLLM })
+	quizLLM = func(ctx context.Context, st *store.Store, box *secrets.Box, connID, system, user string, temperature *float64) (string, error) {
+		capturedUser = user
+		return `[{"type":"short_answer","question":"概念01 的定义是什么?","answer":"def","concepts":["概念01"]}]`, nil
+	}
+	req := httptest.NewRequest("POST", "/x", strings.NewReader(`{"count":3}`))
+	req.SetPathValue("id", "oqb")
+	rec := httptest.NewRecorder()
+	s.quizGenerate(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Items        []*store.QuizItem `json:"items"`
+		ConceptTotal int               `json:"concept_total"`
+		ConceptUsed  int               `json:"concept_used"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.ConceptTotal != 40 || out.ConceptUsed != 10 {
+		t.Fatalf("概念面应如实透出 40/10: %d/%d", out.ConceptTotal, out.ConceptUsed)
+	}
+	if n := strings.Count(capturedUser, `"name"`); n != 10 {
+		t.Fatalf("提示词概念数应有界=10: %d", n)
+	}
+	if !strings.Contains(capturedUser, "概念00") {
+		t.Fatal("薄弱定向概念必入出题集")
+	}
+	if strings.Contains(capturedUser, strings.Repeat("def", 100)) {
+		t.Fatal("definition 应已截断不入全文")
 	}
 }

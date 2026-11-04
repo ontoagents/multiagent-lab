@@ -281,9 +281,9 @@ export const api = {
   /** REQ-140：内部方案文档只读查看（限 docs/ 下 .md，fsutil 防越界） */
   docRead: (path: string) =>
     req<{ path: string; title: string; content: string }>('/api/docs/read?path=' + encodeURIComponent(path)),
-  /** REQ-524/M331：出题·批改·掌握度最小闭环（Q-23 衍生③——概念子图出题+LLM 批改+掌握度落表） */
+  /** REQ-524/M331：出题·批改·掌握度最小闭环（Q-23 衍生③——概念子图出题+LLM 批改+掌握度落表）；REQ-608-f4bb 概念面如实透出 */
   quizGenerate: (ontologyId: string, body: { difficulty?: string; count?: number }) =>
-    req<{ items: QuizItem[] }>(`/api/quiz/${ontologyId}/generate`, { method: 'POST', body: JSON.stringify(body) }),
+    req<{ items: QuizItem[]; concept_total: number; concept_used: number }>(`/api/quiz/${ontologyId}/generate`, { method: 'POST', body: JSON.stringify(body) }),
   quizSubmit: (ontologyId: string, itemId: string, body: { answer: string }) =>
     req<{ score: number; verdict: 'correct' | 'partial' | 'wrong'; feedback: string; concepts: string[] }>(`/api/quiz/${ontologyId}/items/${itemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   quizMastery: (ontologyId: string) =>
