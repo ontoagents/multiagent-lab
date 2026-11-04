@@ -91,18 +91,18 @@ export default function InferenceComparePane({
     setResA(null)
     setResB(null)
     const t0 = performance.now()
-    try {
-      const [ra, rb] = await Promise.all([
-        api.runSparql(profile.id, q),
-        api.runSparql(counterpartId!, q),
-      ])
-      setResA(parseResult(ra.raw, ra.json, t0))
-      setResB(parseResult(rb.raw, rb.json, t0))
-    } catch (e: any) {
-      setErr(e?.message ?? '对照执行失败')
-    } finally {
-      setRunning(false)
-    }
+    // REQ-621/M429：双侧独立结算——任一侧失败仍渲染成功侧结果，错误按侧标注（原 Promise.all 整体失败难分侧）
+    const msg = (r: unknown) => (r as any)?.message ?? String(r)
+    const [sa, sb] = await Promise.allSettled([
+      api.runSparql(profile.id, q),
+      counterpartId ? api.runSparql(counterpartId, q) : Promise.reject(new Error('未选择对照方案')),
+    ])
+    if (sa.status === 'fulfilled') setResA(parseResult(sa.value.raw, sa.value.json, t0))
+    if (sb.status === 'fulfilled') setResB(parseResult(sb.value.raw, sb.value.json, t0))
+    const aErr = sa.status === 'rejected' ? `本方案侧：${msg(sa.reason)}` : null
+    const bErr = sb.status === 'rejected' ? `对照侧：${msg(sb.reason)}` : null
+    if (aErr || bErr) setErr([aErr, bErr].filter(Boolean).join('　'))
+    setRunning(false)
   }
 
   const cloneBaseline = async () => {

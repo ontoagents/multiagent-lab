@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -390,7 +391,7 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 			_ = s.Store.SaveTrace(&store.Trace{Tool: "nl2sparql", ProfileID: id, OntologyID: nlOntology,
 				Sparql: queryText, TookMS: time.Since(start).Milliseconds(), Ok: false, Error: err.Error(), NL: nlQuestion})
 		}
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "引擎请求失败: " + err.Error()})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "引擎请求失败: " + humanizeSparqlErr(err, sparqlTimeout)})
 		return
 	}
 	defer resp.Body.Close()
@@ -428,7 +429,29 @@ func (s *Server) sparql(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-var sparqlHTTP = &http.Client{Timeout: 30 * time.Second}
+// sparqlTimeoutFromEnv REQ-621/M429：SPARQL 代理引擎客户端超时（秒）。默认 120s 对齐
+// oxigraph 侧先例——旧 30s 对 fuseki 推理方案首查（OWL_FB 在大本体上首次物化）过短，
+// 报「context deadline exceeded」。SPARQL_PROXY_TIMEOUT 环境变量秒数可覆盖（>0 生效）。
+func sparqlTimeoutFromEnv() time.Duration {
+	if v := os.Getenv("SPARQL_PROXY_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 120 * time.Second
+}
+
+var sparqlTimeout = sparqlTimeoutFromEnv()
+var sparqlHTTP = &http.Client{Timeout: sparqlTimeout}
+
+// humanizeSparqlErr REQ-621/M429：超时类引擎错误附人话处置提示（裸 Go 错误串对使用者不可行动）。
+func humanizeSparqlErr(err error, timeout time.Duration) string {
+	msg := err.Error()
+	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(msg, "Client.Timeout") {
+		return msg + "——引擎在 " + timeout.String() + " 内未响应。推理方案首次物化可能较慢：可稍后重试、缩小查询范围（加 LIMIT）、用无推理基线对照；需要更长超时设 SPARQL_PROXY_TIMEOUT 环境变量（秒）。"
+	}
+	return msg
+}
 
 // guide 代理构建平面本体指引（方案 04 §5 指引注入）：
 // 主平台装配时 GET /api/runtime-profiles/{id}/guide[?ontology_id=…]。
