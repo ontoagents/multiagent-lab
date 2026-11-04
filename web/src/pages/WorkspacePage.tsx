@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Form, Input, Modal, Splitter, Tooltip, Typography } from 'antd'
 import { BookOutlined, HistoryOutlined, ProjectOutlined, SettingOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -11,10 +11,13 @@ import WorkspaceSidePanel, { type WorkspacePanelView } from '../components/Works
 
 /**
  * 工作区专页（REQ-549/M356 M1b 立页；REQ-613-b6cc/M421-b6cc 起为「工作区」独立模块页，121 号
- * R1① 路由 /workspaces）：左栏折叠树（工作区容器节点[⌂+计数徽标]→直挂对话子树；空壳节点不渲染
- * chevron）+ 右侧 ChatWindow / 工作区总览（配置/笔记本绑定/记忆入口+名下项目卡列）+ 工作区侧板。
+ * R1① 路由 /workspaces；REQ-614-9fb4/M422-9fb4 R1② 页签退役后为唯一宿主）：左栏折叠树（工作区
+ * 容器节点[⌂+计数徽标]→直挂对话子树；空壳节点不渲染 chevron）+ 右侧 ChatWindow / 工作区总览
+ * （配置/笔记本绑定/记忆入口+名下项目卡列）+ 工作区侧板。
  * 双入口共存口径：工作区对话同现智能体页对应智能体节点（行加「·工作区」标注），两处删除一致。
  * 归位守卫：选中对话须 scope=agent 且归属当前工作区，不匹配归位空态（AgentsPage 同款）。
+ * 深链（121 号 §5.2 重排后）：eino.focus.workspace→本模块（挂载 IIFE 消费+eino:goto.workspace
+ * 响应式监听双入口）；eino.focus.conv（直挂会话）→本模块打开该会话（分流基座 lib/deepLink）。
  */
 export default function WorkspacePage() {
   const { currentConvId, setCurrentConv, dataVersion, bumpData, showToast, setPage } = useUI()
@@ -25,7 +28,9 @@ export default function WorkspacePage() {
   // REQ-613-b6cc/M421-b6cc 名下项目卡列数据源（121 号 R1① C4 前半）；
   // REQ-587 语义保留——工作区模块载荷按当前工作区过滤（listProjects({workspace_id})）
   const [wsProjects, setWsProjects] = useState<Project[]>([])
-  // REQ-495②段尾项：「存笔记本」未绑定引导「前往绑定」聚焦——一次性读取（命中即直开侧板配置=绑定入口）
+  // REQ-495②段尾项：「存笔记本」未绑定引导「前往绑定」聚焦——挂载一次性读取（命中即选中工作区+
+  // 直开侧板配置=绑定入口）。REQ-614-9fb4 R1② 补响应式监听（121 号 §5.2 gap-5 教训：页签退役后
+  // WorkspacePage 为常驻挂载模块页——用户已在工作区模块时深链派发事件，IIFE 不再跑，由监听承接）。
   const focusWs = (() => {
     try {
       const id = sessionStorage.getItem('eino.focus.workspace') || ''
@@ -36,6 +41,47 @@ export default function WorkspacePage() {
     }
   })()
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(focusWs || null)
+  useEffect(() => {
+    const gotoWorkspace = () => {
+      try {
+        const id = sessionStorage.getItem('eino.focus.workspace')
+        if (!id) return
+        sessionStorage.removeItem('eino.focus.workspace')
+        setActiveWorkspaceId(id)
+        setSidePanelOpen(true)
+        setPanelView('config')
+      } catch { /* 静默 */ }
+    }
+    window.addEventListener('eino:goto.workspace', gotoWorkspace)
+    return () => window.removeEventListener('eino:goto.workspace', gotoWorkspace)
+  }, [])
+  // REQ-614-9fb4 R1②：focus.conv 分流到达侧（直挂会话→本模块打开；lib/deepLink 写入，消费协议沿
+  // AgentsPage REQ-584 先例——载荷命中才消费删键，未命中保留给智能体页等其他模块回落）。
+  // 两段式同 ProjectsPage：先提交工作区选中，归属匹配后的下一个 effect 再 setCurrentConv
+  //（防 zustand 同步更新与 useState 批处理的提交错位被归位守卫清空）。
+  const pendingConvRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (convs.length === 0) return
+    try {
+      const convId = sessionStorage.getItem('eino.focus.conv')
+      if (!convId) return
+      const conv = convs.find((c) => c.id === convId)
+      if (conv && conv.scope === 'agent') {
+        sessionStorage.removeItem('eino.focus.conv')
+        if (conv.workspace_id) setActiveWorkspaceId(conv.workspace_id)
+        pendingConvRef.current = conv.id
+      }
+    } catch { /* 静默 */ }
+  }, [convs])
+  useEffect(() => {
+    const pend = pendingConvRef.current
+    if (!pend) return
+    const conv = convs.find((c) => c.id === pend)
+    if (conv && (conv.workspace_id ?? '') === activeWorkspaceId) {
+      pendingConvRef.current = null
+      setCurrentConv(conv.id)
+    }
+  }, [activeWorkspaceId, convs, setCurrentConv])
   const [createOpen, setCreateOpen] = useState(false)
   // 工作区侧板（REQ-549：activity bar 范式沿 ProjectSidePanel；M1b 仅 config 视图）
   // REQ-578/M393：展开态 localStorage 持久化（eino.workspace.panel.open——REQ-571 rail 先例）
@@ -114,17 +160,18 @@ export default function WorkspacePage() {
     setPanelView('config')
   }
 
-  /** REQ-613-b6cc/M421-b6cc 总览名下项目卡 → 项目模块并选中该项目（121 号 R1① C4 过渡态实现）：
-   * eino.project.active 预置（REQ-536 现场恢复语义——ProjectsBody 挂载时初始读取=选中态）。
-   * 过渡期边界：跨模块进入时项目模块恒落「工作区」页签（REQ-597 默认行为，本批不动项目模块），
-   * 点「项目」页签即见该项目已选中；R1② 页签退役后 focus.project 监听原位回归接棒为一步直达
-   * （121 号 §5.2）。 */
+  /** REQ-614-9fb4 R1② 总览名下项目卡 → 项目模块一步直达（121 号 §5.2 focus.project 监听原位回归，
+   * 替换 R1① 过渡态两步动线）：写 eino.focus.project（ProjectsBody 挂载消费=选中+开侧板 config 视图；
+   * REQ-580 同协议）+ eino.project.active 预置（REQ-536 现场恢复兜底）+ 派发 eino:goto.project
+   * （同模块常驻场景由响应式监听承接——页签退役后项目模块为常驻挂载，协议对称保留）。 */
   const openProjectInProjectsModule = (pid: string, pname: string) => {
     try {
       sessionStorage.setItem('eino.project.active', pid)
+      sessionStorage.setItem('eino.focus.project', pid)
     } catch { /* 配额满静默（沿 REQ-509 口径） */ }
     setPage('projects')
-    showToast(`已切换到项目模块——「${pname}」已在「项目」页签选中（过渡期提示，模块分立收口后移除）`)
+    window.dispatchEvent(new CustomEvent('eino:goto.project'))
+    showToast(`已在项目模块打开「${pname}」（侧板配置视图）`)
   }
 
   const onWorkspaceCreated = (id: string) => {

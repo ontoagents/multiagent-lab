@@ -28,23 +28,28 @@ const isTextFile = (name: string) => {
   return TEXT_EXTS.has(ext) || ext === ''
 }
 
-/** 跨组件跳转绑定入口：切到「工作区」页签并聚焦指定工作区（ProjectsPage/WorkspacePage 监听） */
+/** 跨组件跳转绑定入口：切到「工作区」独立模块并聚焦指定工作区（REQ-614-9fb4 R1②：eino:goto.projtab
+ *  退役改派 eino:goto.workspace——页签语义退役后宿主=工作区模块页，WorkspacePage 挂载消费+
+ *  goto.workspace 响应式监听双入口；跨模块导航 setPage('workspaces') 由本函数承担） */
 export const gotoWorkspaceBinding = (workspaceId?: string) => {
   try {
     if (workspaceId) sessionStorage.setItem('eino.focus.workspace', workspaceId)
     else sessionStorage.removeItem('eino.focus.workspace')
   } catch { /* 配额满静默（沿 REQ-509 口径） */ }
-  window.dispatchEvent(new CustomEvent('eino:goto.projtab'))
+  useUI.getState().setPage('workspaces')
+  window.dispatchEvent(new CustomEvent('eino:goto.workspace'))
 }
 
-/** REQ-580/M395：项目侧深链协议（eino.focus.project）——切到「项目」页签并聚焦指定项目的侧板配置视图
- *  （ProjectsPage 监听：选中该项目+开侧板+config 视图；未归属分支两步引导第一步直达） */
+/** REQ-580/M395：项目侧深链协议（eino.focus.project）——聚焦指定项目的侧板配置视图（REQ-614-9fb4
+ *  R1②：事件键 eino:goto.projtab.project 退役改 eino:goto.project；ProjectsPage 挂载消费+事件监听
+ *  双入口：选中该项目+开侧板+config 视图；未归属分支两步引导第一步直达） */
 export const gotoProjectSettings = (projectId?: string) => {
   try {
     if (projectId) sessionStorage.setItem('eino.focus.project', projectId)
     else sessionStorage.removeItem('eino.focus.project')
   } catch { /* 配额满静默（沿 REQ-509 口径） */ }
-  window.dispatchEvent(new CustomEvent('eino:goto.projtab.project'))
+  useUI.getState().setPage('projects')
+  window.dispatchEvent(new CustomEvent('eino:goto.project'))
 }
 
 export interface SaveTargetFile {
@@ -113,7 +118,7 @@ export default function SaveToNotebookModal({
           title: '先归属工作区，再保存到笔记本',
           body: `项目「${project?.name ?? ''}」尚未归属工作区。笔记本按工作区绑定解析保存目标：
 第一步：把本项目归属到一个工作区（下方按钮直达本项目侧板「配置」视图的归属设置）；
-第二步：到「项目」模块「工作区」页签选中该工作区，在右侧侧板「配置」视图绑定笔记本（完成后重试保存）。`,
+第二步：到「工作区」模块选中该工作区，在右侧侧板「配置」视图绑定笔记本（完成后重试保存）。`,
           focusProject: project?.id,
           steps: ['去项目设置归属', '绑定后重试'],
         })
@@ -134,7 +139,7 @@ export default function SaveToNotebookModal({
       if (nbs.length === 0) {
         setGuide({
           title: '当前工作区尚未绑定笔记本',
-          body: `产物保存到笔记本由工作区的笔记本绑定决定：请到「项目」模块「工作区」页签选中目标工作区，在右侧侧板「配置」视图的「笔记本绑定」区块绑定后重试。`,
+          body: `产物保存到笔记本由工作区的笔记本绑定决定：请到「工作区」模块选中目标工作区，在右侧侧板「配置」视图的「笔记本绑定」区块绑定后重试。`,
           focusWorkspace: wsId,
         })
         setPhase('guide')

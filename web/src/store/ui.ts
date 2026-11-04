@@ -7,8 +7,8 @@ export type PageKey = 'agents' | 'projects' | 'workspaces' | 'ontology' | 'knowl
 const PAGE_PATHS: Record<PageKey, string> = {
   agents: '/',
   projects: '/projects',
-  // REQ-613-b6cc/M421-b6cc 工作区独立模块路由（121 号 R1①：/workspaces 新增；/projects 语义
-  //  归位纯项目页随 R1②，过渡期页签结构维持）
+  // REQ-613-b6cc/M421-b6cc 工作区独立模块路由（121 号 R1①：/workspaces 新增）；R1② 起 /projects
+  //   语义归位纯项目页（页签退役，REQ-614-9fb4/M422-9fb4）
   workspaces: '/workspaces',
   ontology: '/ontology',
   knowledge: '/knowledge',
