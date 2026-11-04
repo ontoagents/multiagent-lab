@@ -6,6 +6,8 @@ import { useUI } from '../../../store/ui'
 import DraftTrimPanel from '../components/DraftTrimPanel'
 import { clearDraft, loadDraft, saveDraft } from '../../../lib/draftStore'
 import { invalidateOntos } from '../shared/useOntoList'
+import { ConvergeCard, FlowSteps } from './PathShell'
+import { clearJob, registerJob } from './jobRegistry'
 
 // ---------------------------------------------------------------------------
 // REQ-595/M406 由数据源构建（第八构建路径）——连接 SQLite 只读内省 → 列画像采样 →
@@ -46,7 +48,7 @@ function profileLine(p: { is_unique?: boolean; top_values?: { value: string; cou
   return bits.join(' · ')
 }
 
-export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (ontoId: string) => void }) {
+export default function DataSourceBuildFlow() {
   const { showToast } = useUI()
   const [dsPath, setDsPath] = useState('')
   const [dsName, setDsName] = useState('')
@@ -86,6 +88,8 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
       const { job_id } = await api.datasourceAnalyze(dsPath.trim(), dsName.trim() || undefined)
       setJobId(job_id)
       saveDraft(DS_JOB_KEY, job_id)
+      // REQ-600：job 注册表登记（hub「进行中」续接入口；入库/放弃/失败时清除）
+      registerJob({ kind: 'ds', path: 'datasource', label: `数据源分析 · ${dsName.trim() || dsPath.trim().split(/[\/]/).pop() || 'SQLite'}` })
       let done: DataSourceProposal | undefined
       for (let i = 0; i < 160; i++) {
         await new Promise((res) => setTimeout(res, 1500))
@@ -110,6 +114,7 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
       showToast('分析完成——请人工确认提案后落库')
     } catch (e: any) {
       showToast(e instanceof ApiError ? e.message : e.message, 'err')
+      clearJob('datasource')
     } finally {
       setBusy(false)
       setProgress('')
@@ -167,6 +172,7 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
       setCreatedId(created.id)
       clearDraft(DS_PROPOSAL_KEY)
       clearDraft(DS_JOB_KEY)
+      clearJob('datasource') // REQ-600：入库终态清注册
       showToast('数据源提案已创建并保存')
     } catch (e: any) {
       if (e instanceof ApiError && e.validationErrors?.length) showToast(`提案校验未通过：${e.validationErrors[0].message}`, 'err')
@@ -174,12 +180,6 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
     } finally {
       setSaving(false)
     }
-  }
-
-  const goToAsset = (id: string) => {
-    localStorage.setItem('eino.onto.sidebar', 'assets')
-    localStorage.setItem('eino.onto.asset.focus', id)
-    window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
   }
 
   if (createdId) {
@@ -192,38 +192,34 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
           description={`本体「${nameDraft.trim() || proposal?.name || createdId}」已入库（保存即过结构校验与质量门禁）。可进入 S2 继续编辑，或前往资产详情查看质量评分。`}
           style={{ marginBottom: 12 }}
         />
-        <Space>
-          {onGoCustom && (
-            <Button type="primary" size="small" data-testid="ds-go-custom" onClick={() => onGoCustom(createdId)}>
-              进入 S2 编辑
-            </Button>
-          )}
-          <Button size="small" data-testid="ds-go-asset" onClick={() => goToAsset(createdId)}>
-            前往资产详情
-          </Button>
-          <Button
-            size="small"
-            onClick={() => {
-              setCreatedId(null)
-              setProposal(null)
-              setTrimmed(null)
-              setDsPath('')
-              setDsName('')
-              setNameDraft('')
-            }}
-          >
-            再建一个
-          </Button>
-        </Space>
+        {/* REQ-600：收敛卡统一件（三选=进入编辑校验〔?onto=&step= 参数〕/前往资产详情/再建一个） */}
+        <ConvergeCard
+          ontologyId={createdId}
+          detail="数据源提案已创建并保存"
+          onRebuild={() => {
+            setCreatedId(null)
+            setProposal(null)
+            setTrimmed(null)
+            setDsPath('')
+            setDsName('')
+            setNameDraft('')
+          }}
+        />
       </Card>
     )
   }
 
   return (
     <Card size="small" data-testid="datasource-build-flow">
-      <Typography.Title level={5} style={{ marginTop: 0 }}>
-        由数据源构建（第八构建路径）
-      </Typography.Title>
+      {/* REQ-598：外壳重排——三段 Steps（连接→生成→人审，仅展示层；卡片组件与状态机零改动） */}
+      <FlowSteps
+        items={[
+          { key: 'connect', title: '① 连接并分析' },
+          { key: 'generate', title: '② 生成提案' },
+          { key: 'review', title: '③ 人审入库' },
+        ]}
+        current={createdId ? 2 : proposal ? 1 : 0}
+      />
       <Typography.Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 12 }}>
         连接本机 SQLite 数据库（只读），自动推导本体骨架：数据表→概念、非主键非外键列→数据属性、声明外键→对象关系、纯外键关联表→关系；AI 补充中文显示名/业务描述/隐含外键建议。全程只读不写库，提案需人工确认后才落资产。
       </Typography.Paragraph>
@@ -388,6 +384,7 @@ export default function DataSourceBuildFlow({ onGoCustom }: { onGoCustom?: (onto
                 setProposal(null)
                 setTrimmed(null)
                 clearDraft(DS_PROPOSAL_KEY)
+                clearJob('datasource') // REQ-600：取消终态清注册
               }}
             >
               放弃提案

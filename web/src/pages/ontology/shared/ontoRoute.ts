@@ -7,7 +7,7 @@ export type OntoCol = 'learn' | 'build' | 'assets' | 'runtime' | 'audit'
 
 export type OntoRoute = {
   col: OntoCol
-  /** build：路径键（home/custom/ontochat/kb/ontoextend/catalog/kg） */
+  /** build：路径键（hub 无 path 段；custom/ontochat/kb/structured/datasource/parking/ontoextend/catalog/kg） */
   path?: string
   /** assets：详情态本体 id（缺省=列表态） */
   assetId?: string
@@ -19,22 +19,31 @@ export type OntoRoute = {
   ontologyId?: string
   /** learn：子模块键（path/build-paths/runtime-paths/examples/pipeline） */
   learn?: string
+  /** build：hash 内 query 参数（REQ-598 跨路径一次性交接 ?onto=&step=&source=&desc=；仅 build 栏启用） */
+  params?: Record<string, string>
 }
 
 const COLS: OntoCol[] = ['learn', 'build', 'assets', 'runtime', 'audit']
-const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource']
+const BUILD_PATHS = ['home', 'custom', 'ontochat', 'kg', 'ontoextend', 'kb', 'catalog', 'datasource', 'structured', 'parking']
 const ENGINES = ['oxigraph', 'fuseki', 'cayley']
 const LEARN_SECTIONS = ['path', 'quiz', 'build-paths', 'runtime-paths', 'examples', 'pipeline']
 
-/** 解析当前（或给定）hash 为路由；非本模块 hash 返回 null。id 类段容忍字母数字-_。 */
+/** 解析当前（或给定）hash 为路由；非本模块 hash 返回 null。id 类段容忍字母数字-_。
+ *  REQ-598：build 栏在路径段后捕获 querystring（#/onto/build/{path}?k=v）——
+ *  跨路径一次性交接通道；assets/runtime/learn 语法不动（第三段仍=ontologyId）。 */
 export function parseOntoHash(hash?: string): OntoRoute | null {
   const h = hash ?? (typeof window !== 'undefined' ? window.location.hash : '')
-  const m = h.match(/^#\/onto\/([a-z]+)(?:\/([A-Za-z0-9_-]+))?(?:\/([A-Za-z0-9_-]+))?/)
+  const m = h.match(/^#\/onto\/([a-z]+)(?:\/([A-Za-z0-9_-]+))?(?:\/([A-Za-z0-9_-]+))?(\?[^#]*)?/)
   if (!m) return null
   const col = m[1] as OntoCol
   if (!COLS.includes(col)) return null
   const r: OntoRoute = { col }
   if (col === 'build' && m[2] && BUILD_PATHS.includes(m[2])) r.path = m[2]
+  if (col === 'build' && m[4]) {
+    const params: Record<string, string> = {}
+    for (const [k, v] of new URLSearchParams(m[4])) params[k] = v
+    if (Object.keys(params).length > 0) r.params = params
+  }
   if (col === 'assets') {
     if (m[2]) r.assetId = m[2]
     if (m[3]) r.section = m[3]
@@ -56,7 +65,13 @@ export function ontoHash(r: OntoRoute): string {
   if (r.col === 'runtime' && r.engine) seg.push(r.engine)
   if (r.col === 'learn' && r.learn) seg.push(r.learn)
   if ((r.col === 'runtime' && r.engine || r.col === 'learn' && r.learn === 'quiz') && r.ontologyId) seg.push(r.ontologyId)
-  return '#/' + seg.join('/')
+  let qs = ''
+  if (r.col === 'build' && r.params) {
+    const sp = new URLSearchParams(Object.entries(r.params))
+    const s = sp.toString()
+    if (s) qs = '?' + s
+  }
+  return '#/' + seg.join('/') + qs
 }
 
 /** 写 hash（replace=不进历史栈）。同 hash 幂等不写。 */
@@ -76,6 +91,9 @@ export function isOntoHashActive(): boolean {
 /**
  * 跨模块深链（REQ-470 收敛通道）：legacy 键照写（既有语义不破）+ setPage 后补写 hash
  * （setPage 的 pushState 仅带路径会清 hash，故必须在其后 replaceState 合并写回）。
+ * REQ-598 hub 语义：build 栏 path 缺省或 'home'（hub 形态）不写 buildPath 记忆键
+ * （记忆键语义=「最后访问的路径页」，hub 不占位）；homeMigrated 一次性迁移键随
+ * 迁移逻辑退役不再写。
  */
 export function deepLinkOnto(r: OntoRoute, legacyPairs: Array<[string, string]> = [], sidebarKey = 'eino.onto.sidebar') {
   for (const [k, v] of legacyPairs) {
@@ -83,13 +101,24 @@ export function deepLinkOnto(r: OntoRoute, legacyPairs: Array<[string, string]> 
   }
   try {
     localStorage.setItem(sidebarKey, r.col)
-    if (r.col === 'build' && r.path) {
+    if (r.col === 'build' && r.path && r.path !== 'home') {
       localStorage.setItem('eino.onto.buildPath', r.path)
-      localStorage.setItem('eino.onto.buildPath.homeMigrated', '1') // 防 REQ-337 一次性迁移吃掉显式值（沿 REQ-360 顺修）
     }
   } catch { /* 忽略 */ }
   useUI.getState().setPage('ontology')
   history.replaceState(null, '', '/ontology' + ontoHash(r))
   window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
   window.dispatchEvent(new Event('hashchange'))
+}
+
+/**
+ * REQ-598：build 栏一次性 query 参数消费——读取当前 hash 的 params 并把 hash 改写为
+ * 无参数形态（replaceState，不灌栈）。挂载时取用：参数优先于记忆键，消费即清
+ * （防「参数残留二次进入误恢复」，111 号 §3.4 分治口径）。
+ */
+export function takeBuildParams(): Record<string, string> | null {
+  const r = parseOntoHash()
+  if (!r || r.col !== 'build' || !r.params) return null
+  writeOntoHash({ col: 'build', path: r.path }, true)
+  return r.params
 }

@@ -9,7 +9,7 @@ import {
   SafetyCertificateOutlined,
   UpOutlined,
 } from '@ant-design/icons'
-import { ONTO_SIDEBAR_KEY } from '../OntologyModule'
+import { deepLinkOnto } from '../shared/ontoRoute'
 import { useOntologies } from '../shared/useOntoList'
 
 // ---------------------------------------------------------------------------
@@ -23,13 +23,11 @@ import { useOntologies } from '../shared/useOntoList'
 
 const GUIDE_KEY = 'eino.onto.prodguide'
 
-/** 跨栏跳转（沿演化按钮/gotoAuditPane 同款动线：写记忆 + onto-sidebar-change 事件）。
- *  REQ-407/M203：gotoAsset 额外写 eino.onto.asset.focus 深链——「去质量门禁/去发布」直达
- *  本体详情（AssetsPage 挂载即消费该键选中+进详情），不再裸跳资产栏。 */
+/** 跨栏跳转（REQ-598：gotoPane 收敛 deepLinkOnto 单点——写记忆+hash+事件动线单源，
+ *  沿 KgGuidePage/DataSourceBuildFlow 三处重复实现一并收敛）。REQ-407/M203：gotoAsset
+ *  带 eino.onto.asset.focus 深链——「去质量门禁/去发布」直达本体详情。 */
 function gotoPane(sidebar: 'assets' | 'runtime' | 'audit', assetId?: string) {
-  localStorage.setItem(ONTO_SIDEBAR_KEY, sidebar)
-  if (assetId) localStorage.setItem('eino.onto.asset.focus', assetId)
-  window.dispatchEvent(new CustomEvent('onto-sidebar-change'))
+  deepLinkOnto({ col: sidebar, assetId }, assetId ? [['eino.onto.asset.focus', assetId]] : [])
 }
 
 const STEP_ITEMS = [

@@ -79,6 +79,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
   const [gradingId, setGradingId] = useState<string | null>(null)
   const [mastery, setMastery] = useState<MasteryLevel[] | null>(null)
   const [genErr, setGenErr] = useState<string | null>(null)
+  const [scopeNote, setScopeNote] = useState<string | null>(null) // REQ-608-f4bb 采样概念面如实提示
   const [graphKey, setGraphKey] = useState(0) // 批改后子图刷新
   const [attempts, setAttempts] = useState<QuizAttempt[] | null>(null)
   const [showAttempts, setShowAttempts] = useState(false)
@@ -142,13 +143,19 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
     const expected = ++epoch.current
     setGenerating(true)
     setGenErr(null)
+    setScopeNote(null)
     setItems(null)
     setGrades({})
     setRevealed({})
     setAnswers({})
     try {
       const r = await api.quizGenerate(ontoId, { difficulty, count: 3 })
-      if (epoch.current === expected) setItems(r.items)
+      if (epoch.current !== expected) return
+      setItems(r.items)
+      // REQ-608-f4bb：超限本体采样出题如实提示（不冒充全量概念面）
+      if (r.concept_used < r.concept_total) {
+        setScopeNote(`该本体共 ${r.concept_total} 个概念，本轮出题基于 ${r.concept_used} 个概念子集（掌握度薄弱/从未考察优先，其余随机采样）——再出一批将覆盖不同概念`)
+      }
     } catch (e: any) {
       if (epoch.current === expected) setGenErr(e?.message ?? '出题失败')
     } finally {
@@ -281,6 +288,7 @@ export default function QuizPane({ ontologies }: { ontologies: Ontology[] }) {
       )}
 
       {genErr && <Alert type="error" showIcon style={{ marginBottom: 10 }} title="出题/批改失败" description={genErr} />}
+      {scopeNote && <Alert type="info" showIcon style={{ marginBottom: 10 }} title="采样出题" description={scopeNote} />}
 
       {generating && <Typography.Text type="secondary">正在出题（LLM 生成中，约数秒）…</Typography.Text>}
 

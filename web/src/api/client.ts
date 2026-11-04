@@ -281,9 +281,9 @@ export const api = {
   /** REQ-140：内部方案文档只读查看（限 docs/ 下 .md，fsutil 防越界） */
   docRead: (path: string) =>
     req<{ path: string; title: string; content: string }>('/api/docs/read?path=' + encodeURIComponent(path)),
-  /** REQ-524/M331：出题·批改·掌握度最小闭环（Q-23 衍生③——概念子图出题+LLM 批改+掌握度落表） */
+  /** REQ-524/M331：出题·批改·掌握度最小闭环（Q-23 衍生③——概念子图出题+LLM 批改+掌握度落表）；REQ-608-f4bb 概念面如实透出 */
   quizGenerate: (ontologyId: string, body: { difficulty?: string; count?: number }) =>
-    req<{ items: QuizItem[] }>(`/api/quiz/${ontologyId}/generate`, { method: 'POST', body: JSON.stringify(body) }),
+    req<{ items: QuizItem[]; concept_total: number; concept_used: number }>(`/api/quiz/${ontologyId}/generate`, { method: 'POST', body: JSON.stringify(body) }),
   quizSubmit: (ontologyId: string, itemId: string, body: { answer: string }) =>
     req<{ score: number; verdict: 'correct' | 'partial' | 'wrong'; feedback: string; concepts: string[] }>(`/api/quiz/${ontologyId}/items/${itemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   quizMastery: (ontologyId: string) =>
@@ -477,9 +477,15 @@ export const api = {
     req<OntoDecision>('/api/audit/decisions', { method: 'POST', body: JSON.stringify(d) }),
   /** 溯源链：沿 derived_from 回溯（GET /api/audit/decisions/{id}/chain；32 跳封顶） */
   decisionChain: (id: string) => req<OntoDecision[]>(`/api/audit/decisions/${encodeURIComponent(id)}/chain`),
-  /** PROV-O 导出（GET /api/audit/prov-export?kb_id=）→ text/turtle 原文（Go 原生模板，零 rdflib） */
-  provExport: (kbId?: string) =>
-    reqText(`/api/audit/prov-export${kbId ? `?kb_id=${encodeURIComponent(kbId)}` : ''}`),
+  /** PROV-O 导出（GET /api/audit/prov-export?kb_id=&subject_kind=）→ text/turtle 原文（Go 原生模板，零 rdflib）。
+   *  REQ-599：subject_kind 透传（后端 handlers_kg.go 已支持 kind 参数）——筛选联动导出。 */
+  provExport: (kbId?: string, subjectKind?: string) => {
+    const sp = new URLSearchParams()
+    if (kbId) sp.set('kb_id', kbId)
+    if (subjectKind) sp.set('subject_kind', subjectKind)
+    const qs = sp.toString()
+    return reqText(`/api/audit/prov-export${qs ? `?${qs}` : ''}`)
+  },
 
   // ---- M7 技能（§8：/api/skills 系列 + 注入预览） ----
   listSkills: () => req<Skill[]>('/api/skills'),

@@ -12,6 +12,8 @@ package api
 // 合并出节点/边；前端子图渲染），出题定向即其消费面（下一轮出题按掌握度定向）。
 // 地基复用：rest_cqbench Dataset/gold 判定链为题库判分器雏形（详设口径），本件取 GenerateText
 // 最小直调面（与平台助手同族，非对话链路）。
+// REQ-608-f4bb/M416-f4bb（2026-11-04 售后缺陷修复，docs/03 §2.78）：出题提示词规模有界化——
+// 概念面统一截断+超限定向采样（quizMaxPromptConcepts=60），响应透出 concept_total/concept_used。
 
 import (
 	"bytes"
@@ -19,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"sort"
@@ -30,8 +33,20 @@ import (
 	"github.com/ontoagents/ontoagents/backend/internal/store"
 )
 
-// quizGenerateTimeout 出题/批改 LLM 直调超时（与 optimizeTimeout 同档）。
-const quizGenerateTimeout = 90 * time.Second
+// quizGenerateTimeout 出题/批改 LLM 直调超时（REQ-608-f4bb 90s→180s：真机实测
+// GLM-5.3-Flash 有界提示词出 3 题即需 ~87s 贴线，90s 无余量；提示词已有界，天花板放宽
+// 只影响慢模型等待上限，快模型不受影响）。
+const quizGenerateTimeout = 180 * time.Second
+
+// REQ-608-f4bb/M416-f4bb 出题提示词规模有界化（售后缺陷：EDAM 3113 概念全量入提示词
+// 约 336KB，90s 超时内模型无法完成→context deadline exceeded）：概念数超上限改
+// 「定向（薄弱/从未考察优先）+均匀随机采样」有界集；单概念 definition/synonyms 统一截断
+// （限内限外同规则，提示词规模全程有界）。
+var ( // 出题概念面有界参数（var 便于 handler 级单测注入，沿 quizLLM 先例）
+	quizMaxPromptConcepts = 60  // 出题概念集上限
+	quizMaxDefRunes       = 200 // 单概念 definition 截断（rune）
+	quizMaxSynonyms       = 3   // 单概念 synonyms 截前 N
+)
 
 // quizLLM LLM 直调注入点（默认 chat.GenerateText；handler 级单测注入桩——REQ-524 冒烟
 // 走 mock 命中时掌握度真链以单测承载）。签名同 GenerateText。
@@ -96,7 +111,15 @@ func (s *Server) quizGenerate(w http.ResponseWriter, r *http.Request) {
 	for _, it := range recent {
 		banned = append(banned, it.Question)
 	}
-	cj, _ := json.Marshal(spec.Concepts)
+	// REQ-608-f4bb：出题概念面统一截断+超限采样有界化（spec 原表不动——mastery-graph/校验仍全量）。
+	promptConcepts := make([]quizConcept, len(spec.Concepts))
+	for i, c := range spec.Concepts {
+		promptConcepts[i] = quizTrimConcept(c)
+	}
+	if len(promptConcepts) > quizMaxPromptConcepts {
+		promptConcepts = quizBoundedConceptSet(promptConcepts, targets)
+	}
+	cj, _ := json.Marshal(promptConcepts)
 	system := "你是学习助手的出题器。根据给定本体的概念列表出题：只输出一个 JSON 数组，每项 {\"type\":题型, \"question\":问题, \"answer\":参考答案（含依据的概念与理由）, \"options\":[选项（仅客观题给）], \"concepts\":[关联概念名（须严格取自概念列表的 name）]}。题型三选一：\"short_answer\"=围绕概念定义与概念间关系的简答题；\"choice\"=单选题（options 给 3~4 个选项，answer=正确选项原文）；\"judge\"=判断题（options 固定 [\"正确\",\"错误\"]，answer=正确选项）。不要编造列表外的概念。给出的题目不要与「禁止重复」列表中任何一题重复（换说法重复同一考点也算）。"
 	user := "难度=" + in.Difficulty + "（basic=概念定义与直接关系；applied=需组合多个概念推理应用）。出 " +
 		fmt.Sprintf("%d", in.Count) + " 题，题型混合：至少 1 道客观题（choice 或 judge），其余简答。" +
@@ -167,7 +190,49 @@ func (s *Server) quizGenerate(w http.ResponseWriter, r *http.Request) {
 	// 裁决落 quiz_item.coverage_verdict（answerable|not_answerable；失败/无运行方案=留空「未预检」
 	// 如实不冒充）。异步非阻塞：出题响应即刻返回，预检结果前端刷新可见。
 	go s.quizCoveragePreset(ontologyID, out)
-	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+	// REQ-608-f4bb：出题概念面如实透出（used<total=采样子集，前端如实提示不冒充全量）。
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": out, "concept_total": len(spec.Concepts), "concept_used": len(promptConcepts),
+	})
+}
+
+// quizTrimConcept REQ-608-f4bb：单概念出题面截断（definition 200 rune 加省略号、synonyms 截前 3；
+// name/label/parents 不动）。
+func quizTrimConcept(c quizConcept) quizConcept {
+	if runes := []rune(c.Definition); len(runes) > quizMaxDefRunes {
+		c.Definition = string(runes[:quizMaxDefRunes]) + "…"
+	}
+	if len(c.Synonyms) > quizMaxSynonyms {
+		c.Synonyms = c.Synonyms[:quizMaxSynonyms]
+	}
+	return c
+}
+
+// quizBoundedConceptSet REQ-608-f4bb：超限本体出题概念集——定向概念（薄弱/从未考察，
+// REQ-572 targets）原样保留，其余槽位由剩余概念均匀随机采样补足（每轮子集不同——固定子集
+// 会在禁重复判重下收敛「无有效题目」死区）。纯函数，入参已截断。
+func quizBoundedConceptSet(all []quizConcept, targets []string) []quizConcept {
+	tgt := map[string]bool{}
+	for _, t := range targets {
+		tgt[t] = true
+	}
+	out := make([]quizConcept, 0, quizMaxPromptConcepts)
+	rest := make([]quizConcept, 0, len(all))
+	for _, c := range all {
+		if tgt[c.Name] && len(out) < quizMaxPromptConcepts {
+			out = append(out, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
+	for _, c := range rest {
+		if len(out) >= quizMaxPromptConcepts {
+			break
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // quizTargetConcepts REQ-572 定向选点：薄弱（掌握度<0.5）优先，其次从未考察概念（无掌握度记录
