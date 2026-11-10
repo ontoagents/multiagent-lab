@@ -103,6 +103,9 @@ type assembleScope struct {
 	// ExtContext REQ-430/M226：外部成员委派上下文供给闭包（项目文件清单/知识库检索/本体概念
 	// 三源打包；nil=会话无可用源）。连接器 context_injection=auto 时成员委派按任务惰性取用。
 	ExtContext func(ctx context.Context, task string) string
+	// Mentions REQ-623/M433：@ 点名目标（ctx 注入——handler 在 runCtx 上 WithMentionTargets；
+	// mention 分散模式与既有模式 @ 直投增强共用；nil=无点名走原协作编排）。
+	Mentions []MentionTarget
 }
 
 // resolveWorkRoot REQ-202 ①：文件原语工具的安全根解析——项目会话沿用项目文件根
@@ -265,6 +268,7 @@ func (a *Assembler) Assemble(ctx context.Context, agent *store.Agent, conv *stor
 	if conv == nil || conv.Scope != "project" {
 		return a.assembleSingle(ctx, sc.skillGated(agent), sc)
 	}
+	sc.Mentions = MentionTargetsFromCtx(ctx) // REQ-623：@ 点名（mention 分散模式/既有模式直投增强）
 	if sc.ProjectID == "" {
 		return nil, fmt.Errorf("project conversation missing project_id")
 	}
@@ -331,12 +335,14 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 
 	var coord *store.Agent
 	var subs []*store.Agent
+	var all []*store.Agent // REQ-623：全量成员（coord+subs）——@ 点名装配按 id 检索
 	for _, m := range members {
 		ag, gerr := a.Store.GetAgent(m.AgentID)
 		if gerr != nil {
 			return nil, fmt.Errorf("load member agent %s: %w", m.AgentID, gerr)
 		}
 		ag = sc.skillGated(ag) // 会话级技能开关：项目成员同样受控
+		all = append(all, ag)
 		if m.AgentID == coordID {
 			coord = ag
 			continue
@@ -351,6 +357,12 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 		}
 		coord = sc.skillGated(coord)
 		warns = append(warns, fmt.Sprintf("项目协调者 %q 不在成员列表，已回退首个成员", p.Coordinator))
+	}
+
+	// REQ-623/M433：@ 点名定向路由——mention 分散模式（collab_mode=mention，@ 唯一触发）与
+	// 既有模式 @ 直投增强（跳过协调者首轮路由）共用分支；显式点名优先于工作流编排（用户意图最高）。
+	if p.CollabMode == "mention" || len(sc.Mentions) > 0 {
+		return a.assembleMention(ctx, p, coord, all, sc, warns)
 	}
 
 	// REQ-205/M40：workflow_mode 兑现——sequential/parallel/loop 走 ADK 工作流原语
@@ -442,6 +454,121 @@ func (a *Assembler) assembleProject(ctx context.Context, p *store.Project, sc as
 	default:
 		return nil, fmt.Errorf("不支持的协作模式 %q", p.CollabMode)
 	}
+}
+
+// assembleMention REQ-623/M433：@ 点名装配——被点名成员按提及顺序全部执行：
+// 1 人（本地）=assembleSingle 同管线直跑；多人=ADK SequentialAgent（后者可见前者回答，群聊语义）；
+// 外部成员（协调者 a2a/cli 连接器）与本地成员同列（externalMemberAgent 适配器复用，事件沿
+// AgentName 流转）。mention 分散模式下无点名拒绝（防御路径——API 层已在 SSE 前拦截返回 400）；
+// 工作流编排不消费（语义依赖协调者，告警如实注）。外部节点无审批面沿 workflow 轨同口径。
+func (a *Assembler) assembleMention(ctx context.Context, p *store.Project, coord *store.Agent, members []*store.Agent, sc assembleScope, warns []string) (*BuildResult, error) {
+	if len(sc.Mentions) == 0 {
+		return nil, fmt.Errorf("分散模式（@ 点名）：请 @ 指定要回答的成员后发送（输入 @ 唤出成员菜单）")
+	}
+	if p.CollabMode == "mention" && p.WorkflowMode != "" && p.WorkflowMode != "free" {
+		warns = append(warns, fmt.Sprintf("mention 分散模式不消费工作流编排 %q（编排语义依赖协调者）——按 @ 顺序执行", p.WorkflowMode))
+	}
+	byID := make(map[string]*store.Agent, len(members))
+	for _, m := range members {
+		byID[m.ID] = m
+	}
+	// 外部成员池（仅被点名者入选——mention 语义=显式点名，不做连接器自动追加）
+	extByName := map[string]adk.Agent{}
+	extSrc := map[string]string{}
+	if coord != nil {
+		extAgents, _, extWarns := a.assembleExternalMemberAgents(ctx, coord, extSrc, externalMemberApproval(coord, sc), sc, "mention")
+		for _, ag := range extAgents {
+			extByName[ag.Name(ctx)] = ag
+		}
+		if len(extAgents) > 0 {
+			warns = append(warns, extWarns...)
+		}
+	}
+	insts := make([]adk.Agent, 0, len(sc.Mentions))
+	nodeNames := make([]string, 0, len(sc.Mentions))
+	entries := make([]map[string]any, 0, len(sc.Mentions)+1)
+	src := map[string]string{}
+	semanticNote := "@ 点名模式：被点名成员按提及顺序直接执行（无协调者路由；多人顺序执行后者可见前者回答）"
+	allWarns := append(append([]string{}, warns...), semanticNote)
+	// 单本地成员捷径用（assembleSingle 自建结果——mention 层告警须手工合并保留）
+	mentionWarns := append(append([]string{}, warns...), semanticNote)
+	loaded := []*store.Skill{}
+	var missing []string
+	singleLocalID := "" // 唯一命中且为本地成员时记录（单跑捷径用——命中项可能非 Mentions[0]）
+	for _, t := range sc.Mentions {
+		if t.AgentID != "" { // 本地成员
+			ag := byID[t.AgentID]
+			if ag == nil {
+				missing = append(missing, t.AgentID)
+				continue
+			}
+			ag = sc.skillGated(ag)
+			if err := requireAgentToolFields(ag); err != nil {
+				return nil, err
+			}
+			mb, berr := a.buildOne(ctx, ag, sc)
+			if berr != nil {
+				return nil, fmt.Errorf("build mention member %q: %w", ag.Name, berr)
+			}
+			insts = append(insts, mb.Inst)
+			nodeNames = append(nodeNames, ag.Name)
+			singleLocalID = ag.ID
+			entries = append(entries, agentSnapshotEntry("mention", ag.Name, mb.Meta.ModelLabel, mb.Meta.SourceOf, mb.Meta.LoadedSkills, a.mcpSnapshotOf(ag), mb.Meta.Instruction))
+			src[ag.Name] = "agent:" + ag.ID
+			for k, v := range mb.Meta.SourceOf {
+				if _, dup := src[k]; !dup {
+					src[k] = v
+				}
+			}
+			allWarns = append(allWarns, mb.Meta.Warnings...)
+			loaded = appendLoadedSkills(loaded, mb.Meta.LoadedSkills)
+			continue
+		}
+		ag := extByName[t.ExtName] // 外部成员（a2a/cli）
+		if ag == nil {
+			missing = append(missing, t.ExtName)
+			continue
+		}
+		insts = append(insts, ag)
+		nodeNames = append(nodeNames, t.ExtName)
+		entries = append(entries, agentSnapshotEntry("mention", t.ExtName, "外部成员", map[string]string{t.ExtName: extSrc[t.ExtName]}, nil, nil, ""))
+		src[t.ExtName] = extSrc[t.ExtName]
+	}
+	if len(insts) == 0 {
+		return nil, fmt.Errorf("@ 点名未命中任何项目成员（本地成员或协调者外部成员）：%s", strings.Join(missing, "、"))
+	}
+	if len(missing) > 0 {
+		allWarns = append(allWarns, fmt.Sprintf("@ 点名未命中：%s（已忽略，其余照常执行）", strings.Join(missing, "、")))
+	}
+	// 单本地成员=assembleSingle 同管线（标准单跑结果——模型标签/迭代上限/快照全一致）；
+	// mention 层告警（语义注+工作流编排不消费等）合并保留
+	if len(insts) == 1 && singleLocalID != "" {
+		rt, serr := a.assembleSingle(ctx, sc.skillGated(byID[singleLocalID]), sc)
+		if serr != nil {
+			return nil, serr
+		}
+		rt.Warnings = append(mentionWarns, rt.Warnings...)
+		return rt, nil
+	}
+	root := insts[0]
+	rootName, rootLabel := nodeNames[0], "mention("+nodeNames[0]+")"
+	if len(insts) > 1 {
+		wf, err := adk.NewSequentialAgent(ctx, &adk.SequentialAgentConfig{Name: "mention_sequential", Description: "@ 点名按提及顺序执行", SubAgents: insts})
+		if err != nil {
+			return nil, fmt.Errorf("build mention sequential agent: %w", err)
+		}
+		root = wf
+		rootName, rootLabel = "mention_sequential", "mention(seq:"+strings.Join(nodeNames, "→")+")"
+	}
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: root, EnableStreaming: true, CheckPointStore: a.CheckPoints})
+	return &BuildResult{
+		Runner: runner, Agent: root, AgentName: rootName,
+		ModelLabel: rootLabel, ConnID: "",
+		SourceOf: src, Warnings: allWarns, LoadedSkills: loaded,
+		MaxIteration: 0,
+		Snapshot:     snapshotOf("mention", entries),
+		Workflow:     &WorkflowMeta{Mode: rootName, Nodes: nodeNames},
+	}, nil
 }
 
 // assembleAgentAsTool 协调者以工具形式调用成员（推荐路径，ADK AgentTool）。

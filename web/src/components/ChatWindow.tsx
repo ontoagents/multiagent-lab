@@ -126,6 +126,24 @@ function ThinkRow({ it, open, onToggle, style }: { it: ChatItem; open: boolean; 
   )
 }
 
+// REQ-623/M433：@ 点名检测（发送序=提及序，去重保首现；最长名优先防互吞——与后端文本兜底同口径）。
+// 后端为权威解析（结构化字段优先），此处结构化提序仅省一次文本解析分叉。
+export function detectMentionIds(text: string, members: { id: string; name: string }[]): string[] {
+  if (!text.includes('@') || members.length === 0) return []
+  const sorted = [...members].sort((a, b) => b.name.length - a.name.length)
+  const out: string[] = []
+  for (let i = text.indexOf('@'); i >= 0; i = text.indexOf('@', i + 1)) {
+    const rest = text.slice(i + 1)
+    for (const m of sorted) {
+      if (rest.startsWith(m.name)) {
+        if (!out.includes(m.id)) out.push(m.id)
+        break
+      }
+    }
+  }
+  return out
+}
+
 export default function ChatWindow({
   conversation,
   agents,
@@ -158,6 +176,12 @@ export default function ChatWindow({
   const project = isProjectScope
     ? projects.find((p) => p.id === conversation.project_id) ?? null
     : null
+  // REQ-623/M433：@ 点名——项目成员清单（@ 菜单与文本检测同源）＋分散模式判定
+  const mentionRequired = isProjectScope && project?.collab_mode === 'mention'
+  const projectMembers = useMemo(
+    () => (isProjectScope && project ? agents.filter((a) => (project.agent_ids ?? []).includes(a.id)) : []),
+    [agents, isProjectScope, project],
+  )
   // agent 直聊 = 绑定的智能体；项目会话 = 主智能体，缺省取第一个成员
   const agent =
     conversation.scope === 'agent'
@@ -1590,6 +1614,16 @@ export default function ChatWindow({
     setInput('')
     setAttachFiles([])
     setSlashOpen(false)
+    // REQ-623/M433：@ 点名——mention 分散模式必带（无点名提示不发送），其余项目模式可选直投
+    const mentionIds = isProjectScope ? detectMentionIds(text, projectMembers) : []
+    if (mentionRequired && mentionIds.length === 0) {
+      showToast('分散模式（@ 点名）：请 @ 指定要回答的成员后发送', 'err')
+      return
+    }
+    if (mentionIds.length > 0 && cmp.on && cmp.panes.length >= 2) {
+      showToast('对比模式与 @ 点名互斥——请二选一', 'err')
+      return
+    }
     // REQ-19e：对比模式走多窗格并行（一次提问 N 路，停止整组）
     if (cmp.on && cmp.panes.length >= 2) {
       await sendCompare(text)
@@ -1598,7 +1632,7 @@ export default function ChatWindow({
     runKeyRef.current = `run-${Date.now()}`
     setItems((prev) => [...prev, { kind: 'msg', role: 'user', content: text }])
     // REQ-291：模型偏好已落会话行（后端装配读 conversation.model_conn_id），不再逐请求下发
-    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist))
+    await streamStart((handler) => runConversation(conversation.id, text, debugLevel, handler, undefined, debugPersist, undefined, mentionIds.length > 0 ? mentionIds : undefined))
   }
 
   // REQ-336：附加文件上传——入智能体文件根（未设置 work_dir 落默认 agent-files 目录），发送时附清单引用
@@ -1813,7 +1847,9 @@ export default function ChatWindow({
   const placeholder = canSend
     ? running
       ? `运行中——输入将作为插话在安全点介入「${subjectName}」…`
-      : `给「${subjectName}」发消息…`
+      : mentionRequired
+        ? '分散模式：@ 点名成员后发送（输入 @ 唤出菜单）'
+        : `给「${subjectName}」发消息…`
     : isProjectScope
       ? '项目尚未配置成员智能体'
       : '请先创建智能体'
@@ -2205,6 +2241,8 @@ export default function ChatWindow({
         running={running}
         canSend={canSend}
         placeholder={placeholder}
+        mentionCandidates={projectMembers.map((m) => ({ id: m.id, name: m.name }))}
+        mentionMode={mentionRequired}
         runningProfiles={runningProfiles}
         kbs={kbs}
         agentSkills={agentSkills}

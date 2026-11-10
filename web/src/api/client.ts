@@ -1026,6 +1026,7 @@ export function runConversation(
   panes?: ComparePaneConfig[],
   debugPersist?: boolean,
   modelConnId?: string,
+  mentionAgentIds?: string[],
 ): { abort: () => void; done: Promise<void> } {
   const body: Record<string, unknown> = { input, debug_level: debugLevel }
   // REQ-19e/19f 对比模式：≥2 窗格一次提问 N 路（meta 事件回传窗格 run_id 映射）
@@ -1034,6 +1035,8 @@ export function runConversation(
   if (debugPersist) body.debug_persist = true
   // REQ-174：单路模型覆盖（对话输入区模型快捷切换逐次下发；空 = 跟随智能体默认）
   if (modelConnId) body.model_conn_id = modelConnId
+  // REQ-623/M433：@ 点名成员（提及序即权威序；mention 分散模式必带校验，其余模式直投增强）
+  if (mentionAgentIds && mentionAgentIds.length > 0) body.mention_agent_ids = mentionAgentIds
   return streamRun(`/api/conversations/${conversationId}/runs`, body, onEvent)
 }
 

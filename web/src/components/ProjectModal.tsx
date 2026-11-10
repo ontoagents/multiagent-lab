@@ -44,6 +44,7 @@ export default function ProjectModal({
 
   // REQ-101：本地目录绑定 + 检测
   const localDir = Form.useWatch('local_dir', form)
+  const collabMode = Form.useWatch('collab_mode', form) // REQ-623：mention 模式角色选择降级
   const [dirCheck, setDirCheck] = useState<DirValidation | null>(null)
   const [checking, setChecking] = useState(false)
 
@@ -91,7 +92,12 @@ export default function ProjectModal({
     } catch {
       return
     }
-    const members = Object.entries(selected).map(([agent_id, role]) => ({ agent_id, role }))
+    // REQ-623/M433：mention 分散模式不设主智能体——coordinator 角色落库降级 member（后端装配忽略 coordinator）
+    const isMention = (v.collab_mode ?? 'agent_as_tool') === 'mention'
+    const members = Object.entries(selected).map(([agent_id, role]) => ({
+      agent_id,
+      role: isMention && role === 'coordinator' ? 'member' : role,
+    }))
     const wsId: string = v.workspace_id ?? ''
     setSaving(true)
     try {
@@ -211,6 +217,7 @@ export default function ProjectModal({
                   { value: 'agent_as_tool', label: 'agent_as_tool（主智能体调度）' },
                   { value: 'transfer', label: 'transfer（路由移交）' },
                   { value: 'single', label: 'single（单智能体）' },
+                  { value: 'mention', label: 'mention（分散·@ 点名）' }, // REQ-623/M433
                 ]}
               />
             </Form.Item>
@@ -256,10 +263,14 @@ export default function ProjectModal({
                   style={{ width: 130 }}
                   value={selected[a.id]}
                   onChange={(role) => setSelected((s) => ({ ...s, [a.id]: role }))}
-                  options={[
-                    { value: 'member', label: '成员' },
-                    { value: 'coordinator', label: '主智能体' },
-                  ]}
+                  options={
+                    collabMode === 'mention'
+                      ? [{ value: 'member', label: '成员（分散模式不设主智能体）' }] // REQ-623/M433
+                      : [
+                          { value: 'member', label: '成员' },
+                          { value: 'coordinator', label: '主智能体' },
+                        ]
+                  }
                 />
               )}
             </div>

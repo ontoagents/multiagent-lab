@@ -2,9 +2,11 @@
 // 附件回显条 +「/」快速配置面板 + Sender（prefix 附加/footer chips）+ 隐藏文件 input；
 // 状态与 send/stop/uploadAttachments/patchConv/chips 元素构造留 ChatWindow 主件，本件纯渲染+回调上抛。
 // REQ-619/M427：本体选择改多选弹窗（ontoPicker 由 ChatWindow 构造传入；单选 pickerList 保留知识库用）
+// REQ-623/M433：@ 点名菜单——词首「@」唤出项目成员清单，点选回填 @名（mention 分散模式常驻提示）
 import { Button, Popover, Tag, Tooltip, Typography } from 'antd'
 import { PaperClipOutlined } from '@ant-design/icons'
 import { Sender } from '@ant-design/x'
+import { useState } from 'react'
 import type { Dispatch, ReactNode, SetStateAction } from 'react'
 
 export default function Composer({
@@ -19,6 +21,8 @@ export default function Composer({
   running,
   canSend,
   placeholder,
+  mentionCandidates,
+  mentionMode,
   runningProfiles,
   kbs,
   agentSkills,
@@ -55,6 +59,10 @@ export default function Composer({
   running: boolean
   canSend: boolean
   placeholder: string
+  /** REQ-623/M433：@ 点名候选（项目成员清单；空=非项目会话不出菜单） */
+  mentionCandidates?: { id: string; name: string }[]
+  /** REQ-623/M433：mention 分散模式（@ 为唯一触发——菜单标题常驻语义提示） */
+  mentionMode?: boolean
   runningProfiles: { id: string; name: string; engine?: string; status?: string }[]
   kbs: { id: string; name: string; official?: boolean; doc_count?: number }[]
   agentSkills: string[]
@@ -82,6 +90,9 @@ export default function Composer({
   onStop: () => void
   onUploadAttachments: (files: FileList | null) => void
 }) {
+  // REQ-623/M433：@ 点名菜单开合——词首 @（含 @后打字中途）唤出；文本不再以 @段结尾即收起
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const cands = mentionCandidates ?? []
   return (
     <div className="composer">
       <div className="composer-inner">
@@ -156,6 +167,28 @@ export default function Composer({
             ))}
           </div>
         )}
+        {/* REQ-623/M433：@ 点名成员菜单（词首 @ 唤出；点选回填 @名——结构化 mention_agent_ids 由 ChatWindow 发送时检测） */}
+        {mentionOpen && cands.length > 0 && (
+          <div className="slash-picker" data-testid="mention-picker">
+            <div className="chip-picker-title">
+              @ 点名成员{mentionMode ? '（分散模式：@ 是唯一触发方式，可多选按序回答）' : '（点名成员直接回答，跳过协调者路由）'}
+            </div>
+            {cands.slice(0, 8).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="chip-picker-item"
+                onClick={() => {
+                  setInput((v) => v.replace(/@[^\s@]*$/, `@${m.name} `))
+                  setMentionOpen(false)
+                }}
+              >
+                <span className="chip-picker-name">🤖 {m.name}</span>
+                <span className="chip-picker-meta">点名回答</span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* REQ-322：过程显示分级已迁头部 ops 行（对话历史上方、观测旁），输入区回归「输入卡+会话配置行」两件 */}
         {/* 会话配置 chips 渲染在输入卡内底部（X Sender footer）：知识库 / 本体 / 技能 开关；模型归智能体配置 */}
         <Sender
@@ -165,6 +198,9 @@ export default function Composer({
             // REQ-336：输入「/」触发快速配置（空输入或空白后 freshly typed 的斜杠）
             if (/(^|\s)\/$/.test(v)) setSlashOpen(true)
             else if (!v.endsWith('/') && slashOpen) setSlashOpen(false)
+            // REQ-623/M433：词首「@」（含 @后打字中途）唤出点名菜单；@段结束后收起
+            if (/(^|\s)@[^\s@]*$/.test(v)) setMentionOpen(true)
+            else if (mentionOpen) setMentionOpen(false)
           }}
           prefix={
             <Tooltip title={convAgentId ? '附加本地文件（存入工作目录）' : '会话无智能体，无法附加文件'}>

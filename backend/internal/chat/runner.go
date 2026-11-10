@@ -139,6 +139,10 @@ type RunInput struct {
 	ModelConnID string `json:"model_conn_id,omitempty"`
 	// Panes 对比模式窗格配置（REQ-19e/19f）：≥2 时一次提问 N 路并行；nil/1 = 单路（现状）
 	Panes []PaneConfig `json:"panes,omitempty"`
+	// MentionAgentIDs @ 点名成员（REQ-623/M433）：结构化目标（前端 @ 菜单产物，提及序即权威序）；
+	// 空=API 层文本 @ 前缀兜底解析。仅项目会话消费——mention 分散模式必带（无点名 400），
+	// 其余协作模式可选（@ 直投增强，跳过协调者首轮路由）。
+	MentionAgentIDs []string `json:"mention_agent_ids,omitempty"`
 }
 
 // WithModelOverride 单路模型覆盖（REQ-174）：复制 Agent 并改写模型连接（复用 REQ-144 paneAgent 机制）；

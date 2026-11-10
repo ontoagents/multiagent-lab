@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"encoding/json"
@@ -53,6 +54,68 @@ func (s *Server) resolveRunTarget(r *http.Request) (*store.Conversation, *store.
 	return conv, agent, p.Name, nil
 }
 
+// resolveMentionTargets REQ-623/M433：@ 点名目标解析——结构化 mention_agent_ids 优先
+//（前端 @ 菜单产物，提及序即权威序；非在册成员丢弃），空则文本 @ 前缀兜底（本地成员名＋
+// 协调者外部成员连接器实例名，最长名优先防互吞）。mention 分散模式（collab_mode=mention）
+// 无点名返回 400（SSE 前拦截——干净 HTTP 错误）；其余模式无点名返回空（原协作编排不变）。
+func (s *Server) resolveMentionTargets(p *store.Project, in *chat.RunInput) ([]chat.MentionTarget, error) {
+	mode := p.CollabMode
+	if mode == "" {
+		mode = "agent_as_tool"
+	}
+	if mode != "mention" && len(in.MentionAgentIDs) == 0 && !strings.Contains(in.Input, "@") {
+		return nil, nil // 非分散模式且无点名信号——零开销跳过（原路径零变化）
+	}
+	nameToID := map[string]string{}
+	byID := map[string]bool{}
+	if ms, err := s.Store.ListProjectAgents(p.ID); err == nil {
+		for _, m := range ms {
+			if ag, gerr := s.Store.GetAgent(m.AgentID); gerr == nil && ag != nil {
+				nameToID[ag.Name] = ag.ID
+				byID[ag.ID] = true
+			}
+		}
+	}
+	extNames := map[string]bool{}
+	if coordID := p.Coordinator; coordID != "" {
+		if coord, gerr := s.Store.GetAgent(coordID); gerr == nil && coord != nil {
+			for _, cid := range coord.Connectors {
+				if c, cerr := s.Store.GetConnector(cid); cerr == nil && c != nil &&
+					(c.Kind == store.ConnectorKindA2A || c.Kind == store.ConnectorKindCLI) {
+					extNames[c.Name] = true
+				}
+			}
+		}
+	}
+	targets := make([]chat.MentionTarget, 0, len(in.MentionAgentIDs))
+	seen := map[string]bool{}
+	add := func(t chat.MentionTarget) {
+		key := t.AgentID
+		if key == "" {
+			key = "ext:" + t.ExtName
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		targets = append(targets, t)
+	}
+	for _, id := range in.MentionAgentIDs {
+		if byID[id] {
+			add(chat.MentionTarget{AgentID: id})
+		}
+	}
+	if len(in.MentionAgentIDs) == 0 {
+		for _, t := range chat.ParseMentionNames(in.Input, nameToID, extNames) {
+			add(t)
+		}
+	}
+	if mode == "mention" && len(targets) == 0 {
+		return nil, &store.HTTPError{Status: 400, Msg: "分散模式（@ 点名）：请 @ 指定要回答的成员后发送（输入 @ 唤出成员菜单）"}
+	}
+	return targets, nil
+}
+
 // runConversation 发起一次运行（SSE 流式返回平台事件，方案 §7 统一协议）。
 func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	var in chat.RunInput
@@ -71,6 +134,27 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	// REQ-174：单路模型覆盖（对话输入区模型快捷切换逐次下发；对比模式走窗格级覆盖，此处不介入）
 	if in.ModelConnID != "" && len(in.Panes) < 2 {
 		agent = chat.WithModelOverride(agent, in.ModelConnID)
+	}
+
+	// REQ-623/M433：@ 点名解析（项目会话专用）——结构化 mention_agent_ids 优先，文本 @ 前缀兜底；
+	// mention 分散模式必带（无点名 SSE 前 400），其余协作模式可选（@ 直投增强）；对比模式互斥。
+	var mentionTargets []chat.MentionTarget
+	if conv.Scope == "project" && conv.ProjectID != nil {
+		p, perr := s.Store.GetProject(*conv.ProjectID)
+		if perr != nil || p == nil {
+			writeErr(w, &store.HTTPError{Status: 400, Msg: "项目会话归属的项目不存在或已删除"})
+			return
+		}
+		targets, merr := s.resolveMentionTargets(p, &in)
+		if merr != nil {
+			writeErr(w, merr)
+			return
+		}
+		if len(in.Panes) >= 2 && len(targets) > 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "对比模式与 @ 点名互斥——请二选一"})
+			return
+		}
+		mentionTargets = targets
 	}
 
 	sw, err := sse.NewWriter(w)
@@ -133,6 +217,9 @@ func (s *Server) runConversation(w http.ResponseWriter, r *http.Request) {
 	// Stop 语义不变（cancels 表显式取消）。对比模式维持请求 ctx（组级取消语义保持）。
 	runCtx, runCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer runCancel()
+	if len(mentionTargets) > 0 { // REQ-623：@ 点名注入运行 ctx（TurnLoop steer/resume 同链自动携带）
+		runCtx = chat.WithMentionTargets(runCtx, mentionTargets)
+	}
 	res, runErr := s.Chat.Run(runCtx, conv, agent, runID, in.Input, in.DebugLevel, in.DebugPersist, emit)
 	if runErr != nil {
 		ev := chat.NewErrorEvent(runID, "run_failed", runErr.Error())
